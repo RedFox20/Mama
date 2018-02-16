@@ -1,6 +1,6 @@
 #!/usr/bin/python3.6
 import urllib.request, ssl, os.path, shutil, platform, glob, sys, zipfile
-import ctypes, traceback, argparse, pathlib, random
+import ctypes, traceback, argparse, pathlib, random, subprocess, stat
 from subprocess import run, STDOUT, PIPE, TimeoutExpired, Popen, CalledProcessError
 
 if sys.version_info < (3, 6):
@@ -30,6 +30,9 @@ parser.print_help()
 cwd = os.getcwd().replace('\\', '/')
 
 ######################################################################################
+
+def console(s):
+    print(s, flush=True)
 
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
@@ -83,20 +86,6 @@ def init_android_path():
 android_sdk_path = init_android_path() if args.android else ''
 ndk_path = android_sdk_path + '/ndk-bundle' if android_sdk_path else ''
 
-def init_ninja_path():
-    if os_macos() or os_linux():
-        return run(['which', 'ninja'], stdout=PIPE).stdout.decode('utf-8').strip()
-    ninjaenv = os.getenv('NINJA')
-    ninjapaths = [ninjaenv] if ninjaenv else []
-    ninjapaths += ['/Projects/ninja.exe']
-    for ninja in ninjapaths:        
-        if os.path.exists(ninja):
-            console(f'Found Ninja Build System: {ninja}')
-            return ninja
-    return ''
-ninja_path = init_ninja_path()
-
-
 def has_tag_changed(old_tag_file, new_tag):
     if not os.path.exists(old_tag_file):
         return True
@@ -106,6 +95,12 @@ def has_tag_changed(old_tag_file, new_tag):
                 f"      ---> '{new_tag.strip()}'")
         return True
     return False
+
+######################################################################################
+
+class MamaDependency:
+    def __init__(self):
+        pass
 
 ######################################################################################
 
@@ -119,6 +114,7 @@ class MamaBuild:
     macos_version = '10.12'
     cmake_ndk_stl = 'c++_shared' # LLVM libc++
     ninja_path    = ''
+    ndk_path      = ''
     def __init__(self, name, project_folder, git_url='', branch='', tag=''):
         self.name             = name
         self.project_folder   = project_folder
@@ -129,14 +125,15 @@ class MamaBuild:
         self.install_folder   = './'
         self.install_target   = 'install'
         self.build_dependency = ''
+        self.find_ndk_path()
         self.cmake_ndk_toolchain = f'{ndk_path}/build/cmake/android.toolchain.cmake'
         self.cmake_ios_toolchain = ''
-        self.cmake_opts     = []
-        self.cmake_cxxflags = ''
-        self.cmake_ldflags  = ''
+        self.cmake_opts       = []
+        self.cmake_cxxflags   = ''
+        self.cmake_ldflags    = ''
         self.cmake_build_type = 'Debug' if args.debug else 'RelWithDebInfo'
         self.enable_exceptions = True
-        self.enable_unix_make = False
+        self.enable_unix_make  = False
         self.enable_ninja_build = True and self.find_ninja_build() # attempt to use Ninja
         self.enable_multiprocess_build = True
 
@@ -149,18 +146,35 @@ class MamaBuild:
 
     @staticmethod
     def find_ninja_build():
-        if ninja_path:
-            return ninja_path
+        if MamaBuild.ninja_path:
+            return MamaBuild.ninja_path
         ninja_executables = [
             os.getenv('NINJA'), 
-            self.find_executable_from_system('ninja'),
+            MamaBuild.find_executable_from_system('ninja'),
             '/Projects/ninja'
         ]
         for ninja_exe in ninja_executables:        
             if ninja_exe and os.path.isfile(ninja_exe):
                 console(f'Found Ninja Build System: {ninja_exe}')
-                ninja_path = ninja_exe
+                MamaBuild.ninja_path = ninja_exe
                 return ninja_exe
+        return ''
+
+    @staticmethod
+    def find_ndk_path():
+        if MamaBuild.ndk_path:
+            return MamaBuild.ndk_path
+        androidenv = os.getenv('ANDROID_HOME')
+        paths = [androidenv] if androidenv else []
+        if os_windows(): paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
+        elif os_linux(): paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
+        elif os_macos(): paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
+        ext = '.cmd' if os_windows() else ''
+        for sdk_path in paths:
+            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
+                MamaBuild.ndk_path = sdk_path  + '/ndk-bundle'
+                console(f'Found Android NDK: {MamaBuild.ndk_path}')
+                return MamaBuild.ndk_path
         return ''
 
     def build_name(self):
@@ -204,7 +218,7 @@ class MamaBuild:
     def cmake_make_program(self):
         if args.windows:            return ''
         if self.enable_unix_make:   return ''
-        if self.enable_ninja_build: return ninja_path
+        if self.enable_ninja_build: return MamaBuild.ninja_path
         if args.android:
             if os_windows():
                 return f'{ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
@@ -345,7 +359,7 @@ class MamaBuild:
     def download_file(self, remote_url, local_dir, force=False):
         local_file = os.path.join(local_dir, os.path.basename(remote_url))
         if not force and os.path.exists(local_file): # download file?
-            self.console(f"Using locally cached {local_file}")
+            console(f"Using locally cached {local_file}")
             return local_file
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -501,156 +515,6 @@ def libname(library, version=''):
 
 libext = "lib" if args.windows else "a"
 
-def install_opencv():
-    def options():
-        opt = [
-            "ENABLE_OMIT_FRAME_POINTER=ON", "ENABLE_PRECOMPILED_HEADERS=ON", "ENABLE_CCACHE=ON",
-            "BUILD_DOCS=OFF",  "BUILD_EXAMPLES=OFF", "BUILD_TESTS=OFF", "BUILD_PERF_TESTS=OFF",
-            "WITH_OPENGL=ON",  "WITH_IPP=OFF",    "WITH_OPENCL=OFF", "WITH_1394=OFF",    "WITH_CUDA=OFF",
-            "WITH_OPENGL=ON",  "WITH_JASPER=OFF", "WITH_WEBP=OFF",   "WITH_OPENEXR=OFF", "WITH_TIFF=OFF", "WITH_FFMPEG=OFF",
-            "BUILD_OPENEXR=OFF", "BUILD_TIFF=OFF", "BUILD_JPEG=ON",
-            "BUILD_PNG=ON",      "BUILD_ZLIB=ON",  "BUILD_JASPER=OFF",
-            "BUILD_opencv_apps=OFF",      "BUILD_opencv_calib3d=ON",   "BUILD_opencv_core=ON",
-            "BUILD_opencv_features2d=ON", "BUILD_opencv_flann=ON",     "BUILD_opencv_highgui=ON",
-            "BUILD_opencv_imgcodecs=ON",  "BUILD_opencv_imgproc=ON",   "BUILD_opencv_ml=ON",
-            "BUILD_opencv_objdetect=ON",  "BUILD_opencv_photo=OFF",    "BUILD_opencv_shape=OFF",
-            "BUILD_opencv_stitching=OFF", "BUILD_opencv_superres=OFF", "BUILD_opencv_ts=OFF",
-            "BUILD_opencv_video=ON",      "BUILD_opencv_videoio=ON",   "BUILD_opencv_videostab=OFF",
-            "BUILD_opencv_nonfree=OFF", "BUILD_SHARED_LIBS=OFF", "BUILD_opencv_java=OFF", 
-            "BUILD_opencv_python2=OFF", "BUILD_opencv_python3=OFF"
-        ]
-        if   args.android: opt += ['BUILD_ANDROID_EXAMPLES=OFF', 'BUILD_opencv_androidcamera=ON']
-        elif args.ios:     opt += ['IOS_ARCH=arm64']
-        elif args.windows: opt += ['BUILD_WITH_STATIC_CRT=OFF']
-        elif args.linux:   opt += []
-        return opt
-
-    opencv = cmake_builder("OpenCV 3.3.1 fork", "StructureFromMotion/3rdparty/opencv", 
-                           "https://github.com/wolfprint3d/opencv.git")
-    opencv.cmake_build_type = 'Release'
-    cvcore = libname('opencv_core', '331')
-    opencv.set_dependency(windows=f"x64/vc15/staticlib/{cvcore}",
-                          android=f'sdk/native/libs/{opencv.android_arch}/{cvcore}',
-                          linux=f'lib/{cvcore}',
-                          ios=f'lib/{cvcore}',
-                          mac=f'lib/{cvcore}')
-    opencv.cmake_ios_toolchain = '../platforms/ios/cmake/Toolchains/Toolchain-iPhoneOS_Xcode.cmake'
-    if args.ios:
-        opencv.enable_ninja_build = False # opencv for ios blows up with Ninja
-    opencv.add_cmake_options(options())
-    opencv.clone_build_install()
-
-
-def install_eigen():
-    eigen = cmake_builder("Eigen 3.2", "StructureFromMotion/3rdparty/eigen", "https://github.com/wolfprint3d/eigen.git", branch='branches/3.2')
-    eigen.clone()
-
-
-def install_ceres():
-    ceres = cmake_builder('Ceres', 'StructureFromMotion/3rdparty/ceres', 'https://github.com/wolfprint3d/ceres-solver.git')
-    ceres.set_dependency(all=f"lib/{libname('ceres')}")
-    ceres.add_cmake_options('EIGEN_INCLUDE_DIR=../../eigen',
-                            'BUILD_TESTING=OFF',
-                            'BUILD_EXAMPLES=OFF',
-                            'MINIGLOG=ON',
-                            'EIGENSPARSE=ON',
-                            'CXX11=OFF',
-                            'MAX_LOG_LEVEL=-1',
-                            'MINIGLOG_MAX_LOG_LEVEL=-1')
-    ceres.cmake_ios_toolchain = '../cmake/iOS.cmake'
-    ceres.enable_cxx14()
-    ceres.enable_exceptions = False
-    ceres.add_cxx_flags(clang='-g0') # -g0: no debug symbols
-    ceres.add_linker_flags(android='-s') # -s: strip all symbols
-    ceres.clone_build_install()
-
-
-def install_c_ares():
-    build_c_ares = args.android
-    if not build_c_ares:
-        return
-
-    c_ares = cmake_builder('C-Ares', '3rdparty/cares', "https://github.com/c-ares/c-ares.git")
-    c_ares.set_dependency(all=f"lib/{libname('cares')}")
-    c_ares.add_cmake_options('CARES_STATIC=ON', 'CARES_SHARED=OFF')
-    c_ares.clone_build_install()
-
-
-def install_curl():
-    build_curl = args.windows or args.ios or args.mac or args.linux
-    if not build_curl:
-        return
-    
-    curl = cmake_builder('CURL', '3rdparty/curl', 'https://github.com/wolfprint3d/curl.git')
-    
-    curl.set_dependency(all=f"lib/libcurl.{libext}")
-    curl.add_cmake_options('CURL_STATICLIB=ON', 'BUILD_TESTING=OFF', 'BUILD_CURL_EXE=OFF',
-                           'CURL_ZLIB=OFF', 'CURL_DISABLE_LDAP=ON', 'CURL_DISABLE_LDAPS=ON', 
-                           'CURL_HIDDEN_SYMBOLS=ON', 'ENABLE_MANUAL=OFF')
-    if args.windows:
-        openssl = f'{cwd}/3rdparty/openssl'
-        curl.add_cmake_options('CMAKE_USE_OPENSSL=ON', 'CMAKE_USE_LIBSSH2=OFF', 
-                               f'OPENSSL_LIBRARIES="{openssl}/libsslMD.lib;{openssl}/libcryptoMD.lib"',
-                               f'OPENSSL_INCLUDE_DIR={openssl}')
-    elif args.ios or args.mac:
-        curl.add_cmake_options('CMAKE_USE_DARWINSSL=ON', 'CURL_CA_PATH=none', 'CMAKE_USE_LIBSSH2=OFF', 
-                               'HAVE_FSETXATTR=OFF', 'HAVE_STRERROR_R=ON')
-        if args.ios: curl.add_cmake_options('CURL_BUILD_IOS=ON')
-
-    curl.clone_build_install()
-
-
-def install_aws_sdk():
-    aws = cmake_builder('AWS C++ SDK', '3rdparty/awssdk', 'https://github.com/wolfprint3d/aws-sdk-cpp.git')
-    aws.set_dependency(all=f"lib/{libname('aws-cpp-sdk-core')}")
-
-    # https://github.com/aws/aws-sdk-cpp/blob/master/README.md
-    aws.add_cmake_options('BUILD_ONLY="s3;core;transfer;cognito-identity;identity-management"',
-                          'BUILD_SHARED_LIBS=OFF',
-                          'SIMPLE_INSTALL=ON',
-                          'DISABLE_ANDROID_STANDALONE_BUILD=ON',
-                          'CPP_STANDARD=14',
-                          'ENABLE_TESTING=OFF')
-    #aws.cmake_ios_toolchain = '../../../cmake/iOS.cmake'
-    # if args.ios:
-    #     aws.add_linker_flags(ios=' -framework Foundation -lz -framework Security')
-
-    if args.android:
-        c_ares = f'{cwd}/3rdparty/cares/{aws.build_name()}'
-        aws.add_cmake_options([f'CARES_LIBRARY="{c_ares}/lib/libcares.a"', f'CARES_INCLUDE="{c_ares}/include"'])
-
-    if args.ios:
-        curl = f'{cwd}/3rdparty/curl'
-        aws.add_cmake_options(f'CURL_INCLUDE_DIRS={curl}/ios/include',
-                              f'CURL_LIBRARIES={curl}/ios/lib/libcurl.a')
-
-    aws.clone_build_install()
-
-
-def install_libzip():
-    libzip = cmake_builder('libzip', '3rdparty/libzip', 'https://github.com/wolfprint3d/libzip-1.3.0.git')
-    libzip.set_dependency(all=f"lib/{libname('zip')}")
-
-    opencv = f'{cwd}/StructureFromMotion/3rdparty/opencv'
-    libzip.add_platform_options(windows=[f'ZLIB_LIBRARY={opencv}/windows/staticlib/zlib.lib',
-                                         f'ZLIB_INCLUDE_DIR=../zlib/windows'])
-    libzip.clone_build_install()
-
-
-def install_glfw():
-    if args.android or args.ios:
-        return # GLFW is only for Desktop
-
-    glfw = cmake_builder('GLFW', 'StructureFromMotion/3rdparty/glfw', 'https://github.com/glfw/glfw.git')
-    glfw.set_dependency(all=f"lib/{libname('glfw3')}")
-    glfw.clone_build_install()
-
-
-def install_openssl():
-    if args.windows:
-        copy_files('3rdparty/openssl', 'bin', ['libcryptoMD.dll','libcryptoMD.pdb','libsslMD.dll','libsslMD.pdb'])
-
-
 ######################################################################################
 
 def build_facewolf_android(facewolf):
@@ -680,25 +544,6 @@ def deploy_framework(framework, deployFolder):
         return True
     return False
 
-def gather_facewolf_products(facewolf):
-    if args.windows:
-        copy_files(f'bin/{facewolf.cmake_build_type}', 'bin', [
-            'FaceWolf.dll', 'FaceWolf.pdb', 'Tests.exe', 'Tests.pdb'
-        ])
-    # if args.linux:
-    #     copy_files('linux', 'bin', ['libFaceWolf.so'])
-    if args.mac:
-        framework = f'bin/{facewolf.cmake_build_type}/FaceWolf.bundle'
-        execute("rm -rf FaceWolf.bundle")
-        deploy_framework(framework, './')
-        deploy_framework(framework, '../Fable/Assets/FaceWolf/Plugins/')
-    if args.ios:
-        framework = f'ios/{facewolf.cmake_build_type}-iphoneos/FaceWolf.framework'
-        execute("rm -rf FaceWolf.framework")
-        deploy_framework(framework, './')
-        deploy_framework(framework, '../Fable/ios/Frameworks/FaceWolf/Plugins/')
-        deploy_framework(framework, '../Fable/Assets/FaceWolf/Plugins/')
-
 def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
     args = [executable]
     args += shlex.split(argstring)
@@ -717,33 +562,6 @@ def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
     if proc.returncode == 0:
         return
     raise CalledProcessError(proc.returncode, ' '.join(args))
-
-def build_facewolf():
-    install_openssl()
-
-    facewolf = cmake_builder('FaceWolf', './')
-    facewolf.cmake_ios_toolchain = 'cmake/iOS.cmake'
-    facewolf.enable_ninja_build = not (args.ios or args.mac) # Allow it to generate Xcode project
-
-    if args.clean:
-        facewolf.clean()
-
-    if args.android:
-        build_facewolf_android(facewolf)
-        return
-
-    facewolf.build(install=False)
-    gather_facewolf_products(facewolf)
-
-    if args.tests != None:
-        testargs = ' '.join(args.tests)
-        testcommand = ''
-        if args.windows: testcommand = f".\\Tests.exe"
-        elif args.linux: testcommand = f"./Tests"
-        elif args.mac:   testcommand = f"./{facewolf.cmake_build_type}/Tests.app/Contents/MacOS/Tests"
-        if testcommand:
-            console(f'run {testcommand} {testargs}')
-            run_with_timeout(testcommand, testargs, "bin", timeoutSeconds=60.0)
 
 
 ######################################################################################
