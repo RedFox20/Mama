@@ -36,3 +36,4 @@
 dist/
 *.pyc
 
+mama/mama.spec

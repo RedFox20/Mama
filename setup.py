@@ -8,4 +8,5 @@ setup(name='mama',
       author_email='jorma.rebane@gmail.com',
       license='MIT',
       packages=['mama'],
+      entry_points = { 'console_scripts': ['mama=mama.command_line:main'], },
       zip_safe=False)

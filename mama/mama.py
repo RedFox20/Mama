@@ -4,11 +4,15 @@ import ctypes, traceback, argparse, pathlib, random, subprocess, stat, time, shl
 from subprocess import run, STDOUT, PIPE, TimeoutExpired, Popen, CalledProcessError
 import multiprocessing
 
+## Always flush to properly support Jenkins
+def console(s): print(s, flush=True)
+
 if sys.version_info < (3, 6):
-    print('FATAL ERROR: MamaBuild requires Python 3.6', flush=True)
+    console('FATAL ERROR: MamaBuild requires Python 3.6')
     exit(-1)
 
-print("========= Mama Build Tool ==========\n")
+console("========= Mama Build Tool ==========\n")
+
 class MamaSystem:
     def __init__(self):
         platform = sys.platform
@@ -19,59 +23,81 @@ class MamaSystem:
             raise RuntimeError(f'Unsupported platform {platform}')
 system = MamaSystem()
 
+def find_executable_from_system(name):
+    finder = 'where' if system.windows else 'which'
+    output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
+    output = output.split('\n')[0].strip()
+    return output if os.path.isfile(output) else ''
+
+def print_usage():
+    console('mama [actions...] [args...]')
+    console('  actions:')
+    console('    build     - update, configure and build main project or specific target')
+    console('    clean     - clean main project or specific target')
+    console('    rebuild   - clean, update, configure and build main project or specific target')
+    console('    configure - run CMake configuration on main project or specific target')
+    console('    reclone   - wipe specific target dependency and clone it again')
+    console('    test      - run tests for main project or specific target')
+    console('    add       - add new dependency')
+    console('    new       - create new mama build file')
+    console('  args:')
+    console('    windows   - build for windows')
+    console('    linux     - build for linux')
+    console('    macos     - build for macos')
+    console('    ios       - build for ios')
+    console('    android   - build for android')
+    console('    release   - (default) CMake configuration RelWithDebInfo')
+    console('    debug     - CMake configuration Debug')
+    console('    jobs=N    - Max number of parallel compilations. (default=system.core.count)')
+    console('    target=P  - Name of the target')
+    console('  examples:')
+    console('    mama build                    Update and build main project only.')
+    console('    mama clean                    Cleans main project only.')
+    console('    mama rebuild                  Cleans, update and build main project only.')
+    console('    mama build target=dep1        Update and build dep1 only.')
+    console('    mama configure                Run CMake configuration on main project only.')
+    console('    mama configure target=all     Run CMake configuration on main project and all deps.')
+    console('    mama reclone target=dep1      Wipe target dependency completely and clone again.')
+    console('    mama test                     Run tests on main project.')
+    console('    mama test target=dep1         Run tests on target dependency project.')
+    console('  environment:')
+    console('    setenv("NINJA")               Path to NINJA build executable')
+    console('    setenv("ANDROID_HOME")        Path to Android SDK if auto-detect fails')
+
 ###
+# Mama Build Configuration is created only once in the root project working directory
+# This configuration is then passed down to dependencies
+#
 class MamaBuildConfig:
-    def __init__(self):
+    def __init__(self, args):
         self.build   = False
         self.clean   = False
         self.rebuild = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
         self.test      = None
-
         self.windows = False
         self.linux   = False
         self.macos   = False
         self.ios     = False
         self.android = False
-
         self.release = True
         self.debug   = False
-
         self.jobs    = multiprocessing.cpu_count()
         self.target  = None
-    def print_usage(self):
-        console('mama [actions...] [args...]')
-        console('  examples:')
-        console('    mama build                    Update and build main project only.')
-        console('    mama clean                    Cleans main project only.')
-        console('    mama rebuild                  Cleans, update and build main project only.')
-        console('    mama build target=dep1        Update and build dep1 only.')
-        console('    mama configure                Run CMake configuration on main project only.')
-        console('    mama configure target=all     Run CMake configuration on main project and all deps.')
-        console('    mama reclone target=dep1      Wipe target dependency completely and clone again.')
-        console('    mama test                     Run tests on main project.')
-        console('    mama test target=dep1         Run tests on target dependency project.')
-        console('  actions:')
-        console('    build     - update, configure and build main project or specific target')
-        console('    clean     - clean main project or specific target')
-        console('    rebuild   - clean, update, configure and build main project or specific target')
-        console('    configure - run CMake configuration on main project or specific target')
-        console('    reclone   - wipe specific target dependency and clone it again')
-        console('    test      - run tests for main project or specific target')
-        console('  args:')
-        console('    windows   - build for windows')
-        console('    linux     - build for linux')
-        console('    macos     - build for macos')
-        console('    ios       - build for ios')
-        console('    android   - build for android')
-
-        console('    release   - (default) CMake configuration RelWithDebInfo')
-        console('    debug     - CMake configuration Debug')
-
-        console('    jobs=N    - Max number of parallel compilations. (default=system.core.count)')
-        console('    target=P  - Name of the target')
-
+        self.ios_version   = '11.0'
+        self.macos_version = '10.12'
+        self.ninja_path = self.find_ninja_build()
+        self.android_sdk_path = ''
+        self.android_ndk_path = ''
+        self.init_ndk_path()
+        self.android_arch  = 'armeabi-v7a' # arm64-v8a
+        self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
+        self.android_api   = 'android-24'
+        self.android_ndk_stl = 'c++_shared' # LLVM libc++
+        self.workspaces_root = os.getenv('HOMEPATH') if system.windows else os.getenv('HOME')
+        for arg in args: self.parse_arg(arg)
+        self.check_platform()
     def set_platform(self, windows=False, linux=False, macos=False, ios=False, android=False):
         self.windows = windows
         self.linux   = linux
@@ -97,8 +123,12 @@ class MamaBuildConfig:
         self.debug   = debug
         return True
     def parse_arg(self, arg):
-        if arg == 'build': self.build = True
-        
+        if   arg == 'build':     self.build   = True
+        elif arg == 'clean':     self.clean   = True
+        elif arg == 'rebuild':   self.rebuild = True
+        elif arg == 'configure': self.configure = True
+        elif arg == 'reclone':   self.reclone   = True
+        elif arg == 'test':      self.test      = True
         elif arg == 'windows': self.set_platform(windows=True)
         elif arg == 'linux':   self.set_platform(linux=True)
         elif arg == 'macos':   self.set_platform(macos=True)
@@ -110,34 +140,37 @@ class MamaBuildConfig:
         elif arg.startswith('target='): self.target = arg[7:]
         elif arg.startswith('test='):   self.test = arg[5:]
         elif arg == 'test':             self.test = ' '
-config = MamaBuildConfig()
-
-###
-# mama [what] [args...]
-#
-# [platform]      = windows|linux|macos|ios|android
-# [configuration] = release|debug
-# 
-# 
-# mama build [platform] [configuration]
-# mama clean [platform]
-# 
-# mama new project_name workspace_name
-# mama add https://github.com/RedFox20/ReCpp.git
-# 
-# 
-# 
-# 
-def mama_init(args):
-    print(args)
-    for arg in args: config.parse_arg(arg)
-    config.check_platform()
-    
-
+    def find_ninja_build(self):
+        ninja_executables = [
+            os.getenv('NINJA'), 
+            find_executable_from_system('ninja'),
+            '/Projects/ninja.exe'
+        ]
+        for ninja_exe in ninja_executables:        
+            if ninja_exe and os.path.isfile(ninja_exe):
+                console(f'Found Ninja Build System: {ninja_exe}')
+                return ninja_exe
+        return ''
+    def init_ndk_path(self):
+        androidenv = os.getenv('ANDROID_HOME')
+        paths = [androidenv] if androidenv else []
+        if system.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
+        elif system.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
+        elif system.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
+        ext = '.cmd' if system.windows else ''
+        for sdk_path in paths:
+            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
+                self.android_sdk_path = sdk_path
+                self.ndk_path = sdk_path  + '/ndk-bundle'
+                console(f'Found Android NDK: {self.ndk_path}')
+                return
+        return ''
+    def libname(self, library):
+        if self.windows: return f'{library}.lib'
+        else:            return f'lib{library}.a'
+    def libext(self):
+        return 'lib' if self.windows else 'a'
 ######################################################################################
-
-def console(s):
-    print(s, flush=True)
 
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
@@ -170,35 +203,32 @@ def execute(command):
 ######################################################################################
 
 class MamaDependency:
-    def __init__(self):
-        pass
+    def __init__(self, config, name, workspace, git_url='', branch='', tag=''):
+        self.config = config
+        self.name = name
+        self.workspace  = workspace
+        self.git_url    = git_url
+        self.git_branch = branch
+        self.git_tag    = tag
+        self.dependency_folder = os.path.join(config.workspaces_root, workspace, self.dependency_name())
+        self.source_folder     = os.path.join(self.dependency_folder, name)
+        self.build_folder      = os.path.join(self.dependency_folder, config.name())
+    def dependency_name(self):
+        if self.git_branch: return f'{self.name}-{self.git_branch}'
+        if self.git_tag:    return f'{self.name}-{self.git_tag}'
+        return self.name
 
 ######################################################################################
 
-class MamaBuild:
-    """Mama build and dependency manager"""
-     # some configuration must be static
-    android_arch  = 'armeabi-v7a' # arm64-v8a
-    android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
-    android_api   = 'android-24'
-    ios_version   = '11.0'
-    macos_version = '10.12'
-    cmake_ndk_stl = 'c++_shared' # LLVM libc++
-    ninja_path    = ''
-    ndk_path      = ''
-    android_sdk_path = ''
-    def __init__(self, name, project_folder, git_url='', branch='', tag=''):
-        self.name             = name
-        self.project_folder   = project_folder
-        self.build_folder     = os.path.join(project_folder, self.build_name())
-        self.git_url          = git_url
-        self.git_branch       = branch
-        self.git_tag          = tag
+class MamaBuildTarget(MamaDependency):
+    def __init__(self, name, workspace, git_url='', branch='', tag='', config=None):
+        if config is None:
+            raise RuntimeError('MamaBuildTarget config argument must be set')
+        super().__init__(self, config, name, workspace, git_url, branch, tag)
         self.install_folder   = './'
         self.install_target   = 'install'
         self.build_dependency = ''
-        self.init_ndk_path()
-        self.cmake_ndk_toolchain = f'{self.ndk_path}/build/cmake/android.toolchain.cmake'
+        self.cmake_ndk_toolchain = f'{config.ndk_path}/build/cmake/android.toolchain.cmake'
         self.cmake_ios_toolchain = ''
         self.cmake_opts       = []
         self.cmake_cxxflags   = ''
@@ -206,109 +236,69 @@ class MamaBuild:
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
         self.enable_exceptions = True
         self.enable_unix_make  = False
-        self.enable_ninja_build = True and self.find_ninja_build() # attempt to use Ninja
+        self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
-
-    @staticmethod
-    def find_executable_from_system(name):
-        finder = 'where' if system.windows else 'which'
-        output = subprocess.run([finder, 'ninja'], stdout=subprocess.PIPE).stdout.decode('utf-8')
-        output = output.split('\n')[0].strip()
-        return output if os.path.isfile(output) else ''
-
-    @staticmethod
-    def find_ninja_build():
-        if MamaBuild.ninja_path:
-            return MamaBuild.ninja_path
-        ninja_executables = [
-            os.getenv('NINJA'), 
-            MamaBuild.find_executable_from_system('ninja'),
-            '/Projects/ninja'
-        ]
-        for ninja_exe in ninja_executables:        
-            if ninja_exe and os.path.isfile(ninja_exe):
-                console(f'Found Ninja Build System: {ninja_exe}')
-                MamaBuild.ninja_path = ninja_exe
-                return ninja_exe
-        return ''
-
-    @staticmethod
-    def init_ndk_path():
-        if MamaBuild.ndk_path:
-            return
-        androidenv = os.getenv('ANDROID_HOME')
-        paths = [androidenv] if androidenv else []
-        if system.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
-        elif system.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
-        elif system.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
-        ext = '.cmd' if system.windows else ''
-        for sdk_path in paths:
-            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
-                MamaBuild.android_sdk_path = sdk_path
-                MamaBuild.ndk_path = sdk_path  + '/ndk-bundle'
-                console(f'Found Android NDK: {MamaBuild.ndk_path}')
-                return
-        return ''
-
-    def build_name(self): return config.name()
 
     def cmake_generator(self):
         def choose_gen():
-            if self.enable_unix_make:return '-G "CodeBlocks - Unix Makefiles"'
-            if config.windows:       return '-G "Visual Studio 15 2017 Win64"'
-            if self.enable_ninja_build:return '-G "Ninja"'
-            if config.android:       return '-G "CodeBlocks - Unix Makefiles"'
-            if config.linux:         return '-G "CodeBlocks - Unix Makefiles"'
-            if config.ios or config.macos:return '-G "Xcode"'
-            else:                    return ''
+            if self.enable_unix_make:   return '-G "CodeBlocks - Unix Makefiles"'
+            if self.config.windows:     return '-G "Visual Studio 15 2017 Win64"'
+            if self.enable_ninja_build: return '-G "Ninja"'
+            if self.config.android:     return '-G "CodeBlocks - Unix Makefiles"'
+            if self.config.linux:       return '-G "CodeBlocks - Unix Makefiles"'
+            if self.config.ios:         return '-G "Xcode"'
+            if self.config.macos:       return '-G "Xcode"'
+            else:                       return ''
         return choose_gen()
     
     def mp_flags(self):
         if not self.enable_multiprocess_build: return ''
-        if config.windows:             return f'/maxcpucount:{config.jobs}'
-        if self.enable_unix_make:    return f'-j {config.jobs}'
-        if self.enable_ninja_build:  return ''
-        if config.ios or config.macos:     return f'-jobs {config.jobs}'
-        return f'-j {config.jobs}'
+        if self.config.windows:     return f'/maxcpucount:{self.config.jobs}'
+        if self.enable_unix_make:   return f'-j {self.config.jobs}'
+        if self.enable_ninja_build: return ''
+        if self.config.ios:         return f'-jobs {self.config.jobs}'
+        if self.config.macos:       return f'-jobs {self.config.jobs}'
+        return f'-j {self.config.jobs}'
     
     def buildsys_flags(self):
         def get_flags():
-            if config.windows:          return f'/v:m {self.mp_flags()} '
+            if self.config.windows:     return f'/v:m {self.mp_flags()} '
             if self.enable_unix_make:   return self.mp_flags()
             if self.enable_ninja_build: return ''
-            if config.android:          return self.mp_flags()
-            if config.ios or config.macos: return f'-quiet {self.mp_flags()}'
+            if self.config.android:     return self.mp_flags()
+            if self.config.ios:         return f'-quiet {self.mp_flags()}'
+            if self.config.macos:       return f'-quiet {self.mp_flags()}'
             return self.mp_flags()
         flags = get_flags()
         return f'-- {flags}' if flags else ''
 
     def cmake_make_program(self):
-        if config.windows:          return ''
+        if self.config.windows:     return ''
         if self.enable_unix_make:   return ''
-        if self.enable_ninja_build: return MamaBuild.ninja_path
-        if config.android:
+        if self.enable_ninja_build: return self.config.ninja_path
+        if self.config.android:
             if system.windows:
-                return f'{self.ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
+                return f'{self.config.ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
             elif system.macos:
-                return f'{self.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
+                return f'{self.config.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
         return ''
 
     def cmake_default_options(self):
         cxxflags = self.cmake_cxxflags
         ldflags  = self.cmake_ldflags
-        if config.windows:
+        if self.config.windows:
             cxxflags += ' /EHsc -D_HAS_EXCEPTIONS=1' if self.enable_exceptions else ' -D_HAS_EXCEPTIONS=0'
             cxxflags += ' -DWIN32=1' # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
             cxxflags += ' /MP'
         else:
             cxxflags += '' if self.enable_exceptions else ' -fno-exceptions'
         
-        if config.android and self.cmake_ndk_stl == 'c++_shared':
-            cxxflags += f' -I"{self.ndk_path}/sources/cxx-stl/llvm-libc++/include" '
-        elif config.linux or config.macos:
+        if self.config.android and self.config.android_ndk_stl == 'c++_shared':
+            cxxflags += f' -I"{self.config.ndk_path}/sources/cxx-stl/llvm-libc++/include" '
+        elif self.config.linux or self.config.macos:
             cxxflags += ' -march=native -stdlib=libc++ '
-        elif config.ios:
-            cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={self.ios_version} '
+        elif self.config.ios:
+            cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={self.config.ios_version} '
 
         opt = [f"CMAKE_BUILD_TYPE={self.cmake_build_type}",
                 "CMAKE_POSITION_INDEPENDENT_CODE=ON"]
@@ -322,24 +312,24 @@ class MamaBuild:
         make = self.cmake_make_program()
         if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 
-        if config.android:
+        if self.config.android:
             opt += [
                 'BUILD_ANDROID=ON',
                 'TARGET_ARCH=ANDROID',
                 'CMAKE_SYSTEM_NAME=Android',
-                f'ANDROID_ABI={self.android_arch}',
+                f'ANDROID_ABI={self.config.android_arch}',
                 'ANDROID_ARM_NEON=TRUE',
-                f'ANDROID_NDK="{self.ndk_path}"',
-                f'NDK_DIR="{self.ndk_path}"',
+                f'ANDROID_NDK="{self.config.ndk_path}"',
+                f'NDK_DIR="{self.config.ndk_path}"',
                 'NDK_RELEASE=r16b',
-                f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
+                f'ANDROID_NATIVE_API_LEVEL={self.config.android_api}',
                 'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-                f'ANDROID_STL={self.cmake_ndk_stl}',
+                f'ANDROID_STL={self.config.android_ndk_stl}',
                 'ANDROID_TOOLCHAIN=clang'
             ]
             if self.cmake_ndk_toolchain:
                 opt += [f'CMAKE_TOOLCHAIN_FILE="{self.cmake_ndk_toolchain}"']
-        elif config.ios:
+        elif self.config.ios:
             opt += [
                 'IOS_PLATFORM=OS',
                 'CMAKE_SYSTEM_NAME=Darwin',
@@ -350,25 +340,24 @@ class MamaBuild:
             ]
             if self.cmake_ios_toolchain:
                 opt += [f'CMAKE_TOOLCHAIN_FILE="{self.cmake_ios_toolchain}"']
-
         return opt
 
     def inject_env(self):
-        if config.android:
+        if self.config.android:
             make = self.cmake_make_program()
             if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
-            os.environ['ANDROID_HOME'] = self.android_sdk_path
-            os.environ['ANDROID_NDK'] = f"{self.android_sdk_path}/ndk-bundle"
-            os.environ['ANDROID_ABI'] = self.android_arch
+            os.environ['ANDROID_HOME'] = self.config.android_sdk_path
+            os.environ['ANDROID_NDK'] = self.config.ndk_path
+            os.environ['ANDROID_ABI'] = self.config.android_arch
             os.environ['NDK_RELEASE'] = 'r15c'
-            os.environ['ANDROID_STL'] = self.cmake_ndk_stl
-            os.environ['ANDROID_NATIVE_API_LEVEL'] = self.android_api
+            os.environ['ANDROID_STL'] = self.config.android_ndk_stl
+            os.environ['ANDROID_NATIVE_API_LEVEL'] = self.config.android_api
             #os.environ['ANDROID_TOOLCHAIN_NAME']   = self.android_tool
             os.environ['ANDROID_TOOLCHAIN']        = 'clang'
-        elif config.ios:
-            os.environ['IPHONEOS_DEPLOYMENT_TARGET'] = self.ios_version
-        elif config.macos:
-            os.environ['MACOSX_DEPLOYMENT_TARGET'] = self.macos_version
+        elif self.config.ios:
+            os.environ['IPHONEOS_DEPLOYMENT_TARGET'] = self.config.ios_version
+        elif self.config.macos:
+            os.environ['MACOSX_DEPLOYMENT_TARGET'] = self.config.macos_version
 
     def get_cmake_flags(self):
         flags = ''
@@ -378,7 +367,7 @@ class MamaBuild:
 
     def add_cxx_flags(self, msvc='', clang=''):
         self.cmake_cxxflags += ' '
-        self.cmake_cxxflags += msvc if config.windows else clang
+        self.cmake_cxxflags += msvc if self.config.windows else clang
 
     def add_linker_flags(self, windows='', android='', ios='', linux='', mac=''):
         flags = self.select(windows, android, ios, linux, mac)
@@ -394,19 +383,19 @@ class MamaBuild:
         if defines: self.cmake_opts += defines
 
     def select(self, windows, linux, macos, ios, android):
-        if   config.windows and windows: return windows
-        elif config.linux   and linux:   return linux
-        elif config.macos   and macos:   return macos
-        elif config.ios     and ios:     return ios
-        elif config.android and android: return android
+        if   self.config.windows and windows: return windows
+        elif self.config.linux   and linux:   return linux
+        elif self.config.macos   and macos:   return macos
+        elif self.config.ios     and ios:     return ios
+        elif self.config.android and android: return android
         return None
 
     def enable_cxx17(self):
-        self.cmake_cxxflags += ' /std:c++17' if config.windows else ' -std=c++17'
+        self.cmake_cxxflags += ' /std:c++17' if self.config.windows else ' -std=c++17'
     def enable_cxx14(self):
-        self.cmake_cxxflags += ' /std:c++14' if config.windows else ' -std=c++14'
+        self.cmake_cxxflags += ' /std:c++14' if self.config.windows else ' -std=c++14'
     def enable_cxx11(self):
-        self.cmake_cxxflags += ' /std:c++11' if config.windows else ' -std=c++11'
+        self.cmake_cxxflags += ' /std:c++11' if self.config.windows else ' -std=c++11'
 
     def make_build_subdir(self, subdir):
         os.makedirs(f'{self.build_folder}/{subdir}')
@@ -418,10 +407,6 @@ class MamaBuild:
     def set_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
         dependency = all if all else self.select(windows, android, ios, linux, mac)
         if dependency: self.build_dependency = os.path.join(self.build_folder, dependency)
-
-    @staticmethod
-    def print(str): # unbuffered print
-        print(str, flush=True)
 
     def download_file(self, remote_url, local_dir, force=False):
         local_file = os.path.join(local_dir, os.path.basename(remote_url))
@@ -440,7 +425,7 @@ class MamaBuild:
                 while True:
                     data = urlfile.read(32*1024) # large chunks plz
                     if not data:
-                        console(f"Download {remote_url} finished.                 ")
+                        console(f"\rDownload {remote_url} finished.                 ")
                         return local_file
                     output.write(data)
                     written += len(data)
@@ -448,7 +433,7 @@ class MamaBuild:
                     if (progress - prev_progress) >= 5: # report every 5%
                         prev_progress = progress
                         written_megas = int(written/(1024*1024))
-                        print(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...", end='\r')
+                        print(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...")
 
 
     def download_and_unzip(self, remote_zip, extract_dir):
@@ -462,7 +447,7 @@ class MamaBuild:
         execute(command)
 
     def run_cmake(self, cmake_command): self.run(f"cd {self.build_folder} && cmake {cmake_command}")
-    def run_git(self, git_command):     self.run(f"cd {self.project_folder} && git {git_command}")
+    def run_git(self, git_command):     self.run(f"cd {self.source_folder} && git {git_command}")
 
     @staticmethod
     def is_dir_empty(dir): # no files?
@@ -471,7 +456,7 @@ class MamaBuild:
         return len(filenames) == 0
 
     def should_clone(self):
-        return self.git_url and self.is_dir_empty(self.project_folder)
+        return self.git_url and self.is_dir_empty(self.source_folder)
 
     def should_rebuild(self):
         return not self.build_dependency or not os.path.exists(self.build_dependency) or self.git_commit_changed()
@@ -494,17 +479,17 @@ class MamaBuild:
         return False
 
     def git_tag_changed(self):
-        return MamaBuild.has_tag_changed(f"{self.build_folder}/git_tag", self.git_tag)
+        return self.has_tag_changed(f"{self.build_folder}/git_tag", self.git_tag)
 
     def git_current_commit(self): 
-        cp = run(['git','show','--oneline','-s'], stdout=PIPE, cwd=self.project_folder)
+        cp = run(['git','show','--oneline','-s'], stdout=PIPE, cwd=self.source_folder)
         return cp.stdout.decode('utf-8')
 
     def git_commit_save(self):
         pathlib.Path(f"{self.build_folder}/git_commit").write_text(self.git_current_commit())
 
     def git_commit_changed(self):
-        return MamaBuild.has_tag_changed(f"{self.build_folder}/git_commit", self.git_current_commit())
+        return self.has_tag_changed(f"{self.build_folder}/git_commit", self.git_current_commit())
     
     def checkout_current_branch(self):
         branch = self.git_branch if self.git_branch else self.git_tag
@@ -515,26 +500,26 @@ class MamaBuild:
             self.run_git(f"checkout {branch}")
 
     def clone(self):
-        if config.reclone and config.target:
-            console(f'Reclone wipe {self.project_folder}')
-            if os.path.exists(self.project_folder):
+        if self.config.reclone and self.config.target:
+            console(f'Reclone wipe {self.dependency_folder}')
+            if os.path.exists(self.dependency_folder):
                 if system.windows: # chmod everything to user so we can delete:
-                    for root, dirs, files in os.walk(self.project_folder):
+                    for root, dirs, files in os.walk(self.dependency_folder):
                         for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
                         for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
-                shutil.rmtree(self.project_folder)
+                shutil.rmtree(self.dependency_folder)
 
         if self.should_clone():
             console('\n\n#############################################################')
             console(f"Cloning {self.name} ...")
-            execute(f"git clone {self.git_url} {self.project_folder}")
+            execute(f"git clone {self.git_url} {self.source_folder}")
             self.checkout_current_branch()
         elif self.git_url:
             console(f'Pulling {self.name} ...')
             self.checkout_current_branch()
             if not self.git_tag: # never pull a tag
-                self.run_git(f"reset --hard")
-                self.run_git(f"pull")
+                self.run_git("reset --hard")
+                self.run_git("pull")
 
     def configure(self, reconfigure=False):
         if not self.should_rebuild() and not reconfigure:
@@ -548,7 +533,7 @@ class MamaBuild:
         return True
 
     def build(self, install=True, reconfigure=False):
-        if config.clean:
+        if self.config.clean:
             self.clean()
         if self.configure(reconfigure):
             console('\n\n#############################################################')
@@ -581,34 +566,10 @@ class MamaBuild:
 
     def clone_build_install(self, reconfigure=False):
         self.clone()
-        self.build(reconfigure=config.configure)
+        self.build(reconfigure=self.config.configure)
 
 
 ######################################################################################
-
-def libname(library, version=''):
-    if config.windows:
-        return f"{library}{version}.lib"
-    return f"lib{library}.a"
-
-libext = "lib" if config.windows else "a"
-
-######################################################################################
-
-def build_facewolf_android(facewolf):
-    os.utime("CMakeLists.txt") # `touch` to force gradle to refresh cmake project
-    facewolf.inject_env()
-    gradle = 'gradlew.bat' if system.windows else './gradlew'
-    buildcommand = ':facewolf:assembleRelease'
-    if config.clean: buildcommand = ':facewolf:clean ' + buildcommand
-    execute(f"cd AndroidStudio && {gradle} {buildcommand}")
-    for fl in glob.glob("android/*.aar"):
-        os.remove(fl)
-    build_number = os.getenv('BUILD_NUMBER')
-    aar_name = f'facewolf-{build_number}.aar' if build_number else 'facewolf.aar'
-    for fl in glob.glob("*.aar"):
-        os.remove(fl)
-    shutil.move("AndroidStudio/facewolf/build/outputs/aar/facewolf-release.aar", aar_name)
 
 def deploy_framework(framework, deployFolder):
     if not os.path.exists(framework):
@@ -641,12 +602,4 @@ def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
         return
     raise CalledProcessError(proc.returncode, ' '.join(args))
 
-
-######################################################################################
-
-if __name__ == "__main__":
-    if len(sys.argv) == 1:
-        config.print_usage()
-    else:
-        mama_init(sys.argv)
-
+        
