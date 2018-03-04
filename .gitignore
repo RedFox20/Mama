@@ -32,4 +32,7 @@
 *.app
 .vs/
 .vscode/
-mama.egg-info/
+*.egg-info/
+dist/
+*.pyc
+
