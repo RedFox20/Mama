@@ -1,5 +1,5 @@
 #!/usr/bin/python3.6
-import sys, os
+import sys, os, importlib
 from .system import console
 from .build_config import BuildConfig
 from .build_target import BuildTarget
@@ -50,6 +50,12 @@ def main():
         print_usage()
         sys.exit(-1)
 
-    console(f'CWD: {os.getcwd()}')
+    cwd = os.getcwd()
+    console(f'CWD: {cwd}')
+    mamafile = os.path.join(cwd, 'mamafile.py')
+    if not os.path.exists(mamafile):
+        console(f'FATAL ERROR: MamaBuild did not find a mamafile at: {mamafile}')
+        exit(-1)
+
     config = BuildConfig(sys.argv[1:])
     test = BuildTarget('test', 'wolf3d', config=config)

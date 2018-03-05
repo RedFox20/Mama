@@ -1,4 +1,3 @@
-#!/usr/bin/python3.6
 import urllib.request, ssl, os.path, shutil, zipfile
 import pathlib,  stat, time, subprocess
 from mama.system import System, console
@@ -7,18 +6,18 @@ from mama.util import execute
 ######################################################################################
 
 class BuildTarget:
-    def __init__(self, name, workspace, git_url='', branch='', tag='', config=None):
+    def __init__(self, name, workspace='mamabuild', config=None):
         if config is None:
             raise RuntimeError('MamaBuildTarget config argument must be set')
         self.config = config
         self.name = name
-        self.workspace  = workspace
-        self.git_url    = git_url
-        self.git_branch = branch
-        self.git_tag    = tag
-        self.dependency_folder = os.path.join(config.workspaces_root, workspace, self.dependency_name())
-        self.source_folder     = os.path.join(self.dependency_folder, name)
-        self.build_folder      = os.path.join(self.dependency_folder, config.name())
+        self.workspace = workspace
+        self.git_url    = ''
+        self.git_branch = ''
+        self.git_tag    = ''
+        self.dependency_folder = ''
+        self.source_folder     = ''
+        self.build_folder      = ''
         self.install_folder   = './'
         self.install_target   = 'install'
         self.build_dependency = ''
@@ -32,11 +31,45 @@ class BuildTarget:
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
+        self.dependencies = []
 
     def dependency_name(self):
         if self.git_branch: return f'{self.name}-{self.git_branch}'
         if self.git_tag:    return f'{self.name}-{self.git_tag}'
         return self.name
+
+    def init_dependency_folder(self):
+        self.dependency_folder = os.path.join(self.config.workspaces_root, self.workspace, self.dependency_name())
+
+    def init_local_dependency(self, source_dir):
+        console(f"init_local_dependency {self.name} {source_dir}")
+        self.init_dependency_folder()
+        self.source_folder = os.path.abspath(source_dir)
+        self.build_folder  = os.path.join(self.dependency_folder, self.config.name())
+
+    def init_git_dependency(self, git_url, git_branch='', git_tag=''):
+        console(f"init_git_dependency {self.name} {git_url}")
+        self.git_url    = git_url
+        self.git_branch = git_branch
+        self.git_tag    = git_tag
+        self.init_dependency_folder()
+        self.source_folder = os.path.join(self.dependency_folder, self.name)
+        self.build_folder  = os.path.join(self.dependency_folder, self.config.name())
+
+    ###
+    # Add a local dependency
+    def add_local(self, name, source_dir):
+        target = BuildTarget(name, self.workspace, self.config)
+        dir = source_dir if os.path.isabs(source_dir) else os.path.join(self.source_folder, source_dir)
+        target.init_local_dependency(dir)
+        self.dependencies.append(target)
+
+    ###
+    # Add a remote dependency
+    def add_git(self, name, git_url, git_branch='', git_tag=''):
+        target = BuildTarget(name, self.workspace, self.config)
+        target.init_git_dependency(git_url, git_branch, git_tag)
+        self.dependencies.append(target)
 
     def cmake_generator(self):
         def choose_gen():
@@ -196,12 +229,8 @@ class BuildTarget:
     def enable_cxx11(self):
         self.cmake_cxxflags += ' /std:c++11' if self.config.windows else ' -std=c++11'
 
-    def make_build_subdir(self, subdir):
-        os.makedirs(f'{self.build_folder}/{subdir}')
-
     def copy_built_file(self, builtFile, copyToFolder):
         shutil.copy(f'{self.build_folder}/{builtFile}', f'{self.build_folder}/{copyToFolder}')
-
 
     def set_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
         dependency = all if all else self.select(windows, android, ios, linux, mac)
@@ -299,7 +328,7 @@ class BuildTarget:
             self.run_git(f"checkout {branch}")
 
     def clone(self):
-        if self.config.reclone and self.config.target:
+        if self.config.reclone and self.config.target and self.git_url:
             console(f'Reclone wipe {self.dependency_folder}')
             if os.path.exists(self.dependency_folder):
                 if System.windows: # chmod everything to user so we can delete:
@@ -320,29 +349,41 @@ class BuildTarget:
                 self.run_git("reset --hard")
                 self.run_git("pull")
 
-    def configure(self, reconfigure=False):
+    ########## Customization Points ###########
+
+    ###
+    # Add any dependencies in this step
+    def configure(self):
+        pass
+
+    ###
+    # Perform any pre-build steps here
+    def build(self):
+        pass
+
+    ###
+    # Perform any post-build steps to package the products
+    def package(self):
+        pass
+
+    def configure_target(self, reconfigure=False):
         if not self.should_rebuild() and not reconfigure:
             return False
         console('\n\n#############################################################')
         console(f"Configuring {self.name} ...")
-        if not os.path.exists(self.build_folder): os.mkdir(self.build_folder)
+
+        if not os.path.exists(self.build_folder):
+            os.makedirs(self.build_folder, exist_ok=True)
+
+        self.configure()
+        for target in self.dependencies:
+            console(f'Configuring dependency target {target.name}')
+            target.build_target()
+
         flags = self.get_cmake_flags()
         gen = self.cmake_generator()
         self.run_cmake(f"{gen} {flags} -DCMAKE_INSTALL_PREFIX={self.install_folder} . ../")
         return True
-
-    def build(self, install=True, reconfigure=False):
-        if self.config.clean:
-            self.clean()
-        if self.configure(reconfigure):
-            console('\n\n#############################################################')
-            console(f"Building {self.name} ...")
-            self.inject_env()
-            self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(install)} {self.buildsys_flags()}")
-            self.git_commit_save()
-        else:
-            console(f'{self.name} already built {self.build_dependency}')
-
 
     def prepare_install_target(self, install):
         if not self.install_target or not install:
@@ -363,10 +404,18 @@ class BuildTarget:
             #self.run_cmake("--build . --target clean")
             shutil.rmtree(self.build_folder, ignore_errors=True)
 
-    def clone_build_install(self, reconfigure=False):
+    def build_target(self, install=True):
         self.clone()
-        self.build(reconfigure=self.config.configure)
-
+        if self.config.clean:
+            self.clean()
+        if self.configure_target(self.config.configure):
+            console('\n\n#############################################################')
+            console(f"Building {self.name} ...")
+            self.inject_env()
+            self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(install)} {self.buildsys_flags()}")
+            self.git_commit_save()
+        else:
+            console(f'{self.name} already built {self.build_dependency}')
 
 ######################################################################################
 
