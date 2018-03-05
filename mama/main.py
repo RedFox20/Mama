@@ -1,8 +1,8 @@
 #!/usr/bin/python3.6
 import sys, os
-from mama.system import console
-from mama.build_config import BuildConfig
-from mama.build_target import BuildTarget
+from .system import console
+from .build_config import BuildConfig
+from .build_target import BuildTarget
 
 def print_usage():
     console('mama [actions...] [args...]')
