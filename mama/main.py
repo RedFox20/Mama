@@ -3,6 +3,7 @@ import sys, os, importlib
 from .system import console
 from .build_config import BuildConfig
 from .build_target import BuildTarget
+from .parse_mamafile import parse_mamafile
 
 def print_usage():
     console('mama [actions...] [args...]')
@@ -50,12 +51,8 @@ def main():
         print_usage()
         sys.exit(-1)
 
-    cwd = os.getcwd()
-    console(f'CWD: {cwd}')
-    mamafile = os.path.join(cwd, 'mamafile.py')
-    if not os.path.exists(mamafile):
-        console(f'FATAL ERROR: MamaBuild did not find a mamafile at: {mamafile}')
-        exit(-1)
-
     config = BuildConfig(sys.argv[1:])
-    test = BuildTarget('test', 'wolf3d', config=config)
+    source_dir = os.getcwd()
+    main_target = parse_mamafile(config, source_dir)
+    main_target.init_local_dependency(source_dir)
+    main_target.build_target()

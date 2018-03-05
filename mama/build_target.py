@@ -404,7 +404,7 @@ class BuildTarget:
             #self.run_cmake("--build . --target clean")
             shutil.rmtree(self.build_folder, ignore_errors=True)
 
-    def build_target(self, install=True):
+    def build_target(self):
         self.clone()
         if self.config.clean:
             self.clean()
@@ -412,7 +412,7 @@ class BuildTarget:
             console('\n\n#############################################################')
             console(f"Building {self.name} ...")
             self.inject_env()
-            self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(install)} {self.buildsys_flags()}")
+            self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.git_commit_save()
         else:
             console(f'{self.name} already built {self.build_dependency}')
