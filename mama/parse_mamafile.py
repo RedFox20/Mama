@@ -15,9 +15,9 @@ def parse_mamafile(config, folder) -> BuildTarget:
     if not os.path.exists(mamafile):
         raise RuntimeError(f'{project} no mamafile found at {mamafile}')
 
-    # cmakelists = os.path.join(folder, 'CMakelists.txt')
+    # cmakelists = os.path.join(folder, 'CMakeLists.txt')
     # if not os.path.exists(cmakelists):
-    #     raise RuntimeError(f'{project} no CMakelists found at {cmakelists}. Mamabuild requires a valid CMakelists')
+    #     raise RuntimeError(f'{project} no CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
     buildTarget = load_build_target(project, mamafile)
     target = buildTarget(project, config=config)
