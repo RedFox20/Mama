@@ -1,209 +1,15 @@
 #!/usr/bin/python3.6
-import urllib.request, ssl, os.path, shutil, platform, glob, sys, zipfile
-import ctypes, traceback, argparse, pathlib, random, subprocess, stat, time, shlex
-from subprocess import run, STDOUT, PIPE, TimeoutExpired, Popen, CalledProcessError
-import multiprocessing
-
-## Always flush to properly support Jenkins
-def console(s): print(s, flush=True)
-
-if sys.version_info < (3, 6):
-    console('FATAL ERROR: MamaBuild requires Python 3.6')
-    exit(-1)
-
-console("========= Mama Build Tool ==========\n")
-
-class MamaSystem:
-    def __init__(self):
-        platform = sys.platform
-        self.windows = platform == 'win32'
-        self.linux   = platform.startswith('linux')
-        self.macos   = platform == 'darwin'
-        if not (self.windows or self.linux or self.macos):
-            raise RuntimeError(f'Unsupported platform {platform}')
-system = MamaSystem()
-
-def find_executable_from_system(name):
-    finder = 'where' if system.windows else 'which'
-    output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
-    output = output.split('\n')[0].strip()
-    return output if os.path.isfile(output) else ''
-
-def print_usage():
-    console('mama [actions...] [args...]')
-    console('  actions:')
-    console('    build     - update, configure and build main project or specific target')
-    console('    clean     - clean main project or specific target')
-    console('    rebuild   - clean, update, configure and build main project or specific target')
-    console('    configure - run CMake configuration on main project or specific target')
-    console('    reclone   - wipe specific target dependency and clone it again')
-    console('    test      - run tests for main project or specific target')
-    console('    add       - add new dependency')
-    console('    new       - create new mama build file')
-    console('  args:')
-    console('    windows   - build for windows')
-    console('    linux     - build for linux')
-    console('    macos     - build for macos')
-    console('    ios       - build for ios')
-    console('    android   - build for android')
-    console('    release   - (default) CMake configuration RelWithDebInfo')
-    console('    debug     - CMake configuration Debug')
-    console('    jobs=N    - Max number of parallel compilations. (default=system.core.count)')
-    console('    target=P  - Name of the target')
-    console('  examples:')
-    console('    mama build                    Update and build main project only.')
-    console('    mama clean                    Cleans main project only.')
-    console('    mama rebuild                  Cleans, update and build main project only.')
-    console('    mama build target=dep1        Update and build dep1 only.')
-    console('    mama configure                Run CMake configuration on main project only.')
-    console('    mama configure target=all     Run CMake configuration on main project and all deps.')
-    console('    mama reclone target=dep1      Wipe target dependency completely and clone again.')
-    console('    mama test                     Run tests on main project.')
-    console('    mama test target=dep1         Run tests on target dependency project.')
-    console('  environment:')
-    console('    setenv("NINJA")               Path to NINJA build executable')
-    console('    setenv("ANDROID_HOME")        Path to Android SDK if auto-detect fails')
-
-###
-# Mama Build Configuration is created only once in the root project working directory
-# This configuration is then passed down to dependencies
-#
-class MamaBuildConfig:
-    def __init__(self, args):
-        self.build   = False
-        self.clean   = False
-        self.rebuild = False
-        self.configure = False # re-run cmake configure
-        self.reclone   = False
-        self.test      = None
-        self.windows = False
-        self.linux   = False
-        self.macos   = False
-        self.ios     = False
-        self.android = False
-        self.release = True
-        self.debug   = False
-        self.jobs    = multiprocessing.cpu_count()
-        self.target  = None
-        self.ios_version   = '11.0'
-        self.macos_version = '10.12'
-        self.ninja_path = self.find_ninja_build()
-        self.android_sdk_path = ''
-        self.android_ndk_path = ''
-        self.init_ndk_path()
-        self.android_arch  = 'armeabi-v7a' # arm64-v8a
-        self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
-        self.android_api   = 'android-24'
-        self.android_ndk_stl = 'c++_shared' # LLVM libc++
-        self.workspaces_root = os.getenv('HOMEPATH') if system.windows else os.getenv('HOME')
-        for arg in args: self.parse_arg(arg)
-        self.check_platform()
-    def set_platform(self, windows=False, linux=False, macos=False, ios=False, android=False):
-        self.windows = windows
-        self.linux   = linux
-        self.macos   = macos
-        self.ios     = ios
-        self.android = android
-        return True
-    def is_platform_set(self): return self.windows or self.linux or self.macos or self.ios or self.android
-    def check_platform(self):
-        if not self.is_platform_set():
-            self.set_platform(windows=system.windows, linux=system.linux, macos=system.macos)
-            if not self.is_platform_set():
-                raise RuntimeError(f'Unsupported platform {sys.platform}: Please specify platform!')
-    def name(self):
-        if self.windows: return 'windows'
-        if self.linux:   return 'linux'
-        if self.macos:   return 'macos'
-        if self.ios:     return 'ios'
-        if self.android: return 'android'
-        return 'build'
-    def set_build_config(self, release=False, debug=False):
-        self.release = release
-        self.debug   = debug
-        return True
-    def parse_arg(self, arg):
-        if   arg == 'build':     self.build   = True
-        elif arg == 'clean':     self.clean   = True
-        elif arg == 'rebuild':   self.rebuild = True
-        elif arg == 'configure': self.configure = True
-        elif arg == 'reclone':   self.reclone   = True
-        elif arg == 'test':      self.test      = True
-        elif arg == 'windows': self.set_platform(windows=True)
-        elif arg == 'linux':   self.set_platform(linux=True)
-        elif arg == 'macos':   self.set_platform(macos=True)
-        elif arg == 'ios':     self.set_platform(ios=True)
-        elif arg == 'android': self.set_platform(android=True)
-        elif arg == 'release': self.set_build_config(release=True)
-        elif arg == 'debug':   self.set_build_config(debug=True)
-        elif arg.startswith('jobs='):   self.count = int(arg[5:])
-        elif arg.startswith('target='): self.target = arg[7:]
-        elif arg.startswith('test='):   self.test = arg[5:]
-        elif arg == 'test':             self.test = ' '
-    def find_ninja_build(self):
-        ninja_executables = [
-            os.getenv('NINJA'), 
-            find_executable_from_system('ninja'),
-            '/Projects/ninja.exe'
-        ]
-        for ninja_exe in ninja_executables:        
-            if ninja_exe and os.path.isfile(ninja_exe):
-                console(f'Found Ninja Build System: {ninja_exe}')
-                return ninja_exe
-        return ''
-    def init_ndk_path(self):
-        androidenv = os.getenv('ANDROID_HOME')
-        paths = [androidenv] if androidenv else []
-        if system.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
-        elif system.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
-        elif system.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
-        ext = '.cmd' if system.windows else ''
-        for sdk_path in paths:
-            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
-                self.android_sdk_path = sdk_path
-                self.ndk_path = sdk_path  + '/ndk-bundle'
-                console(f'Found Android NDK: {self.ndk_path}')
-                return
-        return ''
-    def libname(self, library):
-        if self.windows: return f'{library}.lib'
-        else:            return f'lib{library}.a'
-    def libext(self):
-        return 'lib' if self.windows else 'a'
-######################################################################################
-
-def is_file_modified(src, dst):
-    return os.path.getmtime(src) == os.path.getmtime(dst) and\
-           os.path.getsize(src) == os.path.getsize(dst)
-
-def copy_files(fromFolder, toFolder, fileNames):
-    for file in fileNames:
-        sourceFile = os.path.join(fromFolder, file)
-        if not os.path.exists(sourceFile):
-            continue
-        destFile = os.path.join(toFolder, os.path.basename(file))
-        destFileExists = os.path.exists(destFile)
-        if destFileExists and is_file_modified(sourceFile, destFile):
-            console(f"skipping copy '{destFile}'")
-            continue
-        console(f"copyto '{toFolder}'  '{sourceFile}'")
-        if system.windows and destFileExists: # note: windows crashes if dest file is in use
-            tempCopy = f'{destFile}.{random.randrange(1000)}.deleted'
-            shutil.move(destFile, tempCopy)
-            try:
-                os.remove(tempCopy)
-            except Exception:
-                pass
-        shutil.copy2(sourceFile, destFile) # copy while preserving metadata
-
-def execute(command):
-    if os.system(command) != 0:
-        raise Exception(f'{command} failed')
+import urllib.request, ssl, os.path, shutil, zipfile
+import pathlib,  stat, time, subprocess
+from mama.system import System, console
+from mama.util import execute
 
 ######################################################################################
 
-class MamaDependency:
-    def __init__(self, config, name, workspace, git_url='', branch='', tag=''):
+class BuildTarget:
+    def __init__(self, name, workspace, git_url='', branch='', tag='', config=None):
+        if config is None:
+            raise RuntimeError('MamaBuildTarget config argument must be set')
         self.config = config
         self.name = name
         self.workspace  = workspace
@@ -213,18 +19,6 @@ class MamaDependency:
         self.dependency_folder = os.path.join(config.workspaces_root, workspace, self.dependency_name())
         self.source_folder     = os.path.join(self.dependency_folder, name)
         self.build_folder      = os.path.join(self.dependency_folder, config.name())
-    def dependency_name(self):
-        if self.git_branch: return f'{self.name}-{self.git_branch}'
-        if self.git_tag:    return f'{self.name}-{self.git_tag}'
-        return self.name
-
-######################################################################################
-
-class MamaBuildTarget(MamaDependency):
-    def __init__(self, name, workspace, git_url='', branch='', tag='', config=None):
-        if config is None:
-            raise RuntimeError('MamaBuildTarget config argument must be set')
-        super().__init__(self, config, name, workspace, git_url, branch, tag)
         self.install_folder   = './'
         self.install_target   = 'install'
         self.build_dependency = ''
@@ -238,6 +32,11 @@ class MamaBuildTarget(MamaDependency):
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
+
+    def dependency_name(self):
+        if self.git_branch: return f'{self.name}-{self.git_branch}'
+        if self.git_tag:    return f'{self.name}-{self.git_tag}'
+        return self.name
 
     def cmake_generator(self):
         def choose_gen():
@@ -277,9 +76,9 @@ class MamaBuildTarget(MamaDependency):
         if self.enable_unix_make:   return ''
         if self.enable_ninja_build: return self.config.ninja_path
         if self.config.android:
-            if system.windows:
+            if System.windows:
                 return f'{self.config.ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
-            elif system.macos:
+            elif System.macos:
                 return f'{self.config.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
         return ''
 
@@ -482,7 +281,7 @@ class MamaBuildTarget(MamaDependency):
         return self.has_tag_changed(f"{self.build_folder}/git_tag", self.git_tag)
 
     def git_current_commit(self): 
-        cp = run(['git','show','--oneline','-s'], stdout=PIPE, cwd=self.source_folder)
+        cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.source_folder)
         return cp.stdout.decode('utf-8')
 
     def git_commit_save(self):
@@ -503,7 +302,7 @@ class MamaBuildTarget(MamaDependency):
         if self.config.reclone and self.config.target:
             console(f'Reclone wipe {self.dependency_folder}')
             if os.path.exists(self.dependency_folder):
-                if system.windows: # chmod everything to user so we can delete:
+                if System.windows: # chmod everything to user so we can delete:
                     for root, dirs, files in os.walk(self.dependency_folder):
                         for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
                         for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
@@ -571,35 +370,5 @@ class MamaBuildTarget(MamaDependency):
 
 ######################################################################################
 
-def deploy_framework(framework, deployFolder):
-    if not os.path.exists(framework):
-        raise IOError(f'no framework found at: {framework}') 
-    if os.path.exists(deployFolder):
-        name = os.path.basename(framework)
-        deployPath = os.path.join(deployFolder, name)
-        console(f'Deploying framework to {deployPath}')
-        execute(f'rm -rf {deployPath}')
-        shutil.copytree(framework, deployPath)
-        return True
-    return False
-
-def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
-    args = [executable]
-    args += shlex.split(argstring)
-    start = time.time()
-    proc = Popen(args, shell=True, cwd=workingDir)
-    try:
-        proc.wait(timeout=timeoutSeconds)
-        console(f'{executable} elapsed: {round(time.time()-start, 1)}s')
-    except TimeoutExpired:
-        console('TIMEOUT, sending break signal')
-        if system.windows:
-            proc.send_signal(subprocess.signal.CTRL_C_EVENT)
-        else:
-            proc.send_signal(subprocess.signal.SIGINT)
-        raise
-    if proc.returncode == 0:
-        return
-    raise CalledProcessError(proc.returncode, ' '.join(args))
 
         
