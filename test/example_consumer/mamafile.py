@@ -13,8 +13,6 @@ class ExampleConsumer(mama.BuildTarget):
         print("ExampleConsumer.package")
 
 
-print('executed example_consumer/mamafile.py')
-
 
 
 

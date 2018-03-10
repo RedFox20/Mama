@@ -5,8 +5,8 @@ def load_build_target(project, mamafile):
     loaded_globals = runpy.run_path(mamafile)
     for key, value in loaded_globals.items():
         if inspect.isclass(value) and issubclass(value, BuildTarget):
-            print(f'found {key}(BuildTarget): {value}')
-            return value
+            # print(f'found {key}(BuildTarget): {value}')
+            return key, value
     raise RuntimeError(f'{project} no BuildTarget class found in mamafile: {mamafile}')
 
 def parse_mamafile(config, folder) -> BuildTarget:
@@ -19,7 +19,7 @@ def parse_mamafile(config, folder) -> BuildTarget:
     # if not os.path.exists(cmakelists):
     #     raise RuntimeError(f'{project} no CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
-    buildTarget = load_build_target(project, mamafile)
+    project, buildTarget = load_build_target(project, mamafile)
 
     buildStatics = buildTarget.__dict__
     workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
