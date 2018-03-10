@@ -1,4 +1,4 @@
-import os, shutil, random, shlex, time, subprocess
+import os, shutil, random, shlex, time, subprocess, pathlib
 from mama.system import System, console
 
 def is_file_modified(src, dst):
@@ -59,3 +59,13 @@ def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
     if proc.returncode == 0:
         return
     raise subprocess.CalledProcessError(proc.returncode, ' '.join(args))
+
+def has_contents_changed(filename, new_contents):
+    if not os.path.exists(filename):
+        return True
+    return pathlib.Path(filename).read_text() != new_contents
+
+def save_file_if_contents_changed(filename, new_contents):
+    if not has_contents_changed(filename, new_contents):
+        return
+    pathlib.Path(filename).write_text(new_contents)

@@ -37,3 +37,4 @@ dist/
 *.pyc
 
 mama/mama.spec
+mama.cmake

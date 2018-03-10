@@ -20,5 +20,8 @@ def parse_mamafile(config, folder) -> BuildTarget:
     #     raise RuntimeError(f'{project} no CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
     buildTarget = load_build_target(project, mamafile)
-    target = buildTarget(project, config=config)
+
+    buildStatics = buildTarget.__dict__
+    workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
+    target = buildTarget(project, workspace=workspace, config=config)
     return target
