@@ -15,7 +15,7 @@ class Git:
 
     def run_git(self, git_command):
         cmd = f"cd {self.dep.src_dir} && git {git_command}"
-        console(cmd)
+        #console(cmd)
         execute(cmd)
 
     def current_commit(self): 
@@ -26,7 +26,8 @@ class Git:
         return has_tag_changed(f"{self.dep.build_dir}/git_tag", self.tag)
 
     def commit_changed(self):
-        return has_tag_changed(f"{self.dep.build_dir}/git_commit", self.current_commit())
+        return not os.path.exists(self.dep.build_dir) or\
+         has_tag_changed(f"{self.dep.build_dir}/git_commit", self.current_commit())
 
     def save_tag(self):
         write_text_to(f"{self.dep.build_dir}/git_tag", self.tag)
@@ -53,12 +54,10 @@ class Git:
 
     def clone_or_pull(self):
         if is_dir_empty(self.dep.src_dir):
-            console('\n\n#############################################################')
-            console(f"Cloning {self.dep.name} ...")
+            console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             execute(f"git clone {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
-            console(f'Pulling {self.dep.name} ...')
             self.checkout_current_branch()
             if not self.tag: # never pull a tag
                 self.run_git("reset --hard")
@@ -154,9 +153,6 @@ class BuildDependency:
             self.git.reclone_wipe()
         self.git.clone_or_pull()
         return True
-
-    def git_commit_changed(self):
-        return self.git and self.git.commit_changed()
 
     ## GIT
     def save_git_commit(self):
