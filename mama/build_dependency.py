@@ -42,7 +42,7 @@ class Git:
                 self.save_tag()
             self.run_git(f"checkout {branch}")
 
-    def reclone(self):
+    def reclone_wipe(self):
         console(f'Reclone wipe {self.dep.dep_dir}')
         if os.path.exists(self.dep.dep_dir):
             if System.windows: # chmod everything to user so we can delete:
@@ -51,7 +51,7 @@ class Git:
                     for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
             shutil.rmtree(self.dep.dep_dir)
 
-    def clone(self):
+    def clone_or_pull(self):
         if is_dir_empty(self.dep.src_dir):
             console('\n\n#############################################################')
             console(f"Cloning {self.dep.name} ...")
@@ -71,6 +71,7 @@ class BuildDependency:
         self.config     = config
         self.target     = None
         self.target_class = target_class
+        self.should_rebuild = True
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
@@ -94,8 +95,24 @@ class BuildDependency:
             self.git     = None
             self.src_dir = src
 
-    def git_checkout(self):
-        pass
+    ## @return True if dependency has changed
+    def load(self):
+        changed = self.git_checkout()
+        target = self.create_build_target()
+
+        if changed:
+            console(f'  - Dependency {target.name}   BUILD because git commit changed')
+        elif not target.build_dependency:
+            console(f'  - Dependency {target.name}   BUILD because there is no configured build_dependency')
+            changed = True
+        elif not os.path.exists(target.build_dependency):
+            console(f'  - Dependency {target.name}   BUILD because {target.build_dependency} does not exist')
+            changed = True
+        else:
+            console(f'  - Dependency {target.name}   OK')
+
+        self.should_rebuild = changed
+        return changed
 
     def create_build_target(self, src=None):
         if self.target:
@@ -111,12 +128,19 @@ class BuildDependency:
         self.target = buildTarget(name=project, config=self.config, dep=self)
         return self.target
 
-    def should_rebuild(self):
+
+    def git_checkout(self):
+        if not self.git or not self.git.commit_changed():
+            return False
+        if self.config.reclone and self.config.target == self.name:
+            self.git.reclone_wipe()
+        self.git.clone_or_pull()
+        return True
+
+    def git_commit_changed(self):
         return self.git and self.git.commit_changed()
 
     ## GIT
-    def reclone(self): self.git.reclone()
-    def clone(self):   self.git.clone()
     def save_git_commit(self):
         if self.git: self.git.save_commit()
 

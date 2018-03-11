@@ -92,7 +92,7 @@ class BuildConfig:
         ]
         for ninja_exe in ninja_executables:        
             if ninja_exe and os.path.isfile(ninja_exe):
-                console(f'Found Ninja Build System: {ninja_exe}')
+                #console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
     def init_ndk_path(self):
@@ -106,7 +106,7 @@ class BuildConfig:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
                 self.ndk_path = sdk_path  + '/ndk-bundle'
-                console(f'Found Android NDK: {self.ndk_path}')
+                #console(f'Found Android NDK: {self.ndk_path}')
                 return
         return ''
     def libname(self, library):

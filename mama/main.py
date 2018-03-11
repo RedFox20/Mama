@@ -4,6 +4,7 @@ from .system import console
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
+from .dependency_chain import load_dependency_chain, build_dependency_chain
 
 def print_usage():
     console('mama [actions...] [args...]')
@@ -55,4 +56,6 @@ def main():
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
     main_dependency = BuildDependency(name, config, BuildTarget, src=source_dir)
-    main_dependency.target.build_target()
+    
+    load_dependency_chain(main_dependency)
+    build_dependency_chain(main_dependency)

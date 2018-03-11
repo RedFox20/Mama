@@ -1,5 +1,5 @@
 import urllib.request, ssl, os.path, shutil, zipfile
-import pathlib, stat, time, subprocess
+import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console
 from mama.util import execute, save_file_if_contents_changed, glob_with_extensions, normalized_path
 from mama.build_dependency import BuildDependency, Git
@@ -25,7 +25,7 @@ class BuildTarget:
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
-        self.dependencies = []
+        self.added_deps = []
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
 
@@ -37,14 +37,14 @@ class BuildTarget:
             src = os.path.join(self.dep.src_dir, src)
             src = os.path.abspath(src)
         dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, src=src)
-        self.dependencies.append(dependency)
+        self.added_deps.append(dependency)
 
     ###
     # Add a remote dependency
     def add_git(self, name, git_url, git_branch='', git_tag=''):
         git = Git(git_url, git_branch, git_tag)
         dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
-        self.dependencies.append(dependency)
+        self.added_deps.append(dependency)
 
     def cmake_generator(self):
         def choose_gen():
@@ -69,7 +69,7 @@ class BuildTarget:
     
     def buildsys_flags(self):
         def get_flags():
-            if self.config.windows:     return f'/v:m {self.mp_flags()} '
+            if self.config.windows:     return f'/v:m {self.mp_flags()} /nologo'
             if self.enable_unix_make:   return self.mp_flags()
             if self.enable_ninja_build: return ''
             if self.config.android:     return self.mp_flags()
@@ -232,7 +232,9 @@ class BuildTarget:
     ## Sets a build dependency to prevent unnecessary rebuilds
     def set_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
         dependency = all if all else self.select(windows, android, ios, linux, mac)
-        if dependency: self.build_dependency = os.path.join(self.dep.build_dir, dependency)
+        if dependency:
+            self.build_dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
+            console(f'{self.name}.build_dependency = {self.build_dependency}')
 
     def download_file(self, remote_url, local_dir, force=False):
         local_file = os.path.join(local_dir, os.path.basename(remote_url))
@@ -267,113 +269,57 @@ class BuildTarget:
         with zipfile.ZipFile(local_file, "r") as zip:
             zip.extractall(extract_dir)
 
-    def run_cmake(self, cmake_command):
-        cmd = f"cd {self.dep.build_dir} && cmake {cmake_command}"
-        #console(cmd)
-        execute(cmd)
-
-    def should_rebuild(self):
-        if not self.build_dependency:
-            console(f'Rebuilding {self.name} because there are no dependencies')
-            return True
-        if not os.path.exists(self.build_dependency):
-            console(f'Rebuilding {self.name} because {self.build_dependency} does not exist')
-            return True
-        if self.dep.should_rebuild():
-            console(f'Rebuilding {self.name} because dependency needs a rebuild')
-            return True
-        return False
-
-    def clone(self):
-        if not self.dep.git:
-            return
-        if self.config.reclone and self.config.target:
-            self.dep.reclone()
-        self.dep.clone()
-
     ########## Customization Points ###########
 
     ###
     # Add any dependencies in this step
-    def configure(self):
-        print(f"BuildTarget({self.name}).configure pass")
+    #   self.add_local(...)
+    #   self.add_remote(...)
+    def dependencies(self):
         pass
 
     ###
     # Perform any pre-build steps here
     def build(self):
-        print(f"BuildTarget({self.name}).build pass")
         pass
 
     ###
     # Perform any post-build steps to package the products
     def package(self):
-        print(f"BuildTarget({self.name}).package pass")
         pass
 
-    @staticmethod
-    def get_cmake_path_list(paths):
-        pathlist = '' 
-        for path in paths: pathlist += f'\n    "{path}"'
-        return pathlist
-
-    def get_target_mama_cmake(self):
-        cmd = f'# Package {self.name}\n'
-        includes = self.get_cmake_path_list(self.exported_includes)
-        libs     = self.get_cmake_path_list(self.exported_libs)
-        cmd += f'set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})\n'
-        cmd += f'set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})\n'
-        return cmd
-
-    def configure_target(self, reconfigure=False):
-        self.configure()
-        if not self.should_rebuild() and not reconfigure:
-            return False
-
-        if not os.path.exists(self.dep.build_dir):
-            os.makedirs(self.dep.build_dir, exist_ok=True)
-
-        mama_cmake = ''
-        for dependency in self.dependencies:
-            target = dependency.create_build_target()
-            target.build_target()
-            mama_cmake += target.get_target_mama_cmake()
-        
-        if mama_cmake:
-            prolog = '# This file is auto-generated by mama build. Do not modify by hand!\n'
-            prolog += 'set(MAMA_INCLUDES "")\n'
-            prolog += 'set(MAMA_LIBS     "")\n'
-            mama_cmake = prolog + mama_cmake
-            save_file_if_contents_changed(f'{self.dep.src_dir}/mama.cmake', mama_cmake)
-
-        console('\n\n#############################################################')
-        console(f"CMake configure {self.name} ...")
-        flags = self.get_cmake_flags()
-        gen = self.cmake_generator()
-        self.run_cmake(f'{gen} {flags} -DCMAKE_INSTALL_PREFIX="." . "{self.dep.src_dir}"')
-        return True
+    ############################################
 
     def prepare_install_target(self, install):
         if not self.install_target or not install:
             return ''
         return f'--target {self.install_target}'
 
+    def run_cmake(self, cmake_command):
+        cmd = f"cd {self.dep.build_dir} && cmake {cmake_command}"
+        #console(cmd)
+        execute(cmd)
+
     def install(self):
-        if self.should_rebuild():
-            console('\n\n#############################################################')
-            console(f"CMake install {self.name} ...")
-            self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)}")
+        console('\n\n#############################################################')
+        console(f"CMake install {self.name} ...")
+        self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)}")
 
     def clean(self):
         self.dep.clean()
 
+    ## Build only this target and nothing else
     def build_target(self):
-        self.clone()
-        if self.config.clean:
+        if self.config.clean and self.config.target == self.name:
             self.clean()
-        if self.configure_target(self.config.configure):
+        if self.dep.should_rebuild:
             console('\n\n#############################################################')
             console(f"CMake build {self.name} ...")
+
+            flags = self.get_cmake_flags()
+            gen = self.cmake_generator()
+            self.run_cmake(f'{gen} {flags} -DCMAKE_INSTALL_PREFIX="." . "{self.dep.src_dir}"')
+
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.dep.save_git_commit()

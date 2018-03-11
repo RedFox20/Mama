@@ -2,7 +2,7 @@ import mama
 
 class ExampleLibrary(mama.BuildTarget):
     
-    def configure(self):
+    def dependencies(self):
         self.set_build_dependency("bin/ExampleLibrary.lib")
 
     def build(self):
