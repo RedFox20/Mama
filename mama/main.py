@@ -46,7 +46,6 @@ def run_preload_actions(config: BuildConfig, root_dependency: BuildDependency):
     if config.clean and not config.target:
         root_dependency.clean()
 
-
 def run_load_actions(config: BuildConfig, root_dependency: BuildDependency):
     load_dependency_chain(root_dependency)
 
@@ -55,7 +54,7 @@ def run_postload_actions(config: BuildConfig, root_dependency: BuildDependency):
         build_dependency_chain(root_dependency)
 
 def main():
-    console(f'========= Mama Build Tool ==========\n')
+    console(f'========= Mama Build Tool ==========')
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
         exit(-1)

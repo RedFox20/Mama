@@ -105,21 +105,26 @@ class BuildDependency:
         target = self.create_build_target()
         target.dependencies()
 
+        conf = self.config
+        if conf.clean and (conf.target == 'all' or conf.target == target.name):
+            self.clean(conf.target)
+
         changed = False
-        if git_changed:
-            console(f'  - Target {target.name: <16}   BUILD because git commit changed')
-            changed = True
-        elif not target.build_dependency:
-            console(f'  - Target {target.name: <16}   BUILD because there is no configured build_dependency')
-            changed = True
-        elif not os.path.exists(target.build_dependency):
-            console(f'  - Target {target.name: <16}   BUILD because {target.build_dependency} does not exist')
-            changed = True
-        elif self.is_reconfigure_target():
-            console(f'  - Target {target.name: <16}   BUILD because configure target={target.name}')
-            changed = True
-        else:
-            console(f'  - Target {target.name: <16}   OK')
+        if conf.build:
+            if git_changed:
+                console(f'  - Target {target.name: <16}   BUILD because git commit changed')
+                changed = True
+            elif not target.build_dependency:
+                console(f'  - Target {target.name: <16}   BUILD because there is no configured build_dependency')
+                changed = True
+            elif not os.path.exists(target.build_dependency):
+                console(f'  - Target {target.name: <16}   BUILD because {target.build_dependency} does not exist')
+                changed = True
+            elif self.is_reconfigure_target():
+                console(f'  - Target {target.name: <16}   BUILD because configure target={target.name}')
+                changed = True
+            else:
+                console(f'  - Target {target.name: <16}   OK')
 
         if not os.path.exists(self.build_dir):
             os.makedirs(self.build_dir, exist_ok=True)
@@ -158,9 +163,9 @@ class BuildDependency:
         if self.git: self.git.save_commit()
 
     ## Clean
-    def clean(self):
+    def clean(self, because=None):
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
-        console(f'  - Target {self.name: <16}  CLEAN')
-        #self.run_cmake("--build . --target clean")
+        if not because: because = self.name
+        console(f'  - Target {self.name: <16}   CLEAN because target={because}')
         shutil.rmtree(self.build_dir, ignore_errors=True)

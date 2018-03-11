@@ -10,8 +10,3 @@ class ExampleConsumer(mama.BuildTarget):
 
     def package(self):
         pass
-
-
-
-
-

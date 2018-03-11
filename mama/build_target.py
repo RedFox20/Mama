@@ -132,8 +132,7 @@ class BuildTarget:
         elif self.config.ios:
             cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={self.config.ios_version} '
 
-        opt = [f"CMAKE_BUILD_TYPE={self.cmake_build_type}",
-                "CMAKE_POSITION_INDEPENDENT_CODE=ON"]
+        opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
         if cxxflags: opt += [f'CMAKE_CXX_FLAGS="{cxxflags}"']
         if ldflags: opt += [
             f'CMAKE_EXE_LINKER_FLAGS="{ldflags}"',
@@ -308,8 +307,6 @@ class BuildTarget:
 
     ## Build only this target and nothing else
     def build_target(self):
-        if self.config.clean and self.config.target == self.name:
-            self.clean()
         if self.dep.should_rebuild:
             console('\n\n#############################################################')
             console(f"CMake build {self.name} ...")
