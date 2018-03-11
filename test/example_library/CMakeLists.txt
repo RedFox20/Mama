@@ -6,4 +6,4 @@ file(GLOB_RECURSE EXAMPLE_LIBRARY_SOURCES *.cpp *.h)
 source_group(ExampleLibrary FILES ${EXAMPLE_LIBRARY_SOURCES})
 add_library(ExampleLibrary STATIC ${EXAMPLE_LIBRARY_SOURCES})
 
-install(TARGETS ExampleLibrary DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+install(TARGETS ExampleLibrary DESTINATION bin)

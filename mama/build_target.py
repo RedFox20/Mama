@@ -1,24 +1,18 @@
 import urllib.request, ssl, os.path, shutil, zipfile
-import pathlib,  stat, time, subprocess
+import pathlib, stat, time, subprocess
 from mama.system import System, console
-from mama.util import execute, save_file_if_contents_changed
+from mama.util import execute, save_file_if_contents_changed, glob_with_extensions, normalized_path
+from mama.build_dependency import BuildDependency, Git
 
 ######################################################################################
 
 class BuildTarget:
-    def __init__(self, name, workspace='mamabuild', config=None):
-        if config is None:
-            raise RuntimeError('MamaBuildTarget config argument must be set')
+    def __init__(self, name, config, dep):
+        if config is None: raise RuntimeError('BuildTarget config argument must be set')
+        if dep is None:    raise RuntimeError('BuildTarget dep argument must be set')
         self.config = config
         self.name = name
-        self.workspace = workspace
-        self.git_url    = ''
-        self.git_branch = ''
-        self.git_tag    = ''
-        self.dependency_folder = ''
-        self.source_folder     = ''
-        self.build_folder      = ''
-        self.install_folder   = './'
+        self.dep = dep
         self.install_target   = 'install'
         self.build_dependency = ''
         self.cmake_ndk_toolchain = f'{config.ndk_path}/build/cmake/android.toolchain.cmake'
@@ -32,50 +26,25 @@ class BuildTarget:
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
         self.dependencies = []
-
-    def dependency_name(self):
-        if self.git_branch: return f'{self.name}-{self.git_branch}'
-        if self.git_tag:    return f'{self.name}-{self.git_tag}'
-        return self.name
-
-    def init_dependency_folder(self):
-        self.dependency_folder = os.path.join(self.config.workspaces_root, self.workspace, self.dependency_name())
-
-    def init_local_dependency(self, source_dir):
-        self.init_dependency_folder()
-        self.source_folder = os.path.abspath(source_dir)
-        self.build_folder  = os.path.join(self.dependency_folder, self.config.name())
-        console(f"init_local_dependency {self.name}")
-        console(f"  dependency_folder:  {self.dependency_folder}")
-        console(f"  source_folder:      {self.source_folder}")
-        console(f"  build_folder:       {self.build_folder}")
-
-    def init_git_dependency(self, git_url, git_branch='', git_tag=''):
-        self.git_url    = git_url
-        self.git_branch = git_branch
-        self.git_tag    = git_tag
-        self.init_dependency_folder()
-        self.source_folder = os.path.join(self.dependency_folder, self.name)
-        self.build_folder  = os.path.join(self.dependency_folder, self.config.name())
-        console(f"init_git_dependency {self.name} {git_url}")
-        console(f"  dependency_folder:  {self.dependency_folder}")
-        console(f"  source_folder:      {self.source_folder}")
-        console(f"  build_folder:       {self.build_folder}")
+        self.exported_includes = [] # include folders to export from this target
+        self.exported_libs     = [] # libs to export from this target
 
     ###
     # Add a local dependency
     def add_local(self, name, source_dir):
-        target = BuildTarget(name, self.workspace, self.config)
-        dir = source_dir if os.path.isabs(source_dir) else os.path.join(self.source_folder, source_dir)
-        target.init_local_dependency(dir)
-        self.dependencies.append(target)
+        src = source_dir
+        if not os.path.isabs(src):
+            src = os.path.join(self.dep.src_dir, src)
+            src = os.path.abspath(src)
+        dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, src=src)
+        self.dependencies.append(dependency)
 
     ###
     # Add a remote dependency
     def add_git(self, name, git_url, git_branch='', git_tag=''):
-        target = BuildTarget(name, self.workspace, self.config)
-        target.init_git_dependency(git_url, git_branch, git_tag)
-        self.dependencies.append(target)
+        git = Git(git_url, git_branch, git_tag)
+        dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
+        self.dependencies.append(dependency)
 
     def cmake_generator(self):
         def choose_gen():
@@ -173,7 +142,6 @@ class BuildTarget:
                 'CMAKE_SYSTEM_NAME=Darwin',
                 'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
                 'CMAKE_OSX_ARCHITECTURES=arm64',
-                'CMAKE_VERBOSE_MAKEFILE=OFF',
                 'CMAKE_OSX_SYSROOT="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"'
             ]
             if self.cmake_ios_toolchain:
@@ -235,12 +203,36 @@ class BuildTarget:
     def enable_cxx11(self):
         self.cmake_cxxflags += ' /std:c++11' if self.config.windows else ' -std=c++11'
 
-    def copy_built_file(self, builtFile, copyToFolder):
-        shutil.copy(f'{self.build_folder}/{builtFile}', f'{self.build_folder}/{copyToFolder}')
 
-    def set_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
+    def add_export_include(self, include):
+        include = os.path.join(self.dep.src_dir, include)
+        self.exported_includes.append(normalized_path(include))
+
+    ## Export includes relative to source directory
+    def export_includes(self, includes=['']):
+        self.exported_includes = []
+        for include in includes: self.add_export_include(include)
+
+
+    def add_export_lib(self, relative_path):
+        path = os.path.join(self.dep.build_dir, relative_path)
+        self.exported_libs.append(normalized_path(path))
+
+    ## Export libs relative to build directory
+    def export_libs(self, path = '.', extensions = ['.lib', '.a', '.dll', '.so']):
+        path = os.path.join(self.dep.build_dir, path)
+        self.exported_libs = glob_with_extensions(path, extensions)
+
+
+    def copy_built_file(self, builtFile, copyToFolder):
+        src = f'{self.dep.build_dir}/{builtFile}'
+        dst = f'{self.dep.build_dir}/{copyToFolder}'
+        shutil.copy(src, dst)
+
+    ## Sets a build dependency to prevent unnecessary rebuilds
+    def set_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
         dependency = all if all else self.select(windows, android, ios, linux, mac)
-        if dependency: self.build_dependency = os.path.join(self.build_folder, dependency)
+        if dependency: self.build_dependency = os.path.join(self.dep.build_dir, dependency)
 
     def download_file(self, remote_url, local_dir, force=False):
         local_file = os.path.join(local_dir, os.path.basename(remote_url))
@@ -275,152 +267,105 @@ class BuildTarget:
         with zipfile.ZipFile(local_file, "r") as zip:
             zip.extractall(extract_dir)
 
-
-    def run(self, command):
-        console(command)
-        execute(command)
-
-    def run_cmake(self, cmake_command): self.run(f"cd {self.build_folder} && cmake {cmake_command}")
-    def run_git(self, git_command):     self.run(f"cd {self.source_folder} && git {git_command}")
-
-    @staticmethod
-    def is_dir_empty(dir): # no files?
-        if not os.path.exists(dir): return True
-        _, _, filenames = next(os.walk(dir))
-        return len(filenames) == 0
-
-    def should_clone(self):
-        return self.git_url and self.is_dir_empty(self.source_folder)
+    def run_cmake(self, cmake_command):
+        cmd = f"cd {self.dep.build_dir} && cmake {cmake_command}"
+        #console(cmd)
+        execute(cmd)
 
     def should_rebuild(self):
-        return not self.build_dependency or not os.path.exists(self.build_dependency) or self.git_commit_changed()
-
-    def should_clean(self):
-        return self.build_folder != '/' and os.path.exists(self.build_folder)
-
-    def git_current_commit(self): 
-        cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.source_folder)
-        return cp.stdout.decode('utf-8')
-
-    @staticmethod
-    def has_tag_changed(old_tag_file, new_tag):
-        if not os.path.exists(old_tag_file):
+        if not self.build_dependency:
+            console(f'Rebuilding {self.name} because there are no dependencies')
             return True
-        old_tag = pathlib.Path(old_tag_file).read_text()
-        if old_tag != new_tag:
-            console(f" tagchange '{old_tag.strip()}'\n"+
-                    f"      ---> '{new_tag.strip()}'")
+        if not os.path.exists(self.build_dependency):
+            console(f'Rebuilding {self.name} because {self.build_dependency} does not exist')
+            return True
+        if self.dep.should_rebuild():
+            console(f'Rebuilding {self.name} because dependency needs a rebuild')
             return True
         return False
 
-    def git_tag_changed(self):
-        return self.git_url and self.has_tag_changed(f"{self.build_folder}/git_tag", self.git_tag)
-
-    def git_commit_changed(self):
-        return self.git_url and self.has_tag_changed(f"{self.build_folder}/git_commit", self.git_current_commit())
-
-    def git_tag_save(self):
-        if self.git_url: pathlib.Path(f"{self.build_folder}/git_tag").write_text(self.git_tag)
-
-    def git_commit_save(self):
-        if self.git_url: pathlib.Path(f"{self.build_folder}/git_commit").write_text(self.git_current_commit())
-
-    def checkout_current_branch(self):
-        branch = self.git_branch if self.git_branch else self.git_tag
-        if branch:
-            if self.git_tag and self.git_tag_changed():
-                self.run_git("reset --hard")
-                self.git_tag_save()
-            self.run_git(f"checkout {branch}")
-
     def clone(self):
-        if self.config.reclone and self.config.target and self.git_url:
-            console(f'Reclone wipe {self.dependency_folder}')
-            if os.path.exists(self.dependency_folder):
-                if System.windows: # chmod everything to user so we can delete:
-                    for root, dirs, files in os.walk(self.dependency_folder):
-                        for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
-                        for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
-                shutil.rmtree(self.dependency_folder)
-
-        if self.should_clone():
-            console('\n\n#############################################################')
-            console(f"Cloning {self.name} ...")
-            execute(f"git clone {self.git_url} {self.source_folder}")
-            self.checkout_current_branch()
-        elif self.git_url:
-            console(f'Pulling {self.name} ...')
-            self.checkout_current_branch()
-            if not self.git_tag: # never pull a tag
-                self.run_git("reset --hard")
-                self.run_git("pull")
+        if not self.dep.git:
+            return
+        if self.config.reclone and self.config.target:
+            self.dep.reclone()
+        self.dep.clone()
 
     ########## Customization Points ###########
 
     ###
     # Add any dependencies in this step
     def configure(self):
+        print(f"BuildTarget({self.name}).configure pass")
         pass
 
     ###
     # Perform any pre-build steps here
     def build(self):
+        print(f"BuildTarget({self.name}).build pass")
         pass
 
     ###
     # Perform any post-build steps to package the products
     def package(self):
+        print(f"BuildTarget({self.name}).package pass")
         pass
+
+    @staticmethod
+    def get_cmake_path_list(paths):
+        pathlist = '' 
+        for path in paths: pathlist += f'\n    "{path}"'
+        return pathlist
 
     def get_target_mama_cmake(self):
         cmd = f'# Package {self.name}\n'
-        package = self.build_folder.replace('\\', '/')
-        cmd += f'find_package({self.name} PATHS "{package}" NO_DEFAULT_PATH REQUIRED)\n'
+        includes = self.get_cmake_path_list(self.exported_includes)
+        libs     = self.get_cmake_path_list(self.exported_libs)
+        cmd += f'set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})\n'
+        cmd += f'set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})\n'
         return cmd
 
     def configure_target(self, reconfigure=False):
+        self.configure()
         if not self.should_rebuild() and not reconfigure:
             return False
-        console('\n\n#############################################################')
-        console(f"Configuring {self.name} ...")
 
-        if not os.path.exists(self.build_folder):
-            os.makedirs(self.build_folder, exist_ok=True)
+        if not os.path.exists(self.dep.build_dir):
+            os.makedirs(self.dep.build_dir, exist_ok=True)
 
-        self.configure()
         mama_cmake = ''
-        for target in self.dependencies:
-            console(f'Configuring dependency target {target.name}')
+        for dependency in self.dependencies:
+            target = dependency.create_build_target()
             target.build_target()
             mama_cmake += target.get_target_mama_cmake()
         
         if mama_cmake:
-            mama_cmake = '# This file is auto-generated by mama buid. Do not modify by hand!\n' + mama_cmake
-            save_file_if_contents_changed(f'{self.source_folder}/mama.cmake', mama_cmake)
+            prolog = '# This file is auto-generated by mama build. Do not modify by hand!\n'
+            prolog += 'set(MAMA_INCLUDES "")\n'
+            prolog += 'set(MAMA_LIBS     "")\n'
+            mama_cmake = prolog + mama_cmake
+            save_file_if_contents_changed(f'{self.dep.src_dir}/mama.cmake', mama_cmake)
 
+        console('\n\n#############################################################')
+        console(f"CMake configure {self.name} ...")
         flags = self.get_cmake_flags()
         gen = self.cmake_generator()
-        self.run_cmake(f'{gen} {flags} -DCMAKE_INSTALL_PREFIX={self.install_folder} . "{self.source_folder}"')
+        self.run_cmake(f'{gen} {flags} -DCMAKE_INSTALL_PREFIX="." . "{self.dep.src_dir}"')
         return True
 
     def prepare_install_target(self, install):
         if not self.install_target or not install:
             return ''
-        os.makedirs(f"{self.build_folder}/{self.install_folder}", exist_ok=True)
         return f'--target {self.install_target}'
 
     def install(self):
         if self.should_rebuild():
             console('\n\n#############################################################')
-            console(f"Installing {self.name} ...")
+            console(f"CMake install {self.name} ...")
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)}")
 
     def clean(self):
-        if self.should_clean():
-            console('\n\n#############################################################')
-            console(f"Cleaning {self.name} ... {self.build_folder}")
-            #self.run_cmake("--build . --target clean")
-            shutil.rmtree(self.build_folder, ignore_errors=True)
+        self.dep.clean()
 
     def build_target(self):
         self.clone()
@@ -428,12 +373,13 @@ class BuildTarget:
             self.clean()
         if self.configure_target(self.config.configure):
             console('\n\n#############################################################')
-            console(f"Building {self.name} ...")
+            console(f"CMake build {self.name} ...")
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
-            self.git_commit_save()
+            self.dep.save_git_commit()
         else:
             console(f'{self.name} already built {self.build_dependency}')
+        self.package()
 
 ######################################################################################
 

@@ -3,14 +3,13 @@ import mama
 class ExampleConsumer(mama.BuildTarget):
     workspace = 'wolf3d'
     def configure(self):
-        print("ExampleConsumer.configure")
         self.add_local('ExampleLibrary', '../example_library')
 
     def build(self):
-        print("ExampleConsumer.build")
+        pass
 
     def package(self):
-        print("ExampleConsumer.package")
+        pass
 
 
 

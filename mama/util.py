@@ -1,5 +1,5 @@
 import os, shutil, random, shlex, time, subprocess, pathlib
-from mama.system import System, console
+from mama.system import System, console, execute
 
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
@@ -24,10 +24,6 @@ def copy_files(fromFolder, toFolder, fileNames):
             except Exception:
                 pass
         shutil.copy2(sourceFile, destFile) # copy while preserving metadata
-
-def execute(command):
-    if os.system(command) != 0:
-        raise Exception(f'{command} failed')
 
 def deploy_framework(framework, deployFolder):
     if not os.path.exists(framework):
@@ -69,3 +65,36 @@ def save_file_if_contents_changed(filename, new_contents):
     if not has_contents_changed(filename, new_contents):
         return
     pathlib.Path(filename).write_text(new_contents)
+
+def normalized_path(pathstring):
+    pathstring = os.path.abspath(pathstring)
+    return pathstring.replace('\\', '/')
+
+def glob_with_extensions(rootdir, extensions):
+    results = []
+    for dirpath, _, dirfiles in os.walk(rootdir):
+        for file in dirfiles:
+            _, fext = os.path.splitext(file)
+            if fext in extensions:
+                pathstring = os.path.join(dirpath, file)
+                pathstring = normalized_path(pathstring)
+                results.append(pathstring)
+    return results
+
+def is_dir_empty(dir): # no files?
+    if not os.path.exists(dir): return True
+    _, _, filenames = next(os.walk(dir))
+    return len(filenames) == 0
+
+def has_tag_changed(old_tag_file, new_tag):
+    if not os.path.exists(old_tag_file):
+        return True
+    old_tag = pathlib.Path(old_tag_file).read_text()
+    if old_tag != new_tag:
+        console(f" tagchange '{old_tag.strip()}'\n"+
+                f"      ---> '{new_tag.strip()}'")
+        return True
+    return False
+
+def write_text_to(file, text):
+    pathlib.Path(file).write_text(text)

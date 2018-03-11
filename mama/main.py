@@ -3,7 +3,7 @@ import sys, os, importlib
 from .system import console
 from .build_config import BuildConfig
 from .build_target import BuildTarget
-from .parse_mamafile import parse_mamafile
+from .build_dependency import BuildDependency
 
 def print_usage():
     console('mama [actions...] [args...]')
@@ -53,6 +53,6 @@ def main():
 
     config = BuildConfig(sys.argv[1:])
     source_dir = os.getcwd()
-    main_target = parse_mamafile(config, source_dir)
-    main_target.init_local_dependency(source_dir)
-    main_target.build_target()
+    name = os.path.basename(source_dir)
+    main_dependency = BuildDependency(name, config, BuildTarget, src=source_dir)
+    main_dependency.target.build_target()

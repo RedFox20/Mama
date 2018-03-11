@@ -3,16 +3,11 @@ import mama
 class ExampleLibrary(mama.BuildTarget):
     
     def configure(self):
-        print("ExampleLibrary.configure")
+        self.set_build_dependency("bin/ExampleLibrary.lib")
 
     def build(self):
-        print("ExampleLibrary.build")
+        pass
 
     def package(self):
-        print("ExampleLibrary.package")
-
-
-
-
-
-
+        self.export_includes(".")
+        self.export_libs("bin")

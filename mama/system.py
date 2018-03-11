@@ -1,7 +1,11 @@
-import sys
+import sys, os
 
 ## Always flush to properly support Jenkins
 def console(s): print(s, flush=True)
+
+def execute(command):
+    if os.system(command) != 0:
+        raise Exception(f'{command} failed')
 
 is_windows = sys.platform == 'win32'
 is_linux   = sys.platform.startswith('linux')
