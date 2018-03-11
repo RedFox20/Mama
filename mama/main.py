@@ -41,6 +41,18 @@ def print_usage():
     console('    setenv("NINJA")               Path to NINJA build executable')
     console('    setenv("ANDROID_HOME")        Path to Android SDK if auto-detect fails')
 
+# preload actions only valid for root_dependency
+def run_preload_actions(config: BuildConfig, root_dependency: BuildDependency):
+    if config.clean and not config.target:
+        root_dependency.clean()
+
+
+def run_load_actions(config: BuildConfig, root_dependency: BuildDependency):
+    load_dependency_chain(root_dependency)
+
+def run_postload_actions(config: BuildConfig, root_dependency: BuildDependency):
+    if config.build:
+        build_dependency_chain(root_dependency)
 
 def main():
     console(f'========= Mama Build Tool ==========\n')
@@ -55,7 +67,11 @@ def main():
     config = BuildConfig(sys.argv[1:])
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
-    main_dependency = BuildDependency(name, config, BuildTarget, src=source_dir)
+    root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir)
     
-    load_dependency_chain(main_dependency)
-    build_dependency_chain(main_dependency)
+    if config.clean:
+        run_preload_actions(config, root_dependency)
+
+    if config.build or config.clean:
+        run_load_actions(config, root_dependency)
+        run_postload_actions(config, root_dependency)

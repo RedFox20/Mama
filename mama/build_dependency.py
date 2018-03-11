@@ -72,6 +72,7 @@ class BuildDependency:
         self.target     = None
         self.target_class = target_class
         self.should_rebuild = True
+        self.children   = []
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
@@ -95,21 +96,33 @@ class BuildDependency:
             self.git     = None
             self.src_dir = src
 
+    def is_reconfigure_target(self):
+        return self.config.configure and self.config.target == self.name
+
     ## @return True if dependency has changed
     def load(self):
-        changed = self.git_checkout()
+        git_changed = self.git_checkout()
         target = self.create_build_target()
+        target.dependencies()
 
-        if changed:
-            console(f'  - Dependency {target.name}   BUILD because git commit changed')
+        changed = False
+        if git_changed:
+            console(f'  - Target {target.name: <16}   BUILD because git commit changed')
+            changed = True
         elif not target.build_dependency:
-            console(f'  - Dependency {target.name}   BUILD because there is no configured build_dependency')
+            console(f'  - Target {target.name: <16}   BUILD because there is no configured build_dependency')
             changed = True
         elif not os.path.exists(target.build_dependency):
-            console(f'  - Dependency {target.name}   BUILD because {target.build_dependency} does not exist')
+            console(f'  - Target {target.name: <16}   BUILD because {target.build_dependency} does not exist')
+            changed = True
+        elif self.is_reconfigure_target():
+            console(f'  - Target {target.name: <16}   BUILD because configure target={target.name}')
             changed = True
         else:
-            console(f'  - Dependency {target.name}   OK')
+            console(f'  - Target {target.name: <16}   OK')
+
+        if not os.path.exists(self.build_dir):
+            os.makedirs(self.build_dir, exist_ok=True)
 
         self.should_rebuild = changed
         return changed
@@ -148,7 +161,6 @@ class BuildDependency:
     def clean(self):
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
-        console('\n\n#############################################################')
-        console(f"Cleaning {self.name} ... {self.build_dir}")
+        console(f'  - Target {self.name: <16}  CLEAN')
         #self.run_cmake("--build . --target clean")
         shutil.rmtree(self.build_dir, ignore_errors=True)

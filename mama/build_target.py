@@ -25,7 +25,6 @@ class BuildTarget:
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
-        self.added_deps = []
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
 
@@ -37,14 +36,40 @@ class BuildTarget:
             src = os.path.join(self.dep.src_dir, src)
             src = os.path.abspath(src)
         dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, src=src)
-        self.added_deps.append(dependency)
+        self.dep.children.append(dependency)
 
     ###
     # Add a remote dependency
     def add_git(self, name, git_url, git_branch='', git_tag=''):
         git = Git(git_url, git_branch, git_tag)
         dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
-        self.added_deps.append(dependency)
+        self.dep.children.append(dependency)
+
+    ## Sets a build dependency to prevent unnecessary rebuilds
+    def set_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
+        dependency = all if all else self.select(windows, android, ios, linux, mac)
+        if dependency:
+            self.build_dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
+            #console(f'    {self.name}.build_dependency = {self.build_dependency}')
+
+    def add_export_include(self, include):
+        include = os.path.join(self.dep.src_dir, include)
+        self.exported_includes.append(normalized_path(include))
+
+    ## Export includes relative to source directory
+    def export_includes(self, includes=['']):
+        self.exported_includes = []
+        for include in includes: self.add_export_include(include)
+
+    def add_export_lib(self, relative_path):
+        path = os.path.join(self.dep.build_dir, relative_path)
+        self.exported_libs.append(normalized_path(path))
+
+    ## Export libs relative to build directory
+    def export_libs(self, path = '.', extensions = ['.lib', '.a', '.dll', '.so']):
+        path = os.path.join(self.dep.build_dir, path)
+        self.exported_libs = glob_with_extensions(path, extensions)
+
 
     def cmake_generator(self):
         def choose_gen():
@@ -204,37 +229,10 @@ class BuildTarget:
         self.cmake_cxxflags += ' /std:c++11' if self.config.windows else ' -std=c++11'
 
 
-    def add_export_include(self, include):
-        include = os.path.join(self.dep.src_dir, include)
-        self.exported_includes.append(normalized_path(include))
-
-    ## Export includes relative to source directory
-    def export_includes(self, includes=['']):
-        self.exported_includes = []
-        for include in includes: self.add_export_include(include)
-
-
-    def add_export_lib(self, relative_path):
-        path = os.path.join(self.dep.build_dir, relative_path)
-        self.exported_libs.append(normalized_path(path))
-
-    ## Export libs relative to build directory
-    def export_libs(self, path = '.', extensions = ['.lib', '.a', '.dll', '.so']):
-        path = os.path.join(self.dep.build_dir, path)
-        self.exported_libs = glob_with_extensions(path, extensions)
-
-
     def copy_built_file(self, builtFile, copyToFolder):
         src = f'{self.dep.build_dir}/{builtFile}'
         dst = f'{self.dep.build_dir}/{copyToFolder}'
         shutil.copy(src, dst)
-
-    ## Sets a build dependency to prevent unnecessary rebuilds
-    def set_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
-        dependency = all if all else self.select(windows, android, ios, linux, mac)
-        if dependency:
-            self.build_dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
-            console(f'{self.name}.build_dependency = {self.build_dependency}')
 
     def download_file(self, remote_url, local_dir, force=False):
         local_file = os.path.join(local_dir, os.path.basename(remote_url))
@@ -323,8 +321,6 @@ class BuildTarget:
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.dep.save_git_commit()
-        else:
-            console(f'{self.name} already built {self.build_dependency}')
         self.package()
 
 ######################################################################################
