@@ -1,4 +1,5 @@
-import os, sys, py_compile, runpy, inspect
+import os, sys, py_compile, runpy, inspect, pathlib, time
+from mama.system import console
 
 def load_build_target(project, mamafile, target_class):
     loaded_globals = runpy.run_path(mamafile)
@@ -19,3 +20,22 @@ def parse_mamafile(config, folder, target_class):
     #     raise RuntimeError(f'{project} no CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
     return load_build_target(project, mamafile, target_class)
+
+## Return: TRUE if mamafile.py was modified
+def update_mamafile_tag(src, build_dir):
+    mamafile = os.path.join(src, 'mamafile.py')
+    mamafiletag = os.path.join(build_dir, 'mamafile_tag')
+
+    mf_time = os.path.getmtime(mamafile)
+
+    if not os.path.exists(mamafiletag):
+        pathlib.Path(mamafiletag).write_text(str(mf_time))
+        return True
+
+    tag_time = float(pathlib.Path(mamafiletag).read_text())
+
+    if mf_time != tag_time:
+        pathlib.Path(mamafiletag).write_text(str(mf_time))
+        return True
+    
+    return False

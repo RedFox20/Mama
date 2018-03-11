@@ -1,5 +1,5 @@
 import os, subprocess, shutil, stat
-from .parse_mamafile import parse_mamafile
+from .parse_mamafile import parse_mamafile, update_mamafile_tag
 from .system import System, console, execute
 from .util import is_dir_empty, has_tag_changed, write_text_to
 
@@ -75,25 +75,29 @@ class BuildDependency:
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
-        if src:
-            self.target = self.create_build_target(src)
-            self.name = self.target.name
-
-        dep_name = self.name
-        if git:
-            if git.branch: dep_name = f'{self.name}-{git.branch}'
-            elif git.tag:  dep_name = f'{self.name}-{git.tag}'
-        self.dep_dir   = os.path.join(config.workspaces_root, self.workspace, dep_name)
-        self.build_dir = os.path.join(self.dep_dir, config.name())
-
         if git:
             self.git     = git
-            self.src_dir = os.path.join(self.dep_dir, self.name)
             git.dep      = self
+            self.update_dep_dir()
+            self.src_dir = os.path.join(self.dep_dir, self.name)
             self.target  = None
         else:
             self.git     = None
             self.src_dir = src
+            self.create_build_target()
+            self.name = self.target.name
+            self.update_dep_dir()
+            
+            
+
+    def update_dep_dir(self):
+        dep_name = self.name
+        if self.git:
+            if self.git.branch: dep_name = f'{self.name}-{self.git.branch}'
+            elif self.git.tag:  dep_name = f'{self.name}-{self.git.tag}'
+        self.dep_dir   = os.path.join(self.config.workspaces_root, self.workspace, dep_name)
+        self.build_dir = os.path.join(self.dep_dir, self.config.name())
+        
 
     def is_reconfigure_target(self):
         return self.config.configure and self.config.target == self.name
@@ -101,8 +105,11 @@ class BuildDependency:
     ## @return True if dependency has changed
     def load(self):
         git_changed = self.git_checkout()
-        target = self.create_build_target()
-        target.dependencies()
+        self.create_build_target()
+        self.update_dep_dir()
+        mamafile_changed = update_mamafile_tag(self.src_dir, self.build_dir)
+        target = self.target
+        target.dependencies() ## customization point
 
         conf = self.config
         if conf.clean and (conf.target == 'all' or conf.target == target.name):
@@ -110,7 +117,10 @@ class BuildDependency:
 
         changed = False
         if conf.build:
-            if git_changed:
+            if mamafile_changed:
+                console(f'  - Target {target.name: <16}   BUILD because {target.name}/mamafile.py changed')
+                changed = True
+            elif git_changed:
                 console(f'  - Target {target.name: <16}   BUILD because git commit changed')
                 changed = True
             elif not target.build_dependency:
@@ -131,19 +141,17 @@ class BuildDependency:
         self.should_rebuild = changed
         return changed
 
-    def create_build_target(self, src=None):
+    def create_build_target(self):
         if self.target:
-            return self.target
+            return
 
-        if not src: src = self.src_dir
-        project, buildTarget = parse_mamafile(self.config, src, self.target_class)
+        project, buildTarget = parse_mamafile(self.config, self.src_dir, self.target_class)
         buildStatics = buildTarget.__dict__
 
         if not self.workspace:
             self.workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
         
         self.target = buildTarget(name=project, config=self.config, dep=self)
-        return self.target
 
 
     def git_checkout(self):

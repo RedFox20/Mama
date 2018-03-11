@@ -283,7 +283,8 @@ class BuildTarget:
     ###
     # Perform any post-build steps to package the products
     def package(self):
-        pass
+        self.export_includes() # default include is root dir
+        self.export_libs(self.config.name()) # default export from {build_dir}/{cmake_build_type}
 
     ############################################
 
@@ -309,7 +310,8 @@ class BuildTarget:
     def build_target(self):
         if self.dep.should_rebuild:
             console('\n\n#############################################################')
-            console(f"CMake build {self.name} ...")
+            console(f"CMake build {self.name}")
+            self.build() # user customization
 
             flags = self.get_cmake_flags()
             gen = self.cmake_generator()
@@ -318,7 +320,7 @@ class BuildTarget:
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.dep.save_git_commit()
-        self.package()
+        self.package() # user customization
 
 ######################################################################################
 
