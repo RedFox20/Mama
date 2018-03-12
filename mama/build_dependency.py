@@ -1,7 +1,7 @@
 import os, subprocess, shutil, stat
-from .parse_mamafile import parse_mamafile, update_mamafile_tag
-from .system import System, console, execute
-from .util import is_dir_empty, has_tag_changed, write_text_to
+from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
+from mama.system import System, console, execute
+from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes
 
 ######################################################################################
 
@@ -71,6 +71,7 @@ class BuildDependency:
         self.target     = None
         self.target_class = target_class
         self.should_rebuild = True
+        self.is_root = False # Root deps are always built
         self.children   = []
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
@@ -79,11 +80,11 @@ class BuildDependency:
             self.git     = git
             git.dep      = self
             self.update_dep_dir()
-            self.src_dir = os.path.join(self.dep_dir, self.name)
+            self.src_dir = forward_slashes(os.path.join(self.dep_dir, self.name))
             self.target  = None
         else:
             self.git     = None
-            self.src_dir = src
+            self.src_dir = forward_slashes(src)
             self.create_build_target()
             self.name = self.target.name
             self.update_dep_dir()
@@ -95,48 +96,70 @@ class BuildDependency:
         if self.git:
             if self.git.branch: dep_name = f'{self.name}-{self.git.branch}'
             elif self.git.tag:  dep_name = f'{self.name}-{self.git.tag}'
-        self.dep_dir   = os.path.join(self.config.workspaces_root, self.workspace, dep_name)
-        self.build_dir = os.path.join(self.dep_dir, self.config.name())
+        self.dep_dir   = forward_slashes(os.path.join(self.config.workspaces_root, self.workspace, dep_name))
+        self.build_dir = forward_slashes(os.path.join(self.dep_dir, self.config.name()))
         
 
     def is_reconfigure_target(self):
         return self.config.configure and self.config.target == self.name
+
+    def exported_libs_file(self):
+        return self.build_dir + '/mama_exported_libs'
+
+    def load_build_dependencies(self, target):
+        for saved_dependency in read_lines_from(self.exported_libs_file()):
+            target.add_build_dependency(saved_dependency)
+
+    def save_exports_as_dependencies(self, exports):
+        write_text_to(self.exported_libs_file(), '\n'.join(exports))
+
+    def get_missing_build_dependency(self):
+        for depfile in self.target.build_dependencies:
+            if not os.path.exists(depfile):
+                return depfile
+        return None
 
     ## @return True if dependency has changed
     def load(self):
         git_changed = self.git_checkout()
         self.create_build_target()
         self.update_dep_dir()
-        mamafile_changed = update_mamafile_tag(self.src_dir, self.build_dir)
+
+        if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
+            os.makedirs(self.build_dir, exist_ok=True)
+
         target = self.target
-        target.dependencies() ## customization point
+        if not self.is_root:
+            self.load_build_dependencies(target)
+        target.dependencies() ## customization point for additional dependencies
 
         conf = self.config
         if conf.clean and (conf.target == 'all' or conf.target == target.name):
-            self.clean(conf.target)
+            self.clean()
 
-        changed = False
+        changed = True
         if conf.build:
-            if mamafile_changed:
-                console(f'  - Target {target.name: <16}   BUILD because {target.name}/mamafile.py changed')
-                changed = True
+            if conf.target and conf.target != 'all' and conf.target != target.name:
+                changed = False # skip build if target doesn't match
+            elif self.is_root:
+                console(f'  - Target {target.name: <16}   BUILD [root target]')
+            elif update_mamafile_tag(self.src_dir, self.build_dir):
+                console(f'  - Target {target.name: <16}   BUILD [{target.name}/mamafile.py modified]')
+            elif update_cmakelists_tag(self.src_dir, self.build_dir):
+                console(f'  - Target {target.name: <16}   BUILD [{target.name}/CMakeLists.txt modified]')
             elif git_changed:
-                console(f'  - Target {target.name: <16}   BUILD because git commit changed')
-                changed = True
-            elif not target.build_dependency:
-                console(f'  - Target {target.name: <16}   BUILD because there is no configured build_dependency')
-                changed = True
-            elif not os.path.exists(target.build_dependency):
-                console(f'  - Target {target.name: <16}   BUILD because {target.build_dependency} does not exist')
-                changed = True
+                console(f'  - Target {target.name: <16}   BUILD [git commit changed]')
             elif self.is_reconfigure_target():
-                console(f'  - Target {target.name: <16}   BUILD because configure target={target.name}')
-                changed = True
+                console(f'  - Target {target.name: <16}   BUILD [configure target={target.name}')
+            elif not target.build_dependencies:
+                console(f'  - Target {target.name: <16}   BUILD [no build dependencies]')
             else:
-                console(f'  - Target {target.name: <16}   OK')
-
-        if not os.path.exists(self.build_dir):
-            os.makedirs(self.build_dir, exist_ok=True)
+                missing = self.get_missing_build_dependency()
+                if missing:
+                    console(f'  - Target {target.name: <16}   BUILD [{missing} does not exist]')
+                else:
+                    console(f'  - Target {target.name: <16}   OK')
+                    changed = False
 
         self.should_rebuild = changed
         return changed
@@ -146,12 +169,16 @@ class BuildDependency:
             return
 
         project, buildTarget = parse_mamafile(self.config, self.src_dir, self.target_class)
-        buildStatics = buildTarget.__dict__
-
-        if not self.workspace:
-            self.workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
         
-        self.target = buildTarget(name=project, config=self.config, dep=self)
+        if project and buildTarget:
+            buildStatics = buildTarget.__dict__
+            if not self.workspace:
+                self.workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
+            self.target = buildTarget(name=project, config=self.config, dep=self)
+        else:
+            if not self.workspace:
+                self.workspace = 'mamabuild'
+            self.target = self.target_class(name=self.name, config=self.config, dep=self)
 
 
     def git_checkout(self):
@@ -167,9 +194,11 @@ class BuildDependency:
         if self.git: self.git.save_commit()
 
     ## Clean
-    def clean(self, because=None):
+    def clean(self):
+        console(f'  - Target {self.name: <16}   CLEAN')
+
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
-        if not because: because = self.name
-        console(f'  - Target {self.name: <16}   CLEAN because target={because}')
+        
+        self.target.clean() # Customization point
         shutil.rmtree(self.build_dir, ignore_errors=True)

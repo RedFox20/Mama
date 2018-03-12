@@ -66,6 +66,9 @@ def save_file_if_contents_changed(filename, new_contents):
         return
     pathlib.Path(filename).write_text(new_contents)
 
+def forward_slashes(pathstring):
+    return pathstring.replace('\\', '/')
+
 def normalized_path(pathstring):
     pathstring = os.path.abspath(pathstring)
     return pathstring.replace('\\', '/')
@@ -98,3 +101,9 @@ def has_tag_changed(old_tag_file, new_tag):
 
 def write_text_to(file, text):
     pathlib.Path(file).write_text(text)
+
+def read_lines_from(file):
+    if not os.path.exists(file):
+        return []
+    with pathlib.Path(file).open() as f:
+        return f.readlines()

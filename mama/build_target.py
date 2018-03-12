@@ -1,7 +1,7 @@
 import urllib.request, ssl, os.path, shutil, zipfile
 import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console
-from mama.util import execute, save_file_if_contents_changed, glob_with_extensions, normalized_path
+from mama.util import execute, save_file_if_contents_changed, glob_with_extensions, normalized_path, write_text_to
 from mama.build_dependency import BuildDependency, Git
 
 ######################################################################################
@@ -14,7 +14,6 @@ class BuildTarget:
         self.name = name
         self.dep = dep
         self.install_target   = 'install'
-        self.build_dependency = ''
         self.cmake_ndk_toolchain = f'{config.ndk_path}/build/cmake/android.toolchain.cmake'
         self.cmake_ios_toolchain = ''
         self.cmake_opts       = []
@@ -25,6 +24,7 @@ class BuildTarget:
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_multiprocess_build = True
+        self.build_dependencies = [] # dependency files
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
 
@@ -45,12 +45,13 @@ class BuildTarget:
         dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
         self.dep.children.append(dependency)
 
-    ## Sets a build dependency to prevent unnecessary rebuilds
-    def set_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
+    ## Adds a build dependency to prevent unnecessary rebuilds
+    def add_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
         dependency = all if all else self.select(windows, android, ios, linux, mac)
         if dependency:
-            self.build_dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
-            #console(f'    {self.name}.build_dependency = {self.build_dependency}')
+            dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
+            self.build_dependencies.append(dependency)
+            #console(f'    {self.name}.build_dependencies += {dependency}')
 
     def add_export_include(self, include):
         include = os.path.join(self.dep.src_dir, include)
@@ -280,11 +281,16 @@ class BuildTarget:
     def build(self):
         pass
 
+    ### 
+    # Perform any pre-clean steps here
+    def clean(self):
+        pass
+
     ###
     # Perform any post-build steps to package the products
     def package(self):
         self.export_includes() # default include is root dir
-        self.export_libs(self.config.name()) # default export from {build_dir}/{cmake_build_type}
+        self.export_libs(self.cmake_build_type) # default export from {build_dir}/{cmake_build_type}
 
     ############################################
 
@@ -303,8 +309,9 @@ class BuildTarget:
         console(f"CMake install {self.name} ...")
         self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)}")
 
-    def clean(self):
+    def clean_target(self):
         self.dep.clean()
+
 
     ## Build only this target and nothing else
     def build_target(self):
@@ -320,7 +327,13 @@ class BuildTarget:
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.dep.save_git_commit()
+        
+        self.package_target()
+
+    def package_target(self):
         self.package() # user customization
+        self.dep.save_exports_as_dependencies(self.exported_libs)
+
 
 ######################################################################################
 
