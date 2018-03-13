@@ -57,6 +57,13 @@ class BuildTarget:
         include = os.path.join(self.dep.src_dir, include)
         self.exported_includes.append(normalized_path(include))
 
+    def try_export_default_include(self, root_path, include_folder):
+        include = os.path.join(root_path, include_folder)
+        if os.path.exists(include):
+            self.exported_includes.append(normalized_path(include))
+            return True
+        return False
+
     ## Export includes relative to source directory
     def export_includes(self, includes=['']):
         self.exported_includes = []
@@ -289,8 +296,17 @@ class BuildTarget:
     ###
     # Perform any post-build steps to package the products
     def package(self):
-        self.export_includes() # default include is root dir
-        self.export_libs(self.cmake_build_type) # default export from {build_dir}/{cmake_build_type}
+        # try multiple common/popular C and C++ library include patterns
+        if self.try_export_default_include(self.dep.build_dir, 'include'): pass
+        elif self.try_export_default_include(self.dep.src_dir, 'include'): pass
+        elif self.try_export_default_include(self.dep.src_dir, 'src'):     pass
+        elif self.try_export_default_include(self.dep.src_dir, ''):        pass
+
+        # default export from {build_dir}/{cmake_build_type}
+        self.export_libs(self.cmake_build_type)
+
+        # console(f'exported_includes: [{self.exported_includes}]')
+        # console(f'exported_libs: [{self.exported_libs}]')
 
     ############################################
 
