@@ -105,7 +105,7 @@ class BuildConfig:
         for sdk_path in paths:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
-                self.ndk_path = sdk_path  + '/ndk-bundle'
+                self.android_ndk_path = sdk_path  + '/ndk-bundle'
                 #console(f'Found Android NDK: {self.ndk_path}')
                 return
         return ''

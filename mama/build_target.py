@@ -3,6 +3,7 @@ import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console
 from mama.util import execute, save_file_if_contents_changed, glob_with_extensions, normalized_path, write_text_to
 from mama.build_dependency import BuildDependency, Git
+from mama.cmake_configure import run_cmake_config
 
 ######################################################################################
 
@@ -14,7 +15,7 @@ class BuildTarget:
         self.name = name
         self.dep = dep
         self.install_target   = 'install'
-        self.cmake_ndk_toolchain = f'{config.ndk_path}/build/cmake/android.toolchain.cmake'
+        self.cmake_ndk_toolchain = f'{config.android_ndk_path}/build/cmake/android.toolchain.cmake' if config.android_ndk_path else ''
         self.cmake_ios_toolchain = ''
         self.cmake_opts       = []
         self.cmake_cxxflags   = ''
@@ -336,10 +337,7 @@ class BuildTarget:
             console(f"CMake build {self.name}")
             self.build() # user customization
 
-            flags = self.get_cmake_flags()
-            gen = self.cmake_generator()
-            self.run_cmake(f'{gen} {flags} -DCMAKE_INSTALL_PREFIX="." . "{self.dep.src_dir}"')
-
+            run_cmake_config(self.dep, self.cmake_generator(), self.get_cmake_flags())
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
             self.dep.save_git_commit()

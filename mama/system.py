@@ -4,8 +4,9 @@ import sys, os
 def console(s): print(s, flush=True)
 
 def execute(command):
-    if os.system(command) != 0:
-        raise Exception(f'{command} failed')
+    retcode = os.system(command)
+    if retcode != 0:
+        raise Exception(f'{command} failed with return code {retcode}')
 
 is_windows = sys.platform == 'win32'
 is_linux   = sys.platform.startswith('linux')
