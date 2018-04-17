@@ -12,6 +12,10 @@ class Git:
         self.branch = branch
         self.tag = tag
         self.dep = None
+        self.url_changed = False
+        self.tag_changed = False
+        self.branch_changed = False
+        self.commit_changed = False
 
     def run_git(self, git_command):
         cmd = f"cd {self.dep.src_dir} && git {git_command}"
@@ -22,25 +26,30 @@ class Git:
         cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
         return cp.stdout.decode('utf-8')
 
-    def tag_changed(self):
-        return has_tag_changed(f"{self.dep.build_dir}/git_tag", self.tag)
+    def save_status(self):
+        status = f"{self.url}\n{self.tag}\n{self.branch}\n{self.current_commit()}\n"
+        write_text_to(f"{self.dep.build_dir}/git_status", status)
 
-    def commit_changed(self):
-        return not os.path.exists(self.dep.build_dir) or\
-         has_tag_changed(f"{self.dep.build_dir}/git_commit", self.current_commit())
-
-    def save_tag(self):
-        write_text_to(f"{self.dep.build_dir}/git_tag", self.tag)
-
-    def save_commit(self):
-        write_text_to(f"{self.dep.build_dir}/git_commit", self.current_commit())
+    def check_status(self):
+        lines = read_lines_from(f"{self.dep.build_dir}/git_status")
+        if not lines:
+            if not self.url: return False
+            self.url_changed = True
+            self.tag_changed = True
+            self.branch_changed = True
+            self.commit_changed = True
+            return True
+        self.url_changed = self.url != lines[0]
+        self.tag_changed = self.tag != lines[1]
+        self.branch_changed = self.branch != lines[2]
+        self.commit_changed = self.current_commit() != lines[3]
+        return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
     def checkout_current_branch(self):
         branch = self.branch if self.branch else self.tag
         if branch:
-            if self.tag and self.tag_changed():
+            if self.tag and self.tag_changed:
                 self.run_git("reset --hard")
-                self.save_tag()
             self.run_git(f"checkout {branch}")
 
     def reclone_wipe(self):
@@ -182,16 +191,16 @@ class BuildDependency:
 
 
     def git_checkout(self):
-        if not self.git or not self.git.commit_changed():
+        if not self.git or not self.git.check_status():
             return False
-        if self.config.reclone and self.config.target == self.name:
+        if self.git.url_changed or (self.config.reclone and self.config.target == self.name):
             self.git.reclone_wipe()
         self.git.clone_or_pull()
         return True
 
     ## GIT
-    def save_git_commit(self):
-        if self.git: self.git.save_commit()
+    def save_git_status(self):
+        if self.git: self.git.save_status()
 
     ## Clean
     def clean(self):

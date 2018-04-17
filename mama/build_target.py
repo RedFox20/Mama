@@ -340,7 +340,7 @@ class BuildTarget:
             run_cmake_config(self.dep, self.cmake_generator(), self.get_cmake_flags())
             self.inject_env()
             self.run_cmake(f"--build . --config {self.cmake_build_type} {self.prepare_install_target(True)} {self.buildsys_flags()}")
-            self.dep.save_git_commit()
+            self.dep.save_git_status()
         
         self.package_target()
 
