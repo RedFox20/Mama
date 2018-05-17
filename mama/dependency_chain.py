@@ -4,6 +4,7 @@ from .build_dependency import BuildDependency
 from .util import save_file_if_contents_changed
 from .system import console
 
+
 def save_generic_cmake(root_dependency: BuildDependency):
     outfile = f'{root_dependency.src_dir}/mama.cmake'
     text = f'''
@@ -35,10 +36,12 @@ include("{root_dependency.dep_dir}/${{MAMA_BUILD}}/mama-dependencies.cmake")
 '''
     save_file_if_contents_changed(outfile, text)
 
+
 def get_cmake_path_list(paths):
     pathlist = '' 
     for path in paths: pathlist += f'\n    "{path}"'
     return pathlist
+
 
 def save_dependencies_cmake(root_dependency: BuildDependency):
     outfile = f'{root_dependency.build_dir}/mama-dependencies.cmake'
@@ -61,24 +64,35 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libraries})
 '''
     save_file_if_contents_changed(outfile, text)
 
+
 def create_mama_cmake_includes(root_dependency: BuildDependency):
     save_dependencies_cmake(root_dependency)
     save_generic_cmake(root_dependency)
 
 
-def load_child_dependencies(root_dependency: BuildDependency):
-    futures = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as e:
-        for dep in root_dependency.children:
-            futures.append(e.submit(load_dependency_chain, dep))
+def load_child_dependencies(root_dependency: BuildDependency, parallel=True):
     changed = False
-    for f in futures: changed |= f.result()
+    if parallel:
+        futures = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as e:
+            for dep in root_dependency.children:
+                futures.append(e.submit(load_dependency_chain, dep))
+        for f in futures:
+            changed |= f.result()
+    else:
+        for dep in root_dependency.children:
+            changed |= load_dependency_chain(dep)
     return changed
 
-def load_dependency_chain(root_dependency: BuildDependency):
-    changed = root_dependency.load()
-    changed |= load_child_dependencies(root_dependency)
+
+def load_dependency_chain(dep: BuildDependency):
+    if dep.already_loaded:
+        return dep.should_rebuild
+
+    changed = dep.load()
+    changed |= load_child_dependencies(dep)
     return changed
+
 
 def build_dependency_chain(root_dependency: BuildDependency):
     for dep in root_dependency.children:

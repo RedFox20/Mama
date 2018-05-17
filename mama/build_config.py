@@ -39,6 +39,7 @@ class BuildConfig:
         self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
         self.android_api   = 'android-24'
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
+        self.global_workspace = True
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
         for arg in args: self.parse_arg(arg)
         self.check_platform()

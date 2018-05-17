@@ -1,7 +1,7 @@
 import os, subprocess, shutil, stat
 from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 from mama.system import System, console, execute
-from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes
+from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes, back_slashes
 
 ######################################################################################
 
@@ -24,7 +24,7 @@ class Git:
 
     def current_commit(self): 
         cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
-        return cp.stdout.decode('utf-8')
+        return cp.stdout.decode('utf-8').rstrip()
 
     def save_status(self):
         status = f"{self.url}\n{self.tag}\n{self.branch}\n{self.current_commit()}\n"
@@ -34,15 +34,17 @@ class Git:
         lines = read_lines_from(f"{self.dep.build_dir}/git_status")
         if not lines:
             if not self.url: return False
+            #console(f'check_status {self.url}: NO STATUS AT {self.dep.build_dir}/git_status')
             self.url_changed = True
             self.tag_changed = True
             self.branch_changed = True
             self.commit_changed = True
             return True
-        self.url_changed = self.url != lines[0]
-        self.tag_changed = self.tag != lines[1]
-        self.branch_changed = self.branch != lines[2]
-        self.commit_changed = self.current_commit() != lines[3]
+        self.url_changed = self.url != lines[0].rstrip()
+        self.tag_changed = self.tag != lines[1].rstrip()
+        self.branch_changed = self.branch != lines[2].rstrip()
+        self.commit_changed = self.current_commit() != lines[3].rstrip()
+        #console(f'check_status {self.url}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
     def checkout_current_branch(self):
@@ -53,7 +55,7 @@ class Git:
             self.run_git(f"checkout {branch}")
 
     def reclone_wipe(self):
-        console(f'Reclone wipe {self.dep.dep_dir}')
+        console(f'  - Target {self.dep.name: <16}   RECLONE WIPE')
         if os.path.exists(self.dep.dep_dir):
             if System.windows: # chmod everything to user so we can delete:
                 for root, dirs, files in os.walk(self.dep.dep_dir):
@@ -61,9 +63,10 @@ class Git:
                     for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
             shutil.rmtree(self.dep.dep_dir)
 
-    def clone_or_pull(self):
+    def clone_or_pull(self, wiped=False):
         if is_dir_empty(self.dep.src_dir):
-            console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
+            if not wiped:
+                console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             execute(f"git clone {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
@@ -73,15 +76,20 @@ class Git:
                 self.run_git("pull")
 
 class BuildDependency:
-    def __init__(self, name, config, target_class, workspace=None, src=None, git=None):
+    loaded_deps = dict()
+    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False):
         self.name       = name
         self.workspace  = workspace
         self.config     = config
         self.target     = None
         self.target_class = target_class
         self.should_rebuild = True
-        self.is_root = False # Root deps are always built
-        self.children   = []
+        self.already_loaded = False
+        self.already_built = False
+        self.is_root = is_root # Root deps are always built
+        self.children = []
+        self.depends_on = []
+        self.product_sources = []
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
@@ -98,7 +106,15 @@ class BuildDependency:
             self.name = self.target.name
             self.update_dep_dir()
             
+    @staticmethod
+    def get(name, config, target_class, workspace=None, src=None, git=None):
+        if name in BuildDependency.loaded_deps:
+            return BuildDependency.loaded_deps[name]
             
+        dependency = BuildDependency(name, config, target_class, workspace=workspace, src=src, git=git)
+        BuildDependency.loaded_deps[name] = dependency
+        return dependency
+
 
     def update_dep_dir(self):
         dep_name = self.name
@@ -124,7 +140,7 @@ class BuildDependency:
 
     def get_missing_build_dependency(self):
         for depfile in self.target.build_dependencies:
-            if not os.path.exists(depfile):
+            if not os.path.getsize(depfile):
                 return depfile
         return None
 
@@ -136,6 +152,10 @@ class BuildDependency:
 
         if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
             os.makedirs(self.build_dir, exist_ok=True)
+
+        if git_changed:
+            #console(f'SAVE GIT STATUS {self.target.name}')
+            self.git.save_status() # save git status to avoid recloning
 
         target = self.target
         if not self.is_root:
@@ -170,6 +190,7 @@ class BuildDependency:
                     console(f'  - Target {target.name: <16}   OK')
                     changed = False
 
+        self.already_loaded = True
         self.should_rebuild = changed
         return changed
 
@@ -182,7 +203,15 @@ class BuildDependency:
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:
-                self.workspace = buildStatics['workspace'] if 'workspace' in buildStatics else 'mamabuild'
+                if   'workspace'        in buildStatics: self.workspace = buildStatics['workspace']
+                elif 'local_workspace'  in buildStatics: self.workspace = buildStatics['local_workspace']
+                elif 'global_workspace' in buildStatics: self.workspace = buildStatics['global_workspace']
+                else:                                    self.workspace = 'mamabuild'
+            if self.is_root:
+                if   'local_workspace'  in buildStatics: self.config.global_workspace = False
+                elif 'global_workspace' in buildStatics: self.config.global_workspace = True
+                if not self.config.global_workspace:
+                    self.config.workspaces_root = self.src_dir
             self.target = buildTarget(name=project, config=self.config, dep=self)
         else:
             if not self.workspace:
@@ -193,9 +222,11 @@ class BuildDependency:
     def git_checkout(self):
         if not self.git or not self.git.check_status():
             return False
+        wiped = False
         if self.git.url_changed or (self.config.reclone and self.config.target == self.name):
             self.git.reclone_wipe()
-        self.git.clone_or_pull()
+            wiped = True
+        self.git.clone_or_pull(wiped)
         return True
 
     ## GIT

@@ -69,9 +69,12 @@ def save_file_if_contents_changed(filename, new_contents):
 def forward_slashes(pathstring):
     return pathstring.replace('\\', '/')
 
+def back_slashes(pathstring):
+    return pathstring.replace('/', '\\')
+
 def normalized_path(pathstring):
     pathstring = os.path.abspath(pathstring)
-    return pathstring.replace('\\', '/')
+    return pathstring.replace('\\', '/').rstrip()
 
 def glob_with_extensions(rootdir, extensions):
     results = []

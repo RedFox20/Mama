@@ -66,8 +66,10 @@ def main():
     config = BuildConfig(sys.argv[1:])
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
-    root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir)
-    root_dependency.is_root = True
+    root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
+
+    if not config.global_workspace:
+        config.workspaces_root = source_dir
     
     if config.clean:
         run_preload_actions(config, root_dependency)

@@ -29,6 +29,7 @@ class BuildTarget:
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
 
+
     ###
     # Add a local dependency
     def add_local(self, name, source_dir):
@@ -36,15 +37,42 @@ class BuildTarget:
         if not os.path.isabs(src):
             src = os.path.join(self.dep.src_dir, src)
             src = os.path.abspath(src)
-        dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, src=src)
+        dependency = BuildDependency.get(name, self.config, BuildTarget, workspace=self.dep.workspace, src=src)
         self.dep.children.append(dependency)
+
 
     ###
     # Add a remote dependency
     def add_git(self, name, git_url, git_branch='', git_tag=''):
         git = Git(git_url, git_branch, git_tag)
-        dependency = BuildDependency(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
+        dependency = BuildDependency.get(name, self.config, BuildTarget, workspace=self.dep.workspace, git=git)
         self.dep.children.append(dependency)
+
+
+    def get_dependency(self, name):
+        for dep in self.dep.children:
+            if dep.name == name:
+                return dep
+        raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
+
+
+    def add_dependency(self, name, depends_on_name):
+        d = self.get_dependency(name)
+        dependency = self.get_dependency(depends_on_name)
+        d.depends_on.append(dependency)
+
+
+    ## Injects products from `src_dep` into `dst_dep` as CMake defines
+    ## Name of defines is given via `include_path` and `libs` params
+    ## `libfilters` does simple string matching; if nothing matches, the first export lib is chosen
+    ## Ex:
+    ##     self.inject_products('libpng', 'zlib', 'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY', 'zlibstatic')
+    def inject_products(self, dst_dep, src_dep, include_path, libs, libfilters=None):
+        dst_dep = self.get_dependency(dst_dep)
+        src_dep = self.get_dependency(src_dep)
+        dst_dep.depends_on.append(src_dep)
+        dst_dep.product_sources.append( (src_dep, include_path, libs, libfilters) )
+
 
     ## Adds a build dependency to prevent unnecessary rebuilds
     def add_build_dependency(self, all='', windows='', android='', ios='', linux='', mac=''):
@@ -75,9 +103,11 @@ class BuildTarget:
         self.exported_libs.append(normalized_path(path))
 
     ## Export libs relative to build directory
-    def export_libs(self, path = '.', extensions = ['.lib', '.a', '.dll', '.so']):
+    def export_libs(self, path = '.', extensions = ['.lib', '.a']):
         path = os.path.join(self.dep.build_dir, path)
         self.exported_libs = glob_with_extensions(path, extensions)
+
+
 
 
     def cmake_generator(self):
@@ -198,10 +228,32 @@ class BuildTarget:
         elif self.config.macos:
             os.environ['MACOSX_DEPLOYMENT_TARGET'] = self.config.macos_version
 
+    def get_exported_includes(self): return ';'.join(self.exported_includes) if self.exported_includes else ''
+    def get_exported_libs(self, libfilters):
+        #console(f'libfilters={libfilters}')
+        if not self.exported_libs: return
+        if not libfilters: return ';'.join(self.exported_libs)
+        libs = []
+        for lib in self.exported_libs:
+            if libfilters in lib: libs.append(lib)
+        if not libs: libs.append(self.exported_libs[0])
+        return ';'.join(libs)
+
     def get_cmake_flags(self):
         flags = ''
         options = self.cmake_opts + self.cmake_default_options()
         for opt in options: flags += '-D'+opt+' '
+
+        product_defines = []
+        for source in self.dep.product_sources:
+            srcdep = source[0]
+            includes = srcdep.target.get_exported_includes()
+            libraries = srcdep.target.get_exported_libs(source[3])
+            #console(f'grabbing products: {srcdep.name}; includes={includes}; libraries={libraries}')
+            product_defines.append(f'{source[1]}={includes}')
+            product_defines.append(f'{source[2]}={libraries}')
+
+        for opt in product_defines: flags += '-D'+opt+' '
         return flags
 
     def add_cxx_flags(self, msvc='', clang=''):
@@ -304,7 +356,7 @@ class BuildTarget:
         elif self.try_export_default_include(self.dep.src_dir, ''):        pass
 
         # default export from {build_dir}/{cmake_build_type}
-        self.export_libs(self.cmake_build_type)
+        self.export_libs(self.cmake_build_type, ['.lib', '.a'])
 
         # console(f'exported_includes: [{self.exported_includes}]')
         # console(f'exported_libs: [{self.exported_libs}]')
@@ -332,6 +384,11 @@ class BuildTarget:
 
     ## Build only this target and nothing else
     def build_target(self):
+        if self.dep.already_built:
+            return
+        
+        self.dep.already_built = True
+
         if self.dep.should_rebuild:
             console('\n\n#############################################################')
             console(f"CMake build {self.name}")
