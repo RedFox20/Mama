@@ -17,6 +17,7 @@ class BuildConfig:
         self.build   = False
         self.clean   = False
         self.rebuild = False
+        self.update  = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
         self.test      = None
@@ -25,6 +26,8 @@ class BuildConfig:
         self.macos   = False
         self.ios     = False
         self.android = False
+        self.linux_clang = True # prefer clang on linux
+        self.linux_gcc   = False   
         self.release = True
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
@@ -71,6 +74,7 @@ class BuildConfig:
         if   arg == 'build':     self.build   = True
         elif arg == 'clean':     self.clean   = True
         elif arg == 'rebuild':   self.rebuild = True
+        elif arg == 'update':    self.update  = True
         elif arg == 'configure': self.configure = True
         elif arg == 'reclone':   self.reclone   = True
         elif arg == 'test':      self.test      = True
@@ -79,6 +83,8 @@ class BuildConfig:
         elif arg == 'macos':   self.set_platform(macos=True)
         elif arg == 'ios':     self.set_platform(ios=True)
         elif arg == 'android': self.set_platform(android=True)
+        elif arg == 'clang':   self.linux_gcc = False
+        elif arg == 'gcc':     self.linux_gcc = True
         elif arg == 'release': self.set_build_config(release=True)
         elif arg == 'debug':   self.set_build_config(debug=True)
         elif arg.startswith('jobs='):   self.count = int(arg[5:])
@@ -115,3 +121,5 @@ class BuildConfig:
         else:            return f'lib{library}.a'
     def libext(self):
         return 'lib' if self.windows else 'a'
+    def target_matches(self, target_name):
+        return self.target == 'all' or self.target == target_name

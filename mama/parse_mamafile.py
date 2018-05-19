@@ -1,14 +1,16 @@
 import os, sys, py_compile, runpy, inspect, pathlib, time
 from mama.system import console
+from mama.util import path_join
 
-def parse_mamafile(config, folder, target_class):
-    cmakelists = os.path.join(folder, 'CMakeLists.txt')
+def parse_mamafile(config, folder, target_class, mamafile=None):
+    cmakelists = path_join(folder, 'CMakeLists.txt')
     if not os.path.exists(cmakelists):
         raise RuntimeError(f'No CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
-    mamafile = os.path.join(folder, 'mamafile.py')
+    mamafile = mamafile if mamafile else path_join(folder, 'mamafile.py')
     if not os.path.exists(mamafile):
         return None, None
+    #console(f'loaded_mamafile: {mamafile}')
 
     loaded_globals = runpy.run_path(mamafile)
     for key, value in loaded_globals.items():
@@ -35,12 +37,12 @@ def update_modification_tag(file, tagfile):
 
 ## Return: TRUE if mamafile.py was modified
 def update_mamafile_tag(src, build_dir):
-    mamafile    = os.path.join(src, 'mamafile.py')
-    mamafiletag = os.path.join(build_dir, 'mamafile_tag')
+    mamafile    = path_join(src, 'mamafile.py')
+    mamafiletag = path_join(build_dir, 'mamafile_tag')
     return update_modification_tag(mamafile, mamafiletag)
 
 ## Return: TRUE if CMakeLists.txt was modified
 def update_cmakelists_tag(src, build_dir):
-    cmakelists    = os.path.join(src, 'CMakeLists.txt')
-    cmakeliststag = os.path.join(build_dir, 'cmakelists_tag')
+    cmakelists    = path_join(src, 'CMakeLists.txt')
+    cmakeliststag = path_join(build_dir, 'cmakelists_tag')
     return update_modification_tag(cmakelists, cmakeliststag)

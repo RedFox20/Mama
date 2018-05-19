@@ -12,6 +12,7 @@ class Git:
         self.branch = branch
         self.tag = tag
         self.dep = None
+        self.missing_status = False
         self.url_changed = False
         self.tag_changed = False
         self.branch_changed = False
@@ -33,6 +34,7 @@ class Git:
     def check_status(self):
         lines = read_lines_from(f"{self.dep.build_dir}/git_status")
         if not lines:
+            self.missing_status = True
             if not self.url: return False
             #console(f'check_status {self.url}: NO STATUS AT {self.dep.build_dir}/git_status')
             self.url_changed = True
@@ -77,15 +79,16 @@ class Git:
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False):
+    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False, mamafile=None):
         self.name       = name
         self.workspace  = workspace
         self.config     = config
         self.target     = None
         self.target_class = target_class
-        self.should_rebuild = True
+        self.mamafile     = mamafile
+        self.should_rebuild = False
         self.already_loaded = False
-        self.already_built = False
+        self.already_executed  = False
         self.is_root = is_root # Root deps are always built
         self.children = []
         self.depends_on = []
@@ -105,13 +108,15 @@ class BuildDependency:
             self.create_build_target()
             self.name = self.target.name
             self.update_dep_dir()
-            
+    
+    
     @staticmethod
-    def get(name, config, target_class, workspace=None, src=None, git=None):
+    def get(name, config, target_class, workspace=None, src=None, git=None, mamafile=None):
         if name in BuildDependency.loaded_deps:
             return BuildDependency.loaded_deps[name]
             
-        dependency = BuildDependency(name, config, target_class, workspace=workspace, src=src, git=git)
+        dependency = BuildDependency(name, config, target_class, \
+                        workspace=workspace, src=src, git=git, mamafile=mamafile)
         BuildDependency.loaded_deps[name] = dependency
         return dependency
 
@@ -138,14 +143,17 @@ class BuildDependency:
     def save_exports_as_dependencies(self, exports):
         write_text_to(self.exported_libs_file(), '\n'.join(exports))
 
+
     def get_missing_build_dependency(self):
         for depfile in self.target.build_dependencies:
             if not os.path.getsize(depfile):
                 return depfile
         return None
 
+
     ## @return True if dependency has changed
     def load(self):
+        #console(f'LOAD {self.name}')
         git_changed = self.git_checkout()
         self.create_build_target()
         self.update_dep_dir()
@@ -163,13 +171,14 @@ class BuildDependency:
         target.dependencies() ## customization point for additional dependencies
 
         conf = self.config
-        if conf.clean and (conf.target == 'all' or conf.target == target.name):
+        if conf.clean and conf.target_matches(target.name):
             self.clean()
 
-        changed = True
+        build = False
         if conf.build:
-            if conf.target and conf.target != 'all' and conf.target != target.name:
-                changed = False # skip build if target doesn't match
+            build = True
+            if conf.target and not conf.target_matches(target.name):
+                build = False # skip build if target doesn't match
             elif self.is_root:
                 console(f'  - Target {target.name: <16}   BUILD [root target]')
             elif update_mamafile_tag(self.src_dir, self.build_dir):
@@ -188,18 +197,19 @@ class BuildDependency:
                     console(f'  - Target {target.name: <16}   BUILD [{missing} does not exist]')
                 else:
                     console(f'  - Target {target.name: <16}   OK')
-                    changed = False
+                    build = False
 
         self.already_loaded = True
-        self.should_rebuild = changed
-        return changed
+        self.should_rebuild = build
+        return build
+
 
     def create_build_target(self):
         if self.target:
             return
 
-        project, buildTarget = parse_mamafile(self.config, self.src_dir, self.target_class)
-        
+        project, buildTarget = parse_mamafile(self.config, self.src_dir, \
+                                            self.target_class, mamafile=self.mamafile)
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:
@@ -220,10 +230,19 @@ class BuildDependency:
 
 
     def git_checkout(self):
-        if not self.git or not self.git.check_status():
+        if not self.git:
             return False
+        
+        # if no update command, allow us to skip pulling by returning False
+        changed = self.git.check_status()
+        is_target = self.config.target_matches(self.name)
+        update = self.config.update and is_target
+        if not changed and not update:
+            return False
+
         wiped = False
-        if self.git.url_changed or (self.config.reclone and self.config.target == self.name):
+        should_wipe = self.git.url_changed and not self.git.missing_status
+        if should_wipe or (is_target and self.config.reclone):
             self.git.reclone_wipe()
             wiped = True
         self.git.clone_or_pull(wiped)

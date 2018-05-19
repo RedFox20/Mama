@@ -70,7 +70,7 @@ def create_mama_cmake_includes(root_dependency: BuildDependency):
     save_generic_cmake(root_dependency)
 
 
-def load_child_dependencies(root_dependency: BuildDependency, parallel=True):
+def load_child_dependencies(root_dependency: BuildDependency, parallel=False):
     changed = False
     if parallel:
         futures = []
@@ -94,9 +94,9 @@ def load_dependency_chain(dep: BuildDependency):
     return changed
 
 
-def build_dependency_chain(root_dependency: BuildDependency):
+def execute_task_chain(root_dependency: BuildDependency):
     for dep in root_dependency.children:
-        build_dependency_chain(dep)
+        execute_task_chain(dep)
     
     create_mama_cmake_includes(root_dependency)
-    root_dependency.target.build_target()
+    root_dependency.target.execute_tasks()
