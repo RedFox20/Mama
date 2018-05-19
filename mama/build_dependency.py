@@ -87,6 +87,7 @@ class BuildDependency:
         self.target_class = target_class
         self.mamafile     = mamafile
         self.should_rebuild = False
+        self.nothing_to_build = False
         self.already_loaded = False
         self.already_executed  = False
         self.is_root = is_root # Root deps are always built

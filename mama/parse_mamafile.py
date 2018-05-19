@@ -3,9 +3,9 @@ from mama.system import console
 from mama.util import path_join
 
 def parse_mamafile(config, folder, target_class, mamafile=None):
-    cmakelists = path_join(folder, 'CMakeLists.txt')
-    if not os.path.exists(cmakelists):
-        raise RuntimeError(f'No CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
+    # cmakelists = path_join(folder, 'CMakeLists.txt')
+    # if not os.path.exists(cmakelists):
+    #     raise RuntimeError(f'No CMakeLists found at {cmakelists}. Mamabuild requires a valid CMakeLists')
 
     mamafile = mamafile if mamafile else path_join(folder, 'mamafile.py')
     if not os.path.exists(mamafile):

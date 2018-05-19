@@ -254,6 +254,7 @@ class BuildTarget:
 
 
     def nothing_to_build(self):
+        self.dep.nothing_to_build = True
         self.dep.should_rebuild = False
 
 
@@ -320,6 +321,25 @@ class BuildTarget:
         self.dep.clean()
 
 
+    def run_build_task(self):
+        cmakelists = os.path.join(self.dep.src_dir, 'CMakelists.txt')
+        if not os.path.exists(cmakelists):
+            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step.')
+        
+        console('\n\n#############################################################')
+        console(f"CMake build {self.name}")
+        def cmake_flags():
+            flags = ''
+            options = self.cmake_opts + cmake_default_options(self) + self.get_product_defines()
+            for opt in options: flags += '-D'+opt+' '
+            return flags
+
+        run_cmake_config(self.dep, cmake_generator(self), cmake_flags())
+        self.inject_env()
+        self.run_cmake(f"--build . {cmake_build_config(self)} {cmake_buildsys_flags(self)}")
+        self.dep.save_git_status()
+
+
     ## Build only this target
     def execute_tasks(self):
         if self.dep.already_executed:
@@ -327,21 +347,11 @@ class BuildTarget:
         
         self.dep.already_executed = True
 
-        if self.dep.should_rebuild:
-            console('\n\n#############################################################')
-            console(f"CMake build {self.name}")
+        if self.dep.should_rebuild and not self.dep.nothing_to_build:
+
             self.configure() # user customization
-
-            def cmake_flags():
-                flags = ''
-                options = self.cmake_opts + cmake_default_options(self) + self.get_product_defines()
-                for opt in options: flags += '-D'+opt+' '
-                return flags
-
-            run_cmake_config(self.dep, cmake_generator(self), cmake_flags())
-            self.inject_env()
-            self.run_cmake(f"--build . {cmake_build_config(self)} {cmake_buildsys_flags(self)}")
-            self.dep.save_git_status()
+            if not self.dep.nothing_to_build:
+                self.run_build_task()
         
         self.package() # user customization
         self.dep.save_exports_as_dependencies(self.exported_libs)

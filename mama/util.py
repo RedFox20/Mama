@@ -128,8 +128,8 @@ def glob_with_name_match(rootdir, pattern_substrings):
 
 def glob_folders_with_name_match(rootdir, pattern_substrings):
     results = []
-    for dirpath, _, dirfiles in os.walk(rootdir):
-        if strstr_multi(file, pattern_substrings):
+    for dirpath, _, _ in os.walk(rootdir):
+        if strstr_multi(dirpath, pattern_substrings):
             results.append(normalized_path(dirpath))
     return results
 
