@@ -126,6 +126,14 @@ def glob_with_name_match(rootdir, pattern_substrings):
     return results
 
 
+def glob_folders_with_name_match(rootdir, pattern_substrings):
+    results = []
+    for dirpath, _, dirfiles in os.walk(rootdir):
+        if strstr_multi(file, pattern_substrings):
+            results.append(normalized_path(dirpath))
+    return results
+
+
 def is_dir_empty(dir): # no files?
     if not os.path.exists(dir): return True
     _, _, filenames = next(os.walk(dir))

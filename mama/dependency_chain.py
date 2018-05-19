@@ -100,3 +100,11 @@ def execute_task_chain(root_dependency: BuildDependency):
     
     create_mama_cmake_includes(root_dependency)
     root_dependency.target.execute_tasks()
+
+def find_dependency(root_dependency: BuildDependency, name) -> BuildDependency:
+    if root_dependency.name == name:
+        return root_dependency
+    for dep in root_dependency.children:
+        found = find_dependency(dep, name)
+        if found: return found
+    return None

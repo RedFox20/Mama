@@ -3,7 +3,8 @@ import sys, os
 ## Always flush to properly support Jenkins
 def console(s): print(s, flush=True)
 
-def execute(command):
+def execute(command, echo=False):
+    if echo: console(command)
     retcode = os.system(command)
     if retcode != 0:
         raise Exception(f'{command} failed with return code {retcode}')

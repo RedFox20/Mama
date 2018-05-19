@@ -32,6 +32,7 @@ class BuildConfig:
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
         self.target  = None
+        self.open    = None
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         self.ninja_path = self.find_ninja_build()
@@ -87,6 +88,8 @@ class BuildConfig:
         elif arg == 'gcc':     self.linux_gcc = True
         elif arg == 'release': self.set_build_config(release=True)
         elif arg == 'debug':   self.set_build_config(debug=True)
+        elif arg == 'open':    self.open = 'root'
+        elif arg.startswith('open='):   self.open = arg[5:]
         elif arg.startswith('jobs='):   self.count = int(arg[5:])
         elif arg.startswith('target='): self.target = arg[7:]
         elif arg.startswith('test='):   self.test = arg[5:]
