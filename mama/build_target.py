@@ -4,8 +4,8 @@ from mama.system import System, console
 from mama.util import execute, save_file_if_contents_changed, glob_with_name_match, \
                     normalized_path, write_text_to
 from mama.build_dependency import BuildDependency, Git
-from mama.cmake_configure import run_cmake_config, cmake_default_options, cmake_inject_env, \
-                            cmake_build_config, cmake_buildsys_flags, cmake_generator
+from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
+                            cmake_inject_env, cmake_buildsys_flags, cmake_generator
 import mama.util as util
 
 ######################################################################################
@@ -305,20 +305,15 @@ class BuildTarget:
     ############################################
 
 
-    def run_cmake(self, cmake_command):
-        cmd = f"cd {self.dep.build_dir} && cmake {cmake_command}"
-        #console(cmd)
-        execute(cmd)
-
-
     def install(self):
         console('\n\n#############################################################')
         console(f"CMake install {self.name} ...")
-        self.run_cmake(f"--build . {cmake_build_config(self)}")
+        run_cmake_build(self)
 
 
     def clean_target(self):
         self.dep.clean()
+
 
     def ensure_cmakelists_exists(self):
         cmakelists = os.path.join(self.dep.src_dir, 'CMakeLists.txt')
@@ -327,6 +322,7 @@ class BuildTarget:
                             add `self.nothing_to_build()` to configuration step. \
                             Also note that filename CMakeLists.txt is case sensitive.')
     
+
     def run_build_task(self):
         console('\n\n#############################################################')
         console(f"CMake build {self.name}")
@@ -337,9 +333,9 @@ class BuildTarget:
             for opt in options: flags += '-D'+opt+' '
             return flags
 
-        run_cmake_config(self.dep, cmake_generator(self), cmake_flags())
         self.inject_env()
-        self.run_cmake(f"--build . {cmake_build_config(self)} {cmake_buildsys_flags(self)}")
+        run_cmake_config(self, cmake_flags())
+        run_cmake_build(self, cmake_buildsys_flags(self))
         self.dep.save_git_status()
 
 

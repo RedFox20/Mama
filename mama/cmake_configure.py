@@ -1,5 +1,5 @@
 import os, subprocess, shlex
-from mama.system import System, console
+from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 import threading
 from queue import Queue
@@ -27,10 +27,10 @@ class AsyncFileReader:
         self.thread.join()
 
 
-def rerunnable_cmake_conf(dependency, args, allow_rerun):
+def rerunnable_cmake_conf(cwd, args, allow_rerun):
     rerun = False
     error = ''
-    proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=dependency.build_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output = AsyncFileReader(proc.stdout)
     errors = AsyncFileReader(proc.stderr)
     while True:
@@ -51,20 +51,21 @@ def rerunnable_cmake_conf(dependency, args, allow_rerun):
             if proc.returncode == 0:
                 break
             if rerun:
-                return rerunnable_cmake_conf(dependency, args, False)
+                return rerunnable_cmake_conf(cwd, args, False)
             raise Exception(f'CMake configure error: {error}')
 
-def run_cmake_config(dependency, generator, cmake_flags):
-    cmd = f'{generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." . "{dependency.src_dir}"'
-    args = ['cmake']
-    args += shlex.split(cmd)
-    rerunnable_cmake_conf(dependency, args, True)
+
+def run_cmake_config(target, cmake_flags):
+    generator = cmake_generator(target)
+    src_dir = target.dep.src_dir
+    cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
+    rerunnable_cmake_conf(target.dep.build_dir, cmd, True)
 
 
-
-def run_cmake_build(target):
-
-    pass
+def run_cmake_build(target, extraflags=''):
+    build_dir = target.dep.build_dir
+    flags = cmake_build_config(target)
+    execute(f'cmake --build {build_dir} {flags} {extraflags}')
 
 
 def cmake_generator(target):
@@ -105,11 +106,15 @@ def cmake_default_options(target):
         cxxflags += '' if exceptions else ' -fno-exceptions'
     
     if config.android and config.android_ndk_stl == 'c++_shared':
-        cxxflags += f' -I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include" '
-    elif config.linux or config.macos:
-        cxxflags += ' -march=native -stdlib=libc++ '
+        cxxflags += f' -I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"'
+    elif config.linux:
+        cxxflags += ' -march=native'
+        if config.clang:
+            cxxflags += ' -stdlib=libc++'
+    elif config.macos:
+        cxxflags += ' -march=native -stdlib=libc++'
     elif config.ios:
-        cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={config.ios_version} '
+        cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={config.ios_version}'
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
