@@ -26,8 +26,8 @@ class BuildConfig:
         self.macos   = False
         self.ios     = False
         self.android = False
-        self.linux_clang = True # prefer clang on linux
-        self.linux_gcc   = False   
+        self.clang = True # prefer clang on linux
+        self.gcc   = False   
         self.release = True
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
@@ -84,8 +84,8 @@ class BuildConfig:
         elif arg == 'macos':   self.set_platform(macos=True)
         elif arg == 'ios':     self.set_platform(ios=True)
         elif arg == 'android': self.set_platform(android=True)
-        elif arg == 'clang':   self.linux_gcc = False
-        elif arg == 'gcc':     self.linux_gcc = True
+        elif arg == 'clang':   self.gcc = False
+        elif arg == 'gcc':     self.gcc = True
         elif arg == 'release': self.set_build_config(release=True)
         elif arg == 'debug':   self.set_build_config(debug=True)
         elif arg == 'open':    self.open = 'root'

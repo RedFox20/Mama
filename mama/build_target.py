@@ -320,14 +320,17 @@ class BuildTarget:
     def clean_target(self):
         self.dep.clean()
 
-
-    def run_build_task(self):
-        cmakelists = os.path.join(self.dep.src_dir, 'CMakelists.txt')
+    def ensure_cmakelists_exists(self):
+        cmakelists = os.path.join(self.dep.src_dir, 'CMakeLists.txt')
         if not os.path.exists(cmakelists):
-            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step.')
-        
+            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or \
+                            add `self.nothing_to_build()` to configuration step. \
+                            Also note that filename CMakeLists.txt is case sensitive.')
+    
+    def run_build_task(self):
         console('\n\n#############################################################')
         console(f"CMake build {self.name}")
+        self.ensure_cmakelists_exists()
         def cmake_flags():
             flags = ''
             options = self.cmake_opts + cmake_default_options(self) + self.get_product_defines()
