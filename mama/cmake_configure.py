@@ -116,6 +116,9 @@ def cmake_default_options(target):
     elif config.ios:
         cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={config.ios_version}'
 
+    if config.flags:
+        cxxflags += f' {config.flags}'
+
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
         if config.gcc:
