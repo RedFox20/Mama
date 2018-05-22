@@ -257,9 +257,16 @@ class BuildTarget:
         self.dep.nothing_to_build = True
         self.dep.should_rebuild = False
 
+
     # Run a command in the build folder
     def run(self, command):
         execute(f'cd {self.dep.build_dir} && {command}', echo=True)
+
+    
+    # Run a command with gdb in the build folder
+    def gdb(self, command):
+        gdb = f'gdb -batch -ex "run" -ex "bt" {command}'
+        execute(f'cd {self.dep.build_dir} && {gdb}', echo=True)
 
     ########## Customization Points ###########
 
@@ -359,7 +366,7 @@ class BuildTarget:
         self.dep.save_exports_as_dependencies(self.exported_libs)
 
         self.print_exports()
-        
+
         if self.config.test:
             self.test()
 
