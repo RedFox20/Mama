@@ -84,8 +84,12 @@ class BuildConfig:
         elif arg == 'macos':   self.set_platform(macos=True)
         elif arg == 'ios':     self.set_platform(ios=True)
         elif arg == 'android': self.set_platform(android=True)
-        elif arg == 'clang':   self.gcc = False
-        elif arg == 'gcc':     self.gcc = True
+        elif arg == 'clang':   
+            self.gcc = False
+            self.clang = True
+        elif arg == 'gcc':
+            self.gcc = True
+            self.clang = False
         elif arg == 'release': self.set_build_config(release=True)
         elif arg == 'debug':   self.set_build_config(debug=True)
         elif arg == 'open':    self.open = 'root'

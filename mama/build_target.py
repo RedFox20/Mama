@@ -257,6 +257,9 @@ class BuildTarget:
         self.dep.nothing_to_build = True
         self.dep.should_rebuild = False
 
+    # Run a command in the build folder
+    def run(self, command):
+        execute(f'cd {self.dep.build_dir} && {command}', echo=True)
 
     ########## Customization Points ###########
 
@@ -356,18 +359,23 @@ class BuildTarget:
         self.dep.save_exports_as_dependencies(self.exported_libs)
 
         self.print_exports()
-        self.test()
+        
+        if self.config.test:
+            self.test()
+
 
     def print_ws_path(self, what, path):
         n = len(self.config.workspaces_root) + 1
         exists = '' if os.path.exists(path) else '   !! (path does not exist) !!' 
         console(f'    {what} {path[n:]}{exists}')
 
+
     def print_exports(self):
         console(f'  - Package {self.name}')
         n = len(self.config.workspaces_root) + 1
         for include in self.exported_includes: self.print_ws_path('inc', include)
         for library in self.exported_libs:     self.print_ws_path('lib', library)
+
 
 ######################################################################################
 
