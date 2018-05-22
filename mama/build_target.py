@@ -265,7 +265,7 @@ class BuildTarget:
     
     # Run a command with gdb in the build folder
     def gdb(self, command):
-        gdb = f'gdb -batch -ex "run" -ex "bt" {command}'
+        gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args {command}'
         execute(f'cd {self.dep.build_dir} && {gdb}', echo=True)
 
     ########## Customization Points ###########
