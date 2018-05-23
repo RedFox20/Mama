@@ -106,3 +106,5 @@ def main():
     if config.open:
         open_project(config, root_dependency)
 
+if __name__ == '__main__':
+    main()
