@@ -267,11 +267,14 @@ class BuildTarget:
     def gdb(self, command):
         if self.config.android or self.config.ios:
             return # nothing to run
+        
+        build_dir = self.dep.build_dir
         if self.config.windows:
-            gdb = command # no gdb on windows
+            build_dir = f'{build_dir}/{self.cmake_build_type}'
+            gdb = command.lstrip('./') # no gdb on windows
         else: # linux, macos
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args {command}'
-        execute(f'cd {self.dep.build_dir} && {gdb}', echo=True)
+        execute(f'cd {build_dir} && {gdb}', echo=True)
 
     ########## Customization Points ###########
 
