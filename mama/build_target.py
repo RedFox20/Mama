@@ -265,7 +265,12 @@ class BuildTarget:
     
     # Run a command with gdb in the build folder
     def gdb(self, command):
-        gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args {command}'
+        if self.config.android or self.config.ios:
+            return # nothing to run
+        if self.config.windows:
+            gdb = command # no gdb on windows
+        else: # linux, macos
+            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args {command}'
         execute(f'cd {self.dep.build_dir} && {gdb}', echo=True)
 
     ########## Customization Points ###########
