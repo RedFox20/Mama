@@ -93,3 +93,15 @@ class libpng_static(mama.BuildTarget):
 
 ## For Developers
 Set up local development with `$ pip install -e .`
+Setting up `pypi` configuration: `$ nano ~/.pypirc`
+```
+[distutils]
+index-servers =
+    pypi
+
+[pypi]
+repository:https://pypi.python.org/pypi
+username=<your-mama-pypy-username>
+password=<your-mama-pypy-password>
+```
+Uploading a source distribution `$ py setup.py sdist upload -r pypi`

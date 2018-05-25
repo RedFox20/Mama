@@ -122,9 +122,11 @@ def cmake_default_options(target):
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
         if config.gcc:
-            opt += ['CMAKE_C_COMPILER=gcc', 'CMAKE_CXX_COMPILER=g++']
+            opt += ['CMAKE_C_COMPILER=/etc/alternatives/gcc',
+                    'CMAKE_CXX_COMPILER=/etc/alternatives/g++']
         elif config.clang:
-            opt += ['CMAKE_C_COMPILER=clang', 'CMAKE_CXX_COMPILER=clang++']
+            opt += ['CMAKE_C_COMPILER=/etc/alternatives/clang',
+                    'CMAKE_CXX_COMPILER=/etc/alternatives/clang++']
 
     if cxxflags: opt += [f'CMAKE_CXX_FLAGS="{cxxflags}"']
     if ldflags: opt += [
