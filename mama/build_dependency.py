@@ -49,8 +49,13 @@ class Git:
         #console(f'check_status {self.url}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
+    def branch_or_tag(self):
+        if self.branch: return self.branch
+        if self.tag: return self.tag
+        return ''
+
     def checkout_current_branch(self):
-        branch = self.branch if self.branch else self.tag
+        branch = self.branch_or_tag()
         if branch:
             if self.tag and self.tag_changed:
                 self.run_git("reset --hard")
@@ -69,7 +74,9 @@ class Git:
         if is_dir_empty(self.dep.src_dir):
             if not wiped:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
-            execute(f"git clone --depth 1 {self.url} {self.dep.src_dir}")
+            branch = self.branch_or_tag()
+            if branch: branch = f" --branch {self.branch_or_tag()}"
+            execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
             self.checkout_current_branch()
