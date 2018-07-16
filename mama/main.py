@@ -29,7 +29,6 @@ def print_usage():
     console('    android    - build for android')
     console('    clang      - prefer clang for linux (default on linux/macos/ios/android)')
     console('    gcc        - prefer gcc for linux')
-    console('    android    - build for android')
     console('    release    - (default) CMake configuration RelWithDebInfo')
     console('    debug      - CMake configuration Debug')
     console('    jobs=N     - Max number of parallel compilations. (default=system.core.count)')
