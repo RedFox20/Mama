@@ -237,7 +237,7 @@ class BuildDependency:
         # if no update command, allow us to skip pulling by returning False
         changed = self.git.check_status()
         is_target = self.config.target_matches(self.name)
-        update = self.config.update and is_target
+        update = self.git.commit_changed or (self.config.update and is_target)
         if not changed and not update:
             return False
 

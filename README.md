@@ -23,7 +23,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
 ```
 5. `$ mama build` and enjoy!
 6. `$ mama open` to open your project in an IDE
-
+7. Upgrading mama: `$ pip install --upgrade mama`
 
 ## Command examples
 ```

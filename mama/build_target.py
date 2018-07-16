@@ -304,6 +304,9 @@ class BuildTarget:
     ###
     # Perform any post-build steps to package the products
     def package(self):
+        pass
+    
+    def default_package(self):
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
@@ -313,8 +316,7 @@ class BuildTarget:
         # default export from {build_dir}/{cmake_build_type}
         if self.export_libs(self.cmake_build_type, src_dir=False): pass
         elif self.export_libs('lib', src_dir=False): pass
-
-
+        
     ###
     # Perform test steps here
     def test(self):
@@ -373,6 +375,11 @@ class BuildTarget:
                 self.run_build_task()
         
         self.package() # user customization
+
+        # no packaging provided by user; use default packaging instead
+        if not self.exported_includes or not self.exported_libs:
+            self.default_package()
+
         self.dep.save_exports_as_dependencies(self.exported_libs)
 
         self.print_exports()
@@ -384,14 +391,13 @@ class BuildTarget:
     def print_ws_path(self, what, path):
         n = len(self.config.workspaces_root) + 1
         exists = '' if os.path.exists(path) else '   !! (path does not exist) !!' 
-        console(f'    {what} {path[n:]}{exists}')
+        console(f'    {what}  {path[n:]}{exists}')
 
 
     def print_exports(self):
         console(f'  - Package {self.name}')
-        n = len(self.config.workspaces_root) + 1
-        for include in self.exported_includes: self.print_ws_path('inc', include)
-        for library in self.exported_libs:     self.print_ws_path('lib', library)
+        for include in self.exported_includes: self.print_ws_path('<I>', include)
+        for library in self.exported_libs:     self.print_ws_path('[L]', library)
 
 
 ######################################################################################
