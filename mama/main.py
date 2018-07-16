@@ -20,6 +20,7 @@ def print_usage():
     console('    add        - add new dependency')
     console('    new        - create new mama build file')
     console('    open=<tgt> - open a project file')
+    console('    help       - shows this help list')
     console('  args:')
     console('    windows    - build for windows')
     console('    linux      - build for linux')
@@ -73,14 +74,13 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     elif config.android:
         raise EnvironmentError('Open this folder with Android Studio.')
 
-
 def main():
     console(f'========= Mama Build Tool ==========')
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
         exit(-1)
 
-    if len(sys.argv) == 1:
+    if len(sys.argv) == 1 or 'help' in sys.argv:
         print_usage()
         sys.exit(-1)
 
@@ -105,6 +105,9 @@ def main():
 
     if config.open:
         open_project(config, root_dependency)
+
+def __main__():
+    main()
 
 if __name__ == '__main__':
     main()

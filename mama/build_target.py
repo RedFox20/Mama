@@ -4,6 +4,7 @@ from mama.system import System, console
 from mama.util import execute, save_file_if_contents_changed, glob_with_name_match, \
                     normalized_path, write_text_to
 from mama.build_dependency import BuildDependency, Git
+from mama.build_config import BuildConfig
 from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
                             cmake_inject_env, cmake_buildsys_flags, cmake_generator
 import mama.util as util
@@ -11,7 +12,7 @@ import mama.util as util
 ######################################################################################
 
 class BuildTarget:
-    def __init__(self, name, config, dep):
+    def __init__(self, name, config:BuildConfig, dep):
         if config is None: raise RuntimeError('BuildTarget config argument must be set')
         if dep is None:    raise RuntimeError('BuildTarget dep argument must be set')
         self.config = config
@@ -78,7 +79,8 @@ class BuildTarget:
                 return dep
         raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
 
-
+    ## Manually configure added inter-dependencies
+    ##
     def add_dependency(self, name, depends_on_name):
         d = self.get_dependency(name)
         dependency = self.get_dependency(depends_on_name)

@@ -69,7 +69,7 @@ class Git:
         if is_dir_empty(self.dep.src_dir):
             if not wiped:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
-            execute(f"git clone {self.url} {self.dep.src_dir}")
+            execute(f"git clone --depth 1 {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
             self.checkout_current_branch()
