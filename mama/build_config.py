@@ -20,7 +20,7 @@ class BuildConfig:
         self.update  = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
-        self.test      = None
+        self.test      = ''
         self.windows = False
         self.linux   = False
         self.macos   = False
@@ -47,8 +47,10 @@ class BuildConfig:
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
         self.global_workspace = True
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
-        for arg in args: self.parse_arg(arg)
+        self.parse_args(args)
         self.check_platform()
+
+
     def set_platform(self, windows=False, linux=False, macos=False, ios=False, android=False):
         self.windows = windows
         self.linux   = linux
@@ -56,12 +58,19 @@ class BuildConfig:
         self.ios     = ios
         self.android = android
         return True
-    def is_platform_set(self): return self.windows or self.linux or self.macos or self.ios or self.android
+
+
+    def is_platform_set(self):
+        return self.windows or self.linux or self.macos or self.ios or self.android
+    
+    
     def check_platform(self):
         if not self.is_platform_set():
             self.set_platform(windows=System.windows, linux=System.linux, macos=System.macos)
             if not self.is_platform_set():
                 raise RuntimeError(f'Unsupported platform {sys.platform}: Please specify platform!')
+    
+    
     def name(self):
         if self.windows: return 'windows'
         if self.linux:   return 'linux'
@@ -69,39 +78,51 @@ class BuildConfig:
         if self.ios:     return 'ios'
         if self.android: return 'android'
         return 'build'
+
+
     def set_build_config(self, release=False, debug=False):
         self.release = release
         self.debug   = debug
         return True
-    def parse_arg(self, arg):
-        if   arg == 'build':     self.build   = True
-        elif arg == 'clean':     self.clean   = True
-        elif arg == 'rebuild':   self.rebuild = True
-        elif arg == 'update':    self.update  = True
-        elif arg == 'configure': self.configure = True
-        elif arg == 'reclone':   self.reclone   = True
-        elif arg == 'test':      self.test      = True
-        elif arg == 'windows': self.set_platform(windows=True)
-        elif arg == 'linux':   self.set_platform(linux=True)
-        elif arg == 'macos':   self.set_platform(macos=True)
-        elif arg == 'ios':     self.set_platform(ios=True)
-        elif arg == 'android': self.set_platform(android=True)
-        elif arg == 'clang':   
-            self.gcc = False
-            self.clang = True
-        elif arg == 'gcc':
-            self.gcc = True
-            self.clang = False
-        elif arg == 'release': self.set_build_config(release=True)
-        elif arg == 'debug':   self.set_build_config(debug=True)
-        elif arg == 'open':    self.open = 'root'
-        elif arg == 'test':    self.test = ' '
-        elif arg.startswith('open='):   self.open = arg[5:]
-        elif arg.startswith('jobs='):   self.count = int(arg[5:])
-        elif arg.startswith('target='): self.target = arg[7:]
-        elif arg.startswith('test='):   self.test = arg[5:]
-        elif arg.startswith('flags='):
-            self.flags = arg[6:]
+
+
+    def parse_args(self, args):
+        for arg in args:
+            if arg == 'build':     self.build   = True
+            elif arg == 'clean':     self.clean   = True
+            elif arg == 'rebuild':   self.rebuild = True
+            elif arg == 'update':    self.update  = True
+            elif arg == 'configure': self.configure = True
+            elif arg == 'reclone':   self.reclone   = True
+            elif arg == 'test':      self.test = ' ' # no test arguments
+            elif arg == 'windows': self.set_platform(windows=True)
+            elif arg == 'linux':   self.set_platform(linux=True)
+            elif arg == 'macos':   self.set_platform(macos=True)
+            elif arg == 'ios':     self.set_platform(ios=True)
+            elif arg == 'android': self.set_platform(android=True)
+            elif arg == 'clang':   
+                self.gcc = False
+                self.clang = True
+            elif arg == 'gcc':
+                self.gcc = True
+                self.clang = False
+            elif arg == 'release': self.set_build_config(release=True)
+            elif arg == 'debug':   self.set_build_config(debug=True)
+            elif arg == 'open':    self.open = 'root'
+            elif arg.startswith('open='):   self.open = arg[5:]
+            elif arg.startswith('jobs='):   self.jobs = int(arg[5:])
+            elif arg.startswith('target='): self.target = arg[7:]
+            elif arg.startswith('test='):   self.add_test_arg(arg[5:])
+            elif arg.startswith('flags='):
+                self.flags = arg[6:]
+            continue
+
+    def add_test_arg(self, arg):
+        if arg[0] == '"' and arg[-1] == '"':
+            arg = arg[1:-1]
+        if self.test: self.test += ' '
+        self.test += arg
+
     def find_ninja_build(self):
         ninja_executables = [
             os.getenv('NINJA'), 
@@ -113,6 +134,8 @@ class BuildConfig:
                 #console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
+
+
     def init_ndk_path(self):
         androidenv = os.getenv('ANDROID_HOME')
         paths = [androidenv] if androidenv else []
@@ -127,6 +150,8 @@ class BuildConfig:
                 #console(f'Found Android NDK: {self.ndk_path}')
                 return
         return ''
+
+
     def find_default_fortran_compiler(self):
         paths = []
         if System.linux:
@@ -137,10 +162,17 @@ class BuildConfig:
                 console(f'Found Fortran: {fortran_path}')
                 return fortran_path
         return None
+
+
     def libname(self, library):
         if self.windows: return f'{library}.lib'
         else:            return f'lib{library}.a'
+
+
     def libext(self):
         return 'lib' if self.windows else 'a'
+
+
     def target_matches(self, target_name):
         return self.target == 'all' or self.target == target_name
+

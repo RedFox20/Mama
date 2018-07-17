@@ -43,6 +43,8 @@ def print_usage():
     console('    mama configure target=all     Run CMake configuration on main project and all deps.')
     console('    mama reclone target=dep1      Wipe target dependency completely and clone again.')
     console('    mama test                     Run tests on main project.')
+    console('    mama test=arg                 Run tests on main project with an argument.')
+    console('    mama test="arg1 arg2"         Run tests on main project with multiple arguments.')
     console('    mama test target=dep1         Run tests on target dependency project.')
     console('  environment:')
     console('    setenv("NINJA")               Path to NINJA build executable')

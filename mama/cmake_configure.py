@@ -95,22 +95,23 @@ def cmake_make_program(target):
 def cmake_default_options(target):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
-    def add_flag(flag, value=''):
-        cxxflags[flag] = value
-    def get_flags_string():
-        flags = ''
-        sep = ':' if config.windows else '='
-        for k, v in cxxflags.items():
-            if not v:
-                flags += f' {k}'
-            elif k.startswith('-D') and not '=' in k:
-                flags += f' {k}={v}'
-            else:
-                flags += f' {k}{sep}{v}'
-        return flags
-
-    ldflags  = target.cmake_ldflags
+    ldflags:dict  = target.cmake_ldflags
     exceptions = target.enable_exceptions
+
+    def add_flag(flag:str, value=''): cxxflags[flag] = value
+    #def add_ldflag(flag:str, value=''): ldflags[flag] = value
+    def get_flags_string(flags:dict):
+        res = ''
+        sep = ':' if config.windows else '='
+        for k, v in flags.items():
+            if not v:
+                res += f' {k}'
+            elif k.startswith('-D') and not '=' in k:
+                res += f' {k}={v}'
+            else:
+                res += f' {k}{sep}{v}'
+        return res.lstrip()
+    
     if config.windows:
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
@@ -131,7 +132,7 @@ def cmake_default_options(target):
     elif config.ios:
         add_flag('-arch ', 'arm64')
         add_flag('-stdlib=', 'libc++')
-        add_flag(f'-miphoneos-version-min={config.ios_version}')
+        add_flag('-miphoneos-version-min', config.ios_version)
 
     if config.flags:
         add_flag(config.flags)
@@ -144,17 +145,21 @@ def cmake_default_options(target):
         elif config.clang:
             opt += ['CMAKE_C_COMPILER=/etc/alternatives/clang',
                     'CMAKE_CXX_COMPILER=/etc/alternatives/clang++']
+    
     if config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
-    cxxflags_str = get_flags_string()
+    cxxflags_str = get_flags_string(cxxflags)
     if cxxflags_str: opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
-    if ldflags: opt += [
-        f'CMAKE_EXE_LINKER_FLAGS="{ldflags}"',
-        f'CMAKE_MODULE_LINKER_FLAGS="{ldflags}"',
-        f'CMAKE_SHARED_LINKER_FLAGS="{ldflags}"',
-        f'CMAKE_STATIC_LINKER_FLAGS="{ldflags}"'
+
+    ldflags_str = get_flags_string(ldflags)
+    if ldflags_str: opt += [
+        f'CMAKE_EXE_LINKER_FLAGS="{ldflags_str}"',
+        f'CMAKE_MODULE_LINKER_FLAGS="{ldflags_str}"',
+        f'CMAKE_SHARED_LINKER_FLAGS="{ldflags_str}"',
+        f'CMAKE_STATIC_LINKER_FLAGS="{ldflags_str}"'
     ]
+
     make = cmake_make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 

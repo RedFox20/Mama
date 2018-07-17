@@ -158,6 +158,9 @@ class BuildDependency:
                 return depfile
         return None
 
+    def create_build_dir_if_needed(self):
+        if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
+            os.makedirs(self.build_dir, exist_ok=True)
 
     ## @return True if dependency has changed
     def load(self):
@@ -165,50 +168,48 @@ class BuildDependency:
         git_changed = self.git_checkout()
         self.create_build_target()
         self.update_dep_dir()
-
-        if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
-            os.makedirs(self.build_dir, exist_ok=True)
+        self.create_build_dir_if_needed()
 
         if git_changed:
             #console(f'SAVE GIT STATUS {self.target.name}')
             self.git.save_status() # save git status to avoid recloning
 
         target = self.target
+        conf = self.config
+        is_target = conf.target_matches(target.name)
+        if conf.clean and is_target:
+            self.clean()
+
         if not self.is_root:
             self.load_build_dependencies(target)
         target.dependencies() ## customization point for additional dependencies
 
-        conf = self.config
-        if conf.clean and conf.target_matches(target.name):
-            self.clean()
-
         build = False
         if conf.build:
             build = True
-            if conf.target and not conf.target_matches(target.name):
+            def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]')
+
+            if conf.target and not is_target:
                 build = False # skip build if target doesn't match
-            elif self.is_root:
-                console(f'  - Target {target.name: <16}   BUILD [root target]')
-            elif update_mamafile_tag(self.src_dir, self.build_dir):
-                console(f'  - Target {target.name: <16}   BUILD [{target.name}/mamafile.py modified]')
-            elif update_cmakelists_tag(self.src_dir, self.build_dir):
-                console(f'  - Target {target.name: <16}   BUILD [{target.name}/CMakeLists.txt modified]')
-            elif git_changed:
-                console(f'  - Target {target.name: <16}   BUILD [git commit changed]')
-            elif self.is_reconfigure_target():
-                console(f'  - Target {target.name: <16}   BUILD [configure target={target.name}')
-            elif not target.build_dependencies:
-                console(f'  - Target {target.name: <16}   BUILD [no build dependencies]')
+            
+            elif conf.clean and is_target: reason('cleaned target')
+            elif self.is_root:             reason('root target')
+            elif update_mamafile_tag(self.src_dir, self.build_dir):   reason(f'{target.name}/mamafile.py modified')
+            elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(f'{target.name}/CMakeLists.txt modified')
+            elif git_changed:                   reason('git commit changed')
+            elif self.is_reconfigure_target():  reason(f'configure target={target.name}')
+            elif not target.build_dependencies: reason('no build dependencies')
             else:
                 missing = self.get_missing_build_dependency()
-                if missing:
-                    console(f'  - Target {target.name: <16}   BUILD [{missing} does not exist]')
+                if missing: reason(f'{missing} does not exist')
                 else:
                     console(f'  - Target {target.name: <16}   OK')
                     build = False
 
         self.already_loaded = True
         self.should_rebuild = build
+        if build:
+            self.create_build_dir_if_needed() # in case we just cleaned
         return build
 
 
@@ -224,16 +225,17 @@ class BuildDependency:
                 if   'workspace'        in buildStatics: self.workspace = buildStatics['workspace']
                 elif 'local_workspace'  in buildStatics: self.workspace = buildStatics['local_workspace']
                 elif 'global_workspace' in buildStatics: self.workspace = buildStatics['global_workspace']
-                else:                                    self.workspace = 'mamabuild'
+                else:                                    self.workspace = 'build'
             if self.is_root:
-                if   'local_workspace'  in buildStatics: self.config.global_workspace = False
+                if   'workspace'        in buildStatics: self.config.global_workspace = False
+                elif 'local_workspace'  in buildStatics: self.config.global_workspace = False
                 elif 'global_workspace' in buildStatics: self.config.global_workspace = True
                 if not self.config.global_workspace:
                     self.config.workspaces_root = self.src_dir
             self.target = buildTarget(name=project, config=self.config, dep=self)
         else:
             if not self.workspace:
-                self.workspace = 'mamabuild'
+                self.workspace = 'build'
             self.target = self.target_class(name=self.name, config=self.config, dep=self)
 
 

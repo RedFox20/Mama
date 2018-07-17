@@ -25,6 +25,7 @@ def update_modification_tag(file, tagfile):
 
     filetime = os.path.getmtime(file)
     if not os.path.exists(tagfile):
+        os.makedirs(os.path.dirname(tagfile), exist_ok=True)
         pathlib.Path(tagfile).write_text(str(filetime))
         return True
 
