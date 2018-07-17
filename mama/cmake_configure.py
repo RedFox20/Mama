@@ -92,32 +92,49 @@ def cmake_make_program(target):
             return f'{config.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
     return ''
 
-
 def cmake_default_options(target):
     config:BuildConfig = target.config
-    cxxflags = target.cmake_cxxflags
+    cxxflags:dict = target.cmake_cxxflags
+    def add_flag(flag, value=''):
+        cxxflags[flag] = value
+    def get_flags_string():
+        flags = ''
+        sep = ':' if config.windows else '='
+        for k, v in cxxflags.items():
+            if not v:
+                flags += f' {k}'
+            elif k.startswith('-D') and not '=' in k:
+                flags += f' {k}={v}'
+            else:
+                flags += f' {k}{sep}{v}'
+        return flags
+
     ldflags  = target.cmake_ldflags
     exceptions = target.enable_exceptions
     if config.windows:
-        cxxflags += ' /EHsc -D_HAS_EXCEPTIONS=1' if exceptions else ' -D_HAS_EXCEPTIONS=0'
-        cxxflags += ' -DWIN32=1' # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
-        cxxflags += ' /MP'
+        add_flag('/EHsc')
+        add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
+        add_flag('-DWIN32', '1') # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
+        add_flag('/MP')
     else:
-        cxxflags += '' if exceptions else ' -fno-exceptions'
+        if not exceptions: add_flag('-fno-exceptions')
     
     if config.android and config.android_ndk_stl == 'c++_shared':
-        cxxflags += f' -I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"'
+        add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
-        cxxflags += ' -march=native'
+        add_flag('-march', 'native')
         if config.clang:
-            cxxflags += ' -stdlib=libc++'
+            add_flag('-stdlib', 'libc++')
     elif config.macos:
-        cxxflags += ' -march=native -stdlib=libc++'
+        add_flag('-march=', 'native')
+        add_flag('-stdlib=', 'libc++')
     elif config.ios:
-        cxxflags += f' -arch arm64 -stdlib=libc++ -miphoneos-version-min={config.ios_version}'
+        add_flag('-arch ', 'arm64')
+        add_flag('-stdlib=', 'libc++')
+        add_flag(f'-miphoneos-version-min={config.ios_version}')
 
     if config.flags:
-        cxxflags += f' {config.flags}'
+        add_flag(config.flags)
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
@@ -127,11 +144,11 @@ def cmake_default_options(target):
         elif config.clang:
             opt += ['CMAKE_C_COMPILER=/etc/alternatives/clang',
                     'CMAKE_CXX_COMPILER=/etc/alternatives/clang++']
-
     if config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
-    if cxxflags: opt += [f'CMAKE_CXX_FLAGS="{cxxflags}"']
+    cxxflags_str = get_flags_string()
+    if cxxflags_str: opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
     if ldflags: opt += [
         f'CMAKE_EXE_LINKER_FLAGS="{ldflags}"',
         f'CMAKE_MODULE_LINKER_FLAGS="{ldflags}"',

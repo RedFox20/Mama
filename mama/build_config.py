@@ -128,7 +128,14 @@ class BuildConfig:
                 return
         return ''
     def find_default_fortran_compiler(self):
-        if self.linux: return find_executable_from_system('gfortran')
+        paths = []
+        if System.linux:
+            paths += [find_executable_from_system('gfortran')]
+        
+        for fortran_path in paths:
+            if fortran_path and os.path.exists(fortran_path):
+                console(f'Found Fortran: {fortran_path}')
+                return fortran_path
         return None
     def libname(self, library):
         if self.windows: return f'{library}.lib'

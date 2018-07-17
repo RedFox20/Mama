@@ -22,7 +22,7 @@ class BuildTarget:
         self.cmake_ndk_toolchain = f'{config.android_ndk_path}/build/cmake/android.toolchain.cmake' if config.android_ndk_path else ''
         self.cmake_ios_toolchain = ''
         self.cmake_opts       = []
-        self.cmake_cxxflags   = ''
+        self.cmake_cxxflags   = dict()
         self.cmake_ldflags    = ''
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
         self.enable_exceptions = True
@@ -196,9 +196,18 @@ class BuildTarget:
 
 
     # Adds C / C++ flags for compilation step
-    def add_cxx_flags(self, msvc='', clang=''):
-        self.cmake_cxxflags += ' '
-        self.cmake_cxxflags += msvc if self.config.windows else clang
+    def add_cxx_flags(self, *flags):
+        for flag in flags:
+            if isinstance(flag, list):
+                self.add_cxx_flags(*flag)
+            elif '=' in flag:
+                key, value = flag.split('=')
+                self.cmake_cxxflags[key+'='] = value
+            elif ':' in flag:
+                key, value = flag.split(':')
+                self.cmake_cxxflags[key+':'] = value
+            else:
+                self.cmake_cxxflags[flag] = ''
 
 
     # Adds linker flags depending on configuration platform
@@ -234,11 +243,14 @@ class BuildTarget:
 
 
     def enable_cxx17(self):
-        self.cmake_cxxflags += ' /std:c++17' if self.config.windows else ' -std=c++17'
+        std = '/std:' if self.config.windows else '-std='
+        self.cmake_cxxflags[std] = 'c++17'
     def enable_cxx14(self):
-        self.cmake_cxxflags += ' /std:c++14' if self.config.windows else ' -std=c++14'
+        std = '/std:' if self.config.windows else '-std='
+        self.cmake_cxxflags[std] = 'c++14'
     def enable_cxx11(self):
-        self.cmake_cxxflags += ' /std:c++11' if self.config.windows else ' -std=c++11'
+        std = '/std:' if self.config.windows else '-std='
+        self.cmake_cxxflags[std] = 'c++11'
 
 
     def copy_built_file(self, builtFile, copyToFolder):
