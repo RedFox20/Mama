@@ -540,32 +540,30 @@ class BuildTarget:
         if self.dep.already_executed:
             return
         
-        self.dep.already_executed = True
+        try:
+            self.dep.already_executed = True
 
-        if self.dep.should_rebuild and not self.dep.nothing_to_build:
-
-            self.configure() # user customization
-
-            if not self.dep.nothing_to_build:
-                self.build() # user customization
+            if self.dep.should_rebuild and not self.dep.nothing_to_build:
+                self.configure() # user customization
+                if not self.dep.nothing_to_build:
+                    self.build() # user customization
         
-        self.package() # user customization
+            self.package() # user customization
 
-        # no packaging provided by user; use default packaging instead
-        if not self.exported_includes or not self.exported_libs:
-            self.default_package()
+            # no packaging provided by user; use default packaging instead
+            if not self.exported_includes or not self.exported_libs:
+                self.default_package()
 
-        self.dep.save_exports_as_dependencies(self.exported_libs)
+            self.dep.save_exports_as_dependencies(self.exported_libs)
 
-        self.print_exports()
+            self.print_exports()
 
-        if self.config.test:
-            test_args = self.config.test.lstrip()
-            try:
+            if self.config.test:
+                test_args = self.config.test.lstrip()
                 self.test(test_args)
-            except:
-                console(f'{self.dep.name} test failed; args="{test_args}"')
-                raise
+        except:
+            console(f'  [BUILD FAILED]  {self.dep.name}')
+            raise
 
 
     def _print_ws_path(self, what, path):
