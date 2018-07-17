@@ -34,6 +34,7 @@ class BuildConfig:
         self.target  = None
         self.flags   = None
         self.open    = None
+        self.fortran = self.find_default_fortran_compiler()
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         self.ninja_path = self.find_ninja_build()
@@ -126,6 +127,9 @@ class BuildConfig:
                 #console(f'Found Android NDK: {self.ndk_path}')
                 return
         return ''
+    def find_default_fortran_compiler(self):
+        if self.linux: return find_executable_from_system('gfortran')
+        return None
     def libname(self, library):
         if self.windows: return f'{library}.lib'
         else:            return f'lib{library}.a'

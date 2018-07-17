@@ -128,6 +128,9 @@ def cmake_default_options(target):
             opt += ['CMAKE_C_COMPILER=/etc/alternatives/clang',
                     'CMAKE_CXX_COMPILER=/etc/alternatives/clang++']
 
+    if config.fortran:
+        opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
+
     if cxxflags: opt += [f'CMAKE_CXX_FLAGS="{cxxflags}"']
     if ldflags: opt += [
         f'CMAKE_EXE_LINKER_FLAGS="{ldflags}"',
