@@ -92,6 +92,20 @@ def cmake_make_program(target):
             return f'{config.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
     return ''
 
+
+def find_compilers(cc, cxx):
+    for root in ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/']:
+        if os.path.exists(root + cc):
+            return [f'CMAKE_C_COMPILER={root}{cc}', f'CMAKE_CXX_COMPILER={root}{cxx}']
+    return [f'CMAKE_C_COMPILER={cc}', f'CMAKE_CXX_COMPILER={cxx}']
+
+
+def cmake_linux_compilers(config:BuildConfig):
+    if   config.gcc:   return find_compilers('gcc', 'g++')
+    elif config.clang: return find_compilers('clang', 'clang++')
+    raise RuntimeError('No supported compilers enabled!')
+
+
 def cmake_default_options(target):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
@@ -139,12 +153,7 @@ def cmake_default_options(target):
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
-        if config.gcc:
-            opt += ['CMAKE_C_COMPILER=/etc/alternatives/gcc',
-                    'CMAKE_CXX_COMPILER=/etc/alternatives/g++']
-        elif config.clang:
-            opt += ['CMAKE_C_COMPILER=/etc/alternatives/clang',
-                    'CMAKE_CXX_COMPILER=/etc/alternatives/clang++']
+        opt += cmake_linux_compilers(config)
     
     if config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']

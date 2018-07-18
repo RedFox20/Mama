@@ -29,6 +29,7 @@ def print_usage():
     console('    android    - build for android')
     console('    clang      - prefer clang for linux (default on linux/macos/ios/android)')
     console('    gcc        - prefer gcc for linux')
+    console('    fortran    - enable automatic fortran detection (or configure this in mamafile)')
     console('    release    - (default) CMake configuration RelWithDebInfo')
     console('    debug      - CMake configuration Debug')
     console('    jobs=N     - Max number of parallel compilations. (default=system.core.count)')
@@ -60,7 +61,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
         if not solutions:
             raise EnvironmentError('Could not find any Visual Studio solutions!')
-        execute(f'{solutions[0]}', echo=True)
+        execute(f'start {solutions[0]}', echo=True)
 
     elif config.macos or config.ios:
         projects = glob_folders_with_name_match(found.build_dir, ['.xcodeproj'])
@@ -69,11 +70,11 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
         execute(f'open {projects[0]}', echo=True)
 
     elif config.linux:
-        raise EnvironmentError('Open this folder with CLion.')
+        raise EnvironmentError('Linux IDE selection not implemented. Try opening this folder with CLion.')
         #execute(f'xdg-open', echo=True)
 
     elif config.android:
-        raise EnvironmentError('Open this folder with Android Studio.')
+        raise EnvironmentError('Android IDE selection not implemented. Try opening this folder with Android Studio.')
 
 def main():
     console(f'========= Mama Build Tool ==========')

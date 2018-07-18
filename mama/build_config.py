@@ -34,7 +34,7 @@ class BuildConfig:
         self.target  = None
         self.flags   = None
         self.open    = None
-        self.fortran = self.find_default_fortran_compiler()
+        self.fortran = ''
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         self.ninja_path = self.find_ninja_build()
@@ -106,6 +106,8 @@ class BuildConfig:
             elif arg == 'gcc':
                 self.gcc = True
                 self.clang = False
+            elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
+            elif arg == 'fortran=': self.fortran = arg[8:]
             elif arg == 'release': self.set_build_config(release=True)
             elif arg == 'debug':   self.set_build_config(debug=True)
             elif arg == 'open':    self.open = 'root'
