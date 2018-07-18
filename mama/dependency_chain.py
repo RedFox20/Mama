@@ -39,6 +39,11 @@ else()
     message(FATAL_ERROR "mama build: Unsupported Platform!")
     set(MAMA_BUILD "???")
 endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CLANG TRUE)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    set(GCC TRUE)
+endif()
 '''
     save_file_if_contents_changed(outfile, text)
 
