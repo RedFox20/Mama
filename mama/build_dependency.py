@@ -23,7 +23,11 @@ class Git:
         #console(cmd)
         execute(cmd)
 
-    def current_commit(self): 
+    def fetch_origin(self):
+        branch = self.branch if self.branch else self.tag
+        self.run_git(f"fetch origin {branch}")
+
+    def current_commit(self):
         cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
         return cp.stdout.decode('utf-8').rstrip()
 
@@ -42,6 +46,7 @@ class Git:
             self.branch_changed = True
             self.commit_changed = True
             return True
+        self.fetch_origin()
         self.url_changed = self.url != lines[0].rstrip()
         self.tag_changed = self.tag != lines[1].rstrip()
         self.branch_changed = self.branch != lines[2].rstrip()
