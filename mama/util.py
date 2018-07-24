@@ -168,6 +168,8 @@ def download_file(remote_url, local_dir, force=False):
     if not force and os.path.exists(local_file): # download file?
         console(f"Using locally cached {local_file}")
         return local_file
+    if not os.path.exists(local_dir):
+        os.makedirs(local_dir, exist_ok=True)
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
