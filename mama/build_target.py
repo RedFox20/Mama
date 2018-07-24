@@ -1,12 +1,12 @@
 import os.path, shutil
 import pathlib, stat, time, subprocess, concurrent.futures
-from mama.system import System, console
-from mama.util import execute, save_file_if_contents_changed, glob_with_name_match, \
-                    normalized_path, write_text_to
+from mama.system import System, console, execute, execute_echo
+from mama.util import save_file_if_contents_changed, glob_with_name_match, \
+                      normalized_path, write_text_to
 from mama.build_dependency import BuildDependency, Git
 from mama.build_config import BuildConfig
 from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
-                            cmake_inject_env, cmake_buildsys_flags, cmake_generator
+                                 cmake_inject_env, cmake_buildsys_flags, cmake_generator
 import mama.util as util
 
 ######################################################################################
@@ -431,8 +431,9 @@ class BuildTarget:
         if self.config.android or self.config.ios:
             return # nothing to run
         
-        cmd, args = command.split(' ', 1)
-        cmd = cmd.lstrip('.')
+        split = command.split(' ', 1)
+        cmd = split[0].lstrip('.')
+        args = split[1] if len(split) >= 2 else ''
         path = self.dep.src_dir if src_dir else self.dep.build_dir
         path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
         exe = os.path.basename(cmd)
@@ -442,7 +443,7 @@ class BuildTarget:
             gdb = exe
         else: # linux, macos
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args ./{exe} {args}'
-        execute(f'cd {path} && {gdb}', echo=True)
+        execute_echo(path, gdb)
 
     ########## Customization Points ###########
 

@@ -1,4 +1,5 @@
-import sys, os
+import sys, os, subprocess
+from mama.async_file_reader import AsyncFileReader
 
 ## Always flush to properly support Jenkins
 def console(s): print(s, flush=True)
@@ -8,6 +9,13 @@ def execute(command, echo=False):
     retcode = os.system(command)
     if retcode != 0:
         raise Exception(f'{command} failed with return code {retcode}')
+
+def execute_echo(cwd, cmd):
+    proc = subprocess.Popen(cmd, shell=True, cwd=cwd)
+    proc.wait()
+    if proc.returncode != 0:
+        raise Exception(f'Execute {cmd} failed with error: {proc.returncode}')
+
 
 is_windows = sys.platform == 'win32'
 is_linux   = sys.platform.startswith('linux')

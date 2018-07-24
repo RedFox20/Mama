@@ -244,7 +244,9 @@ class BuildDependency:
 
 
     def is_root_or_config_target(self):
-        return self.is_root or (self.config.target and self.config.target_matches(self.name))
+        if self.config.target:
+            return self.config.target_matches(self.name)
+        return self.is_root
 
 
     def cmakelists_exists(self):
