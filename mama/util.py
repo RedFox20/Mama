@@ -1,5 +1,6 @@
 import os, shutil, random, shlex, time, subprocess, pathlib, ssl, urllib, zipfile
 from mama.system import System, console, execute
+from urllib import request
 
 
 def is_file_modified(src, dst):
@@ -162,7 +163,7 @@ def read_lines_from(file):
         return f.readlines()
 
 
-def download_file(self, remote_url, local_dir, force=False):
+def download_file(remote_url, local_dir, force=False):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
         console(f"Using locally cached {local_file}")
@@ -170,7 +171,7 @@ def download_file(self, remote_url, local_dir, force=False):
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(remote_url, context=ctx) as urlfile:
+    with request.urlopen(remote_url, context=ctx) as urlfile:
         with open(local_file, 'wb') as output:
             total = int(urlfile.info()['Content-Length'].strip())
             total_megas = int(total/(1024*1024))
@@ -187,11 +188,11 @@ def download_file(self, remote_url, local_dir, force=False):
                 if (progress - prev_progress) >= 5: # report every 5%
                     prev_progress = progress
                     written_megas = int(written/(1024*1024))
-                    print(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...")
+                    console(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...")
 
 
-def download_and_unzip(self, remote_zip, extract_dir):
-    local_file = self.download_file(remote_zip, extract_dir)
+def download_and_unzip(remote_zip, extract_dir):
+    local_file = download_file(remote_zip, extract_dir)
     with zipfile.ZipFile(local_file, "r") as zip:
         zip.extractall(extract_dir)
 

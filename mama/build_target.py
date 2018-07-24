@@ -386,13 +386,13 @@ class BuildTarget:
         shutil.copy(src, dst)
 
 
-    # def download_file(self, remote_url, local_dir, force=False):
-    #     util.download_file(remote_url, local_dir, force)
+    def download_file(self, remote_url, local_dir, force=False):
+        util.download_file(remote_url, local_dir, force)
 
 
-    # def download_and_unzip(self, remote_zip, extract_dir):
-    #     util.download_and_unzip(remote_zip, extract_dir)
-
+    def download_and_unzip(self, remote_zip, extract_dir):
+        util.download_and_unzip(remote_zip, extract_dir)
+        
 
     ##
     # Call this to completely skip the build step every time
