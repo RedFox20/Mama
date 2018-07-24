@@ -70,8 +70,10 @@ set(MAMA_LIBS     "")
         libraries = get_cmake_path_list(dep.target.exported_libs)
         text += f'''
 # Package {dep.name}
-set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})
-set(MAMA_LIBS     ${{MAMA_LIBS}}     {libraries})
+set({dep.name}_INCLUDES {includes})
+set({dep.name}_LIBS {libraries})
+set(MAMA_INCLUDES ${{MAMA_INCLUDES}} ${{{dep.name}_INCLUDES}})
+set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIBS}})
 '''
     save_file_if_contents_changed(outfile, text)
 
