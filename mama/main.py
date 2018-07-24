@@ -92,8 +92,11 @@ def main():
     root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
 
     if config.update:
-        if not config.target: config.target = 'all'
-        console(f'Updating {config.target} target')
+        if not config.target:
+            config.target = 'all'
+            console(f'Updating all targets')
+        else:
+            console(f'Updating {config.target} target')
 
     if config.rebuild:
         config.build = True

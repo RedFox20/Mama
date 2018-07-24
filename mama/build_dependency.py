@@ -24,8 +24,7 @@ class Git:
         execute(cmd)
 
     def fetch_origin(self):
-        branch = self.branch if self.branch else self.tag
-        self.run_git(f"fetch origin {branch}")
+        self.run_git(f"pull origin {self.branch_or_tag()} -q")
 
     def current_commit(self):
         cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
@@ -51,7 +50,7 @@ class Git:
         self.tag_changed = self.tag != lines[1].rstrip()
         self.branch_changed = self.branch != lines[2].rstrip()
         self.commit_changed = self.current_commit() != lines[3].rstrip()
-        #console(f'check_status {self.url}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
+        #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
     def branch_or_tag(self):
@@ -86,7 +85,7 @@ class Git:
         else:
             self.checkout_current_branch()
             if not self.tag: # never pull a tag
-                self.run_git("reset --hard")
+                self.run_git("reset --hard -q")
                 self.run_git("pull")
 
 class BuildDependency:

@@ -83,7 +83,7 @@ def create_mama_cmake_includes(root_dependency: BuildDependency):
     save_generic_cmake(root_dependency)
 
 
-def load_child_dependencies(root_dependency: BuildDependency, parallel=False):
+def load_child_dependencies(root_dependency: BuildDependency, parallel=True):
     changed = False
     if parallel:
         futures = []
