@@ -91,6 +91,16 @@ def main():
     name = os.path.basename(source_dir)
     root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
 
+    has_cmake = root_dependency.cmakelists_exists()
+    if not root_dependency.mamafile_exists() and not has_cmake:
+        console('FATAL ERROR: mamafile.py not found')
+        exit(-1)
+
+    ## TODO Remove this eventually when we support non-cmake root builds
+    if not has_cmake:
+        console('FATAL ERROR: CMakeLists.txt not found')
+        exit(-1)
+
     if config.update:
         if not config.target:
             config.target = 'all'

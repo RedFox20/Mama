@@ -222,7 +222,7 @@ class BuildDependency:
             return
 
         project, buildTarget = parse_mamafile(self.config, self.src_dir, \
-                                            self.target_class, mamafile=self.mamafile)
+                                              self.target_class, mamafile=self.mamafile)
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:
@@ -241,6 +241,25 @@ class BuildDependency:
             if not self.workspace:
                 self.workspace = 'build'
             self.target = self.target_class(name=self.name, config=self.config, dep=self)
+
+
+    def is_root_or_config_target(self):
+        return self.is_root or (self.config.target and self.config.target_matches(self.name))
+
+
+    def cmakelists_exists(self):
+        cmakelists = os.path.join(self.src_dir, 'CMakeLists.txt')
+        return os.path.exists(cmakelists)
+    
+
+    def ensure_cmakelists_exists(self):
+        cmakelists = os.path.join(self.src_dir, 'CMakeLists.txt')
+        if not os.path.exists(cmakelists):
+            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step. Also note that filename CMakeLists.txt is case sensitive.')
+
+
+    def mamafile_exists(self):
+        return os.path.exists(os.path.join(self.src_dir, 'mamafile.py'))
 
 
     def git_checkout(self):
@@ -262,9 +281,11 @@ class BuildDependency:
         self.git.clone_or_pull(wiped)
         return True
 
+
     ## GIT
     def save_git_status(self):
         if self.git: self.git.save_status()
+
 
     ## Clean
     def clean(self):

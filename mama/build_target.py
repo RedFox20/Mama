@@ -427,17 +427,22 @@ class BuildTarget:
 
     
     # Run a command with gdb in the build folder
-    def gdb(self, command):
+    def gdb(self, command, src_dir=False):
         if self.config.android or self.config.ios:
             return # nothing to run
         
-        build_dir = self.dep.build_dir
+        cmd, args = command.split(' ', 1)
+        cmd = cmd.lstrip('.')
+        path = self.dep.src_dir if src_dir else self.dep.build_dir
+        path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
+        exe = os.path.basename(cmd)
+
         if self.config.windows:
-            build_dir = f'{build_dir}/{self.cmake_build_type}'
-            gdb = command.lstrip('./') # no gdb on windows
+            if not src_dir: path = f'{path}/{self.cmake_build_type}'
+            gdb = exe
         else: # linux, macos
-            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args {command}'
-        execute(f'cd {build_dir} && {gdb}', echo=True)
+            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args ./{exe} {args}'
+        execute(f'cd {path} && {gdb}', echo=True)
 
     ########## Customization Points ###########
 
@@ -526,18 +531,10 @@ class BuildTarget:
         self.dep.clean()
 
 
-    def ensure_cmakelists_exists(self):
-        cmakelists = os.path.join(self.dep.src_dir, 'CMakeLists.txt')
-        if not os.path.exists(cmakelists):
-            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or \
-                            add `self.nothing_to_build()` to configuration step. \
-                            Also note that filename CMakeLists.txt is case sensitive.')
-    
-
     def cmake_build(self):
         console('\n\n#############################################################')
         console(f"CMake build {self.name}")
-        self.ensure_cmakelists_exists()
+        self.dep.ensure_cmakelists_exists()
         def cmake_flags():
             flags = ''
             options = self.cmake_opts + cmake_default_options(self) + self.get_product_defines()
@@ -573,8 +570,9 @@ class BuildTarget:
 
             self.print_exports()
 
-            if self.config.test:
+            if self.config.test and self.dep.is_root_or_config_target():
                 test_args = self.config.test.lstrip()
+                console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
         except:
             console(f'  [BUILD FAILED]  {self.dep.name}')
