@@ -252,7 +252,8 @@ class BuildTarget:
     def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False):
         root = self.dep.src_dir if src_dir else self.dep.build_dir
         path = os.path.join(root, path)
-        self.exported_libs = glob_with_name_match(path, pattern_substrings)
+        for lib in glob_with_name_match(path, pattern_substrings):
+            self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()
         return len(self.exported_libs) > 0
 
