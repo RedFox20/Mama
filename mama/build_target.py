@@ -248,12 +248,26 @@ class BuildTarget:
     #   self.export_libs('.', ['.dll', '.so'])   # gather any .dll or .so from build dir
     #   self.export_libs('lib', src_dir=True)  # export everything from project/lib directory
     #   self.export_libs('external/lib')  # gather specific static libs from build dir
+    #   
+    #   # export the libs in a particular order for Linux linker
+    #   self.export_libs('lib', order=[
+    #       'xphoto', 'calib3d', 'flann', 'core'
+    #   ])
+    #   -->  [..others.., libopencv_xphoto.a, libopencv_calib3d.a, libopencv_flann.a, libopencv_core.a]
     # 
-    def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False):
+    def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, order=None):
         root = self.dep.src_dir if src_dir else self.dep.build_dir
         path = os.path.join(root, path)
-        for lib in glob_with_name_match(path, pattern_substrings):
-            self.exported_libs.append(lib)
+        libs = glob_with_name_match(path, pattern_substrings)
+        if order:
+            def lib_index(lib):
+                for i in range(len(order)):
+                    if order[i] in lib: return i
+                return -1
+            def sort_key(lib):
+                return lib_index(lib)
+            libs.sort(key=sort_key)
+        self.exported_libs += libs
         self._remove_duplicate_export_libs()
         return len(self.exported_libs) > 0
 
