@@ -25,12 +25,13 @@ import mama.util as util
 class BuildTarget:
 
 
-    def __init__(self, name, config:BuildConfig, dep:BuildDependency):
-        if config is None: raise RuntimeError('BuildTarget config argument must be set')
-        if dep is None:    raise RuntimeError('BuildTarget dep argument must be set')
+    def __init__(self, name, config:BuildConfig, dep:BuildDependency, args:list):
+        if config is None: raise RuntimeError(f'BuildTarget {name} config argument must be set')
+        if dep is None:    raise RuntimeError(f'BuildTarget {name} dep argument must be set')
         self.config = config
         self.name = name
-        self.dep = dep
+        self.dep  = dep
+        self.args = [] # user defined args for this target (must be a list)
         self.install_target   = 'install'
         self.cmake_ndk_toolchain = f'{config.android_ndk_path}/build/cmake/android.toolchain.cmake' if config.android_ndk_path else ''
         self.cmake_ios_toolchain = ''
@@ -50,6 +51,15 @@ class BuildTarget:
         self.macos   = self.config.macos
         self.ios     = self.config.ios
         self.android = self.config.android
+        self.set_args(args)
+
+
+    def set_args(self, args:list):
+        if not isinstance(args, list):
+            raise RuntimeError(f'BuildTarget {self.name} target args must be a list')
+        self.args += args
+        #console(f'Added args to {self.name}: {self.args}')
+
 
     def _get_full_path(self, path):
         if path and not os.path.isabs(path):
@@ -81,11 +91,11 @@ class BuildTarget:
     #   self.add_local('zlib', '3rdparty/zlib')
     #   self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
     #
-    def add_local(self, name, source_dir, mamafile=None):
+    def add_local(self, name, source_dir, mamafile=None, args=[]):
         src      = self._get_full_path(source_dir)
         mamafile = self._get_mamafile_path(name, mamafile)
         dependency = BuildDependency.get(name, self.config, BuildTarget, \
-                        workspace=self.dep.workspace, src=src, mamafile=mamafile)
+                        workspace=self.dep.workspace, src=src, mamafile=mamafile, args=args)
         self.dep.children.append(dependency)
 
 
@@ -96,16 +106,18 @@ class BuildTarget:
     #
     #  If the remote GIT repository does not contain a `mamafile.py`, you will have to
     #  provide your own relative or absolute mamafile path.
+    #
+    #  Any arguments are passed onto child targets as `self.args`
     # Ex:
     #   self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
     #   self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git', git_branch='master')
     #   self.add_git('opencv', 'https://github.com/opencv/opencv.git', git_branch='3.4', mamafile='mama/opencv_cfg.py')
     #
-    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None):
+    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):
         git = Git(git_url, git_branch, git_tag)
         mamafile = self._get_mamafile_path(name, mamafile)
         dependency = BuildDependency.get(name, self.config, BuildTarget, \
-                        workspace=self.dep.workspace, git=git, mamafile=mamafile)
+                        workspace=self.dep.workspace, git=git, mamafile=mamafile, args=args)
         self.dep.children.append(dependency)
 
     ##

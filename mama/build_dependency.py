@@ -90,20 +90,21 @@ class Git:
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False, mamafile=None):
+    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False, mamafile=None, args=[]):
         self.name       = name
         self.workspace  = workspace
         self.config     = config
         self.target     = None
         self.target_class = target_class
+        self.target_args  = args
         self.mamafile     = mamafile
-        self.should_rebuild = False
-        self.nothing_to_build = False
-        self.already_loaded = False
+        self.should_rebuild    = False
+        self.nothing_to_build  = False
+        self.already_loaded    = False
         self.already_executed  = False
-        self.is_root = is_root # Root deps are always built
-        self.children = []
-        self.depends_on = []
+        self.is_root         = is_root # Root deps are always built
+        self.children        = []
+        self.depends_on      = []
         self.product_sources = []
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
@@ -123,12 +124,17 @@ class BuildDependency:
     
     
     @staticmethod
-    def get(name, config, target_class, workspace=None, src=None, git=None, mamafile=None):
+    def get(name, config, target_class, workspace, src=None, git=None, mamafile=None, args=[]):
         if name in BuildDependency.loaded_deps:
-            return BuildDependency.loaded_deps[name]
-            
+            #console(f'Using existing BuildDependency {name}')
+            dependency = BuildDependency.loaded_deps[name]
+            dependency.target_args += args
+            if dependency.target:
+                dependency.target.set_args(args)
+            return dependency
+        
         dependency = BuildDependency(name, config, target_class, \
-                        workspace=workspace, src=src, git=git, mamafile=mamafile)
+                        workspace=workspace, src=src, git=git, mamafile=mamafile, args=args)
         BuildDependency.loaded_deps[name] = dependency
         return dependency
 
@@ -191,7 +197,8 @@ class BuildDependency:
         build = False
         if conf.build:
             build = True
-            def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]')
+            def target_args(): return f'{target.args}' if target.args else ''
+            def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
 
             if conf.target and not is_target:
                 build = False # skip build if target doesn't match
@@ -219,6 +226,7 @@ class BuildDependency:
 
     def create_build_target(self):
         if self.target:
+            self.target.set_args(self.target_args)
             return
 
         project, buildTarget = parse_mamafile(self.config, self.src_dir, \
@@ -236,11 +244,11 @@ class BuildDependency:
                 elif 'global_workspace' in buildStatics: self.config.global_workspace = True
                 if not self.config.global_workspace:
                     self.config.workspaces_root = self.src_dir
-            self.target = buildTarget(name=project, config=self.config, dep=self)
+            self.target = buildTarget(name=project, config=self.config, dep=self, args=self.target_args)
         else:
             if not self.workspace:
                 self.workspace = 'build'
-            self.target = self.target_class(name=self.name, config=self.config, dep=self)
+            self.target = self.target_class(name=self.name, config=self.config, dep=self, args=self.target_args)
 
 
     def is_root_or_config_target(self):
