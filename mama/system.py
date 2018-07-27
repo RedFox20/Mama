@@ -11,8 +11,24 @@ def execute(command, echo=False):
         raise Exception(f'{command} failed with return code {retcode}')
 
 def execute_echo(cwd, cmd):
-    proc = subprocess.Popen(cmd, shell=True, cwd=cwd)
-    proc.wait()
+    try:
+        proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output = AsyncFileReader(proc.stdout)
+        errors = AsyncFileReader(proc.stderr)
+        while True:
+            if proc.poll() is None:
+                line  = output.readline()
+                error = errors.readline()
+                if line:  print(line,  flush=True, end='')
+                if error: print(error, flush=True, end='')
+            else:
+                output.stop()
+                errors.stop()
+                if proc.returncode == 0:
+                    break
+    except:
+        console(f'Popen failed! cwd={cwd} cmd={cmd} ')
+        raise
     if proc.returncode != 0:
         raise Exception(f'Execute {cmd} failed with error: {proc.returncode}')
 

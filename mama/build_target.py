@@ -559,6 +559,8 @@ class BuildTarget:
         run_cmake_build(self, cmake_buildsys_flags(self))
         self.dep.save_git_status()
 
+    def is_test_target(self):
+        return self.config.test and self.dep.is_root_or_config_target()
 
     ## Build only this target
     def execute_tasks(self):
@@ -583,7 +585,7 @@ class BuildTarget:
 
             self.print_exports()
 
-            if self.config.test and self.dep.is_root_or_config_target():
+            if self.is_test_target():
                 test_args = self.config.test.lstrip()
                 console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
