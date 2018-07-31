@@ -6,10 +6,12 @@ from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
 from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency
+from .init_project import mama_init_project
 
 def print_usage():
     console('mama [actions...] [args...]')
     console('  actions:')
+    console('    init       - create initial mamafile.py and CMakeLists.txt')
     console('    build      - update, configure and build main project or specific target')
     console('    clean      - clean main project or specific target')
     console('    rebuild    - clean, update, configure and build main project or specific target')
@@ -34,14 +36,18 @@ def print_usage():
     console('    debug      - CMake configuration Debug')
     console('    jobs=N     - Max number of parallel compilations. (default=system.core.count)')
     console('    target=P   - Name of the target')
+    console('    all        - Short for target=all')
     console('  examples:')
+    console('    mama init                     Initialize a new project. Tries to create mamafile.py and CMakeLists.txt')
     console('    mama build                    Update and build main project only.')
     console('    mama clean                    Cleans main project only.')
+    console('    mama clean all                Cleans EVERYTHING in the dependency chain.')
     console('    mama rebuild                  Cleans, update and build main project only.')
     console('    mama update build             Update all dependencies and then build.')
     console('    mama build target=dep1        Update and build dep1 only.')
     console('    mama configure                Run CMake configuration on main project only.')
     console('    mama configure target=all     Run CMake configuration on main project and all deps.')
+    console('    mama configure all            Run CMake configuration on main project and all deps.')
     console('    mama reclone target=dep1      Wipe target dependency completely and clone again.')
     console('    mama test                     Run tests on main project.')
     console('    mama test=arg                 Run tests on main project with an argument.')
@@ -76,6 +82,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     elif config.android:
         raise EnvironmentError('Android IDE selection not implemented. Try opening this folder with Android Studio.')
 
+
 def main():
     console(f'========= Mama Build Tool ==========')
     if sys.version_info < (3, 6):
@@ -84,12 +91,17 @@ def main():
 
     if len(sys.argv) == 1 or 'help' in sys.argv:
         print_usage()
-        sys.exit(-1)
+        exit(-1)
 
     config = BuildConfig(sys.argv[1:])
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
     root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
+
+    if config.mama_init:
+        mama_init_project(root_dependency)
+        return
+
 
     has_cmake = root_dependency.cmakelists_exists()
     if not root_dependency.mamafile_exists() and not has_cmake:
@@ -121,8 +133,11 @@ def main():
     if config.open:
         open_project(config, root_dependency)
 
+
 def __main__():
     main()
 
+
 if __name__ == '__main__':
     main()
+

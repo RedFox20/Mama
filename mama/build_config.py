@@ -20,6 +20,7 @@ class BuildConfig:
         self.update  = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
+        self.mama_init = False
         self.test      = ''
         self.windows = False
         self.linux   = False
@@ -88,12 +89,14 @@ class BuildConfig:
 
     def parse_args(self, args):
         for arg in args:
-            if arg == 'build':     self.build   = True
+            if   arg == 'build':     self.build   = True
             elif arg == 'clean':     self.clean   = True
             elif arg == 'rebuild':   self.rebuild = True
             elif arg == 'update':    self.update  = True
             elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
+            elif arg == 'init':      self.mama_init = True
+            elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
             elif arg == 'windows': self.set_platform(windows=True)
             elif arg == 'linux':   self.set_platform(linux=True)

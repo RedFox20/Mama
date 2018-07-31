@@ -114,14 +114,14 @@ def cmake_default_options(target):
         add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
-        if config.clang:
+        if config.clang and not config.gcc:
             add_flag('-stdlib', 'libc++')
     elif config.macos:
-        add_flag('-march=', 'native')
-        add_flag('-stdlib=', 'libc++')
+        add_flag('-march', 'native')
+        add_flag('-stdlib', 'libc++')
     elif config.ios:
-        add_flag('-arch ', 'arm64')
-        add_flag('-stdlib=', 'libc++')
+        add_flag('-arch arm64')
+        add_flag('-stdlib', 'libc++')
         add_flag('-miphoneos-version-min', config.ios_version)
 
     if config.flags:

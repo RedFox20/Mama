@@ -151,12 +151,15 @@ class BuildDependency:
     def is_reconfigure_target(self):
         return self.config.configure and self.config.target == self.name
 
+
     def exported_libs_file(self):
         return self.build_dir + '/mama_exported_libs'
+
 
     def load_build_dependencies(self, target):
         for saved_dependency in read_lines_from(self.exported_libs_file()):
             target.add_build_dependency(saved_dependency)
+
 
     def save_exports_as_dependencies(self, exports):
         write_text_to(self.exported_libs_file(), '\n'.join(exports))
@@ -168,9 +171,11 @@ class BuildDependency:
                 return depfile
         return None
 
+
     def create_build_dir_if_needed(self):
         if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
             os.makedirs(self.build_dir, exist_ok=True)
+
 
     ## @return True if dependency has changed
     def load(self):
@@ -229,8 +234,7 @@ class BuildDependency:
             self.target.set_args(self.target_args)
             return
 
-        project, buildTarget = parse_mamafile(self.config, self.src_dir, \
-                                              self.target_class, mamafile=self.mamafile)
+        project, buildTarget = parse_mamafile(self.config, self.target_class, self.mamafile_path())
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:
@@ -257,19 +261,25 @@ class BuildDependency:
         return self.is_root
 
 
+    def cmakelists_path(self):
+        return os.path.join(self.src_dir, 'CMakeLists.txt')
+
+
     def cmakelists_exists(self):
-        cmakelists = os.path.join(self.src_dir, 'CMakeLists.txt')
-        return os.path.exists(cmakelists)
+        return os.path.exists(self.cmakelists_path())
     
 
     def ensure_cmakelists_exists(self):
-        cmakelists = os.path.join(self.src_dir, 'CMakeLists.txt')
-        if not os.path.exists(cmakelists):
-            raise IOError(f'Could not find {cmakelists}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step. Also note that filename CMakeLists.txt is case sensitive.')
+        if not os.path.exists(self.cmakelists_path()):
+            raise IOError(f'Could not find {self.cmakelists_path()}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step. Also note that filename CMakeLists.txt is case sensitive.')
+
+
+    def mamafile_path(self):
+        return self.mamafile if self.mamafile else os.path.join(self.src_dir, 'mamafile.py')
 
 
     def mamafile_exists(self):
-        return os.path.exists(os.path.join(self.src_dir, 'mamafile.py'))
+        return os.path.exists(self.mamafile_path())
 
 
     def git_checkout(self):
