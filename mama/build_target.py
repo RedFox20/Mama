@@ -537,7 +537,7 @@ class BuildTarget:
     def cmake_install(self):
         console('\n\n#############################################################')
         console(f"CMake install {self.name} ...")
-        run_cmake_build(self)
+        run_cmake_build(self, install=True)
 
 
     def clean_target(self):
@@ -556,7 +556,7 @@ class BuildTarget:
 
         self.inject_env()
         run_cmake_config(self, cmake_flags())
-        run_cmake_build(self, cmake_buildsys_flags(self))
+        run_cmake_build(self, install=True, extraflags=cmake_buildsys_flags(self))
         self.dep.save_git_status()
 
     def is_test_target(self):

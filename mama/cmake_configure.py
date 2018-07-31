@@ -38,9 +38,9 @@ def run_cmake_config(target, cmake_flags):
     rerunnable_cmake_conf(target.dep.build_dir, cmd, True)
 
 
-def run_cmake_build(target, extraflags=''):
+def run_cmake_build(target, install, extraflags=''):
     build_dir = target.dep.build_dir
-    flags = cmake_build_config(target)
+    flags = cmake_build_config(target, install)
     execute(f'cmake --build {build_dir} {flags} {extraflags}')
 
 
@@ -196,9 +196,10 @@ def cmake_inject_env(target):
         os.environ['MACOSX_DEPLOYMENT_TARGET'] = config.macos_version
 
 
-def cmake_build_config(target):
+def cmake_build_config(target, install):
     conf = f'--config {target.cmake_build_type}'
-    if target.install_target: conf += f' --target {target.install_target}'
+    if install and target.install_target:
+        conf += f' --target {target.install_target}'
     return conf
 
 
