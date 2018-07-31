@@ -1,6 +1,7 @@
 from .build_dependency import BuildDependency
 from .util import read_lines_from, write_text_to
 from .system import console
+import re
 
 def write_default_mamafile(project_name, mamafile):
     contents = f'''import mama
@@ -77,15 +78,14 @@ def patch_existing_cmakelists(project_name, cmakefile):
 
     found_project = False
     for i in range(len(lines)):
-        line = lines[i]
-        if (line.startswith('project') or line.startswith('PROJECT')) and line[7:].lstrip().startswith('('):
+        if bool(re.match('project\\s?\\(', lines[i], re.I)): # Match "project(" or "PROJECT (" 
             at = i+1
             lines[at:at] = [
                 '\n',
-                '# Include all mama dependencies via ${{MAMA_INCLUDES}} and ${{MAMA_LIBS}}\n',
-                '# For each dependency there will also be ${{SomeLibrary_LIBS}} (case-sensitive)\n',
+                '# Include all mama dependencies via ${MAMA_INCLUDES} and ${MAMA_LIBS}\n',
+                '# For each dependency there will also be ${SomeLibrary_LIBS} (case-sensitive)\n',
                 'include(mama.cmake)\n',
-                'include_directories(${{MAMA_INCLUDES}})\n',
+                'include_directories(${MAMA_INCLUDES})\n',
             ]
             console(f'  Inserted include(mama.cmake) at line {at+1}.')
             found_project = True
