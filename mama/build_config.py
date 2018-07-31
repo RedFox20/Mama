@@ -29,6 +29,7 @@ class BuildConfig:
         self.android = False
         self.clang = True # prefer clang on linux
         self.gcc   = False   
+        self.compiler_cmd = False # Was compiler specificed from command line?
         self.release = True
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
@@ -87,6 +88,28 @@ class BuildConfig:
         return True
 
 
+    def prefer_clang(self, target_name):
+        if not self.linux or self.clang: return
+        if not self.compiler_cmd:
+            self.clang = True
+            self.gcc   = False
+            self.compiler_cmd = True
+            console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler set.')
+        else:
+            console(f'Target {target_name} requested Clang but compiler already set to GCC.')
+
+
+    def prefer_gcc(self, target_name):
+        if not self.linux or self.gcc: return
+        if not self.compiler_cmd:
+            self.clang = False
+            self.gcc   = True
+            self.compiler_cmd = True
+            console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler set.')
+        else:
+            console(f'Target {target_name} requested GCC but compiler already set to Clang.')
+
+
     def parse_args(self, args):
         for arg in args:
             if   arg == 'build':     self.build   = True
@@ -106,9 +129,11 @@ class BuildConfig:
             elif arg == 'clang':   
                 self.gcc = False
                 self.clang = True
+                self.compiler_cmd = True
             elif arg == 'gcc':
                 self.gcc = True
                 self.clang = False
+                self.compiler_cmd = True
             elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
             elif arg == 'fortran=': self.fortran = arg[8:]
             elif arg == 'release': self.set_build_config(release=True)
