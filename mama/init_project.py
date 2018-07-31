@@ -71,13 +71,14 @@ def patch_existing_cmakelists(project_name, cmakefile):
     lines = read_lines_from(cmakefile)
 
     for i in range(len(lines)):
-        if 'include(mama.cmake)' in lines[i]:
+        if lines[i].startswith('include(mama.cmake)'):
             console(f'  Found include(mama.cmake) at line {i+1}. Not injecting basic mama includes.')
             return # Nothing to do!
 
     found_project = False
     for i in range(len(lines)):
-        if 'project(' in lines[i]:
+        line = lines[i]
+        if (line.startswith('project') or line.startswith('PROJECT')) and line[7:].lstrip().startswith('('):
             at = i+1
             lines[at:at] = [
                 '\n',
