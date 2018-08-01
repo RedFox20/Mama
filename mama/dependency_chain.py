@@ -55,6 +55,8 @@ def get_cmake_path_list(paths):
 
 
 def save_dependencies_cmake(root_dependency: BuildDependency):
+    if not root_dependency.build_dir_exists():
+        return # probably CLEAN, so nothing to save
     outfile = f'{root_dependency.build_dir}/mama-dependencies.cmake'
     if not root_dependency.children:
         if os.path.exists(outfile):

@@ -486,6 +486,10 @@ class BuildTarget:
     def clean(self):
         pass
 
+    ###
+    # Sets self.install_target to None, which disables the CMake install step
+    def disable_install(self):
+        self.install_target = ''
 
     ###
     # Perform custom install steps here. By default it uses CMake install
@@ -581,9 +585,10 @@ class BuildTarget:
             if not self.exported_includes or not self.exported_libs:
                 self.default_package()
 
-            self.dep.save_exports_as_dependencies(self.exported_libs)
-
-            self.print_exports()
+            # only save and print exports if we built anything
+            if self.dep.build_dir_exists():
+                self.dep.save_exports_as_dependencies(self.exported_libs)
+                self.print_exports()
 
             if self.is_test_target():
                 test_args = self.config.test.lstrip()

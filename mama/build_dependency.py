@@ -172,6 +172,10 @@ class BuildDependency:
         return None
 
 
+    def build_dir_exists(self):
+        return os.path.exists(self.build_dir)
+
+
     def create_build_dir_if_needed(self):
         if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
             os.makedirs(self.build_dir, exist_ok=True)
