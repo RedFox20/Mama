@@ -521,6 +521,7 @@ class BuildTarget:
         # default export from {build_dir}/{cmake_build_type}
         if self.export_libs(self.cmake_build_type, src_dir=False): pass
         elif self.export_libs('lib', src_dir=False): pass
+        elif self.export_libs('.', src_dir=False): pass
     
 
     ###
