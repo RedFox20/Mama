@@ -69,17 +69,9 @@ def cmake_make_program(target):
     return ''
 
 
-def find_compilers(cc, cxx):
-    for root in ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/']:
-        if os.path.exists(root + cc):
-            return [f'CMAKE_C_COMPILER={root}{cc}', f'CMAKE_CXX_COMPILER={root}{cxx}']
-    return [f'CMAKE_C_COMPILER={cc}', f'CMAKE_CXX_COMPILER={cxx}']
-
-
 def cmake_linux_compilers(config:BuildConfig):
-    if   config.gcc:   return find_compilers('gcc', 'g++')
-    elif config.clang: return find_compilers('clang', 'clang++')
-    raise RuntimeError('No supported compilers enabled!')
+    cc, cxx = config.get_preferred_compiler_paths()
+    return [f'CMAKE_C_COMPILER={cc}', f'CMAKE_CXX_COMPILER={cxx}']
 
 
 def cmake_default_options(target):

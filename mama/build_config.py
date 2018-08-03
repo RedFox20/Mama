@@ -28,7 +28,9 @@ class BuildConfig:
         self.ios     = False
         self.android = False
         self.clang = True # prefer clang on linux
-        self.gcc   = False   
+        self.gcc   = False
+        self.clang_path = ''
+        self.gcc_path = ''
         self.compiler_cmd = False # Was compiler specificed from command line?
         self.release = True
         self.debug   = False
@@ -147,11 +149,36 @@ class BuildConfig:
                 self.flags = arg[6:]
             continue
 
+
     def add_test_arg(self, arg):
         if arg[0] == '"' and arg[-1] == '"':
             arg = arg[1:-1]
         if self.test: self.test += ' '
         self.test += arg
+
+
+    def find_compiler_root(self, cxx):
+        roots = ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/']
+        for root in roots:
+            if os.path.exists(root + cxx):
+                #console(f'Mama compiler: {root}{cxx}')
+                return root
+        raise IOError(f'Could not find {cxx} from {roots}')
+
+
+    def get_preferred_compiler_paths(self):
+        if self.clang:
+            if not self.clang_path: self.clang_path = self.find_compiler_root('clang++')
+            cc = f'{self.clang_path}clang'
+            cxx = f'{self.clang_path}clang++'
+            return (cc, cxx)
+        if self.gcc:
+            if not self.gcc_path: self.gcc_path = self.find_compiler_root('g++')
+            cc = f'{self.gcc_path}gcc'
+            cxx = f'{self.gcc_path}g++'
+            return (cc, cxx)
+        raise RuntimeError('No preferred compiler for this platform!')
+        
 
     def find_ninja_build(self):
         ninja_executables = [
