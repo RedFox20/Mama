@@ -284,6 +284,23 @@ class BuildTarget:
         return len(self.exported_libs) > 0
 
 
+    ##
+    # For UNIX: Find and export system libraries so they are automatically
+    #           linked with mamabuild
+    #
+    # Ex:
+    #   self.export_syslib('uuid') ## will attempt to find libuuid.so
+    # 
+    def export_syslib(self, name, required=True):
+        lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+        if not os.path.exists(lib):
+            if not required: return
+            raise IOError(f'Failed to find SysLib: {name}')
+        console(f'Exporting syslib: {name}:{lib}')
+        self.exported_libs.append(lib)
+        self._remove_duplicate_export_libs()
+
+
     def _remove_duplicate_export_libs(self):
         unique = dict()
         for lib in self.exported_libs:
@@ -601,9 +618,12 @@ class BuildTarget:
 
 
     def _print_ws_path(self, what, path):
-        n = len(self.config.workspaces_root) + 1
         exists = '' if os.path.exists(path) else '   !! (path does not exist) !!' 
-        console(f'    {what}  {path[n:]}{exists}')
+        if not path.startswith(self.config.workspaces_root):
+            console(f'    {what}  {path}{exists}')
+        else:
+            n = len(self.config.workspaces_root) + 1
+            console(f'    {what}  {path[n:]}{exists}')
 
     ##
     # Prints out all the exported products
