@@ -108,7 +108,7 @@ def cmake_default_options(target):
         add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
-        if config.clang and not config.gcc and config.cxx_enabled:
+        if config.clang and config.cxx_enabled:
             add_flag('-stdlib', 'libc++')
     elif config.macos:
         add_flag('-march', 'native')
