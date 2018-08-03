@@ -127,7 +127,7 @@ def cmake_default_options(target):
     if config.linux:
         opt += cmake_linux_compilers(config)
     
-    if config.fortran:
+    if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
     cxxflags_str = get_flags_string(cxxflags)

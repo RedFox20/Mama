@@ -42,6 +42,7 @@ class BuildTarget:
         self.enable_exceptions = True
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
+        self.enable_fortran_build = False
         self.enable_multiprocess_build = True
         self.build_dependencies = [] # dependency files
         self.exported_includes = [] # include folders to export from this target
@@ -297,7 +298,7 @@ class BuildTarget:
     ##
     # For UNIX: Find and export system libraries so they are automatically
     #           linked with mamabuild
-    #
+    # @return TRUE if syslib was exported; FALSE if required=False and syslib not found
     # Ex:
     #   self.export_syslib('uuid')
     #   # will attempt to find system library in this order:
@@ -312,11 +313,12 @@ class BuildTarget:
         if not os.path.exists(lib):
             lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
         if not os.path.exists(lib):
-            if not required: return
-            raise IOError(f'Error {self.name} failed to find SysLib: {name}')
+            if not required: return False
+            raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')
         #console(f'Exporting syslib: {name}:{lib}')
         self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()
+        return True
 
 
     def _remove_duplicate_export_libs(self):
@@ -461,6 +463,15 @@ class BuildTarget:
     #
     def disable_ninja_build(self):
         self.enable_ninja_build = False
+
+
+    ##
+    # Enable fortran for this target only
+    # @path Optional custom path or command for the Fortran compiler
+    #
+    def enable_fortran(self, path=''):
+        self.config.enable_fortran(path)
+        self.enable_fortran_build = True
 
 
     ##

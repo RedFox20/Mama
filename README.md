@@ -46,8 +46,8 @@ Project `AlphaGL/mamafile.py`
 ```py
 import mama
 class AlphaGL(mama.BuildTarget):
-    # this defines where to build all the dependencies
-    local_workspace = 'build'
+    # where to build intermediates
+    workspace = 'build'
 
     # grab dependencies straight from git repositories
     # if the projects are trivial, then no extra configuration is needed
@@ -62,8 +62,8 @@ class AlphaGL(mama.BuildTarget):
         self.export_libs('.', ['.lib', '.a']) # export any .lib or .a from build folder
         self.export_includes(['AGL']) # export AGL as include from source folder
 
-    def test(self):
-        pass
+    def test(self, args):
+        self.gdb(f'bin/AlphaGLTests {args}')
 ```
 
 If a dependency is non-trivial (it has dependencies and configuration),

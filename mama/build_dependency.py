@@ -154,6 +154,11 @@ class BuildDependency:
         return self.config.configure and self.config.target == self.name
 
 
+    def has_build_files(self):
+        return os.path.exists(self.build_dir+'/CMakeCache.txt') \
+            or os.path.exists(self.build_dir+'/Makefile')
+
+
     def exported_libs_file(self):
         return self.build_dir + '/mama_exported_libs'
 
@@ -221,21 +226,22 @@ class BuildDependency:
         target.dependencies() ## customization point for additional dependencies
 
         build = False
-        if conf.build or conf.update or conf.clean:
+        if conf.build or conf.update:
             build = True
             def target_args(): return f'{target.args}' if target.args else ''
             def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
 
-            if conf.target and not is_target:
+            if conf.target and not is_target: # if we called: "target=SpecificProject"
                 build = False # skip build if target doesn't match
             
             elif conf.clean and is_target:  reason('cleaned target')
             elif self.is_root:              reason('root target')
             elif conf.update and is_target: reason('update target')
-            elif update_mamafile_tag(self.src_dir, self.build_dir):   reason(f'{target.name}/mamafile.py modified')
-            elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(f'{target.name}/CMakeLists.txt modified')
+            elif update_mamafile_tag(self.src_dir, self.build_dir):   reason(target.name+'/mamafile.py modified')
+            elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(target.name+'/CMakeLists.txt modified')
             elif git_changed:                   reason('git commit changed')
-            elif self.is_reconfigure_target():  reason(f'configure target={target.name}')
+            elif self.is_reconfigure_target():  reason('configure target='+target.name)
+            elif not self.has_build_files():    reason('not built yet')
             elif not target.build_dependencies: reason('no build dependencies')
             else:
                 missing = self.get_missing_build_dependency()
