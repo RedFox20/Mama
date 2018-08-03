@@ -11,13 +11,12 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun):
     errors = AsyncFileReader(proc.stderr)
     while True:
         if proc.poll() is None:
-            line = output.readline()
-            if line: console(line.rstrip())
+            while output.available():
+                print(output.readline(), flush=True, end='')
 
-            error = errors.readline()
-            if error:
-                error = error.rstrip()
-                console(error)
+            while errors.available():
+                error = errors.readline()
+                print(error, flush=True, end='')
                 # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
                 if System.windows:
                     rerun |= error.startswith('  is not a full path to an existing compiler tool.')
@@ -71,7 +70,10 @@ def cmake_make_program(target):
 
 def cmake_linux_compilers(config:BuildConfig):
     cc, cxx = config.get_preferred_compiler_paths()
-    return [f'CMAKE_C_COMPILER={cc}', f'CMAKE_CXX_COMPILER={cxx}']
+    compilers = [f'CMAKE_C_COMPILER={cc}']
+    if config.cxx_enabled:
+        compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
+    return compilers
 
 
 def cmake_default_options(target):
@@ -106,15 +108,17 @@ def cmake_default_options(target):
         add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
-        if config.clang and not config.gcc:
+        if config.clang and not config.gcc and config.cxx_enabled:
             add_flag('-stdlib', 'libc++')
     elif config.macos:
         add_flag('-march', 'native')
-        add_flag('-stdlib', 'libc++')
+        if config.cxx_enabled:
+            add_flag('-stdlib', 'libc++')
     elif config.ios:
         add_flag('-arch arm64')
-        add_flag('-stdlib', 'libc++')
         add_flag('-miphoneos-version-min', config.ios_version)
+        if config.cxx_enabled:
+            add_flag('-stdlib', 'libc++')
 
     if config.flags:
         add_flag(config.flags)
@@ -127,7 +131,8 @@ def cmake_default_options(target):
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
     cxxflags_str = get_flags_string(cxxflags)
-    if cxxflags_str: opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
+    if cxxflags_str and config.cxx_enabled:
+        opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
     ldflags_str = get_flags_string(ldflags)
     if ldflags_str: opt += [

@@ -2,6 +2,7 @@ import os, subprocess, shutil, stat
 from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 from mama.system import System, console, execute
 from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes, back_slashes
+from time import sleep
 
 ######################################################################################
 
@@ -102,6 +103,7 @@ class BuildDependency:
         self.nothing_to_build  = False
         self.already_loaded    = False
         self.already_executed  = False
+        self.currently_loading = False
         self.is_root         = is_root # Root deps are always built
         self.children        = []
         self.depends_on      = []
@@ -183,7 +185,22 @@ class BuildDependency:
 
     ## @return True if dependency has changed
     def load(self):
+        if self.currently_loading:
+            #console(f'WAIT {self.name}')
+            while self.currently_loading:
+                sleep(0.1)
+            return self.should_rebuild
         #console(f'LOAD {self.name}')
+        changed = False
+        try:
+            self.currently_loading = True
+            changed = self._load()
+        finally:
+            self.currently_loading = False
+        return changed
+
+
+    def _load(self):
         git_changed = self.git_checkout()
         self.create_build_target()
         self.update_dep_dir()
@@ -204,7 +221,7 @@ class BuildDependency:
         target.dependencies() ## customization point for additional dependencies
 
         build = False
-        if conf.build:
+        if conf.build or conf.update or conf.clean:
             build = True
             def target_args(): return f'{target.args}' if target.args else ''
             def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
@@ -212,8 +229,9 @@ class BuildDependency:
             if conf.target and not is_target:
                 build = False # skip build if target doesn't match
             
-            elif conf.clean and is_target: reason('cleaned target')
-            elif self.is_root:             reason('root target')
+            elif conf.clean and is_target:  reason('cleaned target')
+            elif self.is_root:              reason('root target')
+            elif conf.update and is_target: reason('update target')
             elif update_mamafile_tag(self.src_dir, self.build_dir):   reason(f'{target.name}/mamafile.py modified')
             elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(f'{target.name}/CMakeLists.txt modified')
             elif git_changed:                   reason('git commit changed')
@@ -293,7 +311,7 @@ class BuildDependency:
         # if no update command, allow us to skip pulling by returning False
         changed = self.git.check_status()
         is_target = self.config.target_matches(self.name)
-        update = self.git.commit_changed or (self.config.update and is_target)
+        update = self.config.update and is_target
         if not changed and not update:
             return False
 

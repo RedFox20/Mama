@@ -17,15 +17,12 @@ def execute_echo(cwd, cmd):
         errors = AsyncFileReader(proc.stderr)
         while True:
             if proc.poll() is None:
-                line  = output.readline()
-                error = errors.readline()
-                if line:  print(line,  flush=True, end='')
-                if error: print(error, flush=True, end='')
+                output.print()
+                errors.print()
             else:
                 output.stop()
                 errors.stop()
-                if proc.returncode == 0:
-                    break
+                break
     except:
         console(f'Popen failed! cwd={cwd} cmd={cmd} ')
         raise

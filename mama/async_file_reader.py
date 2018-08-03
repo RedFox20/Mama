@@ -1,9 +1,10 @@
-import threading
+import os, threading
 from queue import Queue
+from time import sleep
 
 class AsyncFileReader:
-    def __init__(self, file):
-        self.file = file
+    def __init__(self, f):
+        self.f = f
         self.queue = Queue()
         self.thread = threading.Thread(target=self._read_thread)
         self.keep_polling = True
@@ -11,14 +12,28 @@ class AsyncFileReader:
         self.thread.start()
     
     def _read_thread(self):
-        while self.keep_polling:
-            self.queue.put(self.file.readline())
+        os.set_blocking(self.f.fileno(), False)
+        while self.keep_polling and not self.f.closed:
+            while True:
+                line = self.f.readline()
+                if not line: break
+                self.queue.put(line)
+            sleep(0.015)
+
+    def available(self):
+        return not self.queue.empty()
 
     def readline(self):
-        if self.queue.empty():
-            return ''
-        return self.queue.get()
+        if self.available():
+            return self.queue.get()
+        return ''
+
+    def print(self):
+        while self.available():
+            print(self.readline(), flush=True, end='')
 
     def stop(self):
         self.keep_polling = False
         self.thread.join()
+        self.print()
+

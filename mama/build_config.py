@@ -32,6 +32,7 @@ class BuildConfig:
         self.clang_path = ''
         self.gcc_path = ''
         self.compiler_cmd = False # Was compiler specificed from command line?
+        self.cxx_enabled = True # By default, all C++ configurations are enabled
         self.release = True
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
@@ -112,6 +113,15 @@ class BuildConfig:
             console(f'Target {target_name} requested GCC but compiler already set to Clang.')
 
 
+    ##
+    # Enables fortran compiler
+    # @path Optional custom path or command for the Fortran compiler 
+    #
+    def enable_fortran(self, path=''):
+        if self.fortran: return
+        self.fortran = path if path else self.find_default_fortran_compiler()
+
+
     def parse_args(self, args):
         for arg in args:
             if   arg == 'build':     self.build   = True
@@ -157,23 +167,25 @@ class BuildConfig:
         self.test += arg
 
 
-    def find_compiler_root(self, cxx):
+    def find_compiler_root(self, compiler):
         roots = ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/']
         for root in roots:
-            if os.path.exists(root + cxx):
-                #console(f'Mama compiler: {root}{cxx}')
+            if os.path.exists(root + compiler):
+                #console(f'Mama compiler: {root}{compiler}')
                 return root
-        raise IOError(f'Could not find {cxx} from {roots}')
+        raise IOError(f'Could not find {compiler} from {roots}')
 
 
     def get_preferred_compiler_paths(self):
         if self.clang:
-            if not self.clang_path: self.clang_path = self.find_compiler_root('clang++')
+            key = 'clang++' if self.cxx_enabled else 'clang'
+            if not self.clang_path: self.clang_path = self.find_compiler_root(key)
             cc = f'{self.clang_path}clang'
             cxx = f'{self.clang_path}clang++'
             return (cc, cxx)
         if self.gcc:
-            if not self.gcc_path: self.gcc_path = self.find_compiler_root('g++')
+            key = 'g++' if self.cxx_enabled else 'gcc'
+            if not self.gcc_path: self.gcc_path = self.find_compiler_root(key)
             cc = f'{self.gcc_path}gcc'
             cxx = f'{self.gcc_path}g++'
             return (cc, cxx)

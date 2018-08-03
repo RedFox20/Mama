@@ -61,6 +61,16 @@ class BuildTarget:
         #console(f'Added args to {self.name}: {self.args}')
 
 
+    ##
+    # Returns the current source directory
+    # Ex: 
+    #   self.source_dir()                --> C:/Projects/ReCpp
+    #   self.source_dir('lib/ReCpp.lib') --> C:/Projects/ReCpp/lib/ReCpp.lib
+    #
+    def source_dir(self, subpath=''):
+        return os.path.join(self.dep.src_dir, subpath)
+
+
     def _get_full_path(self, path):
         if path and not os.path.isabs(path):
             if self.dep.mamafile: # if setting mamafile, then use mamafile folder:
@@ -289,14 +299,22 @@ class BuildTarget:
     #           linked with mamabuild
     #
     # Ex:
-    #   self.export_syslib('uuid') ## will attempt to find libuuid.so
+    #   self.export_syslib('uuid')
+    #   # will attempt to find system library in this order:
+    #   #   1. uuid
+    #   #   2. libuuid.so
+    #   #   3. libuuid.a
     # 
     def export_syslib(self, name, required=True):
-        lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+        lib = f'/usr/lib/x86_64-linux-gnu/{name}'
+        if not os.path.exists(lib):
+            lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+        if not os.path.exists(lib):
+            lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
         if not os.path.exists(lib):
             if not required: return
             raise IOError(f'Failed to find SysLib: {name}')
-        console(f'Exporting syslib: {name}:{lib}')
+        #console(f'Exporting syslib: {name}:{lib}')
         self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()
 
@@ -436,7 +454,21 @@ class BuildTarget:
 
     def download_and_unzip(self, remote_zip, extract_dir):
         util.download_and_unzip(remote_zip, extract_dir)
-        
+
+
+    ##
+    # Use this to completely disable Ninja for this target
+    #
+    def disable_ninja_build(self):
+        self.enable_ninja_build = False
+
+
+    ##
+    # Disable any C++ options and C++ compiler configuration
+    #
+    def disable_cxx_compiler(self):
+        self.config.cxx_enabled = False
+
 
     ##
     # Call this to completely skip the build step every time
@@ -471,7 +503,8 @@ class BuildTarget:
             if not src_dir: path = f'{path}/{self.cmake_build_type}'
             gdb = exe
         else: # linux, macos
-            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt --args ./{exe} {args}'
+            # r: run;  bt: give backtrace;  q: quit when done;
+            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
         execute_echo(path, gdb)
 
     ########## Customization Points ###########
@@ -581,8 +614,12 @@ class BuildTarget:
         run_cmake_build(self, install=True, extraflags=cmake_buildsys_flags(self))
         self.dep.save_git_status()
 
+
+    ##
+    # TRUE if this build target was specified alogn with test command: `mama test target=this_name`
     def is_test_target(self):
         return self.config.test and self.dep.is_root_or_config_target()
+
 
     ## Build only this target
     def execute_tasks(self):
