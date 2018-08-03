@@ -43,6 +43,7 @@ class BuildTarget:
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_fortran_build = False
+        self.enable_cxx_build = True
         self.enable_multiprocess_build = True
         self.build_dependencies = [] # dependency files
         self.exported_includes = [] # include folders to export from this target
@@ -478,7 +479,7 @@ class BuildTarget:
     # Disable any C++ options and C++ compiler configuration
     #
     def disable_cxx_compiler(self):
-        self.config.cxx_enabled = False
+        self.enable_cxx_build = False
 
 
     ##

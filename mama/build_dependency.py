@@ -148,10 +148,6 @@ class BuildDependency:
             elif self.git.tag:  dep_name = f'{self.name}-{self.git.tag}'
         self.dep_dir   = forward_slashes(os.path.join(self.config.workspaces_root, self.workspace, dep_name))
         self.build_dir = forward_slashes(os.path.join(self.dep_dir, self.config.name()))
-        
-
-    def is_reconfigure_target(self):
-        return self.config.configure and self.config.target == self.name
 
 
     def has_build_files(self):
@@ -236,11 +232,11 @@ class BuildDependency:
             
             elif conf.clean and is_target:  reason('cleaned target')
             elif self.is_root:              reason('root target')
-            elif conf.update and is_target: reason('update target')
-            elif update_mamafile_tag(self.src_dir, self.build_dir):   reason(target.name+'/mamafile.py modified')
+            elif conf.configure and is_target: reason('configure target='+target.name)
+            elif conf.target    and is_target: reason('target='+target.name)
+            elif   update_mamafile_tag(self.src_dir, self.build_dir): reason(target.name+'/mamafile.py modified')
             elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(target.name+'/CMakeLists.txt modified')
             elif git_changed:                   reason('git commit changed')
-            elif self.is_reconfigure_target():  reason('configure target='+target.name)
             elif not self.has_build_files():    reason('not built yet')
             elif not target.build_dependencies: reason('no build dependencies')
             else:

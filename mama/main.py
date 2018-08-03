@@ -96,15 +96,15 @@ def main():
     config = BuildConfig(sys.argv[1:])
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
-    root_dependency = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
+    root = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
 
     if config.mama_init:
-        mama_init_project(root_dependency)
+        mama_init_project(root)
         return
 
 
-    has_cmake = root_dependency.cmakelists_exists()
-    if not root_dependency.mamafile_exists() and not has_cmake:
+    has_cmake = root.cmakelists_exists()
+    if not root.mamafile_exists() and not has_cmake:
         console('FATAL ERROR: mamafile.py not found')
         exit(-1)
 
@@ -125,13 +125,13 @@ def main():
         config.clean = True
 
     if config.clean and not config.target:
-        root_dependency.clean()
+        root.clean()
 
-    load_dependency_chain(root_dependency)
-    execute_task_chain(root_dependency)
+    load_dependency_chain(root)
+    execute_task_chain(root)
 
     if config.open:
-        open_project(config, root_dependency)
+        open_project(config, root)
 
 
 def __main__():

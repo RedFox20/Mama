@@ -32,7 +32,6 @@ class BuildConfig:
         self.clang_path = ''
         self.gcc_path = ''
         self.compiler_cmd = False # Was compiler specificed from command line?
-        self.cxx_enabled = True # By default, all C++ configurations are enabled
         self.release = True
         self.debug   = False
         self.jobs    = multiprocessing.cpu_count()
@@ -176,15 +175,15 @@ class BuildConfig:
         raise IOError(f'Could not find {compiler} from {roots}')
 
 
-    def get_preferred_compiler_paths(self):
+    def get_preferred_compiler_paths(self, cxx_enabled):
         if self.clang:
-            key = 'clang++' if self.cxx_enabled else 'clang'
+            key = 'clang++' if cxx_enabled else 'clang'
             if not self.clang_path: self.clang_path = self.find_compiler_root(key)
             cc = f'{self.clang_path}clang'
             cxx = f'{self.clang_path}clang++'
             return (cc, cxx)
         if self.gcc:
-            key = 'g++' if self.cxx_enabled else 'gcc'
+            key = 'g++' if cxx_enabled else 'gcc'
             if not self.gcc_path: self.gcc_path = self.find_compiler_root(key)
             cc = f'{self.gcc_path}gcc'
             cxx = f'{self.gcc_path}g++'

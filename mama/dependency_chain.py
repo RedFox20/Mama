@@ -105,28 +105,43 @@ endif()
     save_file_if_contents_changed(mama_cmake_path(root), text)
 
 
-def load_child_dependencies(root: BuildDependency, parallel=True):
+def _load_child_dependencies(root: BuildDependency, parallel=True):
     changed = False
     if parallel:
         futures = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as e:
             for dep in root.children:
-                futures.append(e.submit(load_dependency_chain, dep))
+                futures.append(e.submit(_load_dependency_chain, dep))
         for f in futures:
             changed |= f.result()
     else:
         for dep in root.children:
-            changed |= load_dependency_chain(dep)
+            changed |= _load_dependency_chain(dep)
     return changed
 
 
-def load_dependency_chain(dep: BuildDependency):
+def _load_dependency_chain(dep: BuildDependency):
     if dep.already_loaded:
         return dep.should_rebuild
 
     changed = dep.load()
-    changed |= load_child_dependencies(dep)
+    changed |= _load_child_dependencies(dep)
     return changed
+
+
+def load_dependency_chain(root: BuildDependency):
+    with concurrent.futures.ThreadPoolExecutor() as e:
+        def load_dependency(dep: BuildDependency):
+            if dep.already_loaded:
+                return dep.should_rebuild
+            changed = dep.load()
+            futures = []
+            for child in dep.children:
+                futures.append(e.submit(load_dependency, child))
+            for f in futures:
+                changed |= f.result()
+            return changed
+        load_dependency(root)
 
 
 def execute_task_chain(root: BuildDependency):

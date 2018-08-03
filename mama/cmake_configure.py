@@ -68,10 +68,11 @@ def cmake_make_program(target):
     return ''
 
 
-def cmake_linux_compilers(config:BuildConfig):
-    cc, cxx = config.get_preferred_compiler_paths()
+def cmake_linux_compilers(target):
+    config:BuildConfig = target.config
+    cc, cxx = config.get_preferred_compiler_paths(target.enable_cxx_build)
     compilers = [f'CMAKE_C_COMPILER={cc}']
-    if config.cxx_enabled:
+    if target.enable_cxx_build:
         compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
     return compilers
 
@@ -108,16 +109,16 @@ def cmake_default_options(target):
         add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
-        if config.clang and config.cxx_enabled:
+        if config.clang and target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
     elif config.macos:
         add_flag('-march', 'native')
-        if config.cxx_enabled:
+        if target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
     elif config.ios:
         add_flag('-arch arm64')
         add_flag('-miphoneos-version-min', config.ios_version)
-        if config.cxx_enabled:
+        if target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
 
     if config.flags:
@@ -125,13 +126,13 @@ def cmake_default_options(target):
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux:
-        opt += cmake_linux_compilers(config)
+        opt += cmake_linux_compilers(target)
     
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
     cxxflags_str = get_flags_string(cxxflags)
-    if cxxflags_str and config.cxx_enabled:
+    if cxxflags_str and target.enable_cxx_build:
         opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
     ldflags_str = get_flags_string(ldflags)
