@@ -1,4 +1,4 @@
-import os, threading
+import os, threading, fcntl
 from queue import Queue
 from time import sleep
 
@@ -12,7 +12,9 @@ class AsyncFileReader:
         self.thread.start()
     
     def _read_thread(self):
-        os.set_blocking(self.f.fileno(), False)
+        fd = self.f.fileno()
+        flag = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
         while self.keep_polling and not self.f.closed:
             while True:
                 line = self.f.readline()
