@@ -35,14 +35,18 @@ class AsyncFileReader:
         self.thread.start()
     
     def _read_thread(self):
-        set_nonblocking(self.f.fileno())
+        blocking = True
+        if sys.platform.startswith('linux'):
+            set_nonblocking(self.f.fileno())
+            blocking = False
         try:
             while self.keep_polling and not self.f.closed:
-                while True:
+                while not self.f.closed:
                     line = self.f.readline()
                     if not line: break
                     self.queue.put(line)
-                sleep(0.015)
+                if not blocking:
+                    sleep(0.015)
         except:
             return
 
