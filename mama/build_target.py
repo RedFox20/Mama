@@ -313,7 +313,7 @@ class BuildTarget:
             lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
         if not os.path.exists(lib):
             if not required: return
-            raise IOError(f'Failed to find SysLib: {name}')
+            raise IOError(f'Error {self.name} failed to find SysLib: {name}')
         #console(f'Exporting syslib: {name}:{lib}')
         self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()

@@ -1,6 +1,29 @@
-import os, threading, fcntl
+import os, sys, threading
 from queue import Queue
 from time import sleep
+if sys.platform.startswith('linux'):
+    def set_nonblocking(fd):
+        import fcntl
+        flag = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+else:
+    def set_nonblocking(fd):
+        import msvcrt
+        from ctypes import windll, byref, wintypes, WinError, POINTER
+        from ctypes.wintypes import HANDLE, DWORD, BOOL
+        PIPE_NOWAIT = DWORD(0x00000001)
+        def pipe_no_wait(pipefd):
+            SetNamedPipeHandleState = windll.kernel32.SetNamedPipeHandleState
+            SetNamedPipeHandleState.argtypes = [HANDLE, POINTER(DWORD), POINTER(DWORD), POINTER(DWORD)]
+            SetNamedPipeHandleState.restype = BOOL
+            h = msvcrt.get_osfhandle(pipefd)
+            res = windll.kernel32.SetNamedPipeHandleState(h, byref(PIPE_NOWAIT), None, None)
+            if res == 0:
+                print(WinError())
+                return False
+            return True
+        return pipe_no_wait(fd)
+    
 
 class AsyncFileReader:
     def __init__(self, f):
@@ -12,15 +35,16 @@ class AsyncFileReader:
         self.thread.start()
     
     def _read_thread(self):
-        fd = self.f.fileno()
-        flag = fcntl.fcntl(fd, fcntl.F_GETFL)
-        fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
-        while self.keep_polling and not self.f.closed:
-            while True:
-                line = self.f.readline()
-                if not line: break
-                self.queue.put(line)
-            sleep(0.015)
+        set_nonblocking(self.f.fileno())
+        try:
+            while self.keep_polling and not self.f.closed:
+                while True:
+                    line = self.f.readline()
+                    if not line: break
+                    self.queue.put(line)
+                sleep(0.015)
+        except:
+            return
 
     def available(self):
         return not self.queue.empty()
