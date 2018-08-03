@@ -83,7 +83,9 @@ def cmake_default_options(target):
     ldflags:dict  = target.cmake_ldflags
     exceptions = target.enable_exceptions
 
-    def add_flag(flag:str, value=''): cxxflags[flag] = value
+    def add_flag(flag:str, value=''):
+        if not flag in cxxflags:  # add flag if not already set
+            cxxflags[flag] = value
     #def add_ldflag(flag:str, value=''): ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''

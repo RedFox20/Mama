@@ -37,6 +37,7 @@ class BuildTarget:
         self.cmake_ios_toolchain = ''
         self.cmake_opts       = []
         self.cmake_cxxflags   = dict()
+        self.cmake_cflags     = dict()
         self.cmake_ldflags    = dict()
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
         self.enable_exceptions = True
@@ -351,7 +352,7 @@ class BuildTarget:
             dest[flag] = ''
 
     ##
-    #  Adds C / C++ flags for compilation step
+    #  Adds C++ flags for compilation step
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
     # Ex:
     #   self.add_cxx_flags('-Wall')
@@ -363,6 +364,34 @@ class BuildTarget:
             if isinstance(flag, list): self.add_cxx_flags(*flag)
             else: self._add_dict_flag(self.cmake_cxxflags, flag)
     
+    ##
+    #  Adds C flags for compilation step
+    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
+    # Ex:
+    #   self.add_cxx_flags('-Wall')
+    #   self.add_cxx_flags(['-Wall', '-std=c99'])
+    #   self.add_cxx_flags('-Wall', '-std=c99')
+    #   self.add_cxx_flags('-Wall -std=c99')
+    def add_c_flags(self, *flags):
+        for flag in flags:
+            if isinstance(flag, list): self.add_c_flags(*flag)
+            else: self._add_dict_flag(self.cmake_cflags, flag)
+    
+    ##
+    #  Adds C AND C++ flags for compilation step
+    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
+    # Ex:
+    #   self.add_cxx_flags('-Wall')
+    #   self.add_cxx_flags(['-Wall', '-march=native'])
+    #   self.add_cxx_flags('-Wall', '-march=native')
+    #   self.add_cxx_flags('-Wall -march=native')
+    def add_cl_flags(self, *flags):
+        for flag in flags:
+            if isinstance(flag, list): self.add_cl_flags(*flag)
+            else:
+                self._add_dict_flag(self.cmake_cxxflags, flag)
+                self._add_dict_flag(self.cmake_cflags, flag)
+
     ##
     #  Adds flags for linker step; No platform checking is done
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
