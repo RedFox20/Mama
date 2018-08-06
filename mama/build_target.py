@@ -679,7 +679,7 @@ class BuildTarget:
         try:
             self.dep.already_executed = True
 
-            if self.dep.should_rebuild:
+            if self.dep.should_rebuild and not self.dep.nothing_to_build:
                 self.configure() # user customization
                 if not self.dep.nothing_to_build:
                     self.build() # user customization
