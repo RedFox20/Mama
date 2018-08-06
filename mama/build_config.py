@@ -27,6 +27,7 @@ class BuildConfig:
         self.macos   = False
         self.ios     = False
         self.android = False
+        self.raspi   = False
         self.clang = True # prefer clang on linux
         self.gcc   = False
         self.clang_path = ''
@@ -42,6 +43,7 @@ class BuildConfig:
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         self.ninja_path = self.find_ninja_build()
+        ## Android
         self.android_sdk_path = ''
         self.android_ndk_path = ''
         self.init_ndk_path()
@@ -49,7 +51,11 @@ class BuildConfig:
         self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
         self.android_api   = 'android-24'
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
-        self.global_workspace = True
+        ## Raspberry PI - Raspi
+        self.raspi_tools_path = ''
+        self.init_raspi_path()
+        ## Workspace and parsing
+        self.global_workspace = False
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
         self.parse_args(args)
         self.check_platform()
@@ -207,9 +213,9 @@ class BuildConfig:
     def init_ndk_path(self):
         androidenv = os.getenv('ANDROID_HOME')
         paths = [androidenv] if androidenv else []
-        if System.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
-        elif System.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
-        elif System.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
+        if System.windows: paths.append(f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk')
+        elif System.linux: paths.append('/usr/bin/android-sdk', '/opt/android-sdk')
+        elif System.macos: paths.append(f'{os.getenv("HOME")}/Library/Android/sdk')
         ext = '.cmd' if System.windows else ''
         for sdk_path in paths:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
@@ -217,7 +223,20 @@ class BuildConfig:
                 self.android_ndk_path = sdk_path  + '/ndk-bundle'
                 #console(f'Found Android NDK: {self.ndk_path}')
                 return
-        return ''
+        return
+
+    
+    def init_raspi_path(self):
+        paths = []
+        raspienv = os.getenv('RASPI_HOME')
+        if raspienv: paths.append(raspienv)
+        raspienv = os.getenv('RASPBERRY_HOME')
+        if raspienv: paths.append(raspienv)
+        if System.windows: paths.append(f'{os.getenv("LOCALAPPDATA")}\\Raspi\\Sdk')
+        for sdk_path in paths:
+            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build'):
+                #console(f'Found RASPI TOOLS: {self.ndk_path}')
+                return
 
 
     def find_default_fortran_compiler(self):

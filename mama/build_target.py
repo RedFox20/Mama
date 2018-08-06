@@ -54,6 +54,7 @@ class BuildTarget:
         self.macos   = self.config.macos
         self.ios     = self.config.ios
         self.android = self.config.android
+        self.raspi   = self.config.raspi
         self.set_args(args)
 
 
