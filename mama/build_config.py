@@ -225,9 +225,9 @@ class BuildConfig:
     def init_ndk_path(self):
         paths = []
         self.append_env_path(paths, 'ANDROID_HOME')
-        if System.windows: paths.append(f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk')
+        if System.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
         elif System.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
-        elif System.macos: paths.append(f'{os.getenv("HOME")}/Library/Android/sdk')
+        elif System.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
         ext = '.cmd' if System.windows else ''
         for sdk_path in paths:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
@@ -242,8 +242,8 @@ class BuildConfig:
         paths = []
         self.append_env_path(paths, 'RASPI_HOME')
         self.append_env_path(paths, 'RASPBERRY_HOME')
-        if System.windows: paths.append('/SysGCC/raspberry')
-        elif System.linux: paths.append('/usr/bin/raspberry', '/opt/raspberry')
+        if System.windows: paths += ['/SysGCC/raspberry']
+        elif System.linux: paths += ['/usr/bin/raspberry', '/usr/local/bin/raspberry', '/opt/raspberry']
         compiler = ''
         if System.windows: compiler = 'bin/arm-linux-gnueabihf-g++.exe'
         elif System.linux: compiler = 'arm-bcm2708/arm-linux-gnueabihf/bin/arm-linux-gnueabihf-g++'
