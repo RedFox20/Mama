@@ -128,6 +128,8 @@ def main():
         root.clean()
 
     load_dependency_chain(root)
+    if config.android: config.init_ndk_path()
+    if config.raspi:   config.init_raspi_path()
     execute_task_chain(root)
 
     if config.open:

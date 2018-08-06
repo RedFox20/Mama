@@ -46,16 +46,13 @@ class BuildConfig:
         ## Android
         self.android_sdk_path = ''
         self.android_ndk_path = ''
-        self.init_ndk_path()
         self.android_arch  = 'armeabi-v7a' # arm64-v8a
         self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
         self.android_api   = 'android-24'
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
         ## Raspberry PI - Raspi
-        self.raspi_tools_root = ''  ## Raspberry Tools path
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
-        self.raspi_sysroot    = ''  ## path to Raspberry system libraries
-        self.init_raspi_path()
+        self.raspi_system     = ''  ## path to Raspberry system libraries
         ## Workspace and parsing
         self.global_workspace = False
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
@@ -103,7 +100,7 @@ class BuildConfig:
 
 
     def prefer_clang(self, target_name):
-        if not self.linux or self.clang: return
+        if not self.linux or self.raspi or self.clang: return
         if not self.compiler_cmd:
             self.clang = True
             self.gcc   = False
@@ -114,7 +111,7 @@ class BuildConfig:
 
 
     def prefer_gcc(self, target_name):
-        if not self.linux or self.gcc: return
+        if not self.linux or self.raspi or self.gcc: return
         if not self.compiler_cmd:
             self.clang = False
             self.gcc   = True
@@ -185,10 +182,15 @@ class BuildConfig:
             if os.path.exists(root + compiler):
                 #console(f'Mama compiler: {root}{compiler}')
                 return root
-        raise IOError(f'Could not find {compiler} from {roots}')
+        raise EnvironmentError(f'Could not find {compiler} from {roots}')
 
 
     def get_preferred_compiler_paths(self, cxx_enabled):
+        if self.raspi:  # only GCC available for this platform
+            ext = '.exe' if System.windows else ''
+            cc  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
+            cxx = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
+            return (cc, cxx)
         if self.clang:
             key = 'clang++' if cxx_enabled else 'clang'
             if not self.clang_path: self.clang_path = self.find_compiler_root(key)
@@ -201,7 +203,7 @@ class BuildConfig:
             cc = f'{self.gcc_path}gcc'
             cxx = f'{self.gcc_path}g++'
             return (cc, cxx)
-        raise RuntimeError('No preferred compiler for this platform!')
+        raise EnvironmentError('No preferred compiler for this platform!')
         
 
     def find_ninja_build(self):
@@ -221,7 +223,27 @@ class BuildConfig:
         path = os.getenv(env)
         if path: paths.append(path)
     
+
+    def android_home(self):
+        if not self.android_sdk_path: self.init_ndk_path()
+        return self.android_sdk_path
+
+
+    def android_ndk(self):
+        if not self.android_ndk_path: self.init_ndk_path()
+        return self.android_ndk_path
     
+
+    def raspi_bin(self):
+        if not self.raspi_compilers: self.init_raspi_path()
+        return self.raspi_compilers
+
+
+    def raspi_sysroot(self):
+        if not self.raspi_system: self.init_raspi_path()
+        return self.raspi_system
+
+
     def init_ndk_path(self):
         paths = []
         self.append_env_path(paths, 'ANDROID_HOME')
@@ -233,9 +255,11 @@ class BuildConfig:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
                 self.android_ndk_path = sdk_path  + '/ndk-bundle'
-                #console(f'Found Android NDK: {self.android_ndk_path}')
+                console(f'Found Android NDK: {self.android_ndk_path}')
                 return
-        return
+        raise EnvironmentError(f'''Could not detect any Android NDK installations. 
+Default search paths: {paths} 
+Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/ndk-bundle.''')
 
     
     def init_raspi_path(self):
@@ -245,13 +269,19 @@ class BuildConfig:
         if System.windows: paths += ['/SysGCC/raspberry']
         elif System.linux: paths += ['/usr/bin/raspberry', '/usr/local/bin/raspberry', '/opt/raspberry']
         compiler = ''
-        if System.windows: compiler = 'bin/arm-linux-gnueabihf-g++.exe'
-        elif System.linux: compiler = 'arm-bcm2708/arm-linux-gnueabihf/bin/arm-linux-gnueabihf-g++'
+        if System.windows: compiler = 'bin/arm-linux-gnueabihf-gcc.exe'
+        elif System.linux: compiler = 'arm-bcm2708/arm-linux-gnueabihf/bin/arm-linux-gnueabihf-gcc'
         for raspi_path in paths:
             if os.path.exists(f'{raspi_path}/{compiler}'):
-                self.raspi_tools_path = raspi_path
-                console(f'Found RASPI TOOLS: {raspi_path}')
+                if not System.windows:
+                    raspi_path = f'{raspi_path}/arm-bcm2708/arm-linux-gnueabihf/'
+                self.raspi_compilers = f'{raspi_path}/bin/'
+                self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot/'
+                console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
                 return
+        raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected! 
+Default search paths: {paths} 
+Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def find_default_fortran_compiler(self):

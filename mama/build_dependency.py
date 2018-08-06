@@ -308,7 +308,7 @@ class BuildDependency:
 
 
     def git_checkout(self):
-        if not self.git:
+        if not self.git or self.is_root:    # No git for local or root targets
             return False
         
         # if no update command, allow us to skip pulling by returning False

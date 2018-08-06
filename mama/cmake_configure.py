@@ -62,13 +62,13 @@ def cmake_make_program(target):
     if target.enable_ninja_build: return config.ninja_path
     if config.android:
         if System.windows:
-            return f'{config.android_ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
+            return f'{config.android_ndk()}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
         elif System.macos:
-            return f'{config.android_ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
+            return f'{config.android_ndk()}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
     return ''
 
 
-def cmake_linux_compilers(target):
+def cmake_custom_compilers(target):
     config:BuildConfig = target.config
     cc, cxx = config.get_preferred_compiler_paths(target.enable_cxx_build)
     compilers = [f'CMAKE_C_COMPILER={cc}']
@@ -108,7 +108,7 @@ def cmake_default_options(target):
         if not exceptions: add_flag('-fno-exceptions')
     
     if config.android and config.android_ndk_stl == 'c++_shared':
-        add_flag(f'-I"{config.android_ndk_path}/sources/cxx-stl/llvm-libc++/include"')
+        add_flag(f'-I"{config.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
         if config.clang and target.enable_cxx_build:
@@ -127,8 +127,8 @@ def cmake_default_options(target):
         add_flag(config.flags)
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
-    if config.linux:
-        opt += cmake_linux_compilers(target)
+    if config.linux or config.raspi:
+        opt += cmake_custom_compilers(target)
     
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
@@ -149,22 +149,36 @@ def cmake_default_options(target):
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 
     if config.android:
+        toolchain = target.cmake_ndk_toolchain
+        if not toolchain:
+            toolchain = f'{config.android_ndk()}/build/cmake/android.toolchain.cmake'
         opt += [
             'BUILD_ANDROID=ON',
             'TARGET_ARCH=ANDROID',
             'CMAKE_SYSTEM_NAME=Android',
             f'ANDROID_ABI={config.android_arch}',
             'ANDROID_ARM_NEON=TRUE',
-            f'ANDROID_NDK="{config.android_ndk_path}"',
-            f'NDK_DIR="{config.android_ndk_path}"',
+            f'ANDROID_NDK="{config.android_ndk()}"',
+            f'NDK_DIR="{config.android_ndk()}"',
             'NDK_RELEASE=r16b',
             f'ANDROID_STL={config.android_ndk_stl}',
             f'ANDROID_NATIVE_API_LEVEL={config.android_api}',
             'ANDROID_TOOLCHAIN=clang',
             'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
+            f'CMAKE_TOOLCHAIN_FILE="{toolchain}"'
         ]
-        if target.cmake_ndk_toolchain:
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{target.cmake_ndk_toolchain}"']
+    elif config.raspi:
+        opt += [
+            'CMAKE_SYSTEM_NAME=Linux',
+            'CMAKE_SYSTEM_VERSION=1',
+            'CMAKE_SYSTEM_PROCESSOR=armv7-a',
+            f'CMAKE_FIND_ROOT_PATH={config.raspi_sysroot()}',
+            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
+            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
+            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
+        ]
+        if target.cmake_raspi_toolchain:
+            opt += [f'CMAKE_TOOLCHAIN_FILE="{target.cmake_raspi_toolchain}"']
     elif config.ios:
         opt += [
             'IOS_PLATFORM=OS',
@@ -183,8 +197,8 @@ def cmake_inject_env(target):
     if config.android:
         make = cmake_make_program(target)
         if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
-        os.environ['ANDROID_HOME'] = config.android_sdk_path
-        os.environ['ANDROID_NDK'] = config.android_ndk_path
+        os.environ['ANDROID_HOME'] = config.android_home()
+        os.environ['ANDROID_NDK'] = config.android_ndk()
         os.environ['ANDROID_ABI'] = config.android_arch
         os.environ['NDK_RELEASE'] = 'r16b'
         os.environ['ANDROID_STL'] = config.android_ndk_stl
