@@ -254,6 +254,11 @@ class BuildDependency:
         return build
 
 
+    def successful_build(self):
+        update_mamafile_tag(self.src_dir, self.build_dir)
+        update_cmakelists_tag(self.src_dir, self.build_dir)
+
+
     def create_build_target(self):
         if self.target:
             self.target.set_args(self.target_args)

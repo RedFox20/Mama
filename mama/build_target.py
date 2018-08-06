@@ -158,6 +158,7 @@ class BuildTarget:
         dst_dep.depends_on.append(src_dep)
         dst_dep.product_sources.append( (src_dep, include_path, libs, libfilters) )
 
+
     ##
     #  Collects all results injected by `inject_products`
     #  Returns a list of injected defines:
@@ -233,6 +234,7 @@ class BuildTarget:
                 self.exported_includes.append(include_path)
             return True
         return False
+
 
     ##
     # CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
@@ -353,6 +355,7 @@ class BuildTarget:
         else:
             dest[flag] = ''
 
+
     ##
     #  Adds C++ flags for compilation step
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
@@ -366,6 +369,7 @@ class BuildTarget:
             if isinstance(flag, list): self.add_cxx_flags(*flag)
             else: self._add_dict_flag(self.cmake_cxxflags, flag)
     
+
     ##
     #  Adds C flags for compilation step
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
@@ -379,6 +383,7 @@ class BuildTarget:
             if isinstance(flag, list): self.add_c_flags(*flag)
             else: self._add_dict_flag(self.cmake_cflags, flag)
     
+
     ##
     #  Adds C AND C++ flags for compilation step
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
@@ -394,6 +399,7 @@ class BuildTarget:
                 self._add_dict_flag(self.cmake_cxxflags, flag)
                 self._add_dict_flag(self.cmake_cflags, flag)
 
+
     ##
     #  Adds flags for linker step; No platform checking is done
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
@@ -407,6 +413,7 @@ class BuildTarget:
             if isinstance(flag, list): self.add_ld_flags(*flag)
             else: self._add_dict_flag(self.cmake_ldflags, flag)
 
+
     ##
     #  Adds C / C++ flags flags depending on configuration platform
     #  Supports many different usages: strings, list of strings, kwargs, or space separate string
@@ -419,6 +426,7 @@ class BuildTarget:
     def add_platform_cxx_flags(self, windows=None, linux=None, macos=None, ios=None, android=None):
         flags = self.select(windows, linux, macos, ios, android)
         if flags: self.add_cxx_flags(flags)
+
 
     ##
     #  Adds linker flags depending on configuration platform
@@ -668,11 +676,10 @@ class BuildTarget:
     def execute_tasks(self):
         if self.dep.already_executed:
             return
-        
         try:
             self.dep.already_executed = True
 
-            if self.dep.should_rebuild and not self.dep.nothing_to_build:
+            if self.dep.should_rebuild:
                 self.configure() # user customization
                 if not self.dep.nothing_to_build:
                     self.build() # user customization
