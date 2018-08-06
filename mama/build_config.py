@@ -61,17 +61,20 @@ class BuildConfig:
         self.check_platform()
 
 
-    def set_platform(self, windows=False, linux=False, macos=False, ios=False, android=False):
+    def set_platform(self, windows=False, linux=False, macos=False, \
+                           ios=False, android=False, raspi=False):
         self.windows = windows
         self.linux   = linux
         self.macos   = macos
         self.ios     = ios
         self.android = android
+        self.raspi   = raspi
         return True
 
 
     def is_platform_set(self):
-        return self.windows or self.linux or self.macos or self.ios or self.android
+        return self.windows or self.linux or self.macos \
+            or self.ios or self.android or self.raspi
     
     
     def check_platform(self):
@@ -87,6 +90,7 @@ class BuildConfig:
         if self.macos:   return 'macos'
         if self.ios:     return 'ios'
         if self.android: return 'android'
+        if self.raspi:   return 'raspi'
         return 'build'
 
 
@@ -143,6 +147,7 @@ class BuildConfig:
             elif arg == 'macos':   self.set_platform(macos=True)
             elif arg == 'ios':     self.set_platform(ios=True)
             elif arg == 'android': self.set_platform(android=True)
+            elif arg == 'raspi':   self.set_platfomr(raspi=True)
             elif arg == 'clang':   
                 self.gcc = False
                 self.clang = True
@@ -221,7 +226,7 @@ class BuildConfig:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
                 self.android_ndk_path = sdk_path  + '/ndk-bundle'
-                #console(f'Found Android NDK: {self.ndk_path}')
+                #console(f'Found Android NDK: {self.android_ndk_path}')
                 return
         return
 

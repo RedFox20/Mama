@@ -62,9 +62,9 @@ def cmake_make_program(target):
     if target.enable_ninja_build: return config.ninja_path
     if config.android:
         if System.windows:
-            return f'{config.ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
+            return f'{config.android_ndk_path}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
         elif System.macos:
-            return f'{config.ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
+            return f'{config.android_ndk_path}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
     return ''
 
 
@@ -108,7 +108,7 @@ def cmake_default_options(target):
         if not exceptions: add_flag('-fno-exceptions')
     
     if config.android and config.android_ndk_stl == 'c++_shared':
-        add_flag(f'-I"{config.ndk_path}/sources/cxx-stl/llvm-libc++/include"')
+        add_flag(f'-I"{config.android_ndk_path}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
         if config.clang and target.enable_cxx_build:
@@ -155,8 +155,8 @@ def cmake_default_options(target):
             'CMAKE_SYSTEM_NAME=Android',
             f'ANDROID_ABI={config.android_arch}',
             'ANDROID_ARM_NEON=TRUE',
-            f'ANDROID_NDK="{config.ndk_path}"',
-            f'NDK_DIR="{config.ndk_path}"',
+            f'ANDROID_NDK="{config.android_ndk_path}"',
+            f'NDK_DIR="{config.android_ndk_path}"',
             'NDK_RELEASE=r16b',
             f'ANDROID_STL={config.android_ndk_stl}',
             f'ANDROID_NATIVE_API_LEVEL={config.android_api}',
@@ -184,7 +184,7 @@ def cmake_inject_env(target):
         make = cmake_make_program(target)
         if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
         os.environ['ANDROID_HOME'] = config.android_sdk_path
-        os.environ['ANDROID_NDK'] = config.ndk_path
+        os.environ['ANDROID_NDK'] = config.android_ndk_path
         os.environ['ANDROID_ABI'] = config.android_arch
         os.environ['NDK_RELEASE'] = 'r16b'
         os.environ['ANDROID_STL'] = config.android_ndk_stl
