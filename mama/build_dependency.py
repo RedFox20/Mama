@@ -84,7 +84,7 @@ class Git:
             execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
-            console(f"  - Pulling {self.dep.name: <16}   SCM change detected")
+            console(f"  - Pulling {self.dep.name: <16}  SCM change detected")
             self.checkout_current_branch()
             if not self.tag: # never pull a tag
                 self.run_git("reset --hard -q")

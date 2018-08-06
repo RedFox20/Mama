@@ -683,6 +683,7 @@ class BuildTarget:
                 self.configure() # user customization
                 if not self.dep.nothing_to_build:
                     self.build() # user customization
+                    self.dep.successful_build()
         
             self.package() # user customization
 
