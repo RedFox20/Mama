@@ -52,7 +52,9 @@ class BuildConfig:
         self.android_api   = 'android-24'
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
         ## Raspberry PI - Raspi
-        self.raspi_tools_path = ''
+        self.raspi_tools_root = ''  ## Raspberry Tools path
+        self.raspi_compilers  = ''  ## Raspberry g++ and gcc
+        self.raspi_sysroot    = ''  ## path to Raspberry system libraries
         self.init_raspi_path()
         ## Workspace and parsing
         self.global_workspace = False
@@ -147,7 +149,7 @@ class BuildConfig:
             elif arg == 'macos':   self.set_platform(macos=True)
             elif arg == 'ios':     self.set_platform(ios=True)
             elif arg == 'android': self.set_platform(android=True)
-            elif arg == 'raspi':   self.set_platfomr(raspi=True)
+            elif arg == 'raspi':   self.set_platform(raspi=True)
             elif arg == 'clang':   
                 self.gcc = False
                 self.clang = True
@@ -215,9 +217,14 @@ class BuildConfig:
         return ''
 
 
+    def append_env_path(self, paths, env):
+        path = os.getenv(env)
+        if path: paths.append(path)
+    
+    
     def init_ndk_path(self):
-        androidenv = os.getenv('ANDROID_HOME')
-        paths = [androidenv] if androidenv else []
+        paths = []
+        self.append_env_path(paths, 'ANDROID_HOME')
         if System.windows: paths.append(f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk')
         elif System.linux: paths.append('/usr/bin/android-sdk', '/opt/android-sdk')
         elif System.macos: paths.append(f'{os.getenv("HOME")}/Library/Android/sdk')
@@ -233,14 +240,17 @@ class BuildConfig:
     
     def init_raspi_path(self):
         paths = []
-        raspienv = os.getenv('RASPI_HOME')
-        if raspienv: paths.append(raspienv)
-        raspienv = os.getenv('RASPBERRY_HOME')
-        if raspienv: paths.append(raspienv)
-        if System.windows: paths.append(f'{os.getenv("LOCALAPPDATA")}\\Raspi\\Sdk')
-        for sdk_path in paths:
-            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build'):
-                #console(f'Found RASPI TOOLS: {self.ndk_path}')
+        self.append_env_path(paths, 'RASPI_HOME')
+        self.append_env_path(paths, 'RASPBERRY_HOME')
+        if System.windows: paths.append('/SysGCC/raspberry')
+        elif System.linux: paths.append('/usr/bin/raspberry', '/opt/raspberry')
+        compiler = ''
+        if System.windows: compiler = 'bin/arm-linux-gnueabihf-g++.exe'
+        elif System.linux: compiler = 'arm-bcm2708/arm-linux-gnueabihf/bin/arm-linux-gnueabihf-g++'
+        for raspi_path in paths:
+            if os.path.exists(f'{raspi_path}/{compiler}'):
+                self.raspi_tools_path = raspi_path
+                console(f'Found RASPI TOOLS: {raspi_path}')
                 return
 
 
