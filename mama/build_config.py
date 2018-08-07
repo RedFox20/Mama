@@ -248,7 +248,7 @@ class BuildConfig:
         paths = []
         self.append_env_path(paths, 'ANDROID_HOME')
         if System.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
-        elif System.linux: paths += ['/usr/bin/android-sdk', '/opt/android-sdk']
+        elif System.linux: paths += [f'{os.getenv("HOME")}/Android/Sdk', '/usr/bin/android-sdk', '/opt/android-sdk']
         elif System.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
         ext = '.cmd' if System.windows else ''
         for sdk_path in paths:
