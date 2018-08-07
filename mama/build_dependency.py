@@ -234,8 +234,8 @@ class BuildDependency:
             elif self.is_root:              reason('root target')
             elif conf.configure and is_target: reason('configure target='+target.name)
             elif conf.target    and is_target: reason('target='+target.name)
-            elif   update_mamafile_tag(self.src_dir, self.build_dir): reason(target.name+'/mamafile.py modified')
-            elif update_cmakelists_tag(self.src_dir, self.build_dir): reason(target.name+'/CMakeLists.txt modified')
+            elif   update_mamafile_tag(self.mamafile_path(), self.build_dir): reason(target.name+'/mamafile.py modified')
+            elif update_cmakelists_tag(self.cmakelists_path(), self.build_dir): reason(target.name+'/CMakeLists.txt modified')
             elif git_changed:                   reason('git commit changed')
             elif not self.has_build_files():    reason('not built yet')
             elif not target.build_dependencies: reason('no build dependencies')
@@ -254,8 +254,8 @@ class BuildDependency:
 
 
     def successful_build(self):
-        update_mamafile_tag(self.src_dir, self.build_dir)
-        update_cmakelists_tag(self.src_dir, self.build_dir)
+        update_mamafile_tag(self.mamafile_path(), self.build_dir)
+        update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
         self.git.save_status()
 
 

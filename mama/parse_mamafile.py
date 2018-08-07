@@ -33,13 +33,11 @@ def update_modification_tag(file, tagfile):
     return False
 
 ## Return: TRUE if mamafile.py was modified
-def update_mamafile_tag(src, build_dir):
-    mamafile    = path_join(src, 'mamafile.py')
+def update_mamafile_tag(mamafile, build_dir):
     mamafiletag = path_join(build_dir, 'mamafile_tag')
     return update_modification_tag(mamafile, mamafiletag)
 
 ## Return: TRUE if CMakeLists.txt was modified
-def update_cmakelists_tag(src, build_dir):
-    cmakelists    = path_join(src, 'CMakeLists.txt')
+def update_cmakelists_tag(cmakelists, build_dir):
     cmakeliststag = path_join(build_dir, 'cmakelists_tag')
     return update_modification_tag(cmakelists, cmakeliststag)
