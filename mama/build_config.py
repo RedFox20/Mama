@@ -166,6 +166,8 @@ class BuildConfig:
             elif arg.startswith('test='):   self.add_test_arg(arg[5:])
             elif arg.startswith('flags='):
                 self.flags = arg[6:]
+            else:
+                console(f"Warning: unused argument '{arg}'")
             continue
 
 

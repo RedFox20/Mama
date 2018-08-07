@@ -209,8 +209,7 @@ class BuildDependency:
         self.create_build_dir_if_needed()
 
         if git_changed:
-            #console(f'SAVE GIT STATUS {self.target.name}')
-            self.git.save_status() # save git status to avoid recloning
+            self.git.save_status()
 
         target = self.target
         conf = self.config
@@ -257,6 +256,7 @@ class BuildDependency:
     def successful_build(self):
         update_mamafile_tag(self.src_dir, self.build_dir)
         update_cmakelists_tag(self.src_dir, self.build_dir)
+        self.git.save_status()
 
 
     def create_build_target(self):
@@ -316,25 +316,21 @@ class BuildDependency:
         if not self.git or self.is_root:    # No git for local or root targets
             return False
         
-        # if no update command, allow us to skip pulling by returning False
         changed = self.git.check_status()
         is_target = self.config.target_matches(self.name)
-        update = self.config.update and is_target
-        if not changed and not update:
-            return False
 
         wiped = False
         should_wipe = self.git.url_changed and not self.git.missing_status
         if should_wipe or (is_target and self.config.reclone):
             self.git.reclone_wipe()
             wiped = True
+        else:
+            # don't pull if current target or no changes to git status
+            if is_target or not changed:
+                return False
+
         self.git.clone_or_pull(wiped)
         return True
-
-
-    ## GIT
-    def save_git_status(self):
-        if self.git: self.git.save_status()
 
 
     ## Clean

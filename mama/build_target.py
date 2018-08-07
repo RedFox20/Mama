@@ -73,7 +73,17 @@ class BuildTarget:
     #   self.source_dir('lib/ReCpp.lib') --> C:/Projects/ReCpp/lib/ReCpp.lib
     #
     def source_dir(self, subpath=''):
-        return os.path.join(self.dep.src_dir, subpath)
+        return util.path_join(self.dep.src_dir, subpath)
+
+
+    ##
+    # Returns the current build directory
+    # Ex: 
+    #   self.build_dir()                --> C:/Projects/ReCpp/build/windows
+    #   self.build_dir('lib/ReCpp.lib') --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
+    #
+    def build_dir(self, subpath=''):
+        return util.path_join(self.dep.build_dir, subpath)
 
 
     def _get_full_path(self, path):
@@ -135,14 +145,29 @@ class BuildTarget:
                         workspace=self.dep.workspace, git=git, mamafile=mamafile, args=args)
         self.dep.children.append(dependency)
 
+
     ##
-    # Finds a dependency by name
+    # Finds a child dependency by name
     #
     def get_dependency(self, name):
+        if self.dep.name == name:
+            return self.dep
         for dep in self.dep.children:
             if dep.name == name:
                 return dep
         raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
+
+
+    ##
+    # Finds a child BuildTarget by name
+    #
+    def find_target(self, name):
+        if self.name == name:
+            return self
+        for dep in self.dep.children:
+            if dep.name == name:
+                return dep.target
+        raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
 
 
     ##
@@ -663,7 +688,6 @@ class BuildTarget:
         self.inject_env()
         run_cmake_config(self, cmake_flags())
         run_cmake_build(self, install=True, extraflags=cmake_buildsys_flags(self))
-        self.dep.save_git_status()
 
 
     ##
