@@ -208,9 +208,6 @@ class BuildDependency:
         self.update_dep_dir()
         self.create_build_dir_if_needed()
 
-        if git_changed:
-            self.git.save_status()
-
         target = self.target
         conf = self.config
         is_target = conf.target_matches(target.name)
@@ -245,6 +242,9 @@ class BuildDependency:
                 else:
                     console(f'  - Target {target.name: <16}   OK')
                     build = False
+            
+            if not build and git_changed:
+                self.git.save_status()
 
         self.already_loaded = True
         self.should_rebuild = build
@@ -256,7 +256,8 @@ class BuildDependency:
     def successful_build(self):
         update_mamafile_tag(self.mamafile_path(), self.build_dir)
         update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
-        self.git.save_status()
+        if self.git:
+            self.git.save_status()
 
 
     def create_build_target(self):
