@@ -559,8 +559,9 @@ class BuildTarget:
     #  self.run('./configure')
     #  self.run('make release -j7')
     #
-    def run(self, command):
-        execute(f'cd {self.dep.build_dir} && {command}', echo=True)
+    def run(self, command, src_dir=False):
+        dir = self.dep.src_dir if src_dir else self.dep.build_dir
+        execute(f'cd {dir} && {command}', echo=True)
 
     
     # Run a command with gdb in the build folder
