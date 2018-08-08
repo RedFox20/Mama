@@ -202,6 +202,31 @@ class BuildDependency:
         return changed
 
 
+    def git_checkout(self):
+        if not self.git or self.is_root:    # No git for local or root targets
+            return False
+        
+        changed = self.git.check_status()
+        is_target = self.config.target_matches(self.name)
+
+        wiped = False
+        should_wipe = self.git.url_changed and not self.git.missing_status
+        if should_wipe or (is_target and self.config.reclone):
+            self.git.reclone_wipe()
+            wiped = True
+        else:
+            # don't pull if no changes to git status
+            # or if we're current target of a non-update build
+            # mama update target=ReCpp  -- this should git pull
+            # mama build target=ReCpp   -- should NOT pull
+            non_update_target = is_target and not self.config.update
+            if non_update_target or not changed:
+                return False
+
+        self.git.clone_or_pull(wiped)
+        return True
+
+
     def _load(self):
         git_changed = self.git_checkout()
         self.create_build_target()
@@ -251,6 +276,14 @@ class BuildDependency:
         if build:
             self.create_build_dir_if_needed() # in case we just cleaned
         return build
+
+
+    def after_load(self):
+        first_changed = next((c for c in self.children if c.should_rebuild), None)
+        if first_changed and not self.should_rebuild:
+            self.should_rebuild = True
+            console(f'  - Target {self.name: <16}  BUILD [{first_changed.name} changed]')
+            self.create_build_dir_if_needed() # in case we just cleaned
 
 
     def successful_build(self):
@@ -311,27 +344,6 @@ class BuildDependency:
 
     def mamafile_exists(self):
         return os.path.exists(self.mamafile_path())
-
-
-    def git_checkout(self):
-        if not self.git or self.is_root:    # No git for local or root targets
-            return False
-        
-        changed = self.git.check_status()
-        is_target = self.config.target_matches(self.name)
-
-        wiped = False
-        should_wipe = self.git.url_changed and not self.git.missing_status
-        if should_wipe or (is_target and self.config.reclone):
-            self.git.reclone_wipe()
-            wiped = True
-        else:
-            # don't pull if current target or no changes to git status
-            if is_target or not changed:
-                return False
-
-        self.git.clone_or_pull(wiped)
-        return True
 
 
     ## Clean

@@ -140,6 +140,7 @@ def load_dependency_chain(root: BuildDependency):
                 futures.append(e.submit(load_dependency, child))
             for f in futures:
                 changed |= f.result()
+            dep.after_load()
             return changed
         load_dependency(root)
 
