@@ -59,9 +59,10 @@ def print_usage():
 
 
 def open_project(config: BuildConfig, root_dependency: BuildDependency):
-    found = root_dependency if config.open == 'root' else find_dependency(root_dependency, config.open)
+    name = config.target if config.target and config.target != 'all' else config.open
+    found = root_dependency if name == 'root' else find_dependency(root_dependency, name)
     if not found:
-        raise KeyError(f'No project named {config.open}')
+        raise KeyError(f'No project named {name}')
     
     if config.windows:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
@@ -101,7 +102,6 @@ def main():
     if config.mama_init:
         mama_init_project(root)
         return
-
 
     has_cmake = root.cmakelists_exists()
     if not root.mamafile_exists() and not has_cmake:
