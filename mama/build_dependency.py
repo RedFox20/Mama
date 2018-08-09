@@ -162,7 +162,8 @@ class BuildDependency:
 
     def load_build_dependencies(self, target):
         for saved_dependency in read_lines_from(self.exported_libs_file()):
-            target.add_build_dependency(saved_dependency)
+            saved_dependency = saved_dependency.strip()
+            target.build_dependencies.append(saved_dependency)
 
 
     def save_exports_as_dependencies(self, exports):
@@ -170,7 +171,10 @@ class BuildDependency:
 
 
     def get_missing_build_dependency(self):
+        frameworks = self.config.ios or self.config.macos
         for depfile in self.target.build_dependencies:
+            if frameworks and depfile.startswith('-framework'):
+                continue
             if not os.path.getsize(depfile):
                 return depfile
         return None

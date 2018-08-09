@@ -338,14 +338,19 @@ class BuildTarget:
     #   #   3. libuuid.a
     # 
     def export_syslib(self, name, required=True):
-        lib = f'/usr/lib/x86_64-linux-gnu/{name}'
-        if not os.path.exists(lib):
-            lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
-        if not os.path.exists(lib):
-            lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
-        if not os.path.exists(lib):
-            if not required: return False
-            raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')
+        if self.ios or self.macos:
+            if not name.startswith('-framework '):
+                raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
+            lib = name
+        else:
+            lib = f'/usr/lib/x86_64-linux-gnu/{name}'
+            if not os.path.exists(lib):
+                lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+            if not os.path.exists(lib):
+                lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
+            if not os.path.exists(lib):
+                if not required: return False
+                raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')
         #console(f'Exporting syslib: {name}:{lib}')
         self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()
@@ -355,7 +360,10 @@ class BuildTarget:
     def _remove_duplicate_export_libs(self):
         unique = dict()
         for lib in self.exported_libs:
-            unique[os.path.basename(lib)] = lib
+            if lib.startswith('-framework '):
+                unique[lib.split(' ', 1)[1]] = lib
+            else:
+                unique[os.path.basename(lib)] = lib
         self.exported_libs = list(unique.values())
 
 
@@ -365,6 +373,7 @@ class BuildTarget:
     # 
     def inject_env(self):
         cmake_inject_env(self)
+
 
     def _add_dict_flag(self, dest:dict, flag):
         if not flag: return
@@ -487,23 +496,24 @@ class BuildTarget:
 
 
     def select(self, windows, linux, macos, ios, android):
-        if   self.config.windows and windows: return windows
-        elif self.config.linux   and linux:   return linux
-        elif self.config.macos   and macos:   return macos
-        elif self.config.ios     and ios:     return ios
-        elif self.config.android and android: return android
+        if   self.windows and windows: return windows
+        elif self.linux   and linux:   return linux
+        elif self.macos   and macos:   return macos
+        elif self.ios     and ios:     return ios
+        elif self.android and android: return android
         return None
+
 
     ##
     # Enable a specific C++ standard
     def enable_cxx20(self):
-        self.cmake_cxxflags['/std' if self.config.windows else '-std'] = 'c++latest' if self.config.windows else 'c++2a'
+        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++latest' if self.windows else 'c++2a'
     def enable_cxx17(self):
-        self.cmake_cxxflags['/std' if self.config.windows else '-std'] = 'c++17'
+        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++17'
     def enable_cxx14(self):
-        self.cmake_cxxflags['/std' if self.config.windows else '-std'] = 'c++14'
+        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++14'
     def enable_cxx11(self):
-        self.cmake_cxxflags['/std' if self.config.windows else '-std'] = 'c++11'
+        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++11'
 
 
     ##
@@ -566,7 +576,8 @@ class BuildTarget:
     
     # Run a command with gdb in the build folder
     def gdb(self, command, src_dir=False):
-        if self.config.android or self.config.ios:
+        if self.android or self.ios or self.raspi:
+            console('Cannot run tests for Android, iOS, Raspi builds.')
             return # nothing to run
         
         split = command.split(' ', 1)
@@ -576,10 +587,15 @@ class BuildTarget:
         path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
         exe = os.path.basename(cmd)
 
-        if self.config.windows:
+        if self.windows:
             if not src_dir: path = f'{path}/{self.cmake_build_type}'
             gdb = exe
-        else: # linux, macos
+        elif self.macos:
+            # b: batch, q: quiet, -o r: run
+            # -k bt: on crash, backtrace
+            # -k q: on crash, quit 
+            gdb = f'lldb -b -o r -k bt -k q  -- ./{exe} {args}'
+        else: # linux
             # r: run;  bt: give backtrace;  q: quit when done;
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
         execute_echo(path, gdb)
@@ -731,12 +747,16 @@ class BuildTarget:
 
 
     def _print_ws_path(self, what, path):
-        exists = '' if os.path.exists(path) else '   !! (path does not exist) !!' 
-        if not path.startswith(self.config.workspaces_root):
-            console(f'    {what}  {path}{exists}')
+        def exists():
+            return '' if os.path.exists(path) else '   !! (path does not exist) !!' 
+        if path.startswith('-framework'):
+            console(f'    {what}  {path}')
+        elif not path.startswith(self.config.workspaces_root):
+            console(f'    {what}  {path}{exists()}')
         else:
             n = len(self.config.workspaces_root) + 1
-            console(f'    {what}  {path[n:]}{exists}')
+            console(f'    {what}  {path[n:]}{exists()}')
+
 
     ##
     # Prints out all the exported products
@@ -747,6 +767,4 @@ class BuildTarget:
 
 
 ######################################################################################
-
-
         
