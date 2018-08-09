@@ -150,7 +150,9 @@ def cmake_default_options(target):
 
     if config.android:
         toolchain = target.cmake_ndk_toolchain
-        if not toolchain:
+        if toolchain:
+            toolchain = target.source_dir(toolchain)
+        else:
             toolchain = f'{config.android_ndk()}/build/cmake/android.toolchain.cmake'
         opt += [
             'BUILD_ANDROID=ON',
@@ -178,7 +180,9 @@ def cmake_default_options(target):
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
         ]
         if target.cmake_raspi_toolchain:
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{target.cmake_raspi_toolchain}"']
+            toolchain = target.source_dir(target.cmake_raspi_toolchain)
+            console(f'Toolchain: {toolchain}')
+            opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     elif config.ios:
         opt += [
             'IOS_PLATFORM=OS',
@@ -188,7 +192,9 @@ def cmake_default_options(target):
             'CMAKE_OSX_SYSROOT="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"'
         ]
         if target.cmake_ios_toolchain:
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{target.cmake_ios_toolchain}"']
+            toolchain = target.source_dir(target.cmake_ios_toolchain)
+            console(f'Toolchain: {toolchain}')
+            opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     return opt
 
 
