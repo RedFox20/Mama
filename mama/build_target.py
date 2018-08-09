@@ -573,6 +573,14 @@ class BuildTarget:
         dir = self.dep.src_dir if src_dir else self.dep.build_dir
         execute(f'cd {dir} && {command}', echo=True)
 
+
+    # Run any program in any directory. Can be used for custom tools
+    # Ex:
+    #  self.run_program(self.source_dir('bin'), self.source_dir('bin/DbTool'))
+    #
+    def run_program(self, working_dir, command):
+        execute_echo(working_dir, command)
+
     
     # Run a command with gdb in the build folder
     def gdb(self, command, src_dir=False):
@@ -599,6 +607,8 @@ class BuildTarget:
             # r: run;  bt: give backtrace;  q: quit when done;
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
         execute_echo(path, gdb)
+
+
 
     ########## Customization Points ###########
 
@@ -629,10 +639,12 @@ class BuildTarget:
     def clean(self):
         pass
 
+
     ###
     # Sets self.install_target to None, which disables the CMake install step
     def disable_install(self):
         self.install_target = ''
+
 
     ###
     # Perform custom install steps here. By default it uses CMake install
@@ -677,6 +689,17 @@ class BuildTarget:
     def test(self, args):
         pass
 
+
+    ###
+    # Start a custom process through mama
+    # `mama start=arg`
+    # Ex:
+    #   def start(self, args):
+    #      if 'dbtool' in args:
+    #          self.run_program(self.source_dir('bin'), self.source_dir('bin/DbTool'))
+    #
+    def start(self, args):
+        pass
 
 
     ############################################
@@ -741,6 +764,11 @@ class BuildTarget:
                 test_args = self.config.test.lstrip()
                 console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
+
+            if self.dep.is_root:
+                start_args = self.config.start.lstrip()
+                console(f'  - Starting {self.name} {start_args}')
+                self.start(start_args)
         except:
             console(f'  [BUILD FAILED]  {self.dep.name}')
             raise

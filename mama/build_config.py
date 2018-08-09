@@ -22,6 +22,7 @@ class BuildConfig:
         self.reclone   = False
         self.mama_init = False
         self.test      = ''
+        self.start     = ''
         self.windows = False
         self.linux   = False
         self.macos   = False
@@ -141,6 +142,7 @@ class BuildConfig:
             elif arg == 'init':      self.mama_init = True
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
+            elif arg == 'start':     self.start = ' ' # no start arguments
             elif arg == 'windows': self.set_platform(windows=True)
             elif arg == 'linux':   self.set_platform(linux=True)
             elif arg == 'macos':   self.set_platform(macos=True)
@@ -164,6 +166,7 @@ class BuildConfig:
             elif arg.startswith('jobs='):   self.jobs = int(arg[5:])
             elif arg.startswith('target='): self.target = arg[7:]
             elif arg.startswith('test='):   self.add_test_arg(arg[5:])
+            elif arg.startswith('start='):  self.start = arg[6:]
             elif arg.startswith('flags='):
                 self.flags = arg[6:]
             else:
