@@ -147,7 +147,7 @@ def load_dependency_chain(root: BuildDependency):
 
 def execute_task_chain(root: BuildDependency):
     if not os.path.exists(mama_cmake_path(root)):
-        save_mama_cmake(root) # save a dummy mama.cmake
+        save_mama_cmake(root) # save a dummy mama.cmake before build
 
     for dep in root.children:
         execute_task_chain(dep)

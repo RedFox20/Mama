@@ -180,6 +180,10 @@ class BuildDependency:
         return None
 
 
+    def source_dir_exists(self):
+        return os.path.exists(self.src_dir)
+
+
     def build_dir_exists(self):
         return os.path.exists(self.build_dir)
 
@@ -210,6 +214,10 @@ class BuildDependency:
         if not self.git or self.is_root:    # No git for local or root targets
             return False
         
+        if not self.source_dir_exists():
+            self.git.clone_or_pull()
+            return True
+
         changed = self.git.check_status()
         is_target = self.config.target_matches(self.name)
 
