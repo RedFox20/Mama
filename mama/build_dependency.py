@@ -291,11 +291,12 @@ class BuildDependency:
 
 
     def after_load(self):
-        first_changed = next((c for c in self.children if c.should_rebuild), None)
-        if first_changed and not self.should_rebuild:
-            self.should_rebuild = True
-            console(f'  - Target {self.name: <16}  BUILD [{first_changed.name} changed]')
-            self.create_build_dir_if_needed() # in case we just cleaned
+        if self.config.no_specific_target():
+            first_changed = next((c for c in self.children if c.should_rebuild), None)
+            if first_changed and not self.should_rebuild:
+                self.should_rebuild = True
+                console(f'  - Target {self.name: <16}   BUILD [{first_changed.name} changed]')
+                self.create_build_dir_if_needed() # in case we just cleaned
 
 
     def successful_build(self):

@@ -313,3 +313,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def target_matches(self, target_name):
         return self.target == 'all' or self.target == target_name
 
+
+    def no_specific_target(self):
+        return (not self.target) or (self.target == 'all')
+
