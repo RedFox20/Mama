@@ -765,7 +765,7 @@ class BuildTarget:
                 console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
 
-            if self.dep.is_root:
+            if self.dep.is_root and self.config.start:
                 start_args = self.config.start.lstrip()
                 console(f'  - Starting {self.name} {start_args}')
                 self.start(start_args)
