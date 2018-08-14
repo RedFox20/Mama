@@ -525,10 +525,16 @@ class BuildTarget:
         shutil.copy(src, dst)
 
 
+    ##
+    # Downloads a file if it doesn't already exist
+    #
     def download_file(self, remote_url, local_dir, force=False):
         util.download_file(remote_url, local_dir, force)
 
 
+    ##
+    # Downloads and unzips an archive if it doesn't already exist
+    #
     def download_and_unzip(self, remote_zip, extract_dir):
         util.download_and_unzip(remote_zip, extract_dir)
 
