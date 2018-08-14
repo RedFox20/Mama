@@ -72,7 +72,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
 
     elif config.macos or config.ios:
         projects = glob_folders_with_name_match(found.build_dir, ['.xcodeproj'])
-        if not solutions:
+        if not projects:
             raise EnvironmentError('Could not find any Xcode projects!')
         execute(f'open {projects[0]}', echo=True)
 
