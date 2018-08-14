@@ -23,9 +23,8 @@ def get_flattened_deps(root: BuildDependency):
     add_unique_items(root.children)
 
     if len(ordered) > 1:
-        console('Flattened Dependencies:')
-        for dep in ordered:
-            console(f'  dep  {dep.name}')
+        names = [dep.name for dep in ordered]
+        console(f'  - Dependency Order:\n        {" ".join(names)}')
     return ordered
 
 
