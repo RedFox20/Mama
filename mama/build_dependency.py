@@ -170,7 +170,7 @@ class BuildDependency:
         write_text_to(self.exported_libs_file(), '\n'.join(exports))
 
 
-    def get_missing_build_dependency(self):
+    def get_missing_build_product(self):
         frameworks = self.config.ios or self.config.macos
         for depfile in self.target.build_dependencies:
             if frameworks and depfile.startswith('-framework'):
@@ -257,29 +257,7 @@ class BuildDependency:
 
         build = False
         if conf.build or conf.update:
-            build = True
-            def target_args(): return f'{target.args}' if target.args else ''
-            def reason(r): console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
-
-            if conf.target and not is_target: # if we called: "target=SpecificProject"
-                build = False # skip build if target doesn't match
-            
-            elif conf.clean and is_target:  reason('cleaned target')
-            elif self.is_root:              reason('root target')
-            elif conf.configure and is_target: reason('configure target='+target.name)
-            elif conf.target    and is_target: reason('target='+target.name)
-            elif   update_mamafile_tag(self.mamafile_path(), self.build_dir): reason(target.name+'/mamafile.py modified')
-            elif update_cmakelists_tag(self.cmakelists_path(), self.build_dir): reason(target.name+'/CMakeLists.txt modified')
-            elif git_changed:                   reason('git commit changed')
-            elif not self.has_build_files():    reason('not built yet')
-            elif not target.build_dependencies: reason('no build dependencies')
-            else:
-                missing = self.get_missing_build_dependency()
-                if missing: reason(f'{missing} does not exist')
-                else:
-                    console(f'  - Target {target.name: <16}   OK')
-                    build = False
-            
+            build = self._should_build(conf, target, is_target, git_changed)
             if not build and git_changed:
                 self.git.save_status()
 
@@ -288,6 +266,34 @@ class BuildDependency:
         if build:
             self.create_build_dir_if_needed() # in case we just cleaned
         return build
+
+    
+    def _should_build(self, conf, target, is_target, git_changed):
+            def target_args(): return f'{target.args}' if target.args else ''
+            def build(r):
+                console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
+                return True
+
+            if conf.target and not is_target: # if we called: "target=SpecificProject"
+                return False # skip build if target doesn't match
+            if conf.clean and is_target:     return build('cleaned target')
+            if self.is_root:                 return build('root target')
+            if conf.configure and is_target: return build('configure target='+target.name)
+            if conf.target    and is_target: return build('target='+target.name)
+            if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
+            if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
+            if git_changed:                   return build('git commit changed')
+            if not self.has_build_files():    return build('not built yet')
+            if not target.build_dependencies: return build('no build dependencies')
+
+            missing_product = self.get_missing_build_product()
+            if missing_product: return build(f'{missing_product} does not exist')
+            
+            missing_dep = self.find_missing_dependency()
+            if missing_dep: return build(f'{missing_dep} was removed')
+            
+            console(f'  - Target {target.name: <16}   OK')
+            return False # do not build, all is ok
 
 
     def after_load(self):
@@ -302,6 +308,7 @@ class BuildDependency:
     def successful_build(self):
         update_mamafile_tag(self.mamafile_path(), self.build_dir)
         update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+        self.save_dependency_list()
         if self.git:
             self.git.save_status()
 
@@ -357,6 +364,29 @@ class BuildDependency:
 
     def mamafile_exists(self):
         return os.path.exists(self.mamafile_path())
+
+
+    # "name(-branch)"
+    def get_dependency_name(self):
+        if self.git:
+            branch = self.git.branch_or_tag()
+            if branch:
+                return self.name + '-' + branch
+        return self.name
+
+
+    def save_dependency_list(self):
+        deps = [dep.get_dependency_name() for dep in self.children]
+        write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
+
+
+    def find_missing_dependency(self):
+        last_build = read_lines_from(f'{self.build_dir}/mama_dependency_libs')
+        current = [dep.get_dependency_name() for dep in self.children]
+        for last in last_build:
+            if not (last in current):
+                return last
+        return None # Nothing missing
 
 
     ## Clean
