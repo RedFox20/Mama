@@ -65,5 +65,5 @@ class AsyncFileReader:
     def stop(self):
         self.keep_polling = False
         self.thread.join()
-        self.print()
+        # self.print()
 

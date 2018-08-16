@@ -22,6 +22,8 @@ def execute_echo(cwd, cmd):
             else:
                 output.stop()
                 errors.stop()
+                output.print()
+                errors.print()
                 break
     except:
         console(f'Popen failed! cwd={cwd} cmd={cmd} ')

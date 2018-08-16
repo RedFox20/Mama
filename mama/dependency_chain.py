@@ -24,7 +24,14 @@ def get_flattened_deps(root: BuildDependency):
 
     if len(ordered) > 1:
         names = [dep.name for dep in ordered]
-        console(f'  - Dependency Order:\n        {" ".join(names)}')
+        if root.config.print:
+            console(f'  - Dependency Order:\n        {" ".join(names)}')
+
+    if root.config.verbose:
+        console('  - Exports:')
+        for dep in ordered:
+            for lib in dep.target.exported_libs:    console(f'    {lib}')
+            for lib in dep.target.exported_syslibs: console(f'    {lib}')
     return ordered
 
 

@@ -193,8 +193,8 @@ class BuildTarget:
     def get_product_defines(self):
         defines = []
         for source in self.dep.product_sources:
-            srcdep = source[0]
-            includes = srcdep.target.get_exported_includes()
+            srcdep    = source[0]
+            includes  = srcdep.target.get_exported_includes()
             libraries = srcdep.target.get_exported_libs(source[3])
             #console(f'grabbing products: {srcdep.name}; includes={includes}; libraries={libraries}')
             defines.append(f'{source[1]}={includes}')
@@ -205,7 +205,7 @@ class BuildTarget:
         return ';'.join(self.exported_includes) if self.exported_includes else ''
 
     def get_exported_libs(self, libfilters):
-        console(f'get_exported_libs: libs={self.exported_libs} syslibs={self.exported_syslibs}')
+        #console(f'get_exported_libs: libs={self.exported_libs} syslibs={self.exported_syslibs}')
         libs = []
         if self.exported_libs:
             if libfilters:
@@ -215,7 +215,6 @@ class BuildTarget:
                 if not libs: libs.append(self.exported_libs[0])
             else:
                 libs = self.exported_libs
-        libs += self.exported_syslibs
         return ';'.join(libs)
 
 
@@ -719,8 +718,9 @@ class BuildTarget:
 
 
     def cmake_install(self):
-        console('\n\n#############################################################')
-        console(f"CMake install {self.name} ...")
+        if self.config.print:
+            console('\n\n#############################################################')
+            console(f"CMake install {self.name} ...")
         run_cmake_build(self, install=True)
 
 
@@ -729,8 +729,9 @@ class BuildTarget:
 
 
     def cmake_build(self):
-        console('\n\n#############################################################')
-        console(f"CMake build {self.name}")
+        if self.config.print:
+            console('\n\n#############################################################')
+            console(f"CMake build {self.name}")
         self.dep.ensure_cmakelists_exists()
         def cmake_flags():
             flags = ''
@@ -775,12 +776,12 @@ class BuildTarget:
 
             if self.is_test_target():
                 test_args = self.config.test.lstrip()
-                console(f'  - Testing {self.name} {test_args}')
+                if self.config.print: console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
 
             if self.dep.is_root and self.config.start:
                 start_args = self.config.start.lstrip()
-                console(f'  - Starting {self.name} {start_args}')
+                if self.config.print: console(f'  - Starting {self.name} {start_args}')
                 self.start(start_args)
         except:
             console(f'  [BUILD FAILED]  {self.dep.name}')
@@ -803,6 +804,8 @@ class BuildTarget:
     ##
     # Prints out all the exported products
     def print_exports(self):
+        if not self.config.print:
+            return
         console(f'  - Package {self.name}')
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)

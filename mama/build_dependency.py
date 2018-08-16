@@ -67,7 +67,8 @@ class Git:
             self.run_git(f"checkout {branch}")
 
     def reclone_wipe(self):
-        console(f'  - Target {self.dep.name: <16}   RECLONE WIPE')
+        if self.dep.config.print:
+            console(f'  - Target {self.dep.name: <16}   RECLONE WIPE')
         if os.path.exists(self.dep.dep_dir):
             if System.windows: # chmod everything to user so we can delete:
                 for root, dirs, files in os.walk(self.dep.dep_dir):
@@ -77,14 +78,15 @@ class Git:
 
     def clone_or_pull(self, wiped=False):
         if is_dir_empty(self.dep.src_dir):
-            if not wiped:
+            if not wiped and self.dep.config.print:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
             execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}")
             self.checkout_current_branch()
         else:
-            console(f"  - Pulling {self.dep.name: <16}  SCM change detected")
+            if self.dep.config.print:
+                console(f"  - Pulling {self.dep.name: <16}  SCM change detected")
             self.checkout_current_branch()
             if not self.tag: # never pull a tag
                 self.run_git("reset --hard -q")
@@ -268,7 +270,8 @@ class BuildDependency:
     def _should_build(self, conf, target, is_target, git_changed):
             def target_args(): return f'{target.args}' if target.args else ''
             def build(r):
-                console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
+                if conf.print:
+                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
                 return True
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"
@@ -289,7 +292,8 @@ class BuildDependency:
             missing_dep = self.find_missing_dependency()
             if missing_dep: return build(f'{missing_dep} was removed')
             
-            console(f'  - Target {target.name: <16}   OK')
+            if conf.print:
+                console(f'  - Target {target.name: <16}   OK')
             return False # do not build, all is ok
 
 
@@ -298,7 +302,8 @@ class BuildDependency:
             first_changed = next((c for c in self.children if c.should_rebuild), None)
             if first_changed and not self.should_rebuild:
                 self.should_rebuild = True
-                console(f'  - Target {self.name: <16}   BUILD [{first_changed.name} changed]')
+                if self.config.print:
+                    console(f'  - Target {self.name: <16}   BUILD [{first_changed.name} changed]')
                 self.create_build_dir_if_needed() # in case we just cleaned
 
 
@@ -388,7 +393,8 @@ class BuildDependency:
 
     ## Clean
     def clean(self):
-        console(f'  - Target {self.name: <16}   CLEAN')
+        if self.config.print:
+            console(f'  - Target {self.name: <16}   CLEAN')
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return

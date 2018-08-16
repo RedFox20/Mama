@@ -21,6 +21,8 @@ class BuildConfig:
         self.configure = False # re-run cmake configure
         self.reclone   = False
         self.mama_init = False
+        self.print     = True
+        self.verbose   = False
         self.test      = ''
         self.start     = ''
         self.windows = False
@@ -106,9 +108,11 @@ class BuildConfig:
             self.clang = True
             self.gcc   = False
             self.compiler_cmd = True
-            console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler set.')
+            if self.print:
+                console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler set.')
         else:
-            console(f'Target {target_name} requested Clang but compiler already set to GCC.')
+            if self.print: 
+                console(f'Target {target_name} requested Clang but compiler already set to GCC.')
 
 
     def prefer_gcc(self, target_name):
@@ -117,9 +121,11 @@ class BuildConfig:
             self.clang = False
             self.gcc   = True
             self.compiler_cmd = True
-            console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler set.')
+            if self.print:
+                console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler set.')
         else:
-            console(f'Target {target_name} requested GCC but compiler already set to Clang.')
+            if self.print:
+                console(f'Target {target_name} requested GCC but compiler already set to Clang.')
 
 
     ##
@@ -140,6 +146,8 @@ class BuildConfig:
             elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
             elif arg == 'init':      self.mama_init = True
+            elif arg == 'silent':    self.print = False
+            elif arg == 'verbose':   self.verbose = True
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
             elif arg == 'start':     self.start = ' ' # no start arguments
@@ -260,7 +268,7 @@ class BuildConfig:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
                 self.android_ndk_path = sdk_path  + '/ndk-bundle'
-                console(f'Found Android NDK: {self.android_ndk_path}')
+                if self.print: console(f'Found Android NDK: {self.android_ndk_path}')
                 return
         raise EnvironmentError(f'''Could not detect any Android NDK installations. 
 Default search paths: {paths} 
@@ -282,7 +290,7 @@ Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/n
                     raspi_path = f'{raspi_path}/arm-bcm2708/arm-linux-gnueabihf/'
                 self.raspi_compilers = f'{raspi_path}/bin/'
                 self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot/'
-                console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
+                if self.print: console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
                 return
         raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected! 
 Default search paths: {paths} 
@@ -296,7 +304,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         
         for fortran_path in paths:
             if fortran_path and os.path.exists(fortran_path):
-                console(f'Found Fortran: {fortran_path}')
+                if self.print: console(f'Found Fortran: {fortran_path}')
                 return fortran_path
         return None
 

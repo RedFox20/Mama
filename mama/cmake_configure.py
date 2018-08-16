@@ -3,15 +3,17 @@ from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 from mama.async_file_reader import AsyncFileReader
 
-def rerunnable_cmake_conf(cwd, args, allow_rerun):
+def rerunnable_cmake_conf(cwd, args, allow_rerun, config:BuildConfig):
     rerun = False
     error = ''
+    if config.verbose:
+        console(args)
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output = AsyncFileReader(proc.stdout)
     errors = AsyncFileReader(proc.stderr)
     while True:
         if proc.poll() is None:
-            while output.available():
+            while config.print and output.available():
                 print(output.readline(), flush=True, end='')
 
             while errors.available():
@@ -23,10 +25,12 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun):
         else:
             output.stop()
             errors.stop()
+            if config.print: output.print()
+            
             if proc.returncode == 0:
                 break
             if rerun:
-                return rerunnable_cmake_conf(cwd, args, False)
+                return rerunnable_cmake_conf(cwd, args, False, config)
             raise Exception(f'CMake configure error: {error}')
 
 
@@ -34,13 +38,13 @@ def run_cmake_config(target, cmake_flags):
     generator = cmake_generator(target)
     src_dir = target.dep.src_dir
     cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
-    rerunnable_cmake_conf(target.dep.build_dir, cmd, True)
+    rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target.config)
 
 
 def run_cmake_build(target, install, extraflags=''):
     build_dir = target.dep.build_dir
     flags = cmake_build_config(target, install)
-    execute(f'cmake --build {build_dir} {flags} {extraflags}')
+    execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)
 
 
 def cmake_generator(target):
@@ -181,7 +185,7 @@ def cmake_default_options(target):
         ]
         if target.cmake_raspi_toolchain:
             toolchain = target.source_dir(target.cmake_raspi_toolchain)
-            console(f'Toolchain: {toolchain}')
+            if config.print: console(f'Toolchain: {toolchain}')
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     elif config.ios:
         opt += [
@@ -193,7 +197,7 @@ def cmake_default_options(target):
         ]
         if target.cmake_ios_toolchain:
             toolchain = target.source_dir(target.cmake_ios_toolchain)
-            console(f'Toolchain: {toolchain}')
+            if config.print: console(f'Toolchain: {toolchain}')
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     return opt
 
