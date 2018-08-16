@@ -50,6 +50,7 @@ class BuildTarget:
         self.build_dependencies = [] # dependency files
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
+        self.exported_syslibs  = [] # exported system libraries
         self.windows = self.config.windows # convenient alias
         self.linux   = self.config.linux
         self.macos   = self.config.macos
@@ -204,13 +205,17 @@ class BuildTarget:
         return ';'.join(self.exported_includes) if self.exported_includes else ''
 
     def get_exported_libs(self, libfilters):
-        #console(f'libfilters={libfilters}')
-        if not self.exported_libs: return
-        if not libfilters: return ';'.join(self.exported_libs)
+        console(f'get_exported_libs: libs={self.exported_libs} syslibs={self.exported_syslibs}')
         libs = []
-        for lib in self.exported_libs:
-            if libfilters in lib: libs.append(lib)
-        if not libs: libs.append(self.exported_libs[0])
+        if self.exported_libs:
+            if libfilters:
+                for lib in self.exported_libs:
+                    if libfilters in lib: libs.append(lib)
+                # if no matches with libfilters, just append the first
+                if not libs: libs.append(self.exported_libs[0])
+            else:
+                libs = self.exported_libs
+        libs += self.exported_syslibs
         return ';'.join(libs)
 
 
@@ -288,7 +293,7 @@ class BuildTarget:
         path = normalized_path(os.path.join(root, relative_path))
         if os.path.exists(path):
             self.exported_libs.append(path)
-            self._remove_duplicate_export_libs()
+            self.exported_libs = self._get_unique_basenames(self.exported_libs)
 
 
     ##
@@ -322,7 +327,7 @@ class BuildTarget:
                 return lib_index(lib)
             libs.sort(key=sort_key)
         self.exported_libs += libs
-        self._remove_duplicate_export_libs()
+        self.exported_libs = self._get_unique_basenames(self.exported_libs)
         return len(self.exported_libs) > 0
 
 
@@ -354,19 +359,19 @@ class BuildTarget:
         else:
             lib = name # just export it. expect system linker to find it.
         #console(f'Exporting syslib: {name}:{lib}')
-        self.exported_libs.append(lib)
-        self._remove_duplicate_export_libs()
+        self.exported_syslibs.append(lib)
+        self.exported_syslibs = self._get_unique_basenames(self.exported_syslibs)
         return True
 
 
-    def _remove_duplicate_export_libs(self):
+    def _get_unique_basenames(self, libs):
         unique = dict()
-        for lib in self.exported_libs:
+        for lib in libs:
             if lib.startswith('-framework '):
                 unique[lib.split(' ', 1)[1]] = lib
             else:
                 unique[os.path.basename(lib)] = lib
-        self.exported_libs = list(unique.values())
+        return list(unique.values())
 
 
     ##
@@ -756,11 +761,11 @@ class BuildTarget:
                 if not self.dep.nothing_to_build:
                     self.build() # user customization
                     self.dep.successful_build()
-        
+
             self.package() # user customization
 
             # no packaging provided by user; use default packaging instead
-            if not self.exported_includes or not self.exported_libs:
+            if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
                 self.default_package()
 
             # only save and print exports if we built anything
@@ -782,13 +787,14 @@ class BuildTarget:
             raise
 
 
-    def _print_ws_path(self, what, path):
+    def _print_ws_path(self, what, path, check_exists=True):
         def exists():
             return '' if os.path.exists(path) else '   !! (path does not exist) !!' 
         if path.startswith('-framework'):
             console(f'    {what}  {path}')
         elif not path.startswith(self.config.workspaces_root):
-            console(f'    {what}  {path}')
+            ex = exists() if check_exists else ''
+            console(f'    {what}  {path}{ex}')
         else:
             n = len(self.config.workspaces_root) + 1
             console(f'    {what}  {path[n:]}{exists()}')
@@ -800,6 +806,7 @@ class BuildTarget:
         console(f'  - Package {self.name}')
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
+        for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
 
 
 ######################################################################################

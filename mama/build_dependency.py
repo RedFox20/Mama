@@ -170,12 +170,9 @@ class BuildDependency:
         write_text_to(self.exported_libs_file(), '\n'.join(exports))
 
 
-    def get_missing_build_product(self):
-        frameworks = self.config.ios or self.config.macos
+    def find_first_missing_build_product(self):
         for depfile in self.target.build_dependencies:
-            if frameworks and depfile.startswith('-framework'):
-                continue
-            if not os.path.getsize(depfile):
+            if not os.path.exists(depfile):
                 return depfile
         return None
 
@@ -286,7 +283,7 @@ class BuildDependency:
             if not self.has_build_files():    return build('not built yet')
             if not target.build_dependencies: return build('no build dependencies')
 
-            missing_product = self.get_missing_build_product()
+            missing_product = self.find_first_missing_build_product()
             if missing_product: return build(f'{missing_product} does not exist')
             
             missing_dep = self.find_missing_dependency()
