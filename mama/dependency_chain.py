@@ -42,7 +42,7 @@ def save_dependencies_cmake(root: BuildDependency):
     flatdeps = get_flattened_deps(root)
     for dep in flatdeps:
         includes  = get_cmake_path_list(dep.target.exported_includes)
-        libraries = get_cmake_path_list(dep.target.exported_libs)
+        libraries = get_cmake_path_list(dep.target.exported_libs + dep.target.exported_syslibs)
         text += f'''
 # Package {dep.name}
 set({dep.name}_INCLUDES {includes})
