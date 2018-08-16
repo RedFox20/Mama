@@ -342,7 +342,7 @@ class BuildTarget:
             if not name.startswith('-framework '):
                 raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
             lib = name
-        else:
+        elif self.linux:
             lib = f'/usr/lib/x86_64-linux-gnu/{name}'
             if not os.path.exists(lib):
                 lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
@@ -351,6 +351,8 @@ class BuildTarget:
             if not os.path.exists(lib):
                 if not required: return False
                 raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')
+        else:
+            lib = name # just export it. expect system linker to find it.
         #console(f'Exporting syslib: {name}:{lib}')
         self.exported_libs.append(lib)
         self._remove_duplicate_export_libs()
@@ -786,7 +788,7 @@ class BuildTarget:
         if path.startswith('-framework'):
             console(f'    {what}  {path}')
         elif not path.startswith(self.config.workspaces_root):
-            console(f'    {what}  {path}{exists()}')
+            console(f'    {what}  {path}')
         else:
             n = len(self.config.workspaces_root) + 1
             console(f'    {what}  {path[n:]}{exists()}')
