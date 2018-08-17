@@ -6,6 +6,7 @@ from mama.async_file_reader import AsyncFileReader
 def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     rerun = False
     error = ''
+    delete_cmakecache = False
     if target.config.verbose:
         console(args)
     print_enabled = target.config.print
@@ -14,17 +15,16 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     errors = AsyncFileReader(proc.stderr)
 
     def handle_errors():
+        nonlocal rerun, delete_cmakecache
         while errors.available():
             error = errors.readline()
             print(error, flush=True, end='')
             # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
             if System.windows:
                 rerun |= error.startswith('  is not a full path to an existing compiler tool.')
-            else:
-                if error.startswith('CMake Error: Error: generator :'):
-                    rerun = True
-                    console('Deleting CMakeCache.txt')
-                    os.remove(target.build_dir('CMakeCache.txt'))
+            elif error.startswith('CMake Error: Error: generator :'):
+                rerun = True
+                delete_cmakecache = True
 
     while True:
         if proc.poll() is None:
@@ -37,10 +37,14 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
             errors.stop()
             if print_enabled: output.print()
             handle_errors()
+            if delete_cmakecache:
+                if print_enabled: console('Deleting CMakeCache.txt')
+                os.remove(target.build_dir('CMakeCache.txt'))
+            if rerun and allow_rerun:
+                if print_enabled: console('Rerunning CMake configure')
+                return rerunnable_cmake_conf(cwd, args, False, target)
             if proc.returncode == 0:
                 break
-            if rerun and allow_rerun:
-                return rerunnable_cmake_conf(cwd, args, False, target)
             raise Exception(f'CMake configure error: {error}')
 
 
@@ -52,7 +56,6 @@ def run_cmake_config(target, cmake_flags):
 
 
 def run_cmake_build(target, install, extraflags=''):
-    console('BUILD')
     build_dir = target.dep.build_dir
     flags = cmake_build_config(target, install)
     execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)

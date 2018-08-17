@@ -118,7 +118,12 @@ def strstr_multi(s, substrings):
 
 def glob_with_name_match(rootdir, pattern_substrings):
     results = []
-    for dirpath, _, dirfiles in os.walk(rootdir):
+    for dirpath, dirnames, dirfiles in os.walk(rootdir):
+        for dir in dirnames:
+            if strstr_multi(dir, pattern_substrings):
+                pathstring = os.path.join(dirpath, dir)
+                pathstring = normalized_path(pathstring)
+                results.append(pathstring)
         for file in dirfiles:
             if strstr_multi(file, pattern_substrings):
                 pathstring = os.path.join(dirpath, file)
