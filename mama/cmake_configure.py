@@ -3,35 +3,44 @@ from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 from mama.async_file_reader import AsyncFileReader
 
-def rerunnable_cmake_conf(cwd, args, allow_rerun, config:BuildConfig):
+def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     rerun = False
     error = ''
-    if config.verbose:
+    if target.config.verbose:
         console(args)
+    print_enabled = target.config.print
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output = AsyncFileReader(proc.stdout)
     errors = AsyncFileReader(proc.stderr)
+
+    def handle_errors():
+        while errors.available():
+            error = errors.readline()
+            print(error, flush=True, end='')
+            # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
+            if System.windows:
+                rerun |= error.startswith('  is not a full path to an existing compiler tool.')
+            else:
+                if error.startswith('CMake Error: Error: generator :'):
+                    rerun = True
+                    console('Deleting CMakeCache.txt')
+                    os.remove(target.build_dir('CMakeCache.txt'))
+
     while True:
         if proc.poll() is None:
-            while config.print and output.available():
+            while print_enabled and output.available():
                 print(output.readline(), flush=True, end='')
-
             while errors.available():
-                error = errors.readline()
-                print(error, flush=True, end='')
-                # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
-                if System.windows:
-                    rerun |= error.startswith('  is not a full path to an existing compiler tool.')
+                handle_errors()
         else:
             output.stop()
             errors.stop()
-            if config.print: output.print()
-            errors.print()
-            
+            if print_enabled: output.print()
+            handle_errors()
             if proc.returncode == 0:
                 break
-            if rerun:
-                return rerunnable_cmake_conf(cwd, args, False, config)
+            if rerun and allow_rerun:
+                return rerunnable_cmake_conf(cwd, args, False, target)
             raise Exception(f'CMake configure error: {error}')
 
 
@@ -39,10 +48,11 @@ def run_cmake_config(target, cmake_flags):
     generator = cmake_generator(target)
     src_dir = target.dep.src_dir
     cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
-    rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target.config)
+    rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target)
 
 
 def run_cmake_build(target, install, extraflags=''):
+    console('BUILD')
     build_dir = target.dep.build_dir
     flags = cmake_build_config(target, install)
     execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)
