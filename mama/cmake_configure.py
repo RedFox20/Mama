@@ -187,13 +187,16 @@ def cmake_default_options(target):
             toolchain = target.source_dir(target.cmake_raspi_toolchain)
             if config.print: console(f'Toolchain: {toolchain}')
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
+    elif config.macos:
+        pass
     elif config.ios:
         opt += [
             'IOS_PLATFORM=OS',
             'CMAKE_SYSTEM_NAME=Darwin',
             'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
             'CMAKE_OSX_ARCHITECTURES=arm64',
-            'CMAKE_OSX_SYSROOT="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"'
+            #'CMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk',
+            'CMAKE_OSX_SYSROOT=iphoneos',
         ]
         if target.cmake_ios_toolchain:
             toolchain = target.source_dir(target.cmake_ios_toolchain)
