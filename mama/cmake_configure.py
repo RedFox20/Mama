@@ -26,6 +26,7 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, config:BuildConfig):
             output.stop()
             errors.stop()
             if config.print: output.print()
+            errors.print()
             
             if proc.returncode == 0:
                 break
