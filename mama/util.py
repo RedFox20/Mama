@@ -200,4 +200,5 @@ def download_and_unzip(remote_zip, extract_dir, unless_file_exists):
     local_file = download_file(remote_zip, extract_dir)
     with zipfile.ZipFile(local_file, "r") as zip:
         zip.extractall(extract_dir)
+    console(f'Extracted {local_file} to {extract_dir}')
 
