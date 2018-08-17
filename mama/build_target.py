@@ -540,9 +540,11 @@ class BuildTarget:
 
     ##
     # Downloads and unzips an archive if it doesn't already exist
+    # If @param unless_file_exists points to a file that exists, then
+    # download and unzip steps are skipped.
     #
-    def download_and_unzip(self, remote_zip, extract_dir):
-        util.download_and_unzip(remote_zip, extract_dir)
+    def download_and_unzip(self, remote_zip, extract_dir, unless_file_exists=None):
+        util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
 
 
     ##

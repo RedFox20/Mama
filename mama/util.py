@@ -193,7 +193,10 @@ def download_file(remote_url, local_dir, force=False):
                     console(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...")
 
 
-def download_and_unzip(remote_zip, extract_dir):
+def download_and_unzip(remote_zip, extract_dir, unless_file_exists):
+    if unless_file_exists and os.path.exists(unless_file_exists):
+        console(f"Skipping {os.path.basename(remote_zip)} because {unless_file_exists} exists.")
+        return
     local_file = download_file(remote_zip, extract_dir)
     with zipfile.ZipFile(local_file, "r") as zip:
         zip.extractall(extract_dir)
