@@ -7,9 +7,10 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     rerun = False
     error = ''
     delete_cmakecache = False
-    if target.config.verbose:
-        console(args)
     print_enabled = target.config.print
+    verbose = target.config.verbose
+    if verbose: console(args)
+    #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output = AsyncFileReader(proc.stdout)
     errors = AsyncFileReader(proc.stderr)
@@ -29,7 +30,8 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     while True:
         if proc.poll() is None:
             while print_enabled and output.available():
-                print(output.readline(), flush=True, end='')
+                line = output.readline()
+                print(line, flush=True, end='')
             while errors.available():
                 handle_errors()
         else:
@@ -264,12 +266,13 @@ def cmake_buildsys_flags(target):
     config:BuildConfig = target.config
     def get_flags():
         mpf = mp_flags(target)
-        if config.windows:     return f'/v:m {mpf} /nologo'
+        if config.windows:            return f'/v:m {mpf} /nologo'
         if target.enable_unix_make:   return mpf
         if target.enable_ninja_build: return ''
-        if config.android:     return mpf
-        if config.ios:         return f'-quiet {mpf}'
-        if config.macos:       return f'-quiet {mpf}'
+        if config.android:            return mpf
+        if config.ios or config.macos:
+            if not target.config.verbose:
+                return f'-quiet {mpf}'
         return mpf
     flags = get_flags()
     return f'-- {flags}' if flags else ''
