@@ -19,21 +19,30 @@ class Git:
         self.branch_changed = False
         self.commit_changed = False
 
+
     def run_git(self, git_command):
         cmd = f"cd {self.dep.src_dir} && git {git_command}"
-        #console(cmd)
+        if self.dep.config.verbose:
+            console(f'  {self.dep.name: <16} git {git_command}')
         execute(cmd)
+
 
     def fetch_origin(self):
         self.run_git(f"pull origin {self.branch_or_tag()} -q")
 
+
     def current_commit(self):
         cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
-        return cp.stdout.decode('utf-8').rstrip()
+        result = cp.stdout.decode('utf-8').rstrip()
+        if self.dep.config.verbose:
+            console(f'  {self.dep.name: <16} git show --oneline -s:   {result}')
+        return result
+
 
     def save_status(self):
         status = f"{self.url}\n{self.tag}\n{self.branch}\n{self.current_commit()}\n"
         write_text_to(f"{self.dep.build_dir}/git_status", status)
+
 
     def check_status(self):
         lines = read_lines_from(f"{self.dep.build_dir}/git_status")
@@ -54,10 +63,12 @@ class Git:
         #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
+
     def branch_or_tag(self):
         if self.branch: return self.branch
         if self.tag: return self.tag
         return ''
+
 
     def checkout_current_branch(self):
         branch = self.branch_or_tag()
@@ -65,6 +76,7 @@ class Git:
             if self.tag and self.tag_changed:
                 self.run_git("reset --hard")
             self.run_git(f"checkout {branch}")
+
 
     def reclone_wipe(self):
         if self.dep.config.print:
@@ -76,13 +88,14 @@ class Git:
                     for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
             shutil.rmtree(self.dep.dep_dir)
 
+
     def clone_or_pull(self, wiped=False):
         if is_dir_empty(self.dep.src_dir):
             if not wiped and self.dep.config.print:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
-            execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}")
+            execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}", self.dep.config.verbose)
             self.checkout_current_branch()
         else:
             if self.dep.config.print:
