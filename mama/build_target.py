@@ -43,7 +43,7 @@ class BuildTarget:
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
         self.enable_exceptions = True
         self.enable_unix_make  = False
-        self.enable_ninja_build = True and (not config.raspi) and config.ninja_path # attempt to use Ninja
+        self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True

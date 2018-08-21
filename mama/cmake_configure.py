@@ -63,12 +63,12 @@ def run_cmake_build(target, install, extraflags=''):
 
 def cmake_generator(target):
     config:BuildConfig = target.config
-    if target.enable_unix_make:   return '-G "CodeBlocks - Unix Makefiles"'
+    if target.enable_unix_make:   return '-G "Unix Makefiles"'
     if config.windows:            return '-G "Visual Studio 15 2017 Win64"'
     if target.enable_ninja_build: return '-G "Ninja"'
-    if config.android:            return '-G "CodeBlocks - Unix Makefiles"'
-    if config.linux:              return '-G "CodeBlocks - Unix Makefiles"'
-    if config.raspi:              return '-G "CodeBlocks - Unix Makefiles"'
+    if config.android:            return '-G "Unix Makefiles"'
+    if config.linux:              return '-G "Unix Makefiles"'
+    if config.raspi:              return '-G "Unix Makefiles"'
     if config.ios:                return '-G "Xcode"'
     if config.macos:              return '-G "Xcode"'
     else:                         return ''
@@ -253,11 +253,11 @@ def mp_flags(target):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
     if config.windows:     return f'/maxcpucount:{config.jobs}'
-    if target.enable_unix_make:   return f'-j {config.jobs}'
+    if target.enable_unix_make:   return f'-j{config.jobs}'
     if target.enable_ninja_build: return ''
     if config.ios:         return f'-jobs {config.jobs}'
     if config.macos:       return f'-jobs {config.jobs}'
-    return f'-j {config.jobs}'
+    return f'-j{config.jobs}'
 
 
 def cmake_buildsys_flags(target):

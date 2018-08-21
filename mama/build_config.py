@@ -295,7 +295,7 @@ Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/n
                 if not System.windows:
                     raspi_path = f'{raspi_path}/arm-bcm2708/arm-linux-gnueabihf/'
                 self.raspi_compilers = f'{raspi_path}/bin/'
-                self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot/'
+                self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot'
                 self.raspi_include_paths = [f'{raspi_path}/arm-linux-gnueabihf/lib/include']
                 if self.print: console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
                 return
