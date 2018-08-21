@@ -99,6 +99,9 @@ elseif(APPLE)
     set(MAMA_BUILD "macos")
     {get_mama_dependencies_cmake(root, 'macos')}
   endif()
+elseif(RASPI)
+    set(MAMA_BUILD "raspi")
+    {get_mama_dependencies_cmake(root, 'raspi')}
 elseif(UNIX)
     set(LINUX TRUE)
     set(MAMA_BUILD "linux")

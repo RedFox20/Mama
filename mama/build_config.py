@@ -56,6 +56,7 @@ class BuildConfig:
         ## Raspberry PI - Raspi
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
+        self.raspi_include_paths = [] ## path to additional Raspberry include dirs
         ## Workspace and parsing
         self.global_workspace = False
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
@@ -253,8 +254,13 @@ class BuildConfig:
 
 
     def raspi_sysroot(self):
-        if not self.raspi_system: self.init_raspi_path()
+        if not self.raspi_compilers: self.init_raspi_path()
         return self.raspi_system
+
+    
+    def raspi_includes(self):
+        if not self.raspi_compilers: self.init_raspi_path()
+        return self.raspi_include_paths
 
 
     def init_ndk_path(self):
@@ -290,6 +296,7 @@ Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/n
                     raspi_path = f'{raspi_path}/arm-bcm2708/arm-linux-gnueabihf/'
                 self.raspi_compilers = f'{raspi_path}/bin/'
                 self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot/'
+                self.raspi_include_paths = [f'{raspi_path}/arm-linux-gnueabihf/lib/include']
                 if self.print: console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
                 return
         raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected! 

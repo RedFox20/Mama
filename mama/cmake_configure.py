@@ -68,6 +68,7 @@ def cmake_generator(target):
     if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "CodeBlocks - Unix Makefiles"'
     if config.linux:              return '-G "CodeBlocks - Unix Makefiles"'
+    if config.raspi:              return '-G "CodeBlocks - Unix Makefiles"'
     if config.ios:                return '-G "Xcode"'
     if config.macos:              return '-G "Xcode"'
     else:                         return ''
@@ -140,6 +141,10 @@ def cmake_default_options(target):
         add_flag('-miphoneos-version-min', config.ios_version)
         if target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
+    elif config.raspi:
+        add_flag('--sysroot', config.raspi_sysroot())
+        for path in config.raspi_includes():
+            add_flag(f'-I {path}')
 
     if config.flags:
         add_flag(config.flags)
@@ -189,10 +194,10 @@ def cmake_default_options(target):
         ]
     elif config.raspi:
         opt += [
+            'RASPI=TRUE',
             'CMAKE_SYSTEM_NAME=Linux',
             'CMAKE_SYSTEM_VERSION=1',
             'CMAKE_SYSTEM_PROCESSOR=armv7-a',
-            f'CMAKE_FIND_ROOT_PATH={config.raspi_sysroot()}',
             'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
             'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
@@ -256,7 +261,7 @@ def mp_flags(target):
 
 
 def cmake_buildsys_flags(target):
-    config: BuildConfig = target.config
+    config:BuildConfig = target.config
     def get_flags():
         mpf = mp_flags(target)
         if config.windows:     return f'/v:m {mpf} /nologo'
