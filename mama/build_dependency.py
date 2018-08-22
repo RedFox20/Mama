@@ -289,6 +289,8 @@ class BuildDependency:
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"
                 return False # skip build if target doesn't match
+
+            ## build also entails packaging
             if conf.clean and is_target:     return build('cleaned target')
             if self.is_root:                 return build('root target')
             if conf.configure and is_target: return build('configure target='+target.name)
@@ -296,8 +298,10 @@ class BuildDependency:
             if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
             if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
             if git_changed:                   return build('git commit changed')
-            if not self.has_build_files():    return build('not built yet')
-            if not target.build_dependencies: return build('no build dependencies')
+
+            if not self.nothing_to_build:
+                if not self.has_build_files():    return build('not built yet')
+                if not target.build_dependencies: return build('no build dependencies')
 
             missing_product = self.find_first_missing_build_product()
             if missing_product: return build(f'{missing_product} does not exist')

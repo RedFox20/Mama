@@ -110,6 +110,16 @@ else()
     message(FATAL_ERROR "mama build: Unsupported Platform!")
     set(MAMA_BUILD "???")
 endif()
+
+if(MSVC)
+    add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)
+    foreach(MODE "_DEBUG" "_MINSIZEREL" "_RELEASE" "_RELWITHDEBINFO")
+        string(REPLACE "/MDd" "/MD" TMP "${{CMAKE_C_FLAGS${{MODE}}}}")
+        set(CMAKE_C_FLAGS${{MODE}} "${{TMP}}" CACHE STRING "" FORCE)
+        string(REPLACE "/MDd" "/MD" TMP "${{CMAKE_CXX_FLAGS${{MODE}}}}")
+        set(CMAKE_CXX_FLAGS${{MODE}} "${{TMP}}" CACHE STRING "" FORCE)
+    endforeach(MODE)
+endif()
 '''
     save_file_if_contents_changed(mama_cmake_path(root), text)
 
