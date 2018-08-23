@@ -110,20 +110,23 @@ def glob_with_extensions(rootdir, extensions):
 
 def strstr_multi(s, substrings):
     #console(f'file: {s} matches: {substrings}')
+    if not substrings: # if no substrings, then match everything
+        return True
     for substr in substrings:
         if substr in s:
             return True
     return False
 
 
-def glob_with_name_match(rootdir, pattern_substrings):
+def glob_with_name_match(rootdir, pattern_substrings, match_dirs=True):
     results = []
     for dirpath, dirnames, dirfiles in os.walk(rootdir):
-        for dir in dirnames:
-            if strstr_multi(dir, pattern_substrings):
-                pathstring = os.path.join(dirpath, dir)
-                pathstring = normalized_path(pathstring)
-                results.append(pathstring)
+        if match_dirs:
+            for dir in dirnames:
+                if strstr_multi(dir, pattern_substrings):
+                    pathstring = os.path.join(dirpath, dir)
+                    pathstring = normalized_path(pathstring)
+                    results.append(pathstring)
         for file in dirfiles:
             if strstr_multi(file, pattern_substrings):
                 pathstring = os.path.join(dirpath, file)

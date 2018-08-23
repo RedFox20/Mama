@@ -7,7 +7,9 @@ from mama.build_dependency import BuildDependency, Git
 from mama.build_config import BuildConfig
 from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
                                  cmake_inject_env, cmake_buildsys_flags, cmake_generator
+from mama.papa_deploy import papa_deploy_to, Asset
 import mama.util as util
+from typing import List
 
 ######################################################################################
 
@@ -51,6 +53,7 @@ class BuildTarget:
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
+        self.exported_assets: List[Asset] = [] # exported asset files
         self.windows = self.config.windows # convenient alias
         self.linux   = self.config.linux
         self.macos   = self.config.macos
@@ -245,6 +248,11 @@ class BuildTarget:
             #console(f'    {self.name}.build_dependencies += {dependency}')
 
 
+    def _get_root_path(self, path, src_dir):
+        root = self.dep.src_dir if src_dir else self.dep.build_dir
+        return normalized_path(os.path.join(root, path))
+
+
     ##
     # CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
     # 
@@ -255,8 +263,7 @@ class BuildTarget:
     #   self.export_include('installed/MyLib/include', build_dir=True) # CMake installed includes in build dir
     #
     def export_include(self, include_path, build_dir=False):
-        root = self.dep.build_dir if build_dir else self.dep.src_dir
-        include_path = normalized_path(os.path.join(root, include_path))
+        include_path = self._get_root_path(include_path, not build_dir)
         #console(f'export_include={include_path}')
         if os.path.exists(include_path):
             if not include_path in self.exported_includes:
@@ -265,58 +272,63 @@ class BuildTarget:
         return False
 
 
-    ##
-    # CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
-    #
-    # Export include paths relative to source directory
-    #  OR if build_dir=True, then relative to build directory
-    # Ex:
-    #   self.export_includes(['include', 'src/moreincludes'])
-    #   self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
     def export_includes(self, include_paths=[''], build_dir=False):
+        """
+        CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
+        
+        Export include paths relative to source directory
+        OR if build_dir=True, then relative to build directory
+        Example:
+        ```
+        self.export_includes(['include', 'src/moreincludes'])
+        self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
+        ```
+        """
         self.exported_includes = []
         for include_path in include_paths:
             self.export_include(include_path, build_dir)
 
 
-    ##
-    # CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
-    #
-    # Export a specific lib relative to build directory
-    #  OR if src_dir=True, then relative to source directory
-    # Ex:
-    #   self.export_lib('mylib.a')  # from build dir
-    #   self.export_lib('lib/mylib.a', src_dir=True)  # from project source dir
     def export_lib(self, relative_path, src_dir=False):
-        root = self.dep.src_dir if src_dir else self.dep.build_dir
-        path = normalized_path(os.path.join(root, relative_path))
+        """
+        CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
+        
+        Export a specific lib relative to build directory
+        OR if src_dir=True, then relative to source directory
+        Example:
+        ```
+        self.export_lib('mylib.a')                    # from build dir
+        self.export_lib('lib/mylib.a', src_dir=True)  # from project source dir
+        ```
+        """
+        path = self._get_root_path(relative_path, src_dir)
         if os.path.exists(path):
             self.exported_libs.append(path)
             self.exported_libs = self._get_unique_basenames(self.exported_libs)
 
 
-    ##
-    # CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
-    #
-    # Export several libs relative to build directory using EXTENSION MATCHING
-    #  OR if src_dir=True, then relative to source directory
-    #
-    # Ex:
-    #   self.export_libs()  # gather any .lib or .a from build dir
-    #   self.export_libs('.', ['.dll', '.so'])   # gather any .dll or .so from build dir
-    #   self.export_libs('lib', src_dir=True)  # export everything from project/lib directory
-    #   self.export_libs('external/lib')  # gather specific static libs from build dir
-    #   
-    #   # export the libs in a particular order for Linux linker
-    #   self.export_libs('lib', order=[
-    #       'xphoto', 'calib3d', 'flann', 'core'
-    #   ])
-    #   -->  [..others.., libopencv_xphoto.a, libopencv_calib3d.a, libopencv_flann.a, libopencv_core.a]
-    # 
     def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, order=None):
-        root = self.dep.src_dir if src_dir else self.dep.build_dir
-        path = os.path.join(root, path)
-        libs = glob_with_name_match(path, pattern_substrings)
+        """
+        CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
+        
+        Export several libs relative to build directory using EXTENSION MATCHING
+        OR if src_dir=True, then relative to source directory
+        
+        Example:
+        ```
+        self.export_libs()                     # gather any .lib or .a from build dir
+        self.export_libs('.', ['.dll', '.so']) # gather any .dll or .so from build dir
+        self.export_libs('lib', src_dir=True)  # export everything from project/lib directory
+        self.export_libs('external/lib')       # gather specific static libs from build dir
+        
+        # export the libs in a particular order for Linux linker
+        self.export_libs('lib', order=[
+            'xphoto', 'calib3d', 'flann', 'core'
+        ])
+        -->  [..others.., libopencv_xphoto.a, libopencv_calib3d.a, libopencv_flann.a, libopencv_core.a]
+        ```
+        """
+        libs = glob_with_name_match(self._get_root_path(path, src_dir), pattern_substrings)
         if order:
             def lib_index(lib):
                 for i in range(len(order)):
@@ -328,6 +340,54 @@ class BuildTarget:
         self.exported_libs += libs
         self.exported_libs = self._get_unique_basenames(self.exported_libs)
         return len(self.exported_libs) > 0
+
+
+    def export_asset(self, asset, category=None, src_dir=True):
+        """
+        Exports a single asset file from this target
+        This can be later used when creating a deployment
+
+        category -- (optional) Can be used for grouping the assets and flattening folder structure
+        
+        Example:
+        ```
+        self.export_asset('extras/csharp/NanoMesh.cs')
+            --> {deploy}/extras/csharp/NanoMesh.cs
+
+        self.export_asset('extras/csharp/NanoMesh.cs', category='dotnet')
+            --> {deploy}/dotnet/NanoMesh.cs
+        ```
+        """
+        full_asset = self._get_root_path(asset, src_dir)
+        if os.path.exists(full_asset):
+            self.exported_assets.append(Asset(asset, full_asset, category))
+            return True
+        return False
+
+
+    def export_assets(self, assets_path, pattern_substrings = [], category=None, src_dir=True):
+        """
+        Performs a GLOB recurse, using specific pattern substrings.
+        This can be later used when creating a deployment
+
+        category -- (optional) Can be used for grouping the assets and flattening folder structure
+        
+        Example:
+        ```
+        self.export_assets('extras/csharp', ['.cs'])
+            --> {deploy}/extras/csharp/NanoMesh.cs
+        
+        self.export_assets('extras/csharp', ['.cs'], category='dotnet')
+            --> {deploy}/dotnet/NanoMesh.cs
+        ```
+        """
+        assets_path += '/'
+        assets = glob_with_name_match(self._get_root_path(assets_path, src_dir), pattern_substrings, match_dirs=False)
+        if assets:
+            for full_asset in assets:
+                self.exported_assets.append(Asset(assets_path, full_asset, category))
+            return True
+        return False
 
 
     ##
@@ -363,13 +423,15 @@ class BuildTarget:
         return True
 
 
-    def _get_unique_basenames(self, libs):
+    def _get_unique_basenames(self, items):
         unique = dict()
-        for lib in libs:
-            if lib.startswith('-framework '):
-                unique[lib.split(' ', 1)[1]] = lib
+        for item in items:
+            if isinstance(item, tuple):
+                unique[os.path.basename(item[0])] = item
+            elif item.startswith('-framework '):
+                unique[item.split(' ', 1)[1]] = item
             else:
-                unique[os.path.basename(lib)] = lib
+                unique[os.path.basename(item)] = item
         return list(unique.values())
 
 
@@ -524,6 +586,8 @@ class BuildTarget:
 
     ##
     # Utility for copying files within the build directory
+    # Ex:
+    #   self.copy_built_file('RelWithDebInfo/libawesome.a', 'lib')
     #
     def copy_built_file(self, builtFile, copyToFolder):
         src = f'{self.dep.build_dir}/{builtFile}'
@@ -533,6 +597,9 @@ class BuildTarget:
 
     ##
     # Downloads a file if it doesn't already exist
+    # Ex:
+    #   self.download_file('http://example.com/file1', 'bin')
+    #     --> 'bin/file1'
     #
     def download_file(self, remote_url, local_dir, force=False):
         util.download_file(remote_url, local_dir, force)
@@ -542,6 +609,8 @@ class BuildTarget:
     # Downloads and unzips an archive if it doesn't already exist
     # If @param unless_file_exists points to a file that exists, then
     # download and unzip steps are skipped.
+    # Ex:
+    #   self.download_and_unzip('http://example.com/archive.zip', 'bin', 'bin/unzipped_file.txt')
     #
     def download_and_unzip(self, remote_zip, extract_dir, unless_file_exists=None):
         util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
@@ -596,8 +665,12 @@ class BuildTarget:
         execute_echo(working_dir, command)
 
     
+    ## 
     # Run a command with gdb in the build folder
-    def gdb(self, command, src_dir=False):
+    # Ex:
+    #   self.gdb('bin/NanoMeshTests')
+    #
+    def gdb(self, command, src_dir=True):
         if self.android or self.ios or self.raspi:
             console('Cannot run tests for Android, iOS, Raspi builds.')
             return # nothing to run
@@ -683,6 +756,11 @@ class BuildTarget:
         pass
     
 
+    ##
+    # Performs default packaging steps
+    # This is called if self.package() did not export anything
+    # It can also be called manually to collect includes and libs
+    #
     def default_package(self):
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
@@ -695,6 +773,72 @@ class BuildTarget:
         elif self.export_libs('lib', src_dir=False): pass
         elif self.export_libs('.', src_dir=False): pass
     
+
+    def deploy(self):
+        """
+        Custom deployment stage. Built in support for PAPA packages:
+        ```
+        def deploy(self):
+            self.papa_deploy('deploy/NanoMesh')
+        ```
+        """
+        pass
+    
+    def papa_deploy(self, package_path, src_dir=True, 
+                    recurse_syslibs=False, recurse_assets=False):
+        """
+        This will create a PAPA package, which includes
+            package_path/papa.txt
+            package_path/{includes}
+            package_path/{libs}
+            package_path/{assets}
+
+        src_dir -- Whether package will be deployed to src dir or build dir
+        recurse_syslibs -- Whether to include system libraries from child dependencies
+        recurse_assets -- Whether to include assets from child dependencies
+
+        Example: `self.papa_deploy('MyPackageName')`
+
+        PAPA package structure:
+            MyPackageName/papa.txt
+            MyPackageName/libawesome.so
+            MyPackageName/include/...
+            MyPackageName/someassets/extra.txt
+            
+        PAPA descriptor `papa.txt` format:
+            P MyPackageName
+            I include
+            L libawesome.so
+            S libGL.a
+            A someassets/extra.txt
+        """
+        path = self._get_root_path(package_path, src_dir)
+        syslibs = self._recurse_syslibs() if recurse_syslibs else self.exported_syslibs
+        assets  = self._recurse_assets()  if recurse_assets  else self.exported_assets
+        papa_deploy_to(path, self.exported_includes, self.exported_libs, syslibs,  assets)
+
+
+    def _recurse_syslibs(self):
+        syslibs = []
+        def append_syslibs(target: BuildTarget):
+            nonlocal syslibs
+            syslibs += target.exported_syslibs
+            for child in target.dep.children:
+                append_syslibs(child.target)
+        append_syslibs(self)
+        return syslibs
+
+
+    def _recurse_assets(self):
+        assets = []
+        def append_assets(target: BuildTarget):
+            nonlocal assets
+            assets += target.exported_assets
+            for child in target.dep.children:
+                append_assets(child.target)
+        append_assets(self)
+        return assets        
+
 
     ###
     # Perform test steps here with test args
@@ -779,6 +923,8 @@ class BuildTarget:
                 self.dep.save_exports_as_dependencies(self.exported_libs)
                 self.print_exports()
 
+            self.deploy() # user customization
+
             if self.is_test_target():
                 test_args = self.config.test.lstrip()
                 if self.config.print: console(f'  - Testing {self.name} {test_args}')
@@ -798,12 +944,13 @@ class BuildTarget:
             return '' if os.path.exists(path) else '   !! (path does not exist) !!' 
         if path.startswith('-framework'):
             console(f'    {what}  {path}')
-        elif not path.startswith(self.config.workspaces_root):
+        elif path.startswith(self.config.workspaces_root):
+            console(f'    {what}  {path[len(self.config.workspaces_root) + 1:]}{exists()}')
+        elif path.startswith(self.dep.src_dir):
+            console(f'    {what}  {path[len(self.dep.src_dir) + 1:]}{exists()}')
+        else:
             ex = exists() if check_exists else ''
             console(f'    {what}  {path}{ex}')
-        else:
-            n = len(self.config.workspaces_root) + 1
-            console(f'    {what}  {path[n:]}{exists()}')
 
 
     ##
@@ -815,6 +962,7 @@ class BuildTarget:
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
+        for asset   in self.exported_assets:   self._print_ws_path('[A]', asset.outpath, check_exists=False)
 
 
 ######################################################################################
