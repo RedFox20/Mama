@@ -620,6 +620,9 @@ class BuildTarget:
         else: # linux
             # r: run;  bt: give backtrace;  q: quit when done;
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
+
+        if not (os.path.exists(f'{path}/{exe}') or os.path.exists(f'{path}/{exe}.exe')):
+            raise IOError(f'Could not find {path}/{exe}')
         execute_echo(path, gdb)
 
 
