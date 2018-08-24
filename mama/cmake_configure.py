@@ -126,6 +126,8 @@ def cmake_default_options(target):
         add_flag('-DWIN32', '1') # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
         add_flag('/MP')
     else:
+        if target.gcc_clang_visibility_hidden:
+            add_flag('-fvisibility', 'hidden')
         if not exceptions: add_flag('-fno-exceptions')
     
     if config.android and config.android_ndk_stl == 'c++_shared':

@@ -13,20 +13,34 @@ from typing import List
 
 ######################################################################################
 
-##
-# Describes a single configurable build target
-# This is the main public interface for configuring a specific target
-# For project-wide configuration, @see BuildConfig in self.config
-#
-# Customization points:
-#
-# class MyProject(mama.BuildTarget):
-#     local_workspace = 'build'
-#     
-#
+
 class BuildTarget:
+    """
+    Describes a single configurable build target.
+    This is the main public interface for configuring a specific target.
+    For project-wide configuration, @see BuildConfig in self.config.
 
+    Customization points:
+    ```
+    class MyProject(mama.BuildTarget):
+        
+        workspace = 'build'
 
+        def configure(self):
+            self.add_git('ReCpp', 
+                         'http://github.com/RedFox20/ReCpp.git')
+
+        def configure(self):
+            self.add_cmake_options('BUILD_TESTS=ON')
+
+        def package(self):
+            self.default_package()
+            self.export_asset('extras/meshes/basehead.obj')
+
+        def deploy(self):
+            self.papa_deploy('deploy/MyProject')
+    ```
+    """
     def __init__(self, name, config:BuildConfig, dep:BuildDependency, args:list):
         if config is None: raise RuntimeError(f'BuildTarget {name} config argument must be set')
         if dep is None:    raise RuntimeError(f'BuildTarget {name} dep argument must be set')
@@ -49,6 +63,7 @@ class BuildTarget:
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
+        self.gcc_clang_visibility_hidden = True # -fvisibility=hidden 
         self.build_dependencies = [] # dependency files
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
@@ -60,33 +75,39 @@ class BuildTarget:
         self.ios     = self.config.ios
         self.android = self.config.android
         self.raspi   = self.config.raspi
-        self.set_args(args)
+        self._set_args(args)
 
 
-    def set_args(self, args:list):
+    def _set_args(self, args:list):
         if not isinstance(args, list):
             raise RuntimeError(f'BuildTarget {self.name} target args must be a list')
         self.args += args
         #console(f'Added args to {self.name}: {self.args}')
 
 
-    ##
-    # Returns the current source directory
-    # Ex: 
-    #   self.source_dir()                --> C:/Projects/ReCpp
-    #   self.source_dir('lib/ReCpp.lib') --> C:/Projects/ReCpp/lib/ReCpp.lib
-    #
     def source_dir(self, subpath=''):
+        """
+        Returns the current source directory.
+        ```
+            self.source_dir()                
+            # --> C:/Projects/ReCpp
+            self.source_dir('lib/ReCpp.lib') 
+            # --> C:/Projects/ReCpp/lib/ReCpp.lib
+        ```
+        """
         return util.path_join(self.dep.src_dir, subpath)
 
 
-    ##
-    # Returns the current build directory
-    # Ex: 
-    #   self.build_dir()                --> C:/Projects/ReCpp/build/windows
-    #   self.build_dir('lib/ReCpp.lib') --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
-    #
     def build_dir(self, subpath=''):
+        """
+        Returns the current build directory.
+        ```
+            self.build_dir()                
+            # --> C:/Projects/ReCpp/build/windows
+            self.build_dir('lib/ReCpp.lib')
+            # --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
+        ```
+        """
         return util.path_join(self.dep.build_dir, subpath)
 
 
@@ -109,18 +130,19 @@ class BuildTarget:
         return mamafile
 
 
-    ##
-    #  Add a local dependency. This can be a git submodule or just some local folder
-    #  which contains its own CMakeLists.txt
-    #  Optionally you can override the default 'mamafile.py' with your own.
-    #  
-    #  If the local dependency folder does not contain a `mamafile.py`, you will have to
-    #  provide your own relative or absolute mamafile path.
-    # Ex:
-    #   self.add_local('zlib', '3rdparty/zlib')
-    #   self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
-    #
     def add_local(self, name, source_dir, mamafile=None, args=[]):
+        """
+        Add a local dependency. This can be a git submodule or just some local folder.
+        which contains its own CMakeLists.txt.
+        Optionally you can override the default 'mamafile.py' with your own.
+
+        If the local dependency folder does not contain a `mamafile.py`, you will have to
+        provide your own relative or absolute mamafile path.
+        ```
+        self.add_local('zlib', '3rdparty/zlib')
+        self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
+        ```
+        """
         src      = self._get_full_path(source_dir)
         mamafile = self._get_mamafile_path(name, mamafile)
         dependency = BuildDependency.get(name, self.config, BuildTarget, \
@@ -128,21 +150,24 @@ class BuildTarget:
         self.dep.children.append(dependency)
 
 
-    ##
-    #  Add a remote GIT dependency
-    #  The dependency will be cloned and updated according to mamabuild.
-    #  Use `mama update` to force update the git repositories.
-    #
-    #  If the remote GIT repository does not contain a `mamafile.py`, you will have to
-    #  provide your own relative or absolute mamafile path.
-    #
-    #  Any arguments are passed onto child targets as `self.args`
-    # Ex:
-    #   self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
-    #   self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git', git_branch='master')
-    #   self.add_git('opencv', 'https://github.com/opencv/opencv.git', git_branch='3.4', mamafile='mama/opencv_cfg.py')
-    #
     def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):
+        """
+        Add a remote GIT dependency.
+        The dependency will be cloned and updated according to mamabuild.
+        Use `mama update` to force update the git repositories.
+    
+        If the remote GIT repository does not contain a `mamafile.py`, you will have to
+        provide your own relative or absolute mamafile path.
+    
+        Any arguments are passed onto child targets as `self.args`.
+        ```
+        self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
+        self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git', 
+                     git_branch='master')
+        self.add_git('opencv', 'https://github.com/opencv/opencv.git', 
+                     git_branch='3.4', mamafile='mama/opencv_cfg.py')
+        ```
+        """
         git = Git(git_url, git_branch, git_tag)
         mamafile = self._get_mamafile_path(name, mamafile)
         dependency = BuildDependency.get(name, self.config, BuildTarget, \
@@ -150,10 +175,13 @@ class BuildTarget:
         self.dep.children.append(dependency)
 
 
-    ##
-    # Finds a child dependency by name
-    #
     def get_dependency(self, name):
+        """
+        Finds a child dependency by name.
+        ```
+            zlib_dep = self.get_dependency('zlib')
+        ```
+        """
         if self.dep.name == name:
             return self.dep
         for dep in self.dep.children:
@@ -162,10 +190,13 @@ class BuildTarget:
         raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
 
 
-    ##
-    # Finds a child BuildTarget by name
-    #
     def find_target(self, name):
+        """
+        Finds a child BuildTarget by name.
+        ```
+            zlib = self.find_target('zlib')
+        ```
+        """
         if self.name == name:
             return self
         for dep in self.dep.children:
@@ -174,41 +205,50 @@ class BuildTarget:
         raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
 
 
-    ##
-    #  Injects products from `src_dep` into `dst_dep` as CMake defines
-    #  Name of defines is given via `include_path` and `libs` params
-    #  `libfilters` does simple string matching; if nothing matches, the first export lib is chosen
-    # Ex:
-    #    self.inject_products('libpng', 'zlib', 'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY', 'zlibstatic')
-    #
     def inject_products(self, dst_dep, src_dep, include_path, libs, libfilters=None):
+        """
+        Injects products from `src_dep` into `dst_dep` as CMake defines.
+        Name of defines is given via `include_path` and `libs` params.
+        `libfilters` does simple string matching; if nothing matches, the first export lib is chosen.
+        ```
+        self.inject_products('libpng', 'zlib', 
+                             'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY',
+                             'zlibstatic')
+        ```
+        """
         dst_dep = self.get_dependency(dst_dep)
         src_dep = self.get_dependency(src_dep)
         dst_dep.depends_on.append(src_dep)
         dst_dep.product_sources.append( (src_dep, include_path, libs, libfilters) )
 
 
-    ##
-    #  Collects all results injected by `inject_products`
-    #  Returns a list of injected defines:
-    #  [ 'ZLIB_INCLUDE_DIR=path/to/zlib/include', 'ZLIB_LIBRARY=path/to/lib/zlib.a', ... ]
-    #
     def get_product_defines(self):
+        """
+        Collects all results injected by `inject_products()`.
+        Returns a list of injected defines:
+        ```
+            defines = self.get_product_defines()
+            # --> [ 'ZLIB_INCLUDE_DIR=path/to/zlib/include', 
+            #       'ZLIB_LIBRARY=path/to/lib/zlib.a', ... ]
+        ```
+        """
         defines = []
         for source in self.dep.product_sources:
             srcdep    = source[0]
-            includes  = srcdep.target.get_exported_includes()
-            libraries = srcdep.target.get_exported_libs(source[3])
+            includes  = srcdep.target._get_exported_includes()
+            libraries = srcdep.target._get_exported_libs(source[3])
             #console(f'grabbing products: {srcdep.name}; includes={includes}; libraries={libraries}')
             defines.append(f'{source[1]}={includes}')
             defines.append(f'{source[2]}={libraries}')
         return defines
 
-    def get_exported_includes(self):
+
+    def _get_exported_includes(self):
         return ';'.join(self.exported_includes) if self.exported_includes else ''
 
-    def get_exported_libs(self, libfilters):
-        #console(f'get_exported_libs: libs={self.exported_libs} syslibs={self.exported_syslibs}')
+
+    def _get_exported_libs(self, libfilters):
+        #console(f'_get_exported_libs: libs={self.exported_libs} syslibs={self.exported_syslibs}')
         libs = []
         if self.exported_libs:
             if libfilters:
@@ -221,26 +261,33 @@ class BuildTarget:
         return ';'.join(libs)
 
 
-    ##
-    # Gets target products as a tuple: (include_paths=[], libs=[])
-    # Ex:
-    #  self.get_target_products('zlib')
     def get_target_products(self, target_name):
+        """
+        Gets target products as a tuple: (include_paths=[], libs=[])
+        ```
+            zlib_inc, zlib_libs = self.get_target_products('zlib')
+        ```
+        """
         dep = self.get_dependency(target_name)
         target:BuildTarget = dep.target
-        return (target.get_exported_includes(), target.get_exported_libs())
+        return (target._get_exported_includes(), target._get_exported_libs())
 
 
-    ## 
-    # Manually add a build dependency to prevent unnecessary rebuilds
-    # Normally the build dependency is detected from the packaged libraries.
-    # 
-    # if the dependency file does not exist, then the project will be rebuilt
-    #
-    # if your project has no build dependencies, it will always be rebuilt, so make sure
-    # to add_build_dependency or export_lib
-    #
     def add_build_dependency(self, all=None, windows=None, linux=None, macos=None, ios=None, android=None):
+        """
+        Manually add a build dependency to prevent unnecessary rebuilds.
+
+        @note Normally the build dependency is detected from the packaged libraries.
+        
+        if the dependency file does not exist, then the project will be rebuilt
+        
+        if your project has no build dependencies, it will always be rebuilt, so make sure
+        to add_build_dependency or export_lib
+        ```
+            # Note: relative to build directory
+            self.add_build_dependency('customProduct.dat')
+        ```
+        """
         dependency = all if all else self.select(windows, linux, macos, ios, android)
         if dependency:
             dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
@@ -253,16 +300,18 @@ class BuildTarget:
         return normalized_path(os.path.join(root, path))
 
 
-    ##
-    # CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
-    # 
-    # Export include path relative to source directory
-    #  OR if build_dir=True, then relative to build directory
-    # Ex:
-    #   self.export_include('./include') # MyRepo/include
-    #   self.export_include('installed/MyLib/include', build_dir=True) # CMake installed includes in build dir
-    #
     def export_include(self, include_path, build_dir=False):
+        """
+        CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient).
+        
+        Export include path relative to source directory OR if build_dir=True, then relative to build directory.
+        ```
+            self.export_include('include')  # MyRepo/include
+
+            # CMake installed includes in build/installed/MyLib/include
+            self.export_include('installed/MyLib/include', build_dir=True)
+        ```
+        """
         include_path = self._get_root_path(include_path, not build_dir)
         #console(f'export_include={include_path}')
         if os.path.exists(include_path):
@@ -390,18 +439,19 @@ class BuildTarget:
         return False
 
 
-    ##
-    # For UNIX: Find and export system libraries so they are automatically
-    #           linked with mamabuild
-    # @return TRUE if syslib was exported; FALSE if required=False and syslib not found
-    # Ex:
-    #   self.export_syslib('uuid')
-    #   # will attempt to find system library in this order:
-    #   #   1. uuid
-    #   #   2. libuuid.so
-    #   #   3. libuuid.a
-    # 
     def export_syslib(self, name, required=True):
+        """
+        For UNIX: Find and export system libraries so they are automatically linked with mamabuild.
+
+        :returns: TRUE if syslib was exported; FALSE if required=False and syslib not found
+        ```
+            self.export_syslib('uuid')
+            # will attempt to find system library in this order:
+            #   1. uuid
+            #   2. libuuid.so
+            #   3. libuuid.a
+        ```
+        """
         if self.ios or self.macos:
             if not name.startswith('-framework '):
                 raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
@@ -435,11 +485,16 @@ class BuildTarget:
         return list(unique.values())
 
 
-    ##
-    # Injects default platform and target specific environment variables
-    # This can be used for custom build step
-    # 
     def inject_env(self):
+        """
+        Injects default platform and target specific environment variables.
+        This can be used when performing full custom build step:
+        ```
+            def build(self):
+                self.inject_env()       # prepare platform
+                self.my_custom_build()  # 
+        ```
+        """
         cmake_inject_env(self)
 
 
@@ -458,43 +513,49 @@ class BuildTarget:
             dest[flag] = ''
 
 
-    ##
-    #  Adds C++ flags for compilation step
-    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
-    # Ex:
-    #   self.add_cxx_flags('-Wall')
-    #   self.add_cxx_flags(['-Wall', '-std=c++17'])
-    #   self.add_cxx_flags('-Wall', '-std=c++17')
-    #   self.add_cxx_flags('-Wall -std=c++17')
     def add_cxx_flags(self, *flags):
+        """
+        Adds C++ flags for compilation step.
+        Supports many different usages: strings, list of strings, kwargs, or space separate string.
+        ```
+            self.add_cxx_flags('-Wall')
+            self.add_cxx_flags(['-Wall', '-std=c++17'])
+            self.add_cxx_flags('-Wall', '-std=c++17')
+            self.add_cxx_flags('-Wall -std=c++17')
+        ```
+        """
         for flag in flags:
             if isinstance(flag, list): self.add_cxx_flags(*flag)
             else: self._add_dict_flag(self.cmake_cxxflags, flag)
     
 
-    ##
-    #  Adds C flags for compilation step
-    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
-    # Ex:
-    #   self.add_cxx_flags('-Wall')
-    #   self.add_cxx_flags(['-Wall', '-std=c99'])
-    #   self.add_cxx_flags('-Wall', '-std=c99')
-    #   self.add_cxx_flags('-Wall -std=c99')
     def add_c_flags(self, *flags):
+        """
+        Adds C flags for compilation step.
+        Supports many different usages: strings, list of strings, kwargs, or space separate string.
+        ```
+            self.add_cxx_flags('-Wall')
+            self.add_cxx_flags(['-Wall', '-std=c99'])
+            self.add_cxx_flags('-Wall', '-std=c99')
+            self.add_cxx_flags('-Wall -std=c99')
+        ```
+        """
         for flag in flags:
             if isinstance(flag, list): self.add_c_flags(*flag)
             else: self._add_dict_flag(self.cmake_cflags, flag)
     
 
-    ##
-    #  Adds C AND C++ flags for compilation step
-    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
-    # Ex:
-    #   self.add_cxx_flags('-Wall')
-    #   self.add_cxx_flags(['-Wall', '-march=native'])
-    #   self.add_cxx_flags('-Wall', '-march=native')
-    #   self.add_cxx_flags('-Wall -march=native')
     def add_cl_flags(self, *flags):
+        """
+        Adds C AND C++ flags for compilation step.
+        Supports many different usages: strings, list of strings, kwargs, or space separate string.
+        ```
+            self.add_cxx_flags('-Wall')
+            self.add_cxx_flags(['-Wall', '-march=native'])
+            self.add_cxx_flags('-Wall', '-march=native')
+            self.add_cxx_flags('-Wall -march=native')
+        ```
+        """
         for flag in flags:
             if isinstance(flag, list): self.add_cl_flags(*flag)
             else:
@@ -502,63 +563,71 @@ class BuildTarget:
                 self._add_dict_flag(self.cmake_cflags, flag)
 
 
-    ##
-    #  Adds flags for linker step; No platform checking is done
-    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
-    # Ex:
-    #   self.add_ld_flags('-rdynamic')
-    #   self.add_ld_flags(['-rdynamic', '-s'])
-    #   self.add_ld_flags('-rdynamic', '-s')
-    #   self.add_ld_flags('-rdynamic -s')
     def add_ld_flags(self, *flags):
+        """
+        Adds flags for linker step; No platform checking is done.
+        Supports many different usages: strings, list of strings, kwargs, or space separate string
+        ```
+            self.add_ld_flags('-rdynamic')
+            self.add_ld_flags(['-rdynamic', '-s'])
+            self.add_ld_flags('-rdynamic', '-s')
+            self.add_ld_flags('-rdynamic -s')
+        ```
+        """
         for flag in flags:
             if isinstance(flag, list): self.add_ld_flags(*flag)
             else: self._add_dict_flag(self.cmake_ldflags, flag)
 
 
-    ##
-    #  Adds C / C++ flags flags depending on configuration platform
-    #  Supports many different usages: strings, list of strings, kwargs, or space separate string
-    # Ex:
-    #   self.add_cxx_flags('-Wall')
-    #   self.add_cxx_flags(['-Wall', '-std=c++17'])
-    #   self.add_cxx_flags('-Wall', '-std=c++17')
-    #   self.add_cxx_flags('-Wall -std=c++17')
-    #
     def add_platform_cxx_flags(self, windows=None, linux=None, macos=None, ios=None, android=None):
+        """
+        Adds C / C++ flags flags depending on configuration platform.
+        Supports many different usages: strings, list of strings, kwargs, or space separate string.
+        ```
+            self.add_cxx_flags('-Wall')
+            self.add_cxx_flags(['-Wall', '-std=c++17'])
+            self.add_cxx_flags('-Wall', '-std=c++17')
+            self.add_cxx_flags('-Wall -std=c++17')
+        ```
+        """
         flags = self.select(windows, linux, macos, ios, android)
         if flags: self.add_cxx_flags(flags)
 
 
-    ##
-    #  Adds linker flags depending on configuration platform
-    #  Supports many different usages: strings, list of strings, or space separate string
-    # Ex:
-    #   self.add_platform_ld_flags(windows='/LTCG', ios=['-lobjc', '-rdynamic'], linux='-rdynamic -s')
-    #
     def add_platform_ld_flags(self, windows=None, linux=None, macos=None, ios=None, android=None):
+        """
+        Adds linker flags depending on configuration platform.
+        Supports many different usages: strings, list of strings, or space separate string.
+        ```
+            self.add_platform_ld_flags(windows='/LTCG', 
+                                    ios=['-lobjc', '-rdynamic'],
+                                    linux='-rdynamic -s')
+        ```
+        """
         flags = self.select(windows, linux, macos, ios, android)
         if flags: self.add_ld_flags(flags)
 
 
-    ## 
-    #  Main method for configuring CMake options
-    # Ex:
-    #   self.add_cmake_options('ZLIB_STATIC=TRUE', 'NO_GUI=1')
-    #   self.add_cmake_options(['ZLIB_STATIC=TRUE', 'NO_GUI=1'])
-    #
     def add_cmake_options(self, *options):
+        """
+        Main method for configuring CMake options.
+        ```
+            self.add_cmake_options('ZLIB_STATIC=TRUE', 'NO_GUI=1')
+            self.add_cmake_options(['ZLIB_STATIC=TRUE', 'NO_GUI=1'])
+        ```
+        """
         for option in options:
             if isinstance(option, list): self.cmake_opts += option
             else:                        self.cmake_opts.append(option)
 
     
-    ##
-    #  Selectively applies CMake options depending on configuration platform
-    # Ex:
-    #  self.add_platform_options(windows='ZLIB_STATIC=TRUE')
-    #
     def add_platform_options(self, windows=None, linux=None, macos=None, ios=None, android=None):
+        """
+        Selectively applies CMake options depending on configuration platform.
+        ```
+            self.add_platform_options(windows='ZLIB_STATIC=TRUE')
+        ```
+        """
         defines = self.select(windows, linux, macos, ios, android)
         if defines: self.cmake_opts += defines
 
@@ -572,105 +641,153 @@ class BuildTarget:
         return None
 
 
-    ##
-    # Enable a specific C++ standard
     def enable_cxx20(self):
+        """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++latest' if self.windows else 'c++2a'
+    
+    
     def enable_cxx17(self):
+        """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++17'
+
+
     def enable_cxx14(self):
+        """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++14'
+
+
     def enable_cxx11(self):
+        """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++11'
 
 
-    ##
-    # Utility for copying files within the build directory
-    # Ex:
-    #   self.copy_built_file('RelWithDebInfo/libawesome.a', 'lib')
-    #
     def copy_built_file(self, builtFile, copyToFolder):
+        """
+        Utility for copying files within the build directory.
+        ```
+            self.copy_built_file('RelWithDebInfo/libawesome.a', 'lib')
+        ```
+        """
         src = f'{self.dep.build_dir}/{builtFile}'
         dst = f'{self.dep.build_dir}/{copyToFolder}'
         shutil.copy(src, dst)
 
 
-    ##
-    # Downloads a file if it doesn't already exist
-    # Ex:
-    #   self.download_file('http://example.com/file1', 'bin')
-    #     --> 'bin/file1'
-    #
     def download_file(self, remote_url, local_dir, force=False):
+        """
+        Downloads a file if it doesn't already exist.
+        ```
+            self.download_file('http://example.com/file1', 'bin')
+            # --> 'bin/file1'
+        ```
+        """
         util.download_file(remote_url, local_dir, force)
 
 
-    ##
-    # Downloads and unzips an archive if it doesn't already exist
-    # If @param unless_file_exists points to a file that exists, then
-    # download and unzip steps are skipped.
-    # Ex:
-    #   self.download_and_unzip('http://example.com/archive.zip', 'bin', 'bin/unzipped_file.txt')
-    #
     def download_and_unzip(self, remote_zip, extract_dir, unless_file_exists=None):
+        """
+        Downloads and unzips an archive if it doesn't already exist.
+
+        unless_file_exists -- If the specified file exists, then download and unzip steps are skipped.
+        ```
+            self.download_and_unzip('http://example.com/archive.zip', 
+                                    'bin', 'bin/unzipped_file.txt')
+        ```
+        """
         util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
 
 
-    ##
-    # Use this to completely disable Ninja for this target
-    #
+    def visibility_hidden(self, hidden=True):
+        """
+        Whether to pass `-fvisibility=hidden` to GCC and Clang compilers. Default is `True`.
+        ```
+            self.visibility_hidden(False)
+        ```
+        """
+        self.gcc_clang_visibility_hidden = hidden
+
+
     def disable_ninja_build(self):
+        """
+        Use this to completely disable Ninja build for this target
+        By default, if Ninja build is detected, non-MSVC builds use Ninja for faster builds.
+        Use this if you want to, for example, generate Xcode project:
+        ```
+            if self.ios or self.macos:
+                self.disable_ninja_build()
+        ```
+        """
         self.enable_ninja_build = False
 
 
-    ##
-    # Enable fortran for this target only
-    # @path Optional custom path or command for the Fortran compiler
-    #
     def enable_fortran(self, path=''):
+        """
+        Enable fortran for this target only
+        path -- Optional custom path or command for the Fortran compiler
+        ```
+            self.enable_fortran()   # attempt to autodetect fortran
+            self.enable_fortran('/SysGCC/bin/gfortran')  # specify fortran explicitly
+        ```
+        """
         self.config.enable_fortran(path)
         self.enable_fortran_build = True
 
 
-    ##
-    # Disable any C++ options and C++ compiler configuration
-    #
     def disable_cxx_compiler(self):
+        """
+        Disable any C++ options and C++ compiler configuration
+        ```
+            def configure(self):
+                self.disable_cxx_compiler()
+        ```
+        """
         self.enable_cxx_build = False
 
 
-    ##
-    # Call this to completely skip the build step every time
-    # and instead 
     def nothing_to_build(self):
+        """
+        Call this to completely skip the build step every time and instead.
+        ```
+            def dependencies(self):
+                self.nothing_to_build()
+        ```
+        """
         self.dep.nothing_to_build = True
         self.dep.should_rebuild = False
 
 
-    # Run a command in the build folder. Can be used for any custom commands or custom build systems
-    # Ex:
-    #  self.run('./configure')
-    #  self.run('make release -j7')
-    #
     def run(self, command, src_dir=False):
+        """
+        Run a command in the build or source folder.
+        Can be used for any custom commands or custom build systems.
+        src_dir -- [False] If true, then command is relative to source directory.
+        ```
+            self.run('./configure')
+            self.run('make release -j7')
+        ```
+        """
         dir = self.dep.src_dir if src_dir else self.dep.build_dir
         execute(f'cd {dir} && {command}', echo=True)
 
 
-    # Run any program in any directory. Can be used for custom tools
-    # Ex:
-    #  self.run_program(self.source_dir('bin'), self.source_dir('bin/DbTool'))
-    #
     def run_program(self, working_dir, command):
+        """
+        Run any program in any directory. Can be used for custom tools.
+        ```
+            self.run_program(self.source_dir('bin'), 
+                             self.source_dir('bin/DbTool'))
+        ```
+        """
         execute_echo(working_dir, command)
 
     
-    ## 
-    # Run a command with gdb in the build folder
-    # Ex:
-    #   self.gdb('bin/NanoMeshTests')
-    #
     def gdb(self, command, src_dir=True):
+        """
+        Run a command with gdb in the build folder.
+        ```
+            self.gdb('bin/NanoMeshTests')
+        ```
+        """
         if self.android or self.ios or self.raspi:
             console('Cannot run tests for Android, iOS, Raspi builds.')
             return # nothing to run
@@ -699,69 +816,99 @@ class BuildTarget:
         execute_echo(path, gdb)
 
 
-
     ########## Customization Points ###########
 
 
-    ###
-    # Add any dependencies in this step
-    #   self.add_local(...)
-    #   self.add_remote(...)
-    #
     def dependencies(self):
+        """
+        Add any dependencies in this step.
+        ```
+        class MyProject(mama.BuildTarget):
+            def dependencies(self):
+                self.add_git('ReCpp',
+                             'http://github.com/RedFox20/ReCpp.git')
+                self.add_local('fbxsdk',
+                               'third_party/FBX')
+        ```
+        """
         pass
 
 
-    ###
-    # Perform any pre-build steps here
     def configure(self):
+        """
+        Perform any pre-build steps here.
+        ```
+        class MyProject(mama.BuildTarget):
+            def configure(self):
+                self.add_cmake_options('BUILD_TESTS=ON')
+        ```
+        """
         pass
 
 
-    ###
-    # Build this target. By default it uses CMake build
     def build(self):
+        """
+        Build this target. By default it uses CMake build.
+        """
         self.cmake_build()
 
 
-    ### 
-    # Perform any pre-clean steps here
     def clean(self):
+        """
+        Perform any pre-clean steps here.
+        """
         pass
 
 
-    ###
-    # Sets self.install_target to None, which disables the CMake install step
     def disable_install(self):
+        """
+        Sets self.install_target to None, which disables the CMake install step.
+        """
         self.install_target = ''
 
 
-    ###
-    # Perform custom install steps here. By default it uses CMake install
     def install(self):
+        """
+        Perform custom install steps here. By default it uses CMake install.
+        """
         self.cmake_install()
 
 
-    ###
-    # Perform any post-build steps to package the products.
-    # If no headers or libs are exported, then `default_package()` will be run instead
-    #
-    # Every library should at least export some headers
-    # Ex:
-    #   def package(self):
-    #       self.export_libs('.', ['.lib', '.a']) # export any .lib or .a from build folder
-    #       self.export_includes(['AGL']) # export AGL as include from source folder
-    #
     def package(self):
+        """
+        Perform any post-build steps to package the products.
+        If no headers or libs are exported, then `default_package()` will be run instead
+
+        Every library should at least export some headers.
+        ```
+        def package(self):
+            # use the built-in default packing
+            self.default_package()
+            # custom export AGL as include from source folder
+            self.export_includes(['AGL'])
+            # custom export any .lib or .a from build folder
+            self.export_libs('.', ['.lib', '.a']) 
+            
+            if self.windows:
+                self.export_syslib('opengl32.lib')
+
+            # export some asset from source folder
+            self.export_asset('extras/meshes/basehead.obj')
+        ```
+        """
         pass
     
 
-    ##
-    # Performs default packaging steps
-    # This is called if self.package() did not export anything
-    # It can also be called manually to collect includes and libs
-    #
     def default_package(self):
+        """
+        Performs default packaging steps.
+        This is called if self.package() did not export anything.
+        It can also be called manually to collect includes and libs.
+        ```
+        def package(self):
+            self.default_package()
+        ```
+        """
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
@@ -840,26 +987,29 @@ class BuildTarget:
         return assets        
 
 
-    ###
-    # Perform test steps here with test args
-    # `mama test arg1 arg2 arg3`
-    # Ex:
-    #   def test(self, args): 
-    #      self.gdb(f'./RppTests {args}')
-    #
     def test(self, args):
+        """
+        Perform test steps here with test args.
+        `mama test arg1 arg2 arg3`
+        ```
+            def test(self, args):
+                self.gdb(f'RppTests {args}')
+        ```
+        """
         pass
 
 
-    ###
-    # Start a custom process through mama
-    # `mama start=arg`
-    # Ex:
-    #   def start(self, args):
-    #      if 'dbtool' in args:
-    #          self.run_program(self.source_dir('bin'), self.source_dir('bin/DbTool'))
-    #
     def start(self, args):
+        """
+        Start a custom process through mama
+        `mama start=arg`
+        ```
+        def start(self, args):
+            if 'dbtool' in args:
+                self.run_program(self.source_dir('bin'),
+                                 self.source_dir('bin/DbTool'))
+        ```
+        """
         pass
 
 
@@ -893,14 +1043,16 @@ class BuildTarget:
         run_cmake_build(self, install=True, extraflags=cmake_buildsys_flags(self))
 
 
-    ##
-    # TRUE if this build target was specified alogn with test command: `mama test target=this_name`
     def is_test_target(self):
+        """
+        TRUE if this build target was specified along with test command:
+        `mama test target=this_name`
+        """
         return self.config.test and self.dep.is_root_or_config_target()
 
 
     ## Build only this target
-    def execute_tasks(self):
+    def _execute_tasks(self):
         if self.dep.already_executed:
             return
         try:
@@ -921,7 +1073,7 @@ class BuildTarget:
             # only save and print exports if we built anything
             if self.dep.build_dir_exists():
                 self.dep.save_exports_as_dependencies(self.exported_libs)
-                self.print_exports()
+                self._print_exports()
 
             self.deploy() # user customization
 
@@ -953,9 +1105,7 @@ class BuildTarget:
             console(f'    {what}  {path}{ex}')
 
 
-    ##
-    # Prints out all the exported products
-    def print_exports(self):
+    def _print_exports(self):
         if not self.config.print:
             return
         console(f'  - Package {self.name}')

@@ -172,7 +172,7 @@ def execute_task_chain(root: BuildDependency):
         execute_task_chain(dep)
     
     save_mama_cmake(root)
-    root.target.execute_tasks()
+    root.target._execute_tasks()
 
 
 def find_dependency(root: BuildDependency, name) -> BuildDependency:

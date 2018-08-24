@@ -148,7 +148,7 @@ class BuildDependency:
             dependency = BuildDependency.loaded_deps[name]
             dependency.target_args += args
             if dependency.target:
-                dependency.target.set_args(args)
+                dependency.target._set_args(args)
             return dependency
         
         dependency = BuildDependency(name, config, target_class, \
@@ -334,7 +334,7 @@ class BuildDependency:
 
     def create_build_target(self):
         if self.target:
-            self.target.set_args(self.target_args)
+            self.target._set_args(self.target_args)
             return
 
         project, buildTarget = parse_mamafile(self.config, self.target_class, self.mamafile_path())
