@@ -1,5 +1,6 @@
-import os, sys, multiprocessing, subprocess
-from mama.system import System, console
+import os, sys, multiprocessing, subprocess, tempfile
+from mama.system import System, console, execute
+from mama.util import download_file, unzip
 
 
 def find_executable_from_system(name):
@@ -7,6 +8,7 @@ def find_executable_from_system(name):
     output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
     output = output.split('\n')[0].strip()
     return output if os.path.isfile(output) else ''
+
 
 ###
 # Mama Build Configuration is created only once in the root project working directory
@@ -60,6 +62,8 @@ class BuildConfig:
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
         self.raspi_include_paths = [] ## path to additional Raspberry include dirs
+        ## Convenient installation utils:
+        self.convenient_install = []
         ## Workspace and parsing
         self.global_workspace = False
         self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
@@ -181,6 +185,8 @@ class BuildConfig:
             elif arg.startswith('start='):  self.start = arg[6:]
             elif arg.startswith('flags='):
                 self.flags = arg[6:]
+            elif arg == 'install-clang6':  self.convenient_install.append('clang6')
+            elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             else:
                 console(f"Warning: unused argument '{arg}'")
             continue
@@ -245,6 +251,14 @@ class BuildConfig:
                 raise EnvironmentError('Failed to find Visual Studio 2017 MSBuild')
             self._msbuild_path = path
             return path
+        if System.linux:
+            path = find_executable_from_system('msbuild')
+            if not os.path.exists(path):
+                raise EnvironmentError('Failed to find `msbuild` from system PATH. You can easily configure msbuild by running `mama install-msbuild`')
+            return ''
+        
+        if System.macos:
+            return ''
 
 
     def append_env_path(self, paths, env):
@@ -328,6 +342,41 @@ Define env RASPI_HOME with path to Raspberry tools.''')
                 if self.print: console(f'Found Fortran: {fortran_path}')
                 return fortran_path
         return None
+
+
+    def install_clang6(self):
+        if System.windows: raise OSError('Install Visual Studio 2017 with Clang support')
+        if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
+        
+        clang6_zip = download_file('http://ateh10.net/dev/clang++6-1404.zip', tempfile.gettempdir())
+        unzip(clang6_zip, '/usr/local') # /usr/local/clang++6/
+        os.remove(clang6_zip)
+        execute('sudo ln -sf /usr/local/clang++6/lib/libc++.so.1    /usr/lib')
+        execute('sudo ln -sf /usr/local/clang++6/lib/libc++abi.so.1 /usr/lib')
+        execute('sudo ln -sf /usr/local/clang++6/bin/clang      /usr/bin/clang-6.0')
+        execute('sudo ln -sf /usr/local/clang++6/bin/clang++    /usr/bin/clang++-6.0')
+        execute('sudo ln -sf /usr/local/clang++6/include/c++/v1 /usr/include/c++/v1')
+        execute('sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-6.0   100')
+        execute('sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-6.0 100')
+        execute('sudo update-alternatives --set clang   /usr/bin/clang-6.0')
+        execute('sudo update-alternatives --set clang++ /usr/bin/clang++-6.0')
+
+
+    def install_msbuild(self):
+        if System.windows: raise OSError('Install Visual Studio 2017 to get MSBuild on Windows')
+        if System.macos:   raise OSError('install_msbuild not implemented for macOS')
+
+        msbuild = download_file('https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb', tempfile.gettempdir())
+        execute(f'sudo dpkg -i {msbuild}')
+        os.remove(msbuild)
+        execute('sudo apt-get install apt-transport-https')
+        execute('sudo apt-get update')
+        execute('sudo apt-get install dotnet-sdk-2.1')
+
+
+    def run_convenient_installs(self):
+        if 'clang6'  in self.convenient_install: self.install_clang6()
+        if 'msbuild' in self.convenient_install: self.install_msbuild()
 
 
     def libname(self, library):

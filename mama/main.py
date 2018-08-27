@@ -26,6 +26,9 @@ def print_usage():
     console('    new        - create new mama build file')
     console('    open=<tgt> - open a project file')
     console('    help       - shows this help list')
+    console('  install utils:')
+    console('    install-clang6  - configures and installs clang6 for linux')
+    console('    install-msbuild - configures and installs MSBuild for linux')
     console('  args:')
     console('    windows    - build for windows')
     console('    linux      - build for linux')
@@ -109,6 +112,10 @@ def main():
 
     if config.mama_init:
         mama_init_project(root)
+        return
+
+    if config.convenient_install:
+        self.run_convenient_installs()
         return
 
     has_cmake = root.cmakelists_exists()
