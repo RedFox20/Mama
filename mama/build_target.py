@@ -1137,7 +1137,7 @@ class BuildTarget:
         /p:Configuration=Release
         /p:Platform=x64
         """
-        msbuild_build(self.config, projectfile, properties)
+        msbuild_build(self.config, self.source_dir(projectfile), properties)
 
 
 ######################################################################################
