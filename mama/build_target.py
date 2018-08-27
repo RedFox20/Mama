@@ -10,6 +10,7 @@ from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_defaul
 from mama.papa_deploy import papa_deploy_to, Asset
 import mama.util as util
 from typing import List
+from mama.msbuild import msbuild_build
 
 ######################################################################################
 
@@ -931,6 +932,7 @@ class BuildTarget:
         """
         pass
     
+    
     def papa_deploy(self, package_path, src_dir=True, 
                     recurse_syslibs=False, recurse_assets=False):
         """
@@ -1113,6 +1115,29 @@ class BuildTarget:
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
         for asset   in self.exported_assets:   self._print_ws_path('[A]', asset.outpath, check_exists=False)
+
+
+    ############################################
+
+
+    def ms_build(self, projectfile, properties:dict = dict()):
+        """
+        Invokes MSBuild on the specificied projectfile and passes specified
+        properties to MSBuild.
+        ```
+        def build(self):
+            self.cmake_build()
+            self.ms_build('extras/csharp/CSharpTests.sln', {
+                'Configuration': 'Debug',
+                'Platform': 'Any CPU',
+            })
+        ```
+        Default properties set by Mama if not specified via properties dict:
+        /p:PreferredToolArchitecture=x64
+        /p:Configuration=Release
+        /p:Platform=x64
+        """
+        msbuild_build(self.config, projectfile, properties)
 
 
 ######################################################################################

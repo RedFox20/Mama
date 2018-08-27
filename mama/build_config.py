@@ -45,7 +45,10 @@ class BuildConfig:
         self.fortran = ''
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
+        ## Ninja
         self.ninja_path = self.find_ninja_build()
+        ## MSBuild
+        self._msbuild_path = None
         ## Android
         self.android_sdk_path = ''
         self.android_ndk_path = ''
@@ -231,6 +234,17 @@ class BuildConfig:
                 #console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
+
+
+    def get_msbuild_path(self):
+        if self._msbuild_path:
+            return self._msbuild_path
+        if System.windows:
+            path = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe'
+            if not os.path.exists(path):
+                raise EnvironmentError('Failed to find Visual Studio 2017 MSBuild')
+            self._msbuild_path = path
+            return path
 
 
     def append_env_path(self, paths, env):
