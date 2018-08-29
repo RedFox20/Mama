@@ -802,7 +802,7 @@ class BuildTarget:
 
         if self.windows:
             if not src_dir: path = f'{path}/{self.cmake_build_type}'
-            gdb = exe
+            gdb = f'{exe} {args}'
         elif self.macos:
             # b: batch, q: quiet, -o r: run
             # -k bt: on crash, backtrace
