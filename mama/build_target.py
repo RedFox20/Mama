@@ -2,7 +2,7 @@ import os.path, shutil
 import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console, execute, execute_echo
 from mama.util import save_file_if_contents_changed, glob_with_name_match, \
-                      normalized_path, write_text_to
+                      normalized_path, write_text_to, copy_if_needed
 from mama.build_dependency import BuildDependency, Git
 from mama.build_config import BuildConfig
 from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
@@ -76,6 +76,9 @@ class BuildTarget:
         self.ios     = self.config.ios
         self.android = self.config.android
         self.raspi   = self.config.raspi
+        self.os_windows = System.windows
+        self.os_linux   = System.linux
+        self.os_macos   = System.macos
         self._set_args(args)
 
 
@@ -672,6 +675,19 @@ class BuildTarget:
         src = f'{self.dep.build_dir}/{builtFile}'
         dst = f'{self.dep.build_dir}/{copyToFolder}'
         shutil.copy(src, dst)
+
+
+    def copy_deployed_folder(self, src_dir, dst_dir):
+        """
+        Utility for copying folders from source dir.
+        NOTE: Destination dir must exist!
+        ```
+            self.copy_deployed_folder('deploy/NanoMesh', 'C:/Projects/Game/Plugins')
+            # --> 'C:/Projects/Game/Plugins/NanoMesh
+        ```
+        """
+        if os.path.exists(dst_dir):
+            copy_if_needed(self.source_dir(src_dir), dst_dir)
 
 
     def download_file(self, remote_url, local_dir, force=False):

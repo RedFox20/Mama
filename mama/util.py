@@ -214,3 +214,46 @@ def download_and_unzip(remote_zip, extract_dir, unless_file_exists):
     local_file = download_file(remote_zip, extract_dir)
     unzip(local_file, extract_dir)
 
+
+def _should_copy(src, dst):
+    if not os.path.exists(dst):
+        return True
+
+    src_stat = os.stat(src)
+    dst_stat = os.stat(dst)
+
+    #if src_stat.st_mtime != dst_stat.st_mtime or \
+    if src_stat.st_size != dst_stat.st_size:
+        #console(f'copy {src}\n --> {dst}')
+        return True
+    #console(f'skip {dst}')
+    return False
+    
+
+def copy_file(src, dst):
+    if _should_copy(src, dst):
+        #console(f'copy {src}\n --> {dst}')
+        shutil.copy2(src, dst)
+
+
+def copy_dir(src_dir, out_dir):
+    root = os.path.dirname(src_dir)
+    for fulldir, _, files in os.walk(src_dir):
+        reldir = fulldir[len(root):].lstrip('\\/')
+        if reldir:
+            dst_folder = os.path.join(out_dir, reldir)
+            os.makedirs(dst_folder, exist_ok=True)
+        else:
+            dst_folder = out_dir
+        for file in files:
+            src_file = os.path.join(fulldir, file)
+            dst_file = os.path.join(dst_folder, file)
+            copy_file(src_file, dst_file)
+
+
+def copy_if_needed(src, dst):
+    if os.path.isdir(src):
+        copy_dir(src, dst)
+    else:
+        copy_file(src, dst)
+
