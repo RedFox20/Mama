@@ -1,5 +1,5 @@
 import os, sys, multiprocessing, subprocess, tempfile, platform
-from mama.system import System, console, execute
+from mama.system import System, console, execute, execute_piped
 from mama.util import download_file, unzip
 
 
@@ -237,28 +237,9 @@ class BuildConfig:
         ]
         for ninja_exe in ninja_executables:        
             if ninja_exe and os.path.isfile(ninja_exe):
-                #console(f'Found Ninja Build System: {ninja_exe}')
+                if self.verbose: console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
-
-
-    def get_msbuild_path(self):
-        if self._msbuild_path:
-            return self._msbuild_path
-        if System.windows:
-            path = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe'
-            if not os.path.exists(path):
-                raise EnvironmentError('Failed to find Visual Studio 2017 MSBuild')
-            self._msbuild_path = path
-            return path
-        if System.linux:
-            path = find_executable_from_system('msbuild')
-            if not os.path.exists(path):
-                raise EnvironmentError('Failed to find `msbuild` from system PATH. You can easily configure msbuild by running `mama install-msbuild`')
-            return ''
-        
-        if System.macos:
-            return ''
 
 
     def append_env_path(self, paths, env):
@@ -339,9 +320,35 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         
         for fortran_path in paths:
             if fortran_path and os.path.exists(fortran_path):
-                if self.print: console(f'Found Fortran: {fortran_path}')
+                if self.verbose: console(f'Found Fortran: {fortran_path}')
                 return fortran_path
         return None
+
+
+    def get_msbuild_path(self):
+        if self._msbuild_path:
+            return self._msbuild_path
+        
+        paths = [ find_executable_from_system('msbuild') ]
+        if System.windows:
+            vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
+            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
+            vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
+            vs_versions = [ ('2017', '15.0') ]
+            for version in vs_versions:
+                for variant in vs_variants:
+                    paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version[0]}\\{variant}\\MSBuild\\{version[1]}\\Bin\\amd64\\MSBuild.exe')
+        elif System.linux:
+            pass
+        elif System.macos:
+            pass
+        for path in paths:
+            if path and os.path.exists(path):
+                self._msbuild_path = path
+                if self.verbose: console(f'Detected MSBuild: {path}')
+                return path
+        raise EnvironmentError('Failed to find MSBuild from system PATH. You can easily configure msbuild by running `mama install-msbuild`.')
+
 
 
     def install_clang6(self):

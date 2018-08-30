@@ -1,6 +1,6 @@
 import os, subprocess, shutil, stat
 from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
-from mama.system import System, console, execute
+from mama.system import System, console, execute, execute_piped
 from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes, back_slashes
 from time import sleep
 
@@ -32,8 +32,7 @@ class Git:
 
 
     def current_commit(self):
-        cp = subprocess.run(['git','show','--oneline','-s'], stdout=subprocess.PIPE, cwd=self.dep.src_dir)
-        result = cp.stdout.decode('utf-8').rstrip()
+        result = execute_piped('git show --oneline -s', cwd=self.dep.src_dir)
         if self.dep.config.verbose:
             console(f'  {self.dep.name: <16} git show --oneline -s:   {result}')
         return result

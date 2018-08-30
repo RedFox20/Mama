@@ -4,11 +4,19 @@ from mama.async_file_reader import AsyncFileReader
 ## Always flush to properly support Jenkins
 def console(s): print(s, flush=True)
 
-def execute(command, echo=False):
+
+def execute(command, echo=False, throw=True):
     if echo: console(command)
     retcode = os.system(command)
-    if retcode != 0:
+    if throw and retcode != 0:
         raise Exception(f'{command} failed with return code {retcode}')
+    return retcode
+
+
+def execute_piped(command, cwd=None):
+    cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd)
+    return cp.stdout.decode('utf-8').rstrip()
+
 
 def execute_echo(cwd, cmd):
     try:
