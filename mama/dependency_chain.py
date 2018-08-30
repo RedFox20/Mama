@@ -27,10 +27,12 @@ def _get_exported_libs(target):
     elif target.raspi:
         allowed = ['.a', '.so']
 
+    #print(f'{target.name: <16} exported: {target.exported_libs}')
     for lib in target.exported_libs:
         for ext in allowed:
             if lib.endswith(ext):
                 filtered.append(lib)
+    #print(f'{target.name: <16} filtered: {filtered}')
     return filtered + target.exported_syslibs
 
 

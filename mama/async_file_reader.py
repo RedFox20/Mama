@@ -1,6 +1,7 @@
 import os, sys, threading
 from queue import Queue
-from time import sleep
+from collections import deque
+from time import sleep, time
 if sys.platform.startswith('linux'):
     def set_nonblocking(fd):
         import fcntl
@@ -40,11 +41,12 @@ class AsyncFileReader:
             set_nonblocking(self.f.fileno())
             blocking = False
         try:
-            while self.keep_polling and not self.f.closed:
-                while not self.f.closed:
-                    line = self.f.readline()
+            f = self.f
+            while self.keep_polling and not f.closed:
+                while not f.closed:
+                    line = f.readline()
                     if not line: break
-                    self.queue.put(line)
+                    self.queue.put( ( time(), line ) )
                 if not blocking:
                     sleep(0.015)
         except:
@@ -55,8 +57,13 @@ class AsyncFileReader:
 
     def readline(self):
         if self.available():
-            return self.queue.get()
+            return self.queue.get()[1]
         return ''
+
+    def get(self):
+        if self.available():
+            return self.queue.get()
+        return None
 
     def print(self):
         while self.available():
@@ -66,4 +73,41 @@ class AsyncFileReader:
         self.keep_polling = False
         self.thread.join()
         # self.print()
+
+
+
+class AsyncConsoleReader:
+    def __init__(self, stdout, stderr):
+        self.out = AsyncFileReader(stdout)
+        self.err = AsyncFileReader(stderr)
+        self.current_out = None
+        self.current_err = None
+
+    def available(self):
+        return (self.current_out and self.current_err) or self.out.available() or self.err.available()
+
+    def _peek_out(self):
+        if self.current_out: return self.current_out
+        self.current_out = self.out.get()
+        return self.current_out
+
+    def _peek_err(self):
+        if self.current_err: return self.current_err
+        self.current_err = self.err.get()
+        return self.current_err
+
+    def stop(self):
+        self.out.stop()
+        self.err.stop()
+
+    def read(self):
+        out = self._peek_out()
+        err = self._peek_err()
+        if out and (not err or out[0] < err[0]):
+            self.current_out = None
+            return (out[1], None)
+        if err and (not out or err[0] < out[0]):
+            self.current_err = None
+            return (None, err[1])
+        return None
 

@@ -1,7 +1,7 @@
 import os, subprocess, shlex, time
 from mama.system import System, console, execute
 from mama.build_config import BuildConfig
-from mama.async_file_reader import AsyncFileReader
+from mama.async_file_reader import AsyncFileReader, AsyncConsoleReader
 
 def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     rerun = False
@@ -12,41 +12,36 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     if verbose: console(args)
     #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output = AsyncFileReader(proc.stdout)
-    errors = AsyncFileReader(proc.stderr)
+    reader = AsyncConsoleReader(proc.stdout, proc.stderr)
 
-    def handle_error():
+    def handle_error(err):
         nonlocal rerun, delete_cmakecache
-        error = errors.readline()
-        print(error, flush=True, end='')
-        
-        if error.startswith('CMake Error: The source'):
+        print(err, flush=True, end='')
+        if err.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
         elif System.windows:
             # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
-            rerun |= error.startswith('  is not a full path to an existing compiler tool.')
-        elif error.startswith('CMake Error: Error: generator :') or \
-             error.startswith('CMake Error: The source'):
+            rerun |= err.startswith('  is not a full path to an existing compiler tool.')
+        elif err.startswith('CMake Error: Error: generator :') or \
+             err.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
 
+    def read_out_err():
+        while reader.available():
+            out, err = reader.read()
+            if out:
+                if print_enabled:
+                    print(out, flush=True, end='')
+            elif err:
+                handle_error(err)
+
     while proc.poll() is None:
-        wrote = False
-        if print_enabled and output.available():
-            line = output.readline()
-            print(line, flush=True, end='')
-            wrote = True
-        if errors.available():
-            handle_error()
-            wrote = True
-        if not wrote:
-            time.sleep(0.015)
-    
-    output.stop()
-    errors.stop()
-    if print_enabled: output.print()
-    while errors.available(): handle_error()
+        read_out_err()
+        time.sleep(0.015)
+    reader.stop()
+    read_out_err()
     
     if delete_cmakecache:
         if print_enabled: console('Deleting CMakeCache.txt')
