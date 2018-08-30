@@ -933,8 +933,9 @@ class BuildTarget:
         pass
     
     
-    def papa_deploy(self, package_path, src_dir=True, 
-                    recurse_syslibs=False, recurse_assets=False):
+    def papa_deploy(self, package_path, src_dir=True,
+                    r_includes=True, r_dylibs=True,
+                    r_syslibs=False, r_assets=True):
         """
         This will create a PAPA package, which includes
             package_path/papa.txt
@@ -943,8 +944,10 @@ class BuildTarget:
             package_path/{assets}
 
         src_dir -- Whether package will be deployed to src dir or build dir
-        recurse_syslibs -- Whether to include system libraries from child dependencies
-        recurse_assets -- Whether to include assets from child dependencies
+        r_includes -- Whether to recursively export includes from dynamic libaries
+        r_dylibs   -- Whether to recursively export all *.dll *.so *.dylib libraries
+        r_syslibs  -- Whether to include system libraries from child dependencies
+        r_assets   -- Whether to include assets from child dependencies
 
         Example: `self.papa_deploy('MyPackageName')`
 
@@ -962,31 +965,7 @@ class BuildTarget:
             A someassets/extra.txt
         """
         path = self._get_root_path(package_path, src_dir)
-        syslibs = self._recurse_syslibs() if recurse_syslibs else self.exported_syslibs
-        assets  = self._recurse_assets()  if recurse_assets  else self.exported_assets
-        papa_deploy_to(path, self.exported_includes, self.exported_libs, syslibs,  assets)
-
-
-    def _recurse_syslibs(self):
-        syslibs = []
-        def append_syslibs(target: BuildTarget):
-            nonlocal syslibs
-            syslibs += target.exported_syslibs
-            for child in target.dep.children:
-                append_syslibs(child.target)
-        append_syslibs(self)
-        return syslibs
-
-
-    def _recurse_assets(self):
-        assets = []
-        def append_assets(target: BuildTarget):
-            nonlocal assets
-            assets += target.exported_assets
-            for child in target.dep.children:
-                append_assets(child.target)
-        append_assets(self)
-        return assets        
+        papa_deploy_to(self, path, r_includes, r_dylibs, r_syslibs, r_assets)
 
 
     def test(self, args):
@@ -1114,7 +1093,7 @@ class BuildTarget:
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
-        for asset   in self.exported_assets:   self._print_ws_path('[A]', asset.outpath, check_exists=False)
+        for asset   in self.exported_assets:   self._print_ws_path('[A]', str(asset), check_exists=False)
 
 
     ############################################

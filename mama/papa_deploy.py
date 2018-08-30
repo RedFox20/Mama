@@ -19,6 +19,8 @@ class Asset:
         else:        self.outpath = f'{reldir}/{self.outpath}'
         #console(f'asset {self.outpath}')
 
+    def __str__(self):  return self.outpath
+    def __repr__(self): return self.outpath
 
 def _should_copy(src, dst):
     if not os.path.exists(dst):
@@ -35,53 +37,130 @@ def _should_copy(src, dst):
     return False
     
 
-def _copy_if_needed(src, dst):
+def _copy_file(src, dst):
     if _should_copy(src, dst):
         #console(f'copy {src}\n --> {dst}')
         shutil.copy2(src, dst)
 
 
-def _copy_include_dir(package_full_path, include):
-    root = os.path.dirname(include)
-    for fulldir, _, files in os.walk(include):
+def _copy_dir(src_dir, out_dir):
+    root = os.path.dirname(src_dir)
+    for fulldir, _, files in os.walk(src_dir):
         reldir = fulldir[len(root):].lstrip('\\/')
         if reldir:
-            dst_folder = os.path.join(package_full_path, reldir)
+            dst_folder = os.path.join(out_dir, reldir)
             os.makedirs(dst_folder, exist_ok=True)
+        else:
+            dst_folder = out_dir
         for file in files:
             src_file = os.path.join(fulldir, file)
             dst_file = os.path.join(dst_folder, file)
-            _copy_if_needed(src_file, dst_file)
+            _copy_file(src_file, dst_file)
 
 
-def papa_deploy_to(package_full_path, includes, libs, syslibs, assets: List[Asset]):
-    console(f'  - PAPA Deploy {package_full_path}')
+def _copy_if_needed(src, dst):
+    if os.path.isdir(src):
+        _copy_dir(src, dst)
+    else:
+        _copy_file(src, dst)
+
+
+def _is_a_dynamic_library(lib):
+    return lib.endswith('.dll') or lib.endswith('.so') \
+        or lib.endswith('.dylib') or lib.endswith('.bundle') \
+        or lib.endswith('.framework')
+
+
+def _recurse_includes(target):
+    includes = []
+    def append_includes(target):
+        nonlocal includes
+        for lib in target.exported_libs:
+            if _is_a_dynamic_library(lib):
+                includes += target.exported_includes
+                break
+        for child in target.dep.children:
+            append_includes(child.target)
+    append_includes(target)
+    return includes
+
+
+def _recurse_dylibs(target):
+    dylibs = []
+    def append_dylibs(target):
+        nonlocal dylibs
+        for lib in target.exported_libs:
+            if _is_a_dynamic_library(lib):
+                dylibs.append(lib)
+        for child in target.dep.children:
+            append_dylibs(child.target)
+    append_dylibs(target)
+    return dylibs
+
+
+def _recurse_syslibs(target):
+    syslibs = []
+    def append_syslibs(target):
+        nonlocal syslibs
+        for lib in target.exported_syslibs:
+            if not lib in syslibs:
+                syslibs.append(lib)
+        for child in target.dep.children:
+            append_syslibs(child.target)
+    append_syslibs(target)
+    return syslibs
+
+
+def _recurse_assets(target):
+    assets = []
+    def append_assets(target):
+        nonlocal assets
+        assets += target.exported_assets
+        for child in target.dep.children:
+            append_assets(child.target)
+    append_assets(target)
+    return assets
+
+
+def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
+    config = target.config
+    if config.print: console(f'  - PAPA Deploy {package_full_path}')
+
+    includes = _recurse_includes(target) if r_includes else target.exported_includes
+    libs     = _recurse_dylibs(target)   if r_dylibs   else target.exported_libs
+    syslibs  = _recurse_syslibs(target)  if r_syslibs  else target.exported_syslibs
+    assets   = _recurse_assets(target)   if r_assets   else target.exported_assets
 
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
     
     descr = [f'P {os.path.basename(package_full_path)}']
-    
+    relincludes = []
     for include in includes:
         relpath = os.path.basename(include)
-        descr.append(f'I {relpath}')
-        #console(f'    I {relpath}')
-        _copy_include_dir(package_full_path, include)
+        if not relpath in relincludes:
+            descr.append(f'I {relpath}')
+            relincludes.append(relpath)
+        if config.print:
+            parent = os.path.split(include)[0]
+            parent = os.path.basename(parent)
+            console(f'    I {relpath}  ({parent})')
+        _copy_dir(include, package_full_path)
 
     for lib in libs:
         relpath = os.path.basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
-        #console(f'    L {relpath}')
+        if config.print: console(f'    L {relpath}')
         outpath = os.path.join(package_full_path, relpath)
         _copy_if_needed(lib, outpath)
 
     for syslib in syslibs:
         descr.append(f'S {syslib}')
-        #console(f'    S {syslib}')
+        if config.print: console(f'    S {syslib}')
 
     for asset in assets:
         descr.append(f'A {asset.outpath}')
-        #console(f'    A {asset.outpath}')
+        if config.print: console(f'    A {asset.outpath}')
         outpath = os.path.join(package_full_path, asset.outpath)
 
         folder = os.path.dirname(outpath)
