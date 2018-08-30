@@ -115,7 +115,7 @@ def main():
         return
 
     if config.convenient_install:
-        self.run_convenient_installs()
+        config.run_convenient_installs()
         return
 
     has_cmake = root.cmakelists_exists()
