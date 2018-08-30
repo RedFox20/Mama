@@ -1,4 +1,4 @@
-import os, sys, multiprocessing, subprocess, tempfile
+import os, sys, multiprocessing, subprocess, tempfile, platform
 from mama.system import System, console, execute
 from mama.util import download_file, unzip
 
@@ -365,10 +365,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def install_msbuild(self):
         if System.windows: raise OSError('Install Visual Studio 2017 to get MSBuild on Windows')
         if System.macos:   raise OSError('install_msbuild not implemented for macOS')
+        
+        distro_name, _, codename = platform.linux_distribution()
+        if distro_name != "Ubuntu": raise OSError('install_msbuild only supports Ubuntu')
 
-        msbuild = download_file('https://packages.microsoft.com/config/ubuntu/18.04/packages-microsoft-prod.deb', tempfile.gettempdir())
-        execute(f'sudo dpkg -i {msbuild}')
-        os.remove(msbuild)
+        execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
+        execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')
+        execute(f"sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-{codename}-prod {codename} main\" > /etc/apt/sources.list.d/dotnetdev.list'")
         execute('sudo apt-get install apt-transport-https')
         execute('sudo apt-get update')
         execute('sudo apt-get install dotnet-sdk-2.1')
