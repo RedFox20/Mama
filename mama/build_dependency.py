@@ -32,7 +32,7 @@ class Git:
 
 
     def current_commit(self):
-        result = execute_piped('git show --oneline -s', cwd=self.dep.src_dir)
+        result = execute_piped(['git', 'show', '--oneline', '-s'], cwd=self.dep.src_dir)
         if self.dep.config.verbose:
             console(f'  {self.dep.name: <16} git show --oneline -s:   {result}')
         return result
@@ -399,11 +399,13 @@ class BuildDependency:
 
 
     def find_missing_dependency(self):
-        last_build = read_lines_from(f'{self.build_dir}/mama_dependency_libs')
+        last_build = [dep.rstrip() for dep in read_lines_from(f'{self.build_dir}/mama_dependency_libs')]
         current = [dep.get_dependency_name() for dep in self.children]
+        #console(f'{self.name: <32} last_build: {last_build}')
+        #console(f'{self.name: <32} current:    {current}')
         for last in last_build:
             if not (last in current):
-                return last
+                return last.strip()
         return None # Nothing missing
 
 

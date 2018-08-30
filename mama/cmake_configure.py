@@ -1,4 +1,4 @@
-import os, subprocess, shlex
+import os, subprocess, shlex, time
 from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 from mama.async_file_reader import AsyncFileReader
@@ -15,39 +15,47 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     output = AsyncFileReader(proc.stdout)
     errors = AsyncFileReader(proc.stderr)
 
-    def handle_errors():
+    def handle_error():
         nonlocal rerun, delete_cmakecache
-        while errors.available():
-            error = errors.readline()
-            print(error, flush=True, end='')
+        error = errors.readline()
+        print(error, flush=True, end='')
+        
+        if error.startswith('CMake Error: The source'):
+            rerun = True
+            delete_cmakecache = True
+        elif System.windows:
             # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
-            if System.windows:
-                rerun |= error.startswith('  is not a full path to an existing compiler tool.')
-            elif error.startswith('CMake Error: Error: generator :'):
-                rerun = True
-                delete_cmakecache = True
+            rerun |= error.startswith('  is not a full path to an existing compiler tool.')
+        elif error.startswith('CMake Error: Error: generator :') or \
+             error.startswith('CMake Error: The source'):
+            rerun = True
+            delete_cmakecache = True
 
-    while True:
-        if proc.poll() is None:
-            while print_enabled and output.available():
-                line = output.readline()
-                print(line, flush=True, end='')
-            while errors.available():
-                handle_errors()
-        else:
-            output.stop()
-            errors.stop()
-            if print_enabled: output.print()
-            handle_errors()
-            if delete_cmakecache:
-                if print_enabled: console('Deleting CMakeCache.txt')
-                os.remove(target.build_dir('CMakeCache.txt'))
-            if rerun and allow_rerun:
-                if print_enabled: console('Rerunning CMake configure')
-                return rerunnable_cmake_conf(cwd, args, False, target)
-            if proc.returncode == 0:
-                break
-            raise Exception(f'CMake configure error: {error}')
+    while proc.poll() is None:
+        wrote = False
+        if print_enabled and output.available():
+            line = output.readline()
+            print(line, flush=True, end='')
+            wrote = True
+        if errors.available():
+            handle_error()
+            wrote = True
+        if not wrote:
+            time.sleep(0.015)
+    
+    output.stop()
+    errors.stop()
+    if print_enabled: output.print()
+    while errors.available(): handle_error()
+    
+    if delete_cmakecache:
+        if print_enabled: console('Deleting CMakeCache.txt')
+        os.remove(target.build_dir('CMakeCache.txt'))
+    if rerun and allow_rerun:
+        if print_enabled: console('Rerunning CMake configure')
+        return rerunnable_cmake_conf(cwd, args, False, target)
+    if proc.returncode != 0:
+        raise Exception(f'CMake configure error: {error}')
 
 
 def run_cmake_config(target, cmake_flags):
