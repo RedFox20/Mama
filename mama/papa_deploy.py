@@ -24,9 +24,9 @@ class Asset:
 
 
 def _is_a_dynamic_library(lib):
-    return lib.endswith('.dll') or lib.endswith('.so') \
-        or lib.endswith('.dylib') or lib.endswith('.bundle') \
-        or lib.endswith('.framework')
+    return lib.endswith('.dll')    or lib.endswith('.pdb') \
+        or lib.endswith('.dylib')  or lib.endswith('.so')  \
+        or lib.endswith('.bundle') or lib.endswith('.framework')
 
 
 def _recurse_includes(target):
