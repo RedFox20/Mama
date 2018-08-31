@@ -222,9 +222,10 @@ def _should_copy(src, dst):
     src_stat = os.stat(src)
     dst_stat = os.stat(dst)
 
-    #if src_stat.st_mtime != dst_stat.st_mtime or \
     if src_stat.st_size != dst_stat.st_size:
         #console(f'copy {src}\n --> {dst}')
+        return True
+    if src_stat.st_mtime != dst_stat.st_mtime:
         return True
     #console(f'skip {dst}')
     return False
