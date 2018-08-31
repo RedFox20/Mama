@@ -358,6 +358,8 @@ class BuildTarget:
         if os.path.exists(path):
             self.exported_libs.append(path)
             self.exported_libs = self._get_unique_basenames(self.exported_libs)
+        else:
+            console(f'export_lib failed to find: {path}')
 
 
     def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, order=None):
@@ -415,7 +417,9 @@ class BuildTarget:
         if os.path.exists(full_asset):
             self.exported_assets.append(Asset(asset, full_asset, category))
             return True
-        return False
+        else:
+            console(f'export_asset failed to find: {full_asset}')
+            return False
 
 
     def export_assets(self, assets_path, pattern_substrings = [], category=None, src_dir=True):
@@ -665,6 +669,18 @@ class BuildTarget:
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++11'
 
 
+    def copy(self, src, dst):
+        """
+        Utility for copying files and folders
+        ```
+            # copies built .so into an android archive
+            self.copy(self.build_dir('libAwesome.so'), 
+                      self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
+        ```
+        """
+        copy_if_needed(src, dst)
+
+
     def copy_built_file(self, builtFile, copyToFolder):
         """
         Utility for copying files within the build directory.
@@ -680,14 +696,12 @@ class BuildTarget:
     def copy_deployed_folder(self, src_dir, dst_dir):
         """
         Utility for copying folders from source dir.
-        NOTE: Destination dir must exist!
         ```
             self.copy_deployed_folder('deploy/NanoMesh', 'C:/Projects/Game/Plugins')
             # --> 'C:/Projects/Game/Plugins/NanoMesh
         ```
         """
-        if os.path.exists(dst_dir):
-            copy_if_needed(self.source_dir(src_dir), dst_dir)
+        copy_if_needed(self.source_dir(src_dir), dst_dir)
 
 
     def download_file(self, remote_url, local_dir, force=False):

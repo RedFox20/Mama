@@ -2,6 +2,7 @@ import os, shutil
 from .util import write_text_to, console, glob_with_name_match, copy_dir, copy_if_needed
 from typing import List
 
+
 class Asset:
     def __init__(self, relpath, fullpath, category):
         """
@@ -26,7 +27,8 @@ class Asset:
 def _is_a_dynamic_library(lib):
     return lib.endswith('.dll')    or lib.endswith('.pdb') \
         or lib.endswith('.dylib')  or lib.endswith('.so')  \
-        or lib.endswith('.bundle') or lib.endswith('.framework')
+        or lib.endswith('.bundle') or lib.endswith('.framework') \
+        or lib.endswith('.aar')
 
 
 def _recurse_includes(target):
@@ -109,7 +111,9 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         relpath = os.path.basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
         if config.print: console(f'    L {relpath}')
-        outpath = os.path.join(package_full_path, relpath)
+        #outpath = os.path.join(package_full_path, relpath)
+        outpath = package_full_path
+        if config.verbose: console(f'    copy {lib} -> {outpath}')
         copy_if_needed(lib, outpath)
 
     for syslib in syslibs:
