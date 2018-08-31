@@ -228,7 +228,7 @@ def _should_copy(src, dst):
         return True
     #console(f'skip {dst}')
     return False
-    
+
 
 def copy_file(src, dst):
     if _should_copy(src, dst):
@@ -252,6 +252,7 @@ def copy_dir(src_dir, out_dir):
 
 
 def copy_if_needed(src, dst):
+    #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
         copy_dir(src, dst)
     else:
