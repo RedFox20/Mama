@@ -1041,7 +1041,7 @@ class BuildTarget:
     def cmake_build(self):
         if self.config.print:
             console('\n\n#############################################################')
-            console(f"CMake build {self.name}")
+            console(f"CMake build {self.name}  ({self.cmake_build_type})")
         self.dep.ensure_cmakelists_exists()
         def cmake_flags():
             flags = ''
