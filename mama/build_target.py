@@ -1076,20 +1076,18 @@ class BuildTarget:
                     self.build() # user customization
                     self.dep.successful_build()
             
-            # we built something OR this target is just for packaging
-            if self.dep.should_rebuild or self.dep.nothing_to_build:
-                self.package() # user customization
+            self.package() # user customization
 
-                # no packaging provided by user; use default packaging instead
-                if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
-                    self.default_package()
+            # no packaging provided by user; use default packaging instead
+            if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
+                self.default_package()
 
-                # only save and print exports if we built anything
-                if self.dep.build_dir_exists():
-                    self.dep.save_exports_as_dependencies(self.exported_libs)
-                    self._print_exports()
+            # only save and print exports if we built anything
+            if self.dep.build_dir_exists():
+                self.dep.save_exports_as_dependencies(self.exported_libs)
+                self._print_exports()
 
-                self.deploy() # user customization
+            self.deploy() # user customization
 
             if self.is_test_target():
                 test_args = self.config.test.lstrip()
