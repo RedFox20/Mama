@@ -678,6 +678,7 @@ class BuildTarget:
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
         """
+        console(f'copy {src} --> {dst}')
         copy_if_needed(src, dst)
 
 
@@ -1074,7 +1075,7 @@ class BuildTarget:
                 if not self.dep.nothing_to_build:
                     self.build() # user customization
                     self.dep.successful_build()
-
+            
             self.package() # user customization
 
             # no packaging provided by user; use default packaging instead
