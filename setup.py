@@ -5,7 +5,7 @@ if sys.version_info < (3, 6):
     raise RuntimeError("This package requires Python 3.6+")
 
 setup(name='mama',
-      version='0.4.6a18',
+      version='0.4.6a19',
       description='A modular C++ build tool even your mama can use',
       url='https://github.com/RedFox20/Mama',
       author='Jorma Rebane',
