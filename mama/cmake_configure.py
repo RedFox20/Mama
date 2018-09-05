@@ -133,8 +133,11 @@ def cmake_default_options(target):
             add_flag('-fvisibility', 'hidden')
         if not exceptions: add_flag('-fno-exceptions')
     
-    if config.android and config.android_ndk_stl == 'c++_shared':
-        add_flag(f'-I"{config.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
+    if config.android:
+        add_flag('-march', 'armv7-a')
+        add_flag('-mfpu', 'neon')
+        if config.android_ndk_stl == 'c++_shared':
+            add_flag(f'-I"{config.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
         add_flag('-march', 'native')
         if config.clang and target.enable_cxx_build:
