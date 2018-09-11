@@ -20,6 +20,7 @@ def print_usage():
     console('    rebuild    - clean, update, configure and build main project or specific target')
     console('    configure  - run CMake configuration on main project or specific target')
     console('    update     - update specific target dependency by calling git pull')
+    console('    nopull     - prevents any git pull/checkout operations')
     console('    reclone    - wipe specific target dependency and clone it again')
     console('    test       - run tests for main project or specific target')
     console('    add        - add new dependency')

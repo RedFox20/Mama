@@ -466,10 +466,10 @@ class BuildTarget:
             lib = name
         elif self.linux:
             lib = f'/usr/lib/x86_64-linux-gnu/{name}'
-            if not os.path.exists(lib):
-                lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
-            if not os.path.exists(lib):
-                lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
+            if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+            if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
+            if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.so'
+            if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.a'
             if not os.path.exists(lib):
                 if not required: return False
                 raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')

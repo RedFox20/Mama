@@ -224,6 +224,9 @@ class BuildDependency:
     def git_checkout(self):
         if not self.git or self.is_root:    # No git for local or root targets
             return False
+
+        if self.config.nopull:  # HACK: User doesn't want git pull
+            return False
         
         if not self.source_dir_exists():
             self.git.clone_or_pull()
