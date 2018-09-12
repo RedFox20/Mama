@@ -975,12 +975,8 @@ class BuildTarget:
             return
         try:
             self.dep.already_executed = True
-
             self._execute_build_tasks()
-
-            if self.config.deploy:
-                self.deploy() # user customization
-
+            self._execute_deploy_tasks()
             self._execute_run_tasks()
         except:
             console(f'  [BUILD FAILED]  {self.dep.name}')
@@ -1004,6 +1000,17 @@ class BuildTarget:
         if self.dep.build_dir_exists():
             self.dep.save_exports_as_dependencies(self.exported_libs)
             self._print_exports()
+
+
+    def _execute_deploy_tasks(self):
+        # Only run deploy for either:
+        # -> Root target by default
+        # -> or Specific target
+        if self.config.deploy:
+            specific_target = not self.config.no_specific_target()
+            if (not specific_target and self.dep.is_root) or \
+               (specific_target and self.config.target == self.name):
+                self.deploy() # user customization
 
 
     def _execute_run_tasks(self):
