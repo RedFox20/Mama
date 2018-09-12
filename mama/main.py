@@ -16,7 +16,7 @@ def print_usage():
     console('  actions:')
     console('    init       - create initial mamafile.py and CMakeLists.txt')
     console('    build      - configure and build main project or specific target, this can clone, but does not pull')
-    console('    update     - update target dependencies by calling git pull')
+    console('    update     - update and build target dependencies after calling git pull')
     console('    clean      - clean main project or specific target')
     console('    rebuild    - clean, update, configure and build main project or specific target')
     console('    configure  - run CMake configuration on main project or specific target')
