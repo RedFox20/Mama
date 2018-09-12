@@ -225,21 +225,16 @@ class BuildDependency:
         if not self.git or self.is_root:    # No git for local or root targets
             return False
 
-        nopull = self.config.nopull
-        pull = not nopull and self.config.update
-
         if not self.source_dir_exists():  # we MUST pull here
-            if nopull: raise Exception(f'{self.name} source directory does not exist and `nopull` prevents git clone!')
             self.git.clone_or_pull()
             return True
 
-        changed = self.git.check_status() if pull else False
+        changed = self.git.check_status() if self.config.update else False
         is_target = self.config.target_matches(self.name)
 
         wiped = False
         should_wipe = self.git.url_changed and not self.git.missing_status
         if should_wipe or (is_target and self.config.reclone):
-            if nopull: raise Exception(f'{self.name} has to be wiped but `nopull` prevents git clone!')
             self.git.reclone_wipe()
             wiped = True
         else:

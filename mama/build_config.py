@@ -23,7 +23,6 @@ class BuildConfig:
         self.deploy  = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
-        self.nopull    = False # if True, any git pull/checkout will be disabled
         self.mama_init = False
         self.print     = True
         self.verbose   = False
@@ -159,7 +158,6 @@ class BuildConfig:
             elif arg == 'deploy':    self.deploy  = True
             elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
-            elif arg == 'nopull':    self.nopull    = True
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print   = False
             elif arg == 'verbose':   self.verbose = True

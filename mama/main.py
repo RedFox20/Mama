@@ -20,7 +20,6 @@ def print_usage():
     console('    clean      - clean main project or specific target')
     console('    rebuild    - clean, update, configure and build main project or specific target')
     console('    configure  - run CMake configuration on main project or specific target')
-    console('    nopull     - prevents any git pull/checkout operations')
     console('    reclone    - wipe specific target dependency and clone it again')
     console('    test       - run tests for main project or specific target')
     console('    deploy     - runs PAPA deploy stage by gathering all libraries and assets')
