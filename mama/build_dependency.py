@@ -225,19 +225,21 @@ class BuildDependency:
         if not self.git or self.is_root:    # No git for local or root targets
             return False
 
-        if self.config.nopull:  # HACK: User doesn't want git pull
-            return False
-        
-        if not self.source_dir_exists():
+        nopull = self.config.nopull
+        pull = not nopull and self.config.update
+
+        if not self.source_dir_exists():  # we MUST pull here
+            if nopull: raise Exception(f'{self.name} source directory does not exist and `nopull` prevents git clone!')
             self.git.clone_or_pull()
             return True
 
-        changed = self.git.check_status()
+        changed = self.git.check_status() if pull else False
         is_target = self.config.target_matches(self.name)
 
         wiped = False
         should_wipe = self.git.url_changed and not self.git.missing_status
         if should_wipe or (is_target and self.config.reclone):
+            if nopull: raise Exception(f'{self.name} has to be wiped but `nopull` prevents git clone!')
             self.git.reclone_wipe()
             wiped = True
         else:
@@ -255,7 +257,7 @@ class BuildDependency:
 
     def _load(self):
         git_changed = self.git_checkout()
-        self.create_build_target()
+        self.create_build_target()  ## parses target mamafile
         self.update_dep_dir()
         self.create_build_dir_if_needed()
 
@@ -267,6 +269,7 @@ class BuildDependency:
 
         if not self.is_root:
             self.load_build_dependencies(target)
+        
         target.dependencies() ## customization point for additional dependencies
 
         build = False
@@ -295,11 +298,11 @@ class BuildDependency:
             ## build also entails packaging
             if conf.clean and is_target:     return build('cleaned target')
             if self.is_root:                 return build('root target')
-            if conf.configure and is_target: return build('configure target='+target.name)
-            if conf.target    and is_target: return build('target='+target.name)
+            if conf.configure and is_target: return build('configure target='+conf.target)
+            if conf.target    and is_target: return build('target='+conf.target)
             if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
             if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
-            if git_changed:                   return build('git commit changed')
+            if git_changed:                  return build('git commit changed')
 
             if not self.nothing_to_build:
                 if not self.has_build_files():    return build('not built yet')

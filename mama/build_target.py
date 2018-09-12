@@ -3,14 +3,15 @@ import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console, execute, execute_echo
 from mama.util import save_file_if_contents_changed, glob_with_name_match, \
                       normalized_path, write_text_to, copy_if_needed
-from mama.build_dependency import BuildDependency, Git
+from mama.build_dependency import BuildDependency
 from mama.build_config import BuildConfig
-from mama.cmake_configure import run_cmake_config, run_cmake_build, cmake_default_options, \
-                                 cmake_inject_env, cmake_buildsys_flags, cmake_generator
 from mama.papa_deploy import papa_deploy_to, Asset
 import mama.util as util
 from typing import List
 from mama.msbuild import msbuild_build
+import mama.cmake_configure as cmake
+import mama.package as package
+import mama.add_dependencies as add_dependencies
 
 ######################################################################################
 
@@ -115,25 +116,6 @@ class BuildTarget:
         return util.path_join(self.dep.build_dir, subpath)
 
 
-    def _get_full_path(self, path):
-        if path and not os.path.isabs(path):
-            if self.dep.mamafile: # if setting mamafile, then use mamafile folder:
-                path = os.path.join(os.path.dirname(self.dep.mamafile), path)
-            else:
-                path = os.path.join(self.dep.src_dir, path)
-            path = normalized_path(path)
-        return path
-
-
-    def _get_mamafile_path(self, name, mamafile):
-        if mamafile:
-            return self._get_full_path(mamafile)
-        maybe_mamafile = self._get_full_path(f'mama/{name}.py')
-        if os.path.exists(maybe_mamafile):
-            return maybe_mamafile
-        return mamafile
-
-
     def add_local(self, name, source_dir, mamafile=None, args=[]):
         """
         Add a local dependency. This can be a git submodule or just some local folder.
@@ -147,11 +129,7 @@ class BuildTarget:
         self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
         ```
         """
-        src      = self._get_full_path(source_dir)
-        mamafile = self._get_mamafile_path(name, mamafile)
-        dependency = BuildDependency.get(name, self.config, BuildTarget, \
-                        workspace=self.dep.workspace, src=src, mamafile=mamafile, args=args)
-        self.dep.children.append(dependency)
+        add_dependencies.add_local(self, name, source_dir, mamafile, args)
 
 
     def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):
@@ -172,11 +150,7 @@ class BuildTarget:
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
         ```
         """
-        git = Git(git_url, git_branch, git_tag)
-        mamafile = self._get_mamafile_path(name, mamafile)
-        dependency = BuildDependency.get(name, self.config, BuildTarget, \
-                        workspace=self.dep.workspace, git=git, mamafile=mamafile, args=args)
-        self.dep.children.append(dependency)
+        add_dependencies.add_git(self, name, git_url, git_branch, git_tag, mamafile, args)
 
 
     def get_dependency(self, name):
@@ -299,11 +273,6 @@ class BuildTarget:
             #console(f'    {self.name}.build_dependencies += {dependency}')
 
 
-    def _get_root_path(self, path, src_dir):
-        root = self.dep.src_dir if src_dir else self.dep.build_dir
-        return normalized_path(os.path.join(root, path))
-
-
     def export_include(self, include_path, build_dir=False):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient).
@@ -316,13 +285,7 @@ class BuildTarget:
             self.export_include('installed/MyLib/include', build_dir=True)
         ```
         """
-        include_path = self._get_root_path(include_path, not build_dir)
-        #console(f'export_include={include_path}')
-        if os.path.exists(include_path):
-            if not include_path in self.exported_includes:
-                self.exported_includes.append(include_path)
-            return True
-        return False
+        return package.export_include(self, include_path, build_dir)
 
 
     def export_includes(self, include_paths=[''], build_dir=False):
@@ -337,9 +300,7 @@ class BuildTarget:
         self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
         ```
         """
-        self.exported_includes = []
-        for include_path in include_paths:
-            self.export_include(include_path, build_dir)
+        return package.export_includes(self, include_paths, build_dir)
 
 
     def export_lib(self, relative_path, src_dir=False):
@@ -354,12 +315,7 @@ class BuildTarget:
         self.export_lib('lib/mylib.a', src_dir=True)  # from project source dir
         ```
         """
-        path = self._get_root_path(relative_path, src_dir)
-        if os.path.exists(path):
-            self.exported_libs.append(path)
-            self.exported_libs = self._get_unique_basenames(self.exported_libs)
-        else:
-            console(f'export_lib failed to find: {path}')
+        return package.export_lib(self, relative_path, src_dir)
 
 
     def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, order=None):
@@ -383,18 +339,7 @@ class BuildTarget:
         -->  [..others.., libopencv_xphoto.a, libopencv_calib3d.a, libopencv_flann.a, libopencv_core.a]
         ```
         """
-        libs = glob_with_name_match(self._get_root_path(path, src_dir), pattern_substrings)
-        if order:
-            def lib_index(lib):
-                for i in range(len(order)):
-                    if order[i] in lib: return i
-                return -1
-            def sort_key(lib):
-                return lib_index(lib)
-            libs.sort(key=sort_key)
-        self.exported_libs += libs
-        self.exported_libs = self._get_unique_basenames(self.exported_libs)
-        return len(self.exported_libs) > 0
+        return package.export_libs(self, path, pattern_substrings, src_dir, order)
 
 
     def export_asset(self, asset, category=None, src_dir=True):
@@ -413,13 +358,7 @@ class BuildTarget:
             --> {deploy}/dotnet/NanoMesh.cs
         ```
         """
-        full_asset = self._get_root_path(asset, src_dir)
-        if os.path.exists(full_asset):
-            self.exported_assets.append(Asset(asset, full_asset, category))
-            return True
-        else:
-            console(f'export_asset failed to find: {full_asset}')
-            return False
+        return package.export_asset(self, asset, category, src_dir)
 
 
     def export_assets(self, assets_path, pattern_substrings = [], category=None, src_dir=True):
@@ -438,13 +377,7 @@ class BuildTarget:
             --> {deploy}/dotnet/NanoMesh.cs
         ```
         """
-        assets_path += '/'
-        assets = glob_with_name_match(self._get_root_path(assets_path, src_dir), pattern_substrings, match_dirs=False)
-        if assets:
-            for full_asset in assets:
-                self.exported_assets.append(Asset(assets_path, full_asset, category))
-            return True
-        return False
+        return package.export_assets(self, assets_path, pattern_substrings, category, src_dir)
 
 
     def export_syslib(self, name, required=True):
@@ -460,37 +393,7 @@ class BuildTarget:
             #   3. libuuid.a
         ```
         """
-        if self.ios or self.macos:
-            if not name.startswith('-framework '):
-                raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
-            lib = name
-        elif self.linux:
-            lib = f'/usr/lib/x86_64-linux-gnu/{name}'
-            if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
-            if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
-            if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.so'
-            if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.a'
-            if not os.path.exists(lib):
-                if not required: return False
-                raise IOError(f'Error {self.name} failed to find REQUIRED SysLib: {name}')
-        else:
-            lib = name # just export it. expect system linker to find it.
-        #console(f'Exporting syslib: {name}:{lib}')
-        self.exported_syslibs.append(lib)
-        self.exported_syslibs = self._get_unique_basenames(self.exported_syslibs)
-        return True
-
-
-    def _get_unique_basenames(self, items):
-        unique = dict()
-        for item in items:
-            if isinstance(item, tuple):
-                unique[os.path.basename(item[0])] = item
-            elif item.startswith('-framework '):
-                unique[item.split(' ', 1)[1]] = item
-            else:
-                unique[os.path.basename(item)] = item
-        return list(unique.values())
+        return package.export_syslib(self, name, required)
 
 
     def inject_env(self):
@@ -503,7 +406,7 @@ class BuildTarget:
                 self.my_custom_build()  # 
         ```
         """
-        cmake_inject_env(self)
+        cmake.inject_env(self)
 
 
     def _add_dict_flag(self, dest:dict, flag):
@@ -960,9 +863,18 @@ class BuildTarget:
         def deploy(self):
             self.papa_deploy('deploy/NanoMesh')
         ```
+        Or:
+        ```
+        def deploy(self):
+            self.default_deploy()
+        ```
         """
-        pass
+        self.default_deploy()
     
+
+    def default_deploy(self):
+        self.papa_deploy(f'deploy/{self.name}')
+
     
     def papa_deploy(self, package_path, src_dir=True,
                     r_includes=True, r_dylibs=True,
@@ -995,7 +907,7 @@ class BuildTarget:
             S libGL.a
             A someassets/extra.txt
         """
-        path = self._get_root_path(package_path, src_dir)
+        path = package.target_root_path(self, package_path, src_dir)
         papa_deploy_to(self, path, r_includes, r_dylibs, r_syslibs, r_assets)
 
 
@@ -1032,7 +944,7 @@ class BuildTarget:
         if self.config.print:
             console('\n\n#############################################################')
             console(f"CMake install {self.name} ...")
-        run_cmake_build(self, install=True)
+        cmake.run_build(self, install=True)
 
 
     def clean_target(self):
@@ -1044,15 +956,9 @@ class BuildTarget:
             console('\n\n#############################################################')
             console(f"CMakeBuild {self.name}  ({self.cmake_build_type})")
         self.dep.ensure_cmakelists_exists()
-        def cmake_flags():
-            flags = ''
-            options = self.cmake_opts + cmake_default_options(self) + self.get_product_defines()
-            for opt in options: flags += '-D'+opt+' '
-            return flags
-
-        self.inject_env()
-        run_cmake_config(self, cmake_flags())
-        run_cmake_build(self, install=True, extraflags=cmake_buildsys_flags(self))
+        cmake.inject_env(self)
+        cmake.run_config(self)
+        cmake.run_build(self, install=True)
 
 
     def is_test_target(self):

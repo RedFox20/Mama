@@ -3,7 +3,8 @@ from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 from mama.async_file_reader import AsyncFileReader, AsyncConsoleReader
 
-def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
+
+def _rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     rerun = False
     error = ''
     delete_cmakecache = False
@@ -48,25 +49,33 @@ def rerunnable_cmake_conf(cwd, args, allow_rerun, target):
         os.remove(target.build_dir('CMakeCache.txt'))
     if rerun and allow_rerun:
         if print_enabled: console('Rerunning CMake configure')
-        return rerunnable_cmake_conf(cwd, args, False, target)
+        return _rerunnable_cmake_conf(cwd, args, False, target)
     if proc.returncode != 0:
         raise Exception(f'CMake configure error: {error}')
 
 
-def run_cmake_config(target, cmake_flags):
-    generator = cmake_generator(target)
+def run_config(target):
+    def get_flags():
+        flags = ''
+        options = target.cmake_opts + _default_options(target) + target.get_product_defines()
+        for opt in options: flags += '-D'+opt+' '
+        return flags
+    
+    cmake_flags = get_flags()
+    generator = _generator(target)
     src_dir = target.dep.src_dir
     cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
-    rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target)
+    _rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target)
 
 
-def run_cmake_build(target, install, extraflags=''):
+def run_build(target, install, extraflags=''):
     build_dir = target.dep.build_dir
-    flags = cmake_build_config(target, install)
+    flags = _build_config(target, install)
+    extraflags = _buildsys_flags(target)
     execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)
 
 
-def cmake_generator(target):
+def _generator(target):
     config:BuildConfig = target.config
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
     if config.windows:            return '-G "Visual Studio 15 2017 Win64"'
@@ -79,7 +88,7 @@ def cmake_generator(target):
     else:                         return ''
 
 
-def cmake_make_program(target):
+def _make_program(target):
     config:BuildConfig = target.config
     if config.windows:     return ''
     if target.enable_unix_make:   return ''
@@ -92,7 +101,7 @@ def cmake_make_program(target):
     return ''
 
 
-def cmake_custom_compilers(target):
+def _custom_compilers(target):
     config:BuildConfig = target.config
     cc, cxx = config.get_preferred_compiler_paths(target.enable_cxx_build)
     compilers = [f'CMAKE_C_COMPILER={cc}']
@@ -101,7 +110,7 @@ def cmake_custom_compilers(target):
     return compilers
 
 
-def cmake_default_options(target):
+def _default_options(target):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
     ldflags:dict  = target.cmake_ldflags
@@ -161,7 +170,7 @@ def cmake_default_options(target):
 
     opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if config.linux or config.raspi:
-        opt += cmake_custom_compilers(target)
+        opt += _custom_compilers(target)
     
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
@@ -178,7 +187,7 @@ def cmake_default_options(target):
         f'CMAKE_STATIC_LINKER_FLAGS="{ldflags_str}"'
     ]
 
-    make = cmake_make_program(target)
+    make = _make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 
     if config.android:
@@ -234,10 +243,10 @@ def cmake_default_options(target):
     return opt
 
 
-def cmake_inject_env(target):
+def inject_env(target):
     config:BuildConfig = target.config
     if config.android:
-        make = cmake_make_program(target)
+        make = _make_program(target)
         if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
         os.environ['ANDROID_HOME'] = config.android_home()
         os.environ['ANDROID_NDK'] = config.android_ndk()
@@ -252,14 +261,14 @@ def cmake_inject_env(target):
         os.environ['MACOSX_DEPLOYMENT_TARGET'] = config.macos_version
 
 
-def cmake_build_config(target, install):
+def _build_config(target, install):
     conf = f'--config {target.cmake_build_type}'
     if install and target.install_target:
         conf += f' --target {target.install_target}'
     return conf
 
 
-def mp_flags(target):
+def _mp_flags(target):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
     if config.windows:     return f'/maxcpucount:{config.jobs}'
@@ -270,10 +279,10 @@ def mp_flags(target):
     return f'-j{config.jobs}'
 
 
-def cmake_buildsys_flags(target):
+def _buildsys_flags(target):
     config:BuildConfig = target.config
     def get_flags():
-        mpf = mp_flags(target)
+        mpf = _mp_flags(target)
         if config.windows:            return f'/v:m {mpf} /nologo'
         if target.enable_unix_make:   return mpf
         if target.enable_ninja_build: return ''
