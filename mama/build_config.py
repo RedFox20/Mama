@@ -1,6 +1,6 @@
 import os, sys, multiprocessing, subprocess, tempfile, platform
 from mama.system import System, console, execute, execute_piped
-from mama.util import download_file, unzip
+from mama.util import download_file, unzip, forward_slashes
 
 
 def find_executable_from_system(name):
@@ -20,6 +20,7 @@ class BuildConfig:
         self.clean   = False
         self.rebuild = False
         self.update  = False
+        self.deploy  = False
         self.configure = False # re-run cmake configure
         self.reclone   = False
         self.nopull    = False # if True, any git pull/checkout will be disabled
@@ -67,7 +68,10 @@ class BuildConfig:
         self.convenient_install = []
         ## Workspace and parsing
         self.global_workspace = False
-        self.workspaces_root = os.getenv('HOMEPATH') if System.windows else os.getenv('HOME')
+        if System.windows:
+            self.workspaces_root = forward_slashes(os.path.abspath(os.getenv('HOMEPATH')))
+        else:
+            self.workspaces_root = os.getenv('HOME')
         self.parse_args(args)
         self.check_platform()
 
@@ -152,6 +156,7 @@ class BuildConfig:
             elif arg == 'clean':     self.clean   = True
             elif arg == 'rebuild':   self.rebuild = True
             elif arg == 'update':    self.update  = True
+            elif arg == 'deploy':    self.deploy  = True
             elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
             elif arg == 'nopull':    self.nopull    = True

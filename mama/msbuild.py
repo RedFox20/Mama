@@ -33,10 +33,6 @@ def _get_msbuild_options(properties):
 
 
 def msbuild_build(config:BuildConfig, projectfile:str, properties:dict):
-    if config.print:
-        console('\n#########################################')
-        console(f'MSBuild {projectfile}')
-
     msbuild = config.get_msbuild_path()
     _check_default_properties(properties)
 

@@ -1024,7 +1024,7 @@ class BuildTarget:
         """
         pass
 
-
+    
     ############################################
 
 
@@ -1042,7 +1042,7 @@ class BuildTarget:
     def cmake_build(self):
         if self.config.print:
             console('\n\n#############################################################')
-            console(f"CMake build {self.name}  ({self.cmake_build_type})")
+            console(f"CMakeBuild {self.name}  ({self.cmake_build_type})")
         self.dep.ensure_cmakelists_exists()
         def cmake_flags():
             flags = ''
@@ -1070,42 +1070,51 @@ class BuildTarget:
         try:
             self.dep.already_executed = True
 
-            if self.dep.should_rebuild and not self.dep.nothing_to_build:
-                self.configure() # user customization
-                if not self.dep.nothing_to_build:
-                    self.build() # user customization
-                    self.dep.successful_build()
-            
-            self.package() # user customization
+            self._execute_build_tasks()
 
-            # no packaging provided by user; use default packaging instead
-            if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
-                self.default_package()
+            if self.config.deploy:
+                self.deploy() # user customization
 
-            # only save and print exports if we built anything
-            if self.dep.build_dir_exists():
-                self.dep.save_exports_as_dependencies(self.exported_libs)
-                self._print_exports()
-
-            self.deploy() # user customization
-
-            if self.is_test_target():
-                test_args = self.config.test.lstrip()
-                if self.config.print: console(f'  - Testing {self.name} {test_args}')
-                self.test(test_args)
-
-            if self.dep.is_root and self.config.start:
-                start_args = self.config.start.lstrip()
-                if self.config.print: console(f'  - Starting {self.name} {start_args}')
-                self.start(start_args)
+            self._execute_run_tasks()
         except:
             console(f'  [BUILD FAILED]  {self.dep.name}')
             raise
 
 
+    def _execute_build_tasks(self):
+        if self.dep.should_rebuild and not self.dep.nothing_to_build:
+            self.configure() # user customization
+            if not self.dep.nothing_to_build:
+                self.build() # user customization
+                self.dep.successful_build()
+        
+        self.package() # user customization
+
+        # no packaging provided by user; use default packaging instead
+        if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
+            self.default_package()
+
+        # only save and print exports if we built anything
+        if self.dep.build_dir_exists():
+            self.dep.save_exports_as_dependencies(self.exported_libs)
+            self._print_exports()
+
+
+    def _execute_run_tasks(self):
+        if self.is_test_target():
+            test_args = self.config.test.lstrip()
+            if self.config.print: console(f'  - Testing {self.name} {test_args}')
+            self.test(test_args)
+
+        if self.dep.is_root and self.config.start:
+            start_args = self.config.start.lstrip()
+            if self.config.print: console(f'  - Starting {self.name} {start_args}')
+            self.start(start_args)
+
+
     def _print_ws_path(self, what, path, check_exists=True):
         def exists():
-            return '' if os.path.exists(path) else '   !! (path does not exist) !!' 
+            return '' if os.path.exists(path) else '   !! (path does not exist) !!'
         if path.startswith('-framework'):
             console(f'    {what}  {path}')
         elif path.startswith(self.config.workspaces_root):
@@ -1124,7 +1133,11 @@ class BuildTarget:
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
-        for asset   in self.exported_assets:   self._print_ws_path('[A]', str(asset), check_exists=False)
+        if self.config.deploy:
+            for asset in self.exported_assets: self._print_ws_path('[A]', str(asset), check_exists=False)
+        elif self.exported_assets:
+            assets = 'assets' if len(self.exported_assets) > 1 else 'asset'
+            console(f'    [A]  ({len(self.exported_assets)} {assets})')
 
 
     ############################################
@@ -1147,6 +1160,9 @@ class BuildTarget:
         /p:Configuration=Release
         /p:Platform=x64
         """
+        if self.config.print:
+            console('\n#########################################')
+            console(f'MSBuild {self.name} {projectfile}')
         msbuild_build(self.config, self.source_dir(projectfile), properties)
 
 

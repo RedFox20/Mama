@@ -47,10 +47,10 @@ def _get_flattened_deps(root: BuildDependency):
             add_unique_items(child.children)
     add_unique_items(root.children)
 
-    if len(ordered) > 1:
-        names = [dep.name for dep in ordered]
-        if root.config.print:
-            console(f'  - Dependency Order:\n        {" ".join(names)}')
+    if ordered:
+        if root.config.verbose:
+            names = [dep.name for dep in ordered]
+            console(f'  - Dependency Order:  {" ".join(names)}')
 
     if root.config.verbose:
         console('  - Exports:')
