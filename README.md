@@ -106,8 +106,8 @@ class libpng_static(mama.BuildTarget):
 
     def configure(self):
         zinclude, zlibrary = self.get_target_products('zlib')
-        self.add_cmake_options(f'ZLIB_INCLUDE_DIR={zinclude[0]}')
-        self.add_cmake_options(f'ZLIB_LIBRARY={zlibrary[0]}')
+        self.add_cmake_options(f'ZLIB_INCLUDE_DIR={zinclude}')
+        self.add_cmake_options(f'ZLIB_LIBRARY={zlibrary}')
         self.add_cmake_options('BUILD_SHARED_LIB=NO', 'PNG_TESTS=NO')
 
     def package(self):

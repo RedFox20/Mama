@@ -241,14 +241,16 @@ class BuildTarget:
 
     def get_target_products(self, target_name):
         """
-        Gets target products as a tuple: (include_paths=[], libs=[])
+        Gets target products as a tuple: (include_paths:str, libs:str)
         ```
             zlib_inc, zlib_libs = self.get_target_products('zlib')
+            # zlib_inc  --> 'build/zlib/windows/include'
+            # zlib_libs --> 'build/zlib/windows/RelWithDebInfo/zlibstatic.lib'
         ```
         """
         dep = self.get_dependency(target_name)
         target:BuildTarget = dep.target
-        return (target._get_exported_includes(), target._get_exported_libs())
+        return (target._get_exported_includes(), target._get_exported_libs(None))
 
 
     def add_build_dependency(self, all=None, windows=None, linux=None, macos=None, ios=None, android=None):
