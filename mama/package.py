@@ -89,11 +89,11 @@ def export_syslib(target, name, required):
         lib = name
     elif target.linux:
         lib = f'/usr/lib/x86_64-linux-gnu/{name}'
-        if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
-        if not os.path.exists(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
-        if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.so'
-        if not os.path.exists(lib): lib = f'/usr/lib/lib{name}.a'
-        if not os.path.exists(lib):
+        if not os.path.isfile(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
+        if not os.path.isfile(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
+        if not os.path.isfile(lib): lib = f'/usr/lib/lib{name}.so'
+        if not os.path.isfile(lib): lib = f'/usr/lib/lib{name}.a'
+        if not os.path.isfile(lib):
             if not required: return False
             raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}')
     else:
