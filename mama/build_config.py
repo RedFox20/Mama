@@ -156,6 +156,10 @@ class BuildConfig:
             elif arg == 'rebuild':   self.rebuild = True
             elif arg == 'update':    self.update  = True
             elif arg == 'deploy':    self.deploy  = True
+            elif arg == 'serve':
+                self.build = True
+                self.update = True
+                self.deploy = True
             elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
             elif arg == 'init':      self.mama_init = True
