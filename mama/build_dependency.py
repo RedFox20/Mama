@@ -293,7 +293,6 @@ class BuildDependency:
             ## build also entails packaging
             if conf.clean and is_target:     return build('cleaned target')
             if self.is_root:                 return build('root target')
-            if conf.configure and is_target: return build('configure target='+conf.target)
             if conf.target    and is_target: return build('target='+conf.target)
             if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
             if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')

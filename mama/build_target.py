@@ -980,9 +980,9 @@ class BuildTarget:
             self._execute_build_tasks()
             self._execute_deploy_tasks()
             self._execute_run_tasks()
-        except:
-            console(f'  [BUILD FAILED]  {self.dep.name}')
-            raise
+        except Exception as err:
+            console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}')
+            exit(-1) # exit without stack trace
 
 
     def _execute_build_tasks(self):
