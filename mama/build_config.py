@@ -21,7 +21,6 @@ class BuildConfig:
         self.rebuild = False
         self.update  = False
         self.deploy  = False
-        self.configure = False # re-run cmake configure
         self.reclone   = False
         self.mama_init = False
         self.print     = True
@@ -160,7 +159,6 @@ class BuildConfig:
                 self.build = True
                 self.update = True
                 self.deploy = True
-            elif arg == 'configure': self.configure = True
             elif arg == 'reclone':   self.reclone   = True
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print   = False
