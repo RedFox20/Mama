@@ -362,7 +362,15 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if System.windows: raise OSError('Install Visual Studio 2017 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
         
-        clang6_zip = download_file('http://ateh10.net/dev/clang++6-1404.zip', tempfile.gettempdir())
+        distro_name, version, _ = platform.linux_distribution()
+        if distro_name != "Ubuntu": raise OSError('install_clang6 only supports Ubuntu')
+        
+        versionInt = int(version.split('.')[0])
+        suffix = '1404'
+        if versionInt >= 16:
+            suffix = '1604'
+
+        clang6_zip = download_file(f'http://ateh10.net/dev/clang++6-{suffix}.zip', tempfile.gettempdir())
         unzip(clang6_zip, '/usr/local') # /usr/local/clang++6/
         os.remove(clang6_zip)
         execute('sudo ln -sf /usr/local/clang++6/lib/libc++.so.1    /usr/lib')
