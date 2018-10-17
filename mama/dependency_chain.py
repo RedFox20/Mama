@@ -36,6 +36,17 @@ def _get_exported_libs(target):
     return filtered + target.exported_syslibs
 
 
+def _get_hierarchical_libs(root: BuildDependency):
+    deps = []
+    def add_deps(dep: BuildDependency):
+        nonlocal deps
+        deps += _get_exported_libs(dep.target)
+        for child in dep.children:
+            add_deps(child)
+    add_deps(root)
+    return deps
+
+
 def _get_flattened_deps(root: BuildDependency):
     # deps have to be sorted in [parent] [child] order for Unix linkers
     ordered = []
@@ -74,13 +85,17 @@ def _save_dependencies_cmake(root: BuildDependency):
     flatdeps = _get_flattened_deps(root)
     for dep in flatdeps:
         includes  = _get_cmake_path_list(dep.target.exported_includes)
-        libraries = _get_cmake_path_list(_get_exported_libs(dep.target))
+        flatlibs = _get_cmake_path_list(_get_exported_libs(dep.target))
+        hierarchical = _get_cmake_path_list(_get_hierarchical_libs(dep))
+        #console(f'{dep.name} flatlibs: {flatlibs}')
+        #console(f'{dep.name} hierarchical: {hierarchical}')
         text += f'''
 # Package {dep.name}
 set({dep.name}_INCLUDES {includes})
-set({dep.name}_LIBS {libraries})
+set({dep.name}_LIB {flatlibs})
+set({dep.name}_LIBS {hierarchical})
 set(MAMA_INCLUDES ${{MAMA_INCLUDES}} ${{{dep.name}_INCLUDES}})
-set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIBS}})
+set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIB}})
 '''
     save_file_if_contents_changed(outfile, text)
 
