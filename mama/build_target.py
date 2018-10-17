@@ -382,7 +382,7 @@ class BuildTarget:
         return package.export_assets(self, assets_path, pattern_substrings, category, src_dir)
 
 
-    def export_syslib(self, name, required=True):
+    def export_syslib(self, name, apt='', required=True):
         """
         For UNIX: Find and export system libraries so they are automatically linked with mamabuild.
 
@@ -393,9 +393,12 @@ class BuildTarget:
             #   1. uuid
             #   2. libuuid.so
             #   3. libuuid.a
+
+            self.export_syslib('dw', 'libdw-dev')
+            # upon failure, recommend user to install missing package from `apt install libdw-dev`
         ```
         """
-        return package.export_syslib(self, name, required)
+        return package.export_syslib(self, name, apt, required)
 
 
     def inject_env(self):

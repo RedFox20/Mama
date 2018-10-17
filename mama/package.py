@@ -82,7 +82,7 @@ def export_assets(target, assets_path, pattern_substrings, category, src_dir):
     return False
 
 
-def export_syslib(target, name, required):
+def export_syslib(target, name, apt, required):
     if target.ios or target.macos:
         if not name.startswith('-framework '):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
@@ -95,7 +95,9 @@ def export_syslib(target, name, required):
         if not os.path.isfile(lib): lib = f'/usr/lib/lib{name}.a'
         if not os.path.isfile(lib):
             if not required: return False
-            raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}')
+            if apt:
+                raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
+            raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
     else:
         lib = name # just export it. expect system linker to find it.
     #console(f'Exporting syslib: {name}:{lib}')
