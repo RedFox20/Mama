@@ -371,7 +371,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             suffix = '1604'
 
         clang6_zip = download_file(f'http://ateh10.net/dev/clang++6-{suffix}.zip', tempfile.gettempdir())
-        unzip(clang6_zip, '/usr/local') # /usr/local/clang++6/
+        execute('sudo rm -rf /usr/local/clang++6/') # get rid of any old stuff
+        unzip(clang6_zip, '/usr/local') # extract /usr/local/clang++6/
         os.remove(clang6_zip)
         execute('sudo ln -sf /usr/local/clang++6/lib/libc++.so.1    /usr/lib')
         execute('sudo ln -sf /usr/local/clang++6/lib/libc++abi.so.1 /usr/lib')
