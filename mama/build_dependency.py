@@ -270,7 +270,7 @@ class BuildDependency:
         build = False
         if conf.build or conf.update:
             build = self._should_build(conf, target, is_target, git_changed)
-            if not build and git_changed:
+            if git_changed:
                 self.git.save_status()
 
         self.already_loaded = True
