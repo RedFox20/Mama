@@ -49,8 +49,10 @@ class BuildConfig:
         self.macos_version = '10.12'
         ## Ninja
         self.ninja_path = self.find_ninja_build()
-        ## MSBuild
+        ## MSVC, MSBuild
+        self._visualstudio_path = None
         self._msbuild_path = None
+        self._msvctools_path = None
         ## Android
         self.android_sdk_path = ''
         self.android_ndk_path = ''
@@ -335,6 +337,30 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return None
 
 
+    def get_visualstudio_path(self):
+        if self._visualstudio_path:
+            return self._visualstudio_path
+        if not System.windows:
+            raise EnvironmentError('VisualStudio tools support not available on this platform!')
+
+        vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
+        paths = [execute_piped(vswhere)]
+        vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
+        vs_versions = [ ('2017', '15.0') ]
+        for version in vs_versions:
+            for variant in vs_variants:
+                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version[0]}\\{variant}')
+
+        for path in paths:
+            if path and os.path.exists(path):
+                #path = forward_slashes(path)
+                self._visualstudio_path = path
+                if self.verbose: console(f'Detected VisualStudio: {path}')
+                return path
+
+        return self._visualstudio_path
+
+
     def get_msbuild_path(self):
         if self._msbuild_path:
             return self._msbuild_path
@@ -348,10 +374,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             for version in vs_versions:
                 for variant in vs_variants:
                     paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version[0]}\\{variant}\\MSBuild\\{version[1]}\\Bin\\amd64\\MSBuild.exe')
-        elif System.linux:
-            pass
-        elif System.macos:
-            pass
+
         for path in paths:
             if path and os.path.exists(path):
                 self._msbuild_path = path
@@ -359,6 +382,40 @@ Define env RASPI_HOME with path to Raspberry tools.''')
                 return path
         raise EnvironmentError('Failed to find MSBuild from system PATH. You can easily configure msbuild by running `mama install-msbuild`.')
 
+
+    ## MSVC tools at, for example: "{VisualStudioPath}\VC\Tools\MSVC\14.16.27023"
+    def get_msvc_tools_path(self):
+        if self._msvctools_path:
+            return self._msvctools_path
+        if not System.windows:
+            raise EnvironmentError('MSVC tools not available on this platform!')
+
+        tools_root = f"{self.get_visualstudio_path()}\\VC\\Tools\\MSVC"
+        tools = os.listdir(tools_root)
+        if not tools:
+            raise EnvironmentError('Could not detect MSVC Tools')
+
+        tools_path = os.path.join(tools_root, tools[0])
+        #tools_path = forward_slashes(tools_path)
+        self._msvctools_path = tools_path
+        if self.verbose: console(f'Detected MSVC Tools: {tools_path}')
+        return tools_path
+
+
+    def get_msvc_bin64(self):
+        return f'{self.get_msvc_tools_path()}/bin/Hostx64/x64/'
+
+
+    def get_msvc_link64(self):
+        return f'{self.get_msvc_bin64()}link.exe'
+
+
+    def get_msvc_cl64(self):
+        return f'{self.get_msvc_bin64()}cl.exe'
+
+    
+    def get_msvc_lib64(self):
+        return f'{self.get_msvc_tools_path()}\\lib\\x64'
 
 
     def install_clang6(self):
