@@ -103,10 +103,10 @@ class AsyncConsoleReader:
     def read(self):
         out = self._peek_out()
         err = self._peek_err()
-        if out and (not err or out[0] < err[0]):
+        if out and (not err or out[0] <= err[0]):
             self.current_out = None
             return (out[1], None)
-        if err and (not out or err[0] < out[0]):
+        if err and (not out or err[0] <= out[0]):
             self.current_err = None
             return (None, err[1])
         return (None, None)
