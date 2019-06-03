@@ -51,6 +51,7 @@ class BuildConfig:
         self.ninja_path = self.find_ninja_build()
         ## MSVC, MSBuild
         self._visualstudio_path = None
+        self._visualstudio_cmake_id = None
         self._msbuild_path = None
         self._msvctools_path = None
         ## Android
@@ -346,19 +347,33 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
         paths = [execute_piped(vswhere)]
         vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-        vs_versions = [ ('2017', '15.0') ]
+        vs_versions = [ '2019', '2017' ]
         for version in vs_versions:
             for variant in vs_variants:
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version[0]}\\{variant}')
+                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version}\\{variant}')
 
         for path in paths:
             if path and os.path.exists(path):
                 #path = forward_slashes(path)
                 self._visualstudio_path = path
                 if self.verbose: console(f'Detected VisualStudio: {path}')
+                
+
                 return path
 
         return self._visualstudio_path
+
+
+    def get_visualstudio_cmake_id(self):
+        if self._visualstudio_cmake_id:
+            return self._visualstudio_cmake_id
+        
+        path = self.get_visualstudio_path()
+        if '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
+        else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
+        
+        if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A x64')
+        return self._visualstudio_cmake_id
 
 
     def get_msbuild_path(self):
@@ -368,12 +383,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         paths = [ find_executable_from_system('msbuild') ]
         if System.windows:
             vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
+            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\Current\\Bin\\MSBuild.exe")
             paths.append(f"{execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
-            vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-            vs_versions = [ ('2017', '15.0') ]
-            for version in vs_versions:
-                for variant in vs_variants:
-                    paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version[0]}\\{variant}\\MSBuild\\{version[1]}\\Bin\\amd64\\MSBuild.exe')
+            
+            vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
+            for variant in vs_variants:
+                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
+                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\{variant}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe')
 
         for path in paths:
             if path and os.path.exists(path):
@@ -419,7 +435,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def install_clang6(self):
-        if System.windows: raise OSError('Install Visual Studio 2017 with Clang support')
+        if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
         
         distro_name, version, _ = platform.linux_distribution()
@@ -447,7 +463,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def install_msbuild(self):
-        if System.windows: raise OSError('Install Visual Studio 2017 to get MSBuild on Windows')
+        if System.windows: raise OSError('Install Visual Studio 2019 to get MSBuild on Windows')
         if System.macos:   raise OSError('install_msbuild not implemented for macOS')
         
         distro_name, _, codename = platform.linux_distribution()

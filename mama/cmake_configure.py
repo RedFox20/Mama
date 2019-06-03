@@ -78,7 +78,7 @@ def run_build(target, install, extraflags=''):
 def _generator(target):
     config:BuildConfig = target.config
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.windows:            return '-G "Visual Studio 15 2017 Win64"'
+    if config.windows:            return f'-G "{config.get_visualstudio_cmake_id()}" -A x64'
     if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "Unix Makefiles"'
     if config.linux:              return '-G "Unix Makefiles"'
