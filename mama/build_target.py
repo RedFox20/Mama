@@ -984,7 +984,10 @@ class BuildTarget:
             self._execute_deploy_tasks()
             self._execute_run_tasks()
         except Exception as err:
-            console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}')
+            import traceback
+            tb = traceback.format_exc().splitlines(True)
+            tb = tb[-3]+tb[-2] if len(tb) >= 3 else ''.join(tb)
+            console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\nError Source:\n{tb}')
             exit(-1) # exit without stack trace
 
 

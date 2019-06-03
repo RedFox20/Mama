@@ -109,5 +109,5 @@ class AsyncConsoleReader:
         if err and (not out or err[0] < out[0]):
             self.current_err = None
             return (None, err[1])
-        return None
+        return (None, None)
 
