@@ -102,6 +102,13 @@ def set_target_from_unused_args(config: BuildConfig):
         else:
             config.target = arg
 
+def check_config_target(config: BuildConfig, root: BuildDependency):
+    if config.target and config.target != 'all':
+        dep = find_dependency(root, config.target)
+        if dep is None:
+            console(f"ERROR: specified target='{config.target}' not found!")
+            exit(-1)
+
 def main():
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
@@ -156,6 +163,8 @@ def main():
         root.clean()
 
     load_dependency_chain(root)
+    check_config_target(config, root)
+
     if config.android: config.init_ndk_path()
     if config.raspi:   config.init_raspi_path()
     execute_task_chain(root)
