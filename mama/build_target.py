@@ -849,17 +849,40 @@ class BuildTarget:
             self.default_package()
         ```
         """
+        self.default_package_includes()
+        self.default_package_libs()
+    
+
+    def default_package_includes(self):
+        """
+        Performs default INCLUDE packaging steps.
+        It can also be called manually to collect includes.
+        ```
+        def package(self):
+            self.default_package_includes()
+        ```
+        """
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
         elif self.export_include('src',     build_dir=False): pass
         elif self.export_include('',        build_dir=False): pass
 
+
+    def default_package_libs(self):
+        """
+        Performs default LIB packaging steps.
+        It can also be called manually to collect libs.
+        ```
+        def package(self):
+            self.default_package_libs()
+        ```
+        """
         # default export from {build_dir}/{cmake_build_type}
         if self.export_libs(self.cmake_build_type, src_dir=False): pass
         elif self.export_libs('lib', src_dir=False): pass
         elif self.export_libs('.', src_dir=False): pass
-    
+
 
     def deploy(self):
         """
@@ -1001,8 +1024,10 @@ class BuildTarget:
         self.package() # user customization
 
         # no packaging provided by user; use default packaging instead
-        if not self.exported_includes or not (self.exported_libs or self.exported_syslibs):
-            self.default_package()
+        if not self.exported_includes:
+            self.default_package_includes()
+        if not (self.exported_libs or self.exported_syslibs):
+            self.default_package_libs()
 
         # only save and print exports if we built anything
         if self.dep.build_dir_exists():
