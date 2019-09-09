@@ -94,6 +94,13 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     elif config.android:
         raise EnvironmentError('Android IDE selection not implemented. Try opening this folder with Android Studio.')
 
+def set_target_from_unused_args(config: BuildConfig):
+    for arg in config.unused_args:
+        if config.target:
+            console(f"ERROR: Deduced Target='{arg}' from unused argument, but target is already set to '{config.target}'")
+            exit(-1)
+        else:
+            config.target = arg
 
 def main():
     if sys.version_info < (3, 6):
@@ -130,6 +137,9 @@ def main():
     if not has_cmake:
         console('FATAL ERROR: CMakeLists.txt not found')
         exit(-1)
+
+    if config.unused_args:
+        set_target_from_unused_args(config)
 
     if config.update:
         if not config.target:

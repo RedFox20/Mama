@@ -73,6 +73,7 @@ class BuildConfig:
             self.workspaces_root = forward_slashes(os.path.abspath(os.getenv('HOMEPATH')))
         else:
             self.workspaces_root = os.getenv('HOME')
+        self.unused_args = []
         self.parse_args(args)
         self.check_platform()
 
@@ -201,7 +202,7 @@ class BuildConfig:
             elif arg == 'install-clang6':  self.convenient_install.append('clang6')
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             else:
-                console(f"Warning: unused argument '{arg}'")
+                self.unused_args.append(arg)
             continue
 
 
