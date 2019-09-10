@@ -62,7 +62,10 @@ source_group(src     FILES ${{PRIVATE_SOURCES}})
 add_executable({project_name} ${{PUBLIC_INTERFACE}} ${{PRIVATE_SOURCES}})
 target_link_libraries({project_name} ${{MAMA_LIBS}})
 
-install(TARGETS {project_name} DESTINATION ${{CMAKE_CURRENT_SOURCE_DIR}}/bin)
+install(FILES ${{PUBLIC_INTERFACE}} DESTINATION include)
+install(TARGETS {project_name}
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib)
 
 '''
     write_text_to(cmakefile, contents)

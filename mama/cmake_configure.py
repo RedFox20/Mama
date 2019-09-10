@@ -136,7 +136,7 @@ def _default_options(target):
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
         add_flag('-DWIN32', '1') # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
-        add_flag('/MP')
+        add_flag('/MP') # multi-process build
     else:
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
