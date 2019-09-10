@@ -193,7 +193,10 @@ def _default_options(target):
     make = _make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 
-    if config.android:
+    if config.windows:
+        if config.is_target_arch_x86(): ## need to override the toolset host
+            opt += ['CMAKE_GENERATOR_TOOLSET=host=x86']
+    elif config.android:
         toolchain = target.cmake_ndk_toolchain
         if toolchain:
             toolchain = target.source_dir(toolchain)
