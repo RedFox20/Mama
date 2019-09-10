@@ -40,6 +40,8 @@ class BuildConfig:
         self.compiler_cmd = False # Was compiler specificed from command line?
         self.release = True
         self.debug   = False
+        # valid architectures: x86, x64, arm, arm64
+        self.arch    = None
         self.jobs    = multiprocessing.cpu_count()
         self.target  = None
         self.flags   = None
@@ -57,9 +59,8 @@ class BuildConfig:
         ## Android
         self.android_sdk_path = ''
         self.android_ndk_path = ''
-        self.android_arch  = 'armeabi-v7a' # arm64-v8a
-        self.android_tool  = 'arm-linux-androideabi-4.9' # aarch64-linux-android-4.9
-        self.android_api   = 'android-24'
+        self.android_ndk_release = ''
+        self.android_api     = 'android-24'
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
         ## Raspberry PI - Raspi
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
@@ -99,7 +100,25 @@ class BuildConfig:
             self.set_platform(windows=System.windows, linux=System.linux, macos=System.macos)
             if not self.is_platform_set():
                 raise RuntimeError(f'Unsupported platform {sys.platform}: Please specify platform!')
-    
+        ## Arch itself is validated in set_arch(), however we need to validate if arch is allowed on platform
+        if self.arch:
+            if self.linux and 'arm' in self.arch:
+                raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
+            if self.raspi and self.arch != 'arm':
+                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform!')
+            
+
+    def set_arch(self, arch):
+        arches = ['x86', 'x64', 'arm', 'arm64']
+        if not arch in arches:
+            raise RuntimeError(f"Unrecognized architecture {arch}! Valid options are: {arches}")
+        self.arch = arch
+
+
+    def is_64bit_build(self):
+        return (self.arch == 'x64' or self.arch == 'arm64') \
+            or (self.arch is None and System.is_64bit)
+
     
     def name(self):
         if self.windows: return 'windows'
@@ -108,6 +127,29 @@ class BuildConfig:
         if self.ios:     return 'ios'
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
+        return 'build'
+
+
+    def build_folder(self):
+        """
+        Gets the build folder name depending on platform and architecture.
+        By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
+        And 32-bit architectures add a suffix, eg 'windows32' or 'linux32'
+        """
+        if self.windows:
+            if self.is_target_arch_x64(): return 'windows'
+            if self.is_target_arch_x86(): return 'windows32'
+            if self.is_target_arch_armv7(): return 'winarm32'
+            return 'winarm'
+        if self.linux:
+            if self.is_target_arch_x64(): return 'linux'
+            return 'linux32'
+        if self.macos: return 'macos'  # Apple dropped 32-bit support
+        if self.ios:   return 'ios'    # Apple dropped 32-bit support
+        if self.android:
+            if self.is_target_arch_arm64(): return 'android'
+            return 'android32'
+        if self.raspi: return 'raspi32'  # Only 32-bit raspi
         return 'build'
 
 
@@ -179,6 +221,10 @@ class BuildConfig:
             elif arg == 'ios':     self.set_platform(ios=True)
             elif arg == 'android': self.set_platform(android=True)
             elif arg == 'raspi':   self.set_platform(raspi=True)
+            elif arg == 'x86':     self.set_arch('x86')
+            elif arg == 'x64':     self.set_arch('x64')
+            elif arg == 'arm':     self.set_arch('arm')
+            elif arg == 'arm64':   self.set_arch('arm64')
             elif arg == 'clang':   
                 self.gcc = False
                 self.clang = True
@@ -197,8 +243,11 @@ class BuildConfig:
             elif arg.startswith('target='): self.target = arg[7:]
             elif arg.startswith('test='):   self.add_test_arg(arg[5:])
             elif arg.startswith('start='):  self.start = arg[6:]
-            elif arg.startswith('flags='):
-                self.flags = arg[6:]
+            elif arg.startswith('arch='):   self.set_arch(arg[5:])
+            elif arg.startswith('flags='):  self.flags = arg[6:]
+            elif arg.startswith('android-'):
+                self.set_platform(android=True)
+                self.android_api = arg
             elif arg == 'install-clang6':  self.convenient_install.append('clang6')
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             else:
@@ -259,7 +308,13 @@ class BuildConfig:
     def append_env_path(self, paths, env):
         path = os.getenv(env)
         if path: paths.append(path)
-    
+
+
+    def android_abi(self):
+        if self.is_target_arch_armv7(): return 'armeabi-v7a'
+        elif self.arch == 'arm64': return 'arm64-v8a'
+        else: raise RuntimeError(f'Unrecognized android arch: {self.arch}')
+
 
     def android_home(self):
         if not self.android_sdk_path: self.init_ndk_path()
@@ -297,6 +352,7 @@ class BuildConfig:
             if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
                 self.android_sdk_path = sdk_path
                 self.android_ndk_path = sdk_path  + '/ndk-bundle'
+                self.android_ndk_release = 'r16b'
                 if self.print: console(f'Found Android NDK: {self.android_ndk_path}')
                 return
         raise EnvironmentError(f'''Could not detect any Android NDK installations. 
@@ -358,11 +414,41 @@ Define env RASPI_HOME with path to Raspberry tools.''')
                 #path = forward_slashes(path)
                 self._visualstudio_path = path
                 if self.verbose: console(f'Detected VisualStudio: {path}')
-                
-
                 return path
 
         return self._visualstudio_path
+    
+
+    def is_target_arch_x64(self):
+        return self.arch == 'x64' or (System.is_64bit and not self.arch)
+
+
+    def is_target_arch_x86(self):
+        return self.arch == 'x86' or (not System.is_64bit and not self.arch)
+
+
+    def is_target_arch_arm64(self):
+        return self.arch == 'arm64' or (not self.arch)
+
+
+    def is_target_arch_armv7(self):
+        return self.arch == 'arm'
+
+
+    def get_gcc_linux_march(self):
+        if self.is_target_arch_x64():
+            return 'native' if System.is_64bit else 'x86-64'
+        if self.is_target_arch_x86():
+            return 'pentium4' if System.is_64bit else 'native'
+        raise RuntimeError(f'Unsupported arch: {self.arch}')
+
+
+    def get_visualstudio_cmake_arch(self):
+        if self.is_target_arch_x64(): return 'x64'
+        if self.is_target_arch_x86(): return 'Win32'
+        if self.arch == 'arm':   return 'ARM'
+        if self.arch == 'arm64': return 'ARM64'
+        raise RuntimeError(f'Unsupported arch: {self.arch}')
 
 
     def get_visualstudio_cmake_id(self):
@@ -373,7 +459,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
         else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
         
-        if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A x64')
+        if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
         return self._visualstudio_cmake_id
 
 

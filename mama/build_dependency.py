@@ -162,7 +162,7 @@ class BuildDependency:
             if self.git.branch: dep_name = f'{self.name}-{self.git.branch}'
             elif self.git.tag:  dep_name = f'{self.name}-{self.git.tag}'
         self.dep_dir   = forward_slashes(os.path.join(self.config.workspaces_root, self.workspace, dep_name))
-        self.build_dir = forward_slashes(os.path.join(self.dep_dir, self.config.name()))
+        self.build_dir = forward_slashes(os.path.join(self.dep_dir, self.config.build_folder()))
 
 
     def has_build_files(self):
@@ -412,7 +412,7 @@ class BuildDependency:
     ## Clean
     def clean(self):
         if self.config.print:
-            console(f'  - Target {self.name: <16}   CLEAN')
+            console(f'  - Target {self.name: <16}   CLEAN  {self.config.build_folder()}')
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return

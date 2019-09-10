@@ -19,10 +19,18 @@ def _add_if_missing(properties, key, value):
         properties[key] = value
 
 
-def _check_default_properties(properties:dict):
-    _add_if_missing(properties, 'PreferredToolArchitecture', 'x64')
-    _add_if_missing(properties, 'Configuration', 'Release')
-    _add_if_missing(properties, 'Platform', 'x64')
+def _check_default_properties(config: BuildConfig, properties: dict):
+    if config.release:
+        _add_if_missing(properties, 'Configuration', 'Release')
+    else:
+        _add_if_missing(properties, 'Configuration', 'Debug')
+    
+    if config.is_target_arch_x64():
+        _add_if_missing(properties, 'PreferredToolArchitecture', 'x64')
+        _add_if_missing(properties, 'Platform', 'x64')
+    elif config.is_target_arch_x86():
+        _add_if_missing(properties, 'PreferredToolArchitecture', 'x86')
+        _add_if_missing(properties, 'Platform', 'x86')
 
 
 def _get_msbuild_options(properties):
@@ -32,9 +40,9 @@ def _get_msbuild_options(properties):
     return result
 
 
-def msbuild_build(config:BuildConfig, projectfile:str, properties:dict):
+def msbuild_build(config: BuildConfig, projectfile: str, properties: dict):
     msbuild = config.get_msbuild_path()
-    _check_default_properties(properties)
+    _check_default_properties(config, properties)
 
     options_str = _get_msbuild_options(properties)
     if config.verbose: options_str += ' /verbosity:normal'

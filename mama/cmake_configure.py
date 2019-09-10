@@ -78,7 +78,7 @@ def run_build(target, install, extraflags=''):
 def _generator(target):
     config:BuildConfig = target.config
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.windows:            return f'-G "{config.get_visualstudio_cmake_id()}" -A x64'
+    if config.windows:            return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
     if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "Unix Makefiles"'
     if config.linux:              return '-G "Unix Makefiles"'
@@ -143,16 +143,19 @@ def _default_options(target):
         if not exceptions: add_flag('-fno-exceptions')
     
     if config.android:
-        add_flag('-march', 'armv7-a')
-        add_flag('-mfpu', 'neon')
+        if config.is_target_arch_armv7():
+            add_flag('-march', 'armv7-a')
+            add_flag('-mfpu', 'neon')
+        else:
+            add_flag('-march', 'armv8-a')
         if config.android_ndk_stl == 'c++_shared':
             add_flag(f'-I"{config.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
     elif config.linux:
-        add_flag('-march', 'native')
+        add_flag('-march', config.get_gcc_linux_march())
         if config.clang and target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
     elif config.macos:
-        add_flag('-march', 'native')
+        add_flag('-march', config.get_gcc_linux_march())
         if target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
     elif config.ios:
@@ -200,11 +203,11 @@ def _default_options(target):
             'BUILD_ANDROID=ON',
             'TARGET_ARCH=ANDROID',
             'CMAKE_SYSTEM_NAME=Android',
-            f'ANDROID_ABI={config.android_arch}',
+            f'ANDROID_ABI={config.android_abi()}',
             'ANDROID_ARM_NEON=TRUE',
             f'ANDROID_NDK="{config.android_ndk()}"',
             f'NDK_DIR="{config.android_ndk()}"',
-            'NDK_RELEASE=r16b',
+            f'NDK_RELEASE={config.android_ndk_release}',
             f'ANDROID_STL={config.android_ndk_stl}',
             f'ANDROID_NATIVE_API_LEVEL={config.android_api}',
             'ANDROID_TOOLCHAIN=clang',
@@ -216,7 +219,7 @@ def _default_options(target):
             'RASPI=TRUE',
             'CMAKE_SYSTEM_NAME=Linux',
             'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSTEM_PROCESSOR=armv7-a',
+            'CMAKE_SYSTEM_PROCESSOR=armv7-a', # ALWAYS ARMv7
             'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
             'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
@@ -232,7 +235,7 @@ def _default_options(target):
             'IOS_PLATFORM=OS',
             'CMAKE_SYSTEM_NAME=Darwin',
             'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
-            'CMAKE_OSX_ARCHITECTURES=arm64',
+            'CMAKE_OSX_ARCHITECTURES=arm64', # ALWAYS ARM64
             #'CMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk',
             'CMAKE_OSX_SYSROOT=iphoneos',
         ]
@@ -250,7 +253,7 @@ def inject_env(target):
         if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
         os.environ['ANDROID_HOME'] = config.android_home()
         os.environ['ANDROID_NDK'] = config.android_ndk()
-        os.environ['ANDROID_ABI'] = config.android_arch
+        os.environ['ANDROID_ABI'] = config.android_abi()
         os.environ['NDK_RELEASE'] = 'r16b'
         os.environ['ANDROID_STL'] = config.android_ndk_stl
         os.environ['ANDROID_NATIVE_API_LEVEL'] = config.android_api

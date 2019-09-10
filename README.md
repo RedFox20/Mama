@@ -21,21 +21,25 @@ private git repositories. Package versioning is done through git tags or branche
 Custom build systems are also supported. For additional documentation explore: [build_target.py](mama/build_target.py)
 
 
-## Who is this for?
+## Who is this FOR?
 Anyone who develops cross-platform C++ libraries or applications which
-target Windows, Linux, macOS, iOS, Android, Raspberry.
+target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry].
 And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
+If you require an easy to use, reproducible project/namespace scoped package+build system, this is for you.
+Your builds will not rely on hard to setup system packages, all you need to do is type `mama build`.
 
-## Who is this not for?
-Single platform projects with platform specific build and package management systems
-such as Linux exclusive G++ projects or iOS-only cocoapods.
+
+## Who is this NOT for?
+Single platform projects with platform specific build configuration and system wide dependency management
+such as Linux exclusive G++ projects using apt-get libraries or iOS-only apps using cocoapods.
 
 
 ## Setup For Users
 1. Get python 3.6 and PIP
 2. `$ pip install mama --upgrade`
+3. `$ cd yourproject`
 3. `$ mama init` which creates a `mamafile.py` and patches your CMakeLists.txt
 4. (optional) Manual setup: Create your own `mamafile.py` (examples below) and add this to your CMakeLists.txt:
 ```cmake
@@ -50,16 +54,21 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
 ## Command examples
 ```
     mama init                     Create/Patch initial mamafile.py and CMakeLists.txt
-    mama build                    Update and build main project only.
+    mama build                    Update and build main project only. Defaults to system arch, usually x64.
+    mama build x86 opencv         Cross compile build target opencv to x86 architecture.
+    mama build android            Cross compile to arm64 android NDK, can also target arm.
     mama clean                    Cleans main project only.
+    mama clean x86 opencv         Cleans build target opencv x86 intermediate files
     mama rebuild                  Cleans, update and build main project only.
+    mama deploy                   Only runs the deploy stage of libs and assets.
+    mama serve ios                Update, build and deploy for Android.
     mama update build             Update all dependencies and then build.
-    mama build target=dep1        Update and build dep1 only.
-    mama configure                Run CMake configuration on main project only.
-    mama configure target=all     Run CMake configuration on main project and all deps.
-    mama reclone target=dep1      Wipe target dependency completely and clone again.
+    mama build dep1               Update and build dep1 only.
+    mama wipe dep1                Wipe target dependency completely and clone again.
     mama test                     Run tests on main project.
-    mama test target=dep1         Run tests on target dependency project.
+    mama test dep1                Run tests on target dependency project.
+    mama open opencv              Opens the default IDE for the specified build target.
+    mama help                     Full help and more command examples.
 ```
 
 
