@@ -103,8 +103,7 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIB}})
 def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
     if not root.children:
         return ''
-    return f'''# get MAMA_INCLUDES and MAMA_LIBS for this platform; verbose for CLion CMake parser
-    include("{root.dep_dir}/{build}/mama-dependencies.cmake")'''
+    return f'include("{root.dep_dir}/{build}/mama-dependencies.cmake")'
 
 
 def _mama_cmake_path(root: BuildDependency):
@@ -123,29 +122,53 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 endif()
 set(MAMA_INCLUDE "")
 set(MAMA_LIBS "")
+# Set MAMA_INCLUDES and MAMA_LIBS for each platform
 if(ANDROID OR ANDROID_NDK)
     set(MAMA_BUILD "android")
     {_get_mama_dependencies_cmake(root, 'android')}
 elseif(WIN32)
-    set(MAMA_BUILD "windows")
-    {_get_mama_dependencies_cmake(root, 'windows')}
+    if(MAMA_ARCH_X64)
+        set(MAMA_BUILD "windows")
+        {_get_mama_dependencies_cmake(root, 'windows')}
+    elseif(MAMA_ARCH_X86)
+        set(MAMA_BUILD "windows32")
+        {_get_mama_dependencies_cmake(root, 'windows32')}
+    elseif(CMAKE_GENERATOR_PLATFORM MATCHES "ARM64")
+        set(MAMA_BUILD "winarm")
+        {_get_mama_dependencies_cmake(root, 'winarm')}
+    elseif(CMAKE_GENERATOR_PLATFORM MATCHES "ARM")
+        set(MAMA_BUILD "winarm32")
+        {_get_mama_dependencies_cmake(root, 'winarm32')}
+    else()
+        message(FATAL_ERROR "MAMA: Unrecognized target architecture ${{CMAKE_GENERATOR_PLATFORM}}")
+    endif()
 elseif(APPLE)
   if(IOS_PLATFORM)
     set(IOS TRUE)
     set(MAMA_BUILD "ios")
+    # Always arm64
     {_get_mama_dependencies_cmake(root, 'ios')}
   else()
     set(MACOS TRUE)
     set(MAMA_BUILD "macos")
+    # Always x64
     {_get_mama_dependencies_cmake(root, 'macos')}
   endif()
 elseif(RASPI)
     set(MAMA_BUILD "raspi")
+    # Always armv7
     {_get_mama_dependencies_cmake(root, 'raspi')}
 elseif(UNIX)
     set(LINUX TRUE)
-    set(MAMA_BUILD "linux")
-    {_get_mama_dependencies_cmake(root, 'linux')}
+    if(MAMA_ARCH_X64)
+        set(MAMA_BUILD "linux")
+        {_get_mama_dependencies_cmake(root, 'linux')}
+    elseif(MAMA_ARCH_X86)
+        set(MAMA_BUILD "linux32")
+        {_get_mama_dependencies_cmake(root, 'linux32')}
+    else()
+        message(FATAL_ERROR "MAMA: Unrecognized target architecture")
+    endif()
 else()
     message(FATAL_ERROR "mama build: Unsupported Platform!")
     set(MAMA_BUILD "???")

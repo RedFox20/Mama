@@ -136,6 +136,7 @@ class BuildConfig:
         By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
         And 32-bit architectures add a suffix, eg 'windows32' or 'linux32'
         """
+        # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
         if self.windows:
             if self.is_target_arch_x64(): return 'windows'
             if self.is_target_arch_x86(): return 'windows32'
