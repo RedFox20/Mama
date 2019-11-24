@@ -94,15 +94,17 @@ class Git:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
-            execute(f"git clone --depth 1 {branch} {self.url} {self.dep.src_dir}", self.dep.config.verbose)
+            execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {self.dep.src_dir}", self.dep.config.verbose)
             self.checkout_current_branch()
         else:
             if self.dep.config.print:
                 console(f"  - Pulling {self.dep.name: <16}  SCM change detected")
             self.checkout_current_branch()
-            if not self.tag: # never pull a tag
+            execute("git submodule update --init --recursive")
+            if not self.tag: # pull if not a tag
                 self.run_git("reset --hard -q")
                 self.run_git("pull")
+
 
 class BuildDependency:
     loaded_deps = dict()
