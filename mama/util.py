@@ -161,13 +161,13 @@ def has_tag_changed(old_tag_file, new_tag):
 
 
 def write_text_to(file, text):
-    pathlib.Path(file).write_text(text)
+    pathlib.Path(file).write_text(text, encoding='utf-8')
 
 
 def read_lines_from(file):
     if not os.path.exists(file):
         return []
-    with pathlib.Path(file).open() as f:
+    with pathlib.Path(file).open(encoding='utf-8') as f:
         return f.readlines()
 
 
