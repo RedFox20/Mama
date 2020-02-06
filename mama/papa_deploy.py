@@ -90,7 +90,8 @@ def _gather_assets(target, recurse):
 
 def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
     config = target.config
-    if config.print: console(f'  - PAPA Deploy {package_full_path}')
+    detail_echo = config.print and config.target_matches(target.name)
+    if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
     includes = _gather_includes(target, r_includes)
     libs     = _gather_dylibs(target, r_dylibs)
@@ -107,13 +108,13 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         if not relpath in relincludes:
             descr.append(f'I {relpath}')
             relincludes.append(relpath)
-        if config.print: console(f'    I ({inctarget.name+")": <16}  {relpath}')
+        if detail_echo: console(f'    I ({inctarget.name+")": <16}  {relpath}')
         copy_dir(include, package_full_path)
 
     for libtarget, lib in libs:
         relpath = os.path.basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
-        if config.print: console(f'    L ({libtarget.name+")": <16}  {relpath}')
+        if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
         #outpath = os.path.join(package_full_path, relpath)
         outpath = package_full_path
         if config.verbose: console(f'    copy {lib} -> {outpath}')
@@ -121,11 +122,11 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
 
     for systarget, syslib in syslibs:
         descr.append(f'S {syslib}')
-        if config.print: console(f'    S ({systarget.name+")": <16}  {syslib}')
+        if detail_echo: console(f'    S ({systarget.name+")": <16}  {syslib}')
 
     for asstarget, asset in assets:
         descr.append(f'A {asset.outpath}')
-        if config.print: console(f'    A ({asstarget.name+")": <16}  {asset.outpath}')
+        if detail_echo: console(f'    A ({asstarget.name+")": <16}  {asset.outpath}')
         outpath = os.path.join(package_full_path, asset.outpath)
 
         folder = os.path.dirname(outpath)
@@ -135,4 +136,8 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         copy_if_needed(asset.srcpath, outpath)
 
     write_text_to(os.path.join(package_full_path, 'papa.txt'), '\n'.join(descr))
+
+    # write summary
+    if config.print:
+        console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 

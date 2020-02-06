@@ -193,6 +193,14 @@ class BuildTarget:
                              'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY',
                              'zlibstatic')
         ```
+        Another example:
+        ```
+        def dependencies(self):
+            self.add_git('curl', 'https://github.com/RedFox20/curl.git')
+        def configure(self):
+            # inject libcurl to us using 'CURL_INCLUDE_DIR' and 'CURL_LIBRARY'
+            self.inject_products(self.name, 'curl', 'CURL_INCLUDE_DIR', 'CURL_LIBRARY')
+        ```
         """
         dst_dep = self.get_dependency(dst_dep)
         src_dep = self.get_dependency(src_dep)
@@ -1032,7 +1040,9 @@ class BuildTarget:
         # only save and print exports if we built anything
         if self.dep.build_dir_exists():
             self.dep.save_exports_as_dependencies(self.exported_libs)
-            self._print_exports()
+            # print exports only if target match
+            if self.config.target_matches(self.name):
+                self._print_exports()
 
 
     def _execute_deploy_tasks(self):
@@ -1042,7 +1052,7 @@ class BuildTarget:
         if self.config.deploy:
             specific_target = not self.config.no_specific_target()
             if (not specific_target and self.dep.is_root) or \
-               (specific_target and self.config.target == self.name):
+                (specific_target and self.config.target_matches(self.name)):
                 self.deploy() # user customization
 
 
