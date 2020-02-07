@@ -144,12 +144,7 @@ def main():
 
     has_cmake = root.cmakelists_exists()
     if not root.mamafile_exists() and not has_cmake:
-        console('FATAL ERROR: mamafile.py not found')
-        exit(-1)
-
-    ## TODO Remove this eventually when we support non-cmake root builds
-    if not has_cmake:
-        console('FATAL ERROR: CMakeLists.txt not found')
+        console('FATAL ERROR: mamafile.py not found and CMakeLists.txt not found')
         exit(-1)
 
     if config.unused_args:
