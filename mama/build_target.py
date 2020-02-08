@@ -67,6 +67,8 @@ class BuildTarget:
         self.enable_multiprocess_build = True
         self.gcc_clang_visibility_hidden = True # -fvisibility=hidden 
         self.build_dependencies = [] # dependency files
+        self.no_includes = False # no includes to export
+        self.no_libs = False # no libs to export
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
@@ -281,6 +283,33 @@ class BuildTarget:
             dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
             self.build_dependencies.append(dependency)
             #console(f'    {self.name}.build_dependencies += {dependency}')
+
+
+    def no_export_includes(self):
+        """
+        Declares that we do not have any includes to export. This is necesssary to prevent
+        automatic includes generation.
+        ```
+            def package(self):
+                self.no_export_includes()
+                self.export_lib('mylib.dll')
+        ```
+        """
+        self.no_includes = True
+
+
+    def no_export_libs(self):
+        """
+        Declares that we do not have any libs to export. This is necesssary to prevent
+        automatic lib search. This is most common for header-only libraries which might
+        build some test binaries that would otherwise exported unnecessarily.
+        ```
+            def package(self):
+                self.no_export_libs()
+                self.export_include('include')
+        ```
+        """
+        self.no_libs = True
 
 
     def export_include(self, include_path, build_dir=False):
@@ -694,7 +723,7 @@ class BuildTarget:
 
     def nothing_to_build(self):
         """
-        Call this to completely skip the build step every time and instead.
+        Call this to completely skip the build step every time
         ```
             def dependencies(self):
                 self.nothing_to_build()
@@ -857,8 +886,8 @@ class BuildTarget:
             self.default_package()
         ```
         """
-        self.default_package_includes()
-        self.default_package_libs()
+        if self.no_includes: self.default_package_includes()
+        if self.no_libs: self.default_package_libs()
     
 
     def default_package_includes(self):
@@ -1032,9 +1061,9 @@ class BuildTarget:
         self.package() # user customization
 
         # no packaging provided by user; use default packaging instead
-        if not self.exported_includes:
+        if not self.exported_includes and not self.no_includes:
             self.default_package_includes()
-        if not (self.exported_libs or self.exported_syslibs):
+        if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
             self.default_package_libs()
 
         # only save and print exports if we built anything
@@ -1085,6 +1114,9 @@ class BuildTarget:
     def _print_exports(self):
         if not self.config.print:
             return
+        if not (self.exported_includes and self.exported_libs and self.exported_syslibs and self.exported_assets):
+            return
+
         console(f'  - Package {self.name}')
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)

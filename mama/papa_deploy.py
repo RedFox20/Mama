@@ -90,7 +90,7 @@ def _gather_assets(target, recurse):
 
 def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
     config = target.config
-    detail_echo = config.print and config.target_matches(target.name)
+    detail_echo = config.print and config.target_matches(target.name) and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
     includes = _gather_includes(target, r_includes)
