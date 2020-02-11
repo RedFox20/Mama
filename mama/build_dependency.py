@@ -108,7 +108,8 @@ class Git:
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, is_root=False, mamafile=None, args=[]):
+    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, \
+                       is_root=False, mamafile=None, always_build=False, args=[]):
         self.name       = name
         self.workspace  = workspace
         self.config     = config
@@ -116,6 +117,7 @@ class BuildDependency:
         self.target_class = target_class
         self.target_args  = args
         self.mamafile     = mamafile
+        self.always_build    = always_build
         self.should_rebuild    = False
         self.nothing_to_build  = False
         self.already_loaded    = False
@@ -143,7 +145,8 @@ class BuildDependency:
     
     
     @staticmethod
-    def get(name, config, target_class, workspace, src=None, git=None, mamafile=None, args=[]):
+    def get(name, config, target_class, workspace, src=None, git=None, \
+            mamafile=None, always_build=False, args=[]):
         if name in BuildDependency.loaded_deps:
             #console(f'Using existing BuildDependency {name}')
             dependency = BuildDependency.loaded_deps[name]
@@ -153,7 +156,8 @@ class BuildDependency:
             return dependency
         
         dependency = BuildDependency(name, config, target_class, \
-                        workspace=workspace, src=src, git=git, mamafile=mamafile, args=args)
+                        workspace=workspace, src=src, git=git, mamafile=mamafile,
+                        always_build=always_build, args=args)
         BuildDependency.loaded_deps[name] = dependency
         return dependency
 
@@ -296,6 +300,7 @@ class BuildDependency:
             if conf.clean and is_target:     return build('cleaned target')
             if self.is_root:                 return build('root target')
             if conf.target    and is_target: return build('target='+conf.target)
+            if self.always_build:            return build('always build')
             if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
             if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
             if git_changed:                  return build('git commit changed')

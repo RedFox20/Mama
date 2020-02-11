@@ -118,7 +118,7 @@ class BuildTarget:
         return util.path_join(self.dep.build_dir, subpath)
 
 
-    def add_local(self, name, source_dir, mamafile=None, args=[]):
+    def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[]):
         """
         Add a local dependency. This can be a git submodule or just some local folder.
         which contains its own CMakeLists.txt.
@@ -126,12 +126,19 @@ class BuildTarget:
 
         If the local dependency folder does not contain a `mamafile.py`, you will have to
         provide your own relative or absolute mamafile path.
+
+        Optionally, you can set your local library to always build using `always_build=True`.
+        This is useful when chaining together sub-projects that do not depend on each other.
+
+        Additional arguments can be passed to the target mamafile. The target mamafile
+        will have to check `self.args` for any arguments of interest.
         ```
         self.add_local('zlib', '3rdparty/zlib')
         self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
+        self.add_local('avdecoder', 'lib/avdecoder', always_build=True)
         ```
         """
-        add_dependencies.add_local(self, name, source_dir, mamafile, args)
+        add_dependencies.add_local(self, name, source_dir, mamafile, always_build, args)
 
 
     def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):

@@ -25,7 +25,7 @@ def _get_mamafile_path(target, name, mamafile):
     return None
 
 
-def add_local(target, name, source_dir, mamafile, args):
+def add_local(target, name, source_dir, mamafile, always_build, args):
     buildTargetClass = getattr(sys.modules['mama.build_target'], 'BuildTarget')
 
     src = _get_full_path(target, source_dir)
@@ -35,7 +35,8 @@ def add_local(target, name, source_dir, mamafile, args):
     mamafile = _get_mamafile_path(target, name, mamafile)
 
     dependency = BuildDependency.get(name, target.config, buildTargetClass, \
-                    workspace=target.dep.workspace, src=src, mamafile=mamafile, args=args)
+                    workspace=target.dep.workspace, src=src, mamafile=mamafile, \
+                    always_build=always_build, args=args)
     target.dep.children.append(dependency)
 
 
