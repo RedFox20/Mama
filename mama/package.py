@@ -47,13 +47,24 @@ def export_lib(target, relative_path, src_dir):
         console(f'export_lib failed to find: {path}')
 
 
+def cleanup_libs_list(libs):
+    """Cleans up libs list by removing invalid entries"""
+    cleaned = []
+    for lib in libs:
+        lib = lib.strip()
+        if not lib.endswith('.lib.recipe'):
+            cleaned.append(lib)
+    return cleaned
+
+
 def export_libs(target, path, pattern_substrings, src_dir, order):
     libs = glob_with_name_match(target_root_path(target, path, src_dir), pattern_substrings)
+    libs = cleanup_libs_list(libs)
     if order:
         def lib_index(lib):
             for i in range(len(order)):
                 if order[i] in lib: return i
-            return -1
+            return len(order)  # if this lib name does not match, put it at the end of the list
         def sort_key(lib):
             return lib_index(lib)
         libs.sort(key=sort_key)

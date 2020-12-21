@@ -2,6 +2,7 @@ import os, subprocess, shutil, stat
 from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 from mama.system import System, console, execute, execute_piped
 from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes, back_slashes
+from mama.package import cleanup_libs_list
 from time import sleep
 
 ######################################################################################
@@ -127,6 +128,7 @@ class BuildDependency:
         self.children        = []
         self.depends_on      = []
         self.product_sources = []
+        self.flattened_deps = [] # used for debugging
         if not src and not git:
             raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
@@ -181,9 +183,10 @@ class BuildDependency:
 
 
     def load_build_dependencies(self, target):
-        for saved_dependency in read_lines_from(self.exported_libs_file()):
-            saved_dependency = saved_dependency.strip()
-            target.build_dependencies.append(saved_dependency)
+        loaded_deps = read_lines_from(self.exported_libs_file())
+        loaded_deps = cleanup_libs_list(loaded_deps)
+        if loaded_deps:
+            target.build_dependencies += loaded_deps
 
 
     def save_exports_as_dependencies(self, exports):
