@@ -1,6 +1,9 @@
-import os, sys, multiprocessing, subprocess, tempfile, platform
+import os, sys, multiprocessing, subprocess, tempfile
 from mama.system import System, console, execute, execute_piped
 from mama.util import download_file, unzip, forward_slashes
+
+if System.linux:
+    import distro
 
 
 def find_executable_from_system(name):
@@ -526,13 +529,15 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
         
-        distro_name, version, _ = platform.linux_distribution()
-        if distro_name != "Ubuntu": raise OSError('install_clang6 only supports Ubuntu')
-        
-        versionInt = int(version.split('.')[0])
         suffix = '1404'
-        if versionInt >= 16:
-            suffix = '1604'
+        try:
+            dist = distro.info()
+            if dist['id'] != "ubuntu": raise OSError('install_clang6 only supports Ubuntu')
+            majorVersion = int(dist.version_parts.major)
+            if majorVersion >= 16:
+                suffix = '1604'
+        except:
+            pass
 
         clang6_zip = download_file(f'http://ateh10.net/dev/clang++6-{suffix}.zip', tempfile.gettempdir())
         console('Installing to /usr/local/clang++6')
@@ -554,8 +559,9 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if System.windows: raise OSError('Install Visual Studio 2019 to get MSBuild on Windows')
         if System.macos:   raise OSError('install_msbuild not implemented for macOS')
         
-        distro_name, _, codename = platform.linux_distribution()
-        if distro_name != "Ubuntu": raise OSError('install_msbuild only supports Ubuntu')
+        dist = distro.info()
+        if dist['id'] != "ubuntu": raise OSError('install_msbuild only supports Ubuntu')
+        codename = dist['codename']
 
         execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
         execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')
