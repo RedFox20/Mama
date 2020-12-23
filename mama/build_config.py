@@ -533,11 +533,12 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         try:
             dist = distro.info()
             if dist['id'] != "ubuntu": raise OSError('install_clang6 only supports Ubuntu')
-            majorVersion = int(dist.version_parts.major)
+            majorVersion = int(dist['version_parts']['major'])
             if majorVersion >= 16:
                 suffix = '1604'
-        except:
-            pass
+            console(f'Choosing {suffix} for kernel major={majorVersion}')
+        except Exception as err:
+            console(f'Failed to parse linux distro; falling back to {suffix}: {err}')
 
         clang6_zip = download_file(f'http://ateh10.net/dev/clang++6-{suffix}.zip', tempfile.gettempdir())
         console('Installing to /usr/local/clang++6')
