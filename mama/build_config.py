@@ -253,6 +253,7 @@ class BuildConfig:
                 self.set_platform(android=True)
                 self.android_api = arg
             elif arg == 'install-clang6':  self.convenient_install.append('clang6')
+            elif arg == 'install-clang11': self.convenient_install.append('clang11')
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             else:
                 self.unused_args.append(arg)
@@ -520,7 +521,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def get_msvc_cl64(self):
         return f'{self.get_msvc_bin64()}cl.exe'
 
-    
+
     def get_msvc_lib64(self):
         return f'{self.get_msvc_tools_path()}\\lib\\x64'
 
@@ -540,20 +541,50 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         except Exception as err:
             console(f'Failed to parse linux distro; falling back to {suffix}: {err}')
 
-        clang6_zip = download_file(f'http://ateh10.net/dev/clang++6-{suffix}.zip', tempfile.gettempdir())
-        console('Installing to /usr/local/clang++6')
-        execute('sudo rm -rf /usr/local/clang++6') # get rid of any old stuff
-        execute(f'cd /usr/local && sudo unzip -oq {clang6_zip}') # extract /usr/local/clang++6/
-        os.remove(clang6_zip)
-        execute('sudo ln -sf /usr/local/clang++6/lib/libc++.so.1    /usr/lib')
-        execute('sudo ln -sf /usr/local/clang++6/lib/libc++abi.so.1 /usr/lib')
-        execute('sudo ln -sf /usr/local/clang++6/bin/clang      /usr/bin/clang-6.0')
-        execute('sudo ln -sf /usr/local/clang++6/bin/clang++    /usr/bin/clang++-6.0')
-        execute('sudo ln -sf /usr/local/clang++6/include/c++/v1 /usr/include/c++/v1')
-        execute('sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-6.0   100')
-        execute('sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-6.0 100')
-        execute('sudo update-alternatives --set clang   /usr/bin/clang-6.0')
-        execute('sudo update-alternatives --set clang++ /usr/bin/clang++-6.0')
+        self.install_clang(clang_major='6', clang_ver='6.0', suffix=suffix)
+
+
+    def install_clang11(self):
+        if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
+        if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
+        
+        suffix = '1604'
+        try:
+            dist = distro.info()
+            if dist['id'] != "ubuntu": raise OSError('install_clang11 only supports Ubuntu')
+            majorVersion = int(dist['version_parts']['major'])
+            minorVersion = int(dist['version_parts']['minor'])
+            if majorVersion >= 20 and minorVersion >= 10:
+                suffix = '2010'
+            elif majorVersion >= 20:
+                suffix = '2004'
+            elif majorVersion >= 16:
+                suffix = '1604'
+            console(f'Choosing {suffix} for kernel major={majorVersion} minor={minorVersion}')
+        except Exception as err:
+            console(f'Failed to parse linux distro; falling back to {suffix}: {err}')
+
+        self.install_clang(clang_major='11', clang_ver='11.0', suffix=suffix)
+
+
+    def install_clang(self, clang_major, clang_ver, suffix):
+        clang_major = '11'
+        clang_ver = '11.0'
+        clangpp = f'clang++{clang_major}'
+        clang_zip = download_file(f'http://ateh10.net/dev/{clangpp}-{suffix}.zip', tempfile.gettempdir())
+        console(f'Installing to /usr/local/{clangpp}')
+        execute(f'sudo rm -rf /usr/local/{clangpp}') # get rid of any old stuff
+        execute(f'cd /usr/local && sudo unzip -oq {clang_zip}') # extract /usr/local/clang++11/
+        os.remove(clang_zip)
+        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++.so.1    /usr/lib')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++abi.so.1 /usr/lib')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang      /usr/bin/clang-{clang_ver}')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang++    /usr/bin/clang++-{clang_ver}')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/include/c++/v1 /usr/include/c++/v1')
+        execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_ver}   100')
+        execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_ver} 100')
+        execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_ver}')
+        execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_ver}')
 
 
     def install_msbuild(self):
@@ -574,6 +605,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
     def run_convenient_installs(self):
         if 'clang6'  in self.convenient_install: self.install_clang6()
+        if 'clang11' in self.convenient_install: self.install_clang11()
         if 'msbuild' in self.convenient_install: self.install_msbuild()
 
 
