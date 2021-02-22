@@ -286,14 +286,21 @@ class BuildDependency:
         self.should_rebuild = build
         if build:
             self.create_build_dir_if_needed() # in case we just cleaned
+        elif conf.list:
+            self._print_list(conf, target)
         return build
 
-    
+
+    def _print_list(self, conf, target):
+        if conf.print:
+            console(f'  - Target {target.name: <16}')
+
+
     def _should_build(self, conf, target, is_target, git_changed):
-            def target_args(): return f'{target.args}' if target.args else ''
             def build(r):
                 if conf.print:
-                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {target_args()}')
+                    args = f'{target.args}' if target.args else ''
+                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}')
                 return True
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"

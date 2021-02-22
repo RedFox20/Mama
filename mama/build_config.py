@@ -19,6 +19,7 @@ def find_executable_from_system(name):
 #
 class BuildConfig:
     def __init__(self, args):
+        self.list    = False
         self.build   = False
         self.clean   = False
         self.rebuild = False
@@ -200,7 +201,8 @@ class BuildConfig:
 
     def parse_args(self, args):
         for arg in args:
-            if   arg == 'build':     self.build   = True
+            if   arg == 'list':      self.list    = True
+            elif arg == 'build':     self.build   = True
             elif arg == 'clean':     self.clean   = True
             elif arg == 'rebuild':   self.rebuild = True
             elif arg == 'update':    self.update  = True

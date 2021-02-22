@@ -979,6 +979,8 @@ class BuildTarget:
             S libGL.a
             A someassets/extra.txt
         """
+        if self.config.list:
+            return # don't deploy during listing
         path = package.target_root_path(self, package_path, src_dir)
         papa_deploy_to(self, path, r_includes, r_dylibs, r_syslibs, r_assets)
 

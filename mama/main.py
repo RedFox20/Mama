@@ -5,7 +5,7 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency
+from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_full_flattened_deps
 from .init_project import mama_init_project
 
 def print_title():
@@ -15,6 +15,7 @@ def print_usage():
     console('mama [actions...] [args...]')
     console('  actions:')
     console('    init       - create initial mamafile.py and CMakeLists.txt')
+    console('    list       - list all mama dependencies on this project')
     console('    build      - configure and build main project or specific target, this can clone, but does not pull')
     console('    update     - update and build target dependencies after calling git pull')
     console('    deploy     - runs PAPA deploy stage by gathering all libraries and assets')
@@ -165,6 +166,11 @@ def main():
         root.clean()
 
     load_dependency_chain(root)
+    if config.list:
+        all_deps = get_full_flattened_deps(root)
+        print(f'Dependency Order: {all_deps}')
+        return
+
     check_config_target(config, root)
 
     if config.android: config.init_ndk_path()

@@ -60,6 +60,11 @@ def _get_flattened_deps(root: BuildDependency):
     return ordered
 
 
+def get_full_flattened_deps(root: BuildDependency):
+    deps = [root] + _get_flattened_deps(root)
+    return [dep.name for dep in deps]
+
+
 def _save_dependencies_cmake(root: BuildDependency):
     if not root.build_dir_exists():
         return # probably CLEAN, so nothing to save
@@ -174,30 +179,6 @@ if(MSVC)
 endif()
 '''
     save_file_if_contents_changed(_mama_cmake_path(root), text)
-
-
-def _load_child_dependencies(root: BuildDependency, parallel=True):
-    changed = False
-    if parallel:
-        futures = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as e:
-            for dep in root.children:
-                futures.append(e.submit(_load_dependency_chain, dep))
-        for f in futures:
-            changed |= f.result()
-    else:
-        for dep in root.children:
-            changed |= _load_dependency_chain(dep)
-    return changed
-
-
-def _load_dependency_chain(dep: BuildDependency):
-    if dep.already_loaded:
-        return dep.should_rebuild
-
-    changed = dep.load()
-    changed |= _load_child_dependencies(dep)
-    return changed
 
 
 def load_dependency_chain(root: BuildDependency):
