@@ -279,14 +279,14 @@ class BuildDependency:
         build = False
         if conf.build or conf.update:
             build = self._should_build(conf, target, is_target, git_changed)
+            if build:
+                self.create_build_dir_if_needed() # in case we just cleaned
             if git_changed:
                 self.git.save_status()
 
         self.already_loaded = True
         self.should_rebuild = build
-        if build:
-            self.create_build_dir_if_needed() # in case we just cleaned
-        elif conf.list:
+        if conf.list:
             self._print_list(conf, target)
         return build
 
