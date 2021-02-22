@@ -167,8 +167,7 @@ def main():
 
     load_dependency_chain(root)
     if config.list:
-        all_deps = get_full_flattened_deps(root)
-        print(f'Dependency Order: {all_deps}')
+        print(f'Dependency List: {get_full_flattened_deps(root)}')
         return
 
     check_config_target(config, root)

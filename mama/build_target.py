@@ -65,7 +65,8 @@ class BuildTarget:
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
-        self.gcc_clang_visibility_hidden = True # -fvisibility=hidden 
+        self.clean_intermediate_files = True # delete .o and .obj files after build success if not root or always_build
+        self.gcc_clang_visibility_hidden = True # -fvisibility=hidden
         self.build_dependencies = [] # dependency files
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
@@ -1031,8 +1032,8 @@ class BuildTarget:
             console(f"CMakeBuild {self.name}  ({self.cmake_build_type})")
         self.dep.ensure_cmakelists_exists()
         cmake.inject_env(self)
-        cmake.run_config(self)
-        cmake.run_build(self, install=True)
+        cmake.run_config(self) # THROWS on CMAKE failure
+        cmake.run_build(self, install=True) # THROWS on CMAKE failure
 
 
     def is_test_target(self):
@@ -1066,6 +1067,12 @@ class BuildTarget:
             if not self.dep.nothing_to_build:
                 self.build() # user customization
                 self.dep.successful_build()
+
+                # NOTE: clean_intermediate_files is a suggestion !
+                # for `always_build` and `root` we don't want to clean the files
+                if self.clean_intermediate_files \
+                    and not (self.dep.always_build or self.dep.is_root):
+                    package.clean_intermediate_files(self)
         
         self.package() # user customization
 
