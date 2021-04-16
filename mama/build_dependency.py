@@ -309,11 +309,10 @@ class BuildDependency:
             ## build also entails packaging
             if conf.clean and is_target:     return build('cleaned target')
             if self.is_root:                 return build('root target')
-            if conf.target    and is_target: return build('target='+conf.target)
             if self.always_build:            return build('always build')
+            if git_changed:                  return build('git commit changed')
             if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
             if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
-            if git_changed:                  return build('git commit changed')
 
             if not self.nothing_to_build:
                 if not self.has_build_files():    return build('not built yet')
@@ -321,10 +320,13 @@ class BuildDependency:
 
             missing_product = self.find_first_missing_build_product()
             if missing_product: return build(f'{missing_product} does not exist')
-            
             missing_dep = self.find_missing_dependency()
             if missing_dep: return build(f'{missing_dep} was removed')
-            
+
+            # Finally, if we call `update this_target`
+            if conf.update and conf.target == target.name:
+                return build('update target='+conf.target)
+
             if conf.print:
                 console(f'  - Target {target.name: <16}   OK')
             return False # do not build, all is ok
