@@ -166,12 +166,21 @@ def main():
         root.clean()
 
     load_dependency_chain(root)
-    if config.list:
-        print(f'Dependency List: {get_full_flattened_deps(root)}')
-        return
-
     check_config_target(config, root)
 
+    if config.list:
+        print(f'Dependency List: {get_full_flattened_deps(root)}')
+        if config.target:
+            dep = find_dependency(root, config.target)
+            if dep:
+                target:BuildTarget = dep.target
+                target.package()
+                inc, libs = target.get_target_products(config.target)
+                inc, libs = '\n  '.join(inc.split(';')), '\n  '.join(libs.split(';'))
+                print(f"target {config.target} includes:\n  {inc}")
+                print(f"target {config.target} libraries:\n  {libs}")
+        return
+    
     if config.android: config.init_ndk_path()
     if config.raspi:   config.init_raspi_path()
 
