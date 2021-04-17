@@ -168,7 +168,7 @@ $ mama build
 ## For Mama Contributors
 We are open for any improvements and feedback via pull requests.
 
-You can set up local development with `$ pip install -e .`
+You can set up local development with `$ pip3 install -e . --no-cache-dir`
 Setting up `pypi` configuration for sdist: `$ nano ~/.pypirc`
 ```
 [distutils]
