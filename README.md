@@ -184,5 +184,5 @@ password=<your-mama-pypi-password>
 ```
 Quick build & upload:
 ```
-python -m build && twine upload dist/*
+python -m build && twine upload --skip-existing dist/*
 ```
