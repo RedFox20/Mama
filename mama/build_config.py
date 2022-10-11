@@ -314,8 +314,7 @@ class BuildConfig:
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
         for root in roots:
             for suffix in suffixes:
-                compiler = root + compiler + suffix
-                if os.path.exists(compiler):
+                if os.path.exists(root + compiler + suffix):
                     return (root, suffix)
         raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 
