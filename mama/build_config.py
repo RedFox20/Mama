@@ -307,13 +307,17 @@ class BuildConfig:
         self.fortran = path if path else self.find_default_fortran_compiler()
 
 
-    def find_compiler_root(self, compiler):
-        roots = ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/']
+    # returns: root path where the compilers exist and the discovered suffix
+    def find_compiler_root(self, suggested_path, compiler, suffixes):
+        roots = []
+        if suggested_path: roots.append(suggested_path)
+        roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
         for root in roots:
-            if os.path.exists(root + compiler):
-                #console(f'Mama compiler: {root}{compiler}')
-                return root
-        raise EnvironmentError(f'Could not find {compiler} from {roots}')
+            for suffix in suffixes:
+                compiler = root + compiler + suffix
+                if os.path.exists(compiler):
+                    return (root, suffix)
+        raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 
 
     def get_preferred_compiler_paths(self, cxx_enabled):
@@ -328,15 +332,15 @@ class BuildConfig:
             return (cc, cxx)
         if self.clang:
             key = 'clang++' if cxx_enabled else 'clang'
-            if not self.clang_path: self.clang_path = self.find_compiler_root(key)
-            cc = f'{self.clang_path}clang'
-            cxx = f'{self.clang_path}clang++'
+            self.clang_path, suffix = self.find_compiler_root(self.clang_path, key, ['-12','-11','-10','-9','-8','-7','-6',''])
+            cc = f'{self.clang_path}clang{suffix}'
+            cxx = f'{self.clang_path}clang++{suffix}'
             return (cc, cxx)
         if self.gcc:
             key = 'g++' if cxx_enabled else 'gcc'
-            if not self.gcc_path: self.gcc_path = self.find_compiler_root(key)
-            cc = f'{self.gcc_path}gcc'
-            cxx = f'{self.gcc_path}g++'
+            self.gcc_path, suffix = self.find_compiler_root(self.gcc_path, key, ['-11','-10','-9','-8','-7','-6',''])
+            cc = f'{self.gcc_path}gcc{suffix}'
+            cxx = f'{self.gcc_path}g++{suffix}'
             return (cc, cxx)
         raise EnvironmentError('No preferred compiler for this platform!')
         
