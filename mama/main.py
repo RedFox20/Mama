@@ -85,22 +85,28 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     
     if config.windows:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
-        if not solutions:
-            raise EnvironmentError('Could not find any Visual Studio solutions!')
-        execute(f'start {solutions[0]}', echo=True)
+        if solutions:
+            execute(f'start {solutions[0]}', echo=True)
+        else:
+            console('Could not find any Visual Studio solutions, using VSCode instead.')
+            execute(f'code {found.src_dir}', echo=True)
 
     elif config.macos or config.ios:
         projects = glob_folders_with_name_match(found.build_dir, ['.xcodeproj'])
-        if not projects:
-            raise EnvironmentError('Could not find any Xcode projects!')
-        execute(f'open {projects[0]}', echo=True)
+        if projects:
+            execute(f'open {projects[0]}', echo=True)
+        else:
+            console('Could not find any Xcode projects, using VSCode instead.')
+            execute(f'code {found.src_dir}', echo=True)
 
     elif config.linux:
-        raise EnvironmentError('Linux IDE selection not implemented. Try opening this folder with CLion.')
+        console(f'Using VSCode. You can also try opening this folder with CLion: {found.src_dir}')
+        execute(f'code {found.src_dir}', echo=True)
         #execute(f'xdg-open', echo=True)
 
     elif config.android:
-        raise EnvironmentError('Android IDE selection not implemented. Try opening this folder with Android Studio.')
+        console('Android IDE selection not implemented, using VSCode instead.')
+        execute(f'code {found.src_dir}', echo=True)
 
 def set_target_from_unused_args(config: BuildConfig):
     for arg in config.unused_args:

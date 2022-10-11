@@ -92,6 +92,100 @@ class BuildConfig:
         self.check_platform()
 
 
+    def parse_args(self, args):
+        for arg in args:
+            if   arg == 'list':      self.list    = True
+            elif arg == 'build':     self.build   = True
+            elif arg == 'clean':     self.clean   = True
+            elif arg == 'rebuild':   self.rebuild = True
+            elif arg == 'update':    self.update  = True
+            elif arg == 'deploy':    self.deploy  = True
+            # Updates, Builds and Deploys the project as a package
+            elif arg == 'serve':
+                self.build = True
+                self.update = True
+                self.deploy = True
+            elif arg == 'reclone':
+                console('WARNING: Argument `reclone` is deprecated, use `wipe` instead.')
+                self.reclone = True
+            elif arg == 'wipe':      self.reclone = True
+            elif arg == 'init':      self.mama_init = True
+            elif arg == 'silent':    self.print = False
+            elif arg == 'verbose':   self.verbose = True
+            elif arg == 'all':       self.target = 'all'
+            elif arg == 'test':      self.test = ' ' # no test arguments
+            elif arg == 'start':     self.start = ' ' # no start arguments
+            elif arg == 'windows': self.set_platform(windows=True)
+            elif arg == 'linux':   self.set_platform(linux=True)
+            elif arg == 'macos':   self.set_platform(macos=True)
+            elif arg == 'ios':     self.set_platform(ios=True)
+            elif arg == 'android': self.set_platform(android=True)
+            elif arg == 'raspi':   self.set_platform(raspi=True)
+            elif arg == 'oclea':   self.set_platform(oclea=True)
+            elif arg == 'x86':     self.set_arch('x86')
+            elif arg == 'x64':     self.set_arch('x64')
+            elif arg == 'arm':     self.set_arch('arm')
+            elif arg == 'arm64':   self.set_arch('arm64')
+            elif arg == 'aarch64': 
+                console('warning: aarch64 is the same as arm64, setting to arm64')
+                self.set_arch('arm64')
+            elif arg == 'clang':
+                self.gcc = False
+                self.clang = True
+                self.compiler_cmd = True
+            elif arg == 'gcc':
+                self.gcc = True
+                self.clang = False
+                self.compiler_cmd = True
+            elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
+            elif arg == 'fortran=': self.fortran = arg[8:]
+            elif arg == 'release': self.set_build_config(release=True)
+            elif arg == 'debug':   self.set_build_config(debug=True)
+            elif arg == 'open':    self.open = 'root'
+            # Open a specific target source dir for editing with VSCode or Visual Studio
+            # Ex old: mama open=ReCpp
+            # Ex new: mama open ReCpp
+            elif arg.startswith('open='):   self.open = arg[5:]
+            elif arg.startswith('jobs='):   self.jobs = int(arg[5:])
+            # Sets the target to build/update/clean
+            # This is superceded by automatic target lookup
+            # Ex old: mama build target=opencv
+            # Ex new: mama build opencv
+            elif arg.startswith('target='): self.target = arg[7:]
+            # Adding arguments for tests runner
+            # Ex: mama build test="nogdb threadpool"
+            # Ex: mama build test=nogdb test=threadpool
+            # Ex: mama build test=nogdb,threadpool
+            elif arg.startswith('test='):   self.test = self.join_args(self.test, arg[5:])
+            # Calls target.start with the specified arguments
+            # Ex: mama build start=verify
+            elif arg.startswith('start='):  self.start = self.join_args(self.start, arg[6:])
+            elif arg.startswith('arch='):   self.set_arch(arg[5:])
+            # Add additional compiler flags
+            elif arg.startswith('flags='):  self.flags = self.join_args(self.flags, arg[6:])
+            # Ex: mama build android-24
+            elif arg.startswith('android-'):
+                self.set_platform(android=True)
+                self.android_api = arg
+            elif arg == 'install-clang6':  self.convenient_install.append('clang6')
+            elif arg == 'install-clang11': self.convenient_install.append('clang11')
+            elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
+            else:
+                self.unused_args.append(arg)
+            continue
+
+
+    # modifies existing `args` by parsing and appending `arg` contents
+    def join_args(self, args, arg):
+        if arg[0] == '"' and arg[-1] == '"':
+            arg = arg[1:-1]
+        elif ',' in arg:
+            arg = ' '.join(arg.split(','))
+        if not args:
+            return arg
+        return args + ' ' + arg
+
+
     def set_platform(self, windows=False, linux=False, macos=False, \
                            ios=False, android=False, raspi=False, oclea=False):
         self.windows = windows
@@ -211,77 +305,6 @@ class BuildConfig:
     def enable_fortran(self, path=''):
         if self.fortran: return
         self.fortran = path if path else self.find_default_fortran_compiler()
-
-
-    def parse_args(self, args):
-        for arg in args:
-            if   arg == 'list':      self.list    = True
-            elif arg == 'build':     self.build   = True
-            elif arg == 'clean':     self.clean   = True
-            elif arg == 'rebuild':   self.rebuild = True
-            elif arg == 'update':    self.update  = True
-            elif arg == 'deploy':    self.deploy  = True
-            elif arg == 'serve':
-                self.build = True
-                self.update = True
-                self.deploy = True
-            elif arg == 'reclone':
-                console('WARNING: Argument `reclone` is deprecated, use `wipe` instead.')
-                self.reclone = True
-            elif arg == 'wipe':      self.reclone   = True
-            elif arg == 'init':      self.mama_init = True
-            elif arg == 'silent':    self.print   = False
-            elif arg == 'verbose':   self.verbose = True
-            elif arg == 'all':       self.target = 'all'
-            elif arg == 'test':      self.test = ' ' # no test arguments
-            elif arg == 'start':     self.start = ' ' # no start arguments
-            elif arg == 'windows': self.set_platform(windows=True)
-            elif arg == 'linux':   self.set_platform(linux=True)
-            elif arg == 'macos':   self.set_platform(macos=True)
-            elif arg == 'ios':     self.set_platform(ios=True)
-            elif arg == 'android': self.set_platform(android=True)
-            elif arg == 'raspi':   self.set_platform(raspi=True)
-            elif arg == 'oclea':   self.set_platform(oclea=True)
-            elif arg == 'x86':     self.set_arch('x86')
-            elif arg == 'x64':     self.set_arch('x64')
-            elif arg == 'arm':     self.set_arch('arm')
-            elif arg == 'arm64':   self.set_arch('arm64')
-            elif arg == 'clang':   
-                self.gcc = False
-                self.clang = True
-                self.compiler_cmd = True
-            elif arg == 'gcc':
-                self.gcc = True
-                self.clang = False
-                self.compiler_cmd = True
-            elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
-            elif arg == 'fortran=': self.fortran = arg[8:]
-            elif arg == 'release': self.set_build_config(release=True)
-            elif arg == 'debug':   self.set_build_config(debug=True)
-            elif arg == 'open':    self.open = 'root'
-            elif arg.startswith('open='):   self.open = arg[5:]
-            elif arg.startswith('jobs='):   self.jobs = int(arg[5:])
-            elif arg.startswith('target='): self.target = arg[7:]
-            elif arg.startswith('test='):   self.add_test_arg(arg[5:])
-            elif arg.startswith('start='):  self.start = arg[6:]
-            elif arg.startswith('arch='):   self.set_arch(arg[5:])
-            elif arg.startswith('flags='):  self.flags = arg[6:]
-            elif arg.startswith('android-'):
-                self.set_platform(android=True)
-                self.android_api = arg
-            elif arg == 'install-clang6':  self.convenient_install.append('clang6')
-            elif arg == 'install-clang11': self.convenient_install.append('clang11')
-            elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
-            else:
-                self.unused_args.append(arg)
-            continue
-
-
-    def add_test_arg(self, arg):
-        if arg[0] == '"' and arg[-1] == '"':
-            arg = arg[1:-1]
-        if self.test: self.test += ' '
-        self.test += arg
 
 
     def find_compiler_root(self, compiler):
