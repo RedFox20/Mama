@@ -19,6 +19,7 @@ def find_executable_from_system(name):
 #
 class BuildConfig:
     def __init__(self, args):
+        # commands
         self.list    = False
         self.build   = False
         self.clean   = False
@@ -31,17 +32,22 @@ class BuildConfig:
         self.verbose   = False
         self.test      = ''
         self.start     = ''
+        # supported platforms
         self.windows = False
         self.linux   = False
         self.macos   = False
         self.ios     = False
         self.android = False
         self.raspi   = False
+        self.oclea    = False
+        # compilers
         self.clang = True # prefer clang on linux
         self.gcc   = False
         self.clang_path = ''
         self.gcc_path = ''
         self.compiler_cmd = False # Was compiler specificed from command line?
+        self.fortran = ''
+        # build optimization
         self.release = True
         self.debug   = False
         # valid architectures: x86, x64, arm, arm64
@@ -50,7 +56,6 @@ class BuildConfig:
         self.target  = None
         self.flags   = None
         self.open    = None
-        self.fortran = ''
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         ## Ninja
@@ -70,6 +75,10 @@ class BuildConfig:
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
         self.raspi_include_paths = [] ## path to additional Raspberry include dirs
+        ## Oclea CV25/CVXX
+        self.oclea_compilers = ''  ## Oclea g++, gcc and ld
+        self.oclea_system    = ''  ## Path to Oclea system libraries
+        self.oclea_include_paths = []  ## Path to additional Oclea include dirs
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -84,19 +93,20 @@ class BuildConfig:
 
 
     def set_platform(self, windows=False, linux=False, macos=False, \
-                           ios=False, android=False, raspi=False):
+                           ios=False, android=False, raspi=False, oclea=False):
         self.windows = windows
         self.linux   = linux
         self.macos   = macos
         self.ios     = ios
         self.android = android
         self.raspi   = raspi
+        self.oclea   = oclea
         return True
 
 
     def is_platform_set(self):
         return self.windows or self.linux or self.macos \
-            or self.ios or self.android or self.raspi
+            or self.ios or self.android or self.raspi or self.oclea
     
     
     def check_platform(self):
@@ -109,7 +119,9 @@ class BuildConfig:
             if self.linux and 'arm' in self.arch:
                 raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
             if self.raspi and self.arch != 'arm':
-                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform!')
+                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
+            if self.cv25 and self.arch != 'arm64':
+                raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
             
 
     def set_arch(self, arch):
@@ -131,6 +143,7 @@ class BuildConfig:
         if self.ios:     return 'ios'
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
+        if self.oclea:   return 'oclea'
         return 'build'
 
 
@@ -155,6 +168,7 @@ class BuildConfig:
             if self.is_target_arch_arm64(): return 'android'
             return 'android32'
         if self.raspi: return 'raspi32'  # Only 32-bit raspi
+        if self.oclea: return 'oclea64'  # Only 64-bit oclea aarch64 (arm64)
         return 'build'
 
 
@@ -227,6 +241,7 @@ class BuildConfig:
             elif arg == 'ios':     self.set_platform(ios=True)
             elif arg == 'android': self.set_platform(android=True)
             elif arg == 'raspi':   self.set_platform(raspi=True)
+            elif arg == 'oclea':   self.set_platform(oclea=True)
             elif arg == 'x86':     self.set_arch('x86')
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
@@ -283,6 +298,10 @@ class BuildConfig:
             ext = '.exe' if System.windows else ''
             cc  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             cxx = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
+            return (cc, cxx)
+        if self.oclea:
+            cc  = f'{self.oclea_bin()}aarch64-oclea-linux-gcc'
+            cxx = f'{self.oclea_bin()}aarch64-oclea-linux-g++'
             return (cc, cxx)
         if self.clang:
             key = 'clang++' if cxx_enabled else 'clang'
@@ -346,6 +365,21 @@ class BuildConfig:
     def raspi_includes(self):
         if not self.raspi_compilers: self.init_raspi_path()
         return self.raspi_include_paths
+    
+
+    def oclea_bin(self):
+        if not self.oclea_compilers: self.init_oclea_path()
+        return self.oclea_compilers
+
+
+    def oclea_sysroot(self):
+        if not self.oclea_compilers: self.init_oclea_path()
+        return self.oclea_system
+
+    
+    def oclea_includes(self):
+        if not self.oclea_compilers: self.init_oclea_path()
+        return self.oclea_include_paths
 
 
     def init_ndk_path(self):
@@ -388,6 +422,26 @@ Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/n
         raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected! 
 Default search paths: {paths} 
 Define env RASPI_HOME with path to Raspberry tools.''')
+
+
+    def init_oclea_path(self):
+        if not System.linux: raise RuntimeError('Oclea only supported on Linux')
+        paths = []
+        self.append_env_path(paths, 'OCLEA_HOME')
+        self.append_env_path(paths, 'OCLEA_SDK')
+        if System.linux: paths += ['/usr/bin/oclea', '/usr/local/bin/oclea']
+        compiler = ''
+        if System.linux: compiler = 'x86_64-ocleasdk-linux/usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc'
+        for oclea_path in paths:
+            if os.path.exists(f'{oclea_path}/{compiler}'):
+                self.oclea_compilers = f'{oclea_path}/x86_64-ocleasdk-linux/usr/bin/aarch64-oclea-linux/'
+                self.oclea_system    = f'{oclea_path}/x86_64-ocleasdk-linux/usr/lib'
+                self.oclea_include_paths = [f'{oclea_path}/aarch64-oclea-linux/usr/include']
+                if self.print: console(f'Found Oclea TOOLS: {self.oclea_compilers}\n    sysroot: {self.oclea_system}')
+                return
+        raise EnvironmentError(f'''No Oclea toolchain compilers detected! 
+Default search paths: {paths} 
+Define env OCLEA_HOME with path to Oclea tools.''')
 
 
     def find_default_fortran_compiler(self):

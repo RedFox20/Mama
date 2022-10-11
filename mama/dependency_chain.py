@@ -24,7 +24,7 @@ def _get_exported_libs(target):
         allowed = ['.a', '.dylib', '.bundle']
     elif target.ios:
         allowed = ['.a', '.dylib', '.framework']
-    elif target.raspi:
+    elif target.raspi or target.oclea:
         allowed = ['.a', '.so']
 
     #print(f'{target.name: <16} exported: {target.exported_libs}')
@@ -152,6 +152,10 @@ elseif(RASPI)
     set(MAMA_BUILD "raspi")
     # Always armv7
     {_get_mama_dependencies_cmake(root, 'raspi')}
+elseif(OCLEA)
+    set(MAMA_BUILD "oclea")
+    # Always arm64
+    {_get_mama_dependencies_cmake(root, 'oclea')}
 elseif(UNIX)
     set(LINUX TRUE)
     if(MAMA_ARCH_X64)

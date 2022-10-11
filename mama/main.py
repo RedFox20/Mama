@@ -183,6 +183,7 @@ def main():
     
     if config.android: config.init_ndk_path()
     if config.raspi:   config.init_raspi_path()
+    if config.oclea:   config.init_oclea_path()
 
     execute_task_chain(root)
 

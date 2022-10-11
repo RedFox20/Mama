@@ -53,6 +53,7 @@ class BuildTarget:
         self.install_target   = 'install'
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
+        self.cmake_oclea_toolchain = '' # Custom Oclea toolchain file for this target only
         self.cmake_ios_toolchain   = '' # Custom iOS toolchain file for this target only
         self.cmake_opts       = []
         self.cmake_cxxflags   = dict()
@@ -80,6 +81,7 @@ class BuildTarget:
         self.ios     = self.config.ios
         self.android = self.config.android
         self.raspi   = self.config.raspi
+        self.oclea   = self.config.oclea
         self.os_windows = System.windows
         self.os_linux   = System.linux
         self.os_macos   = System.macos
@@ -773,8 +775,8 @@ class BuildTarget:
             self.gdb('bin/NanoMeshTests')
         ```
         """
-        if self.android or self.ios or self.raspi:
-            console('Cannot run tests for Android, iOS, Raspi builds.')
+        if self.android or self.ios or self.raspi or self.oclea:
+            console('Cannot run tests for Android, iOS, Raspi, Oclea builds.')
             return # nothing to run
         
         split = command.split(' ', 1)
