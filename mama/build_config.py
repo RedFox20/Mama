@@ -462,17 +462,24 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         if not System.windows:
             raise EnvironmentError('VisualStudio tools support not available on this platform!')
 
-        vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
-        paths = [execute_piped(vswhere)]
+        vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+        vspath = execute_piped(f'{vswhere_exe} -latest -nologo -property installationPath')
+        if vspath and os.path.exists(vspath):
+            self._visualstudio_path = vspath
+            if self.verbose: console(f'Detected VisualStudio: {vspath}')
+            return vspath
+        
+        paths = []
         vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-        vs_versions = [ '2019', '2017' ]
-        for version in vs_versions:
+        for version in [ '2022' ]: # new 64-bit VS
+            for variant in vs_variants:
+                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\{version}\\{variant}')
+        for version in [ '2019', '2017' ]:
             for variant in vs_variants:
                 paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version}\\{variant}')
 
         for path in paths:
             if path and os.path.exists(path):
-                #path = forward_slashes(path)
                 self._visualstudio_path = path
                 if self.verbose: console(f'Detected VisualStudio: {path}')
                 return path
@@ -517,7 +524,8 @@ Define env OCLEA_HOME with path to Oclea tools.''')
             return self._visualstudio_cmake_id
         
         path = self.get_visualstudio_path()
-        if '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
+        if '\\2022\\' in path: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
+        elif '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
         else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
         
         if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
