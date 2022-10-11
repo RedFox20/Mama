@@ -169,15 +169,20 @@ $ mama build
 We are open for any improvements and feedback via pull requests.
 
 You can set up local development with `$ pip3 install -e . --no-cache-dir`
-Setting up `pypi` configuration for sdist: `$ nano ~/.pypirc`
+Uploading a source distribution
+1. Get dependencies: `pip3 install build twine`
+2. Build sdist: `python -m build`
+3. Upload with twine: `twine upload dist/*`
+It will prompt for Username and Password, unless you set up ~/.pypirc file:
 ```
 [distutils]
 index-servers =
     pypi
-
 [pypi]
-repository:https://pypi.python.org/pypi
-username=<your-mama-pypy-username>
-password=<your-mama-pypy-password>
+username=<your-mama-pypi-username>
+password=<your-mama-pypi-password>
 ```
-Uploading a source distribution `$ py setup.py sdist upload -r pypi`
+Quick build & upload:
+```
+python -m build && twine upload dist/*
+```
