@@ -1,6 +1,6 @@
-import os
+import os, shutil
+from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .util import write_text_to, console, copy_if_needed
-
 
 class Asset:
     def __init__(self, relpath, fullpath, category):
@@ -101,7 +101,7 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         if not relpath in relincludes:
             relincludes.append(relpath)
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
-            if config.verbose: console(f'    copy {include} -> {includes_root}')
+            if config.verbose: console(f'    copy {include}\n      -> {includes_root}')
             copy_if_needed(include, includes_root, includes_filter)
 
     for libtarget, lib in libs:
@@ -110,7 +110,7 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         #outpath = os.path.join(package_full_path, relpath)
         outpath = package_full_path
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
-        if config.verbose: console(f'    copy {lib} -> {outpath}')
+        if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
         copy_if_needed(lib, outpath)
 
     for systarget, syslib in syslibs:
@@ -135,5 +135,24 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
 
 
 def papa_upload_to(target, package_full_path):
-    console(f'papa_upload_to {target.name} {package_full_path}')
-    
+    """
+    - target: Target which was configured and packaged
+    - package_full_path: Full path to deployed PAPA package
+    """
+    config = target.config
+    dst_dir = target.dep.build_dir
+    archive_name = artifactory_archive_name(target)
+
+    if config.print:   console(f'  - PAPA Upload {archive_name}')
+    if config.verbose: console(f'    archiving {package_full_path}\n {"":10}-> {dst_dir}/{archive_name}.zip')
+
+    archive = shutil.make_archive(archive_name, 'zip', package_full_path, '.', verbose=True)
+    archive_path = dst_dir + '/' + os.path.basename(archive)
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+    shutil.move(archive, archive_path)
+
+    artifactory_upload_ftp(target, archive_path)
+
+    if config.verbose:
+        console(f'  PAPA Uploaded {os.path.basename(archive)}')

@@ -5,7 +5,7 @@ if sys.version_info < (3, 6):
     raise RuntimeError("This package requires Python 3.6+")
 
 setup(name='mama',
-      version='0.5.20',
+      version='0.6.01',
       description='A modular C++ build tool even your mama can use',
       url='https://github.com/RedFox20/Mama',
       author='Jorma Rebane',
@@ -13,12 +13,14 @@ setup(name='mama',
       license='MIT',
       packages=['mama'],
       install_requires=[
-            'distro'
+            'distro',
+            'keyring',
+            'keyrings.cryptfile'
       ],
       entry_points = { 'console_scripts': ['mama=mama.main:main'], },
       zip_safe=False,
       python_requires='>=3.6',
-      keywords=['mama', 'build', 'mamabuild', 'c', 'c++', 'tool', 'cmake', 'simple', 'easy', 'cross-platform'],
+      keywords=['mama', 'build', 'mamabuild', 'c', 'c++', 'tool', 'cmake', 'simple', 'easy', 'package', 'manager', 'cross-platform'],
       classifiers=[
             # How mature is this project? Common values are
             #   3 - Alpha

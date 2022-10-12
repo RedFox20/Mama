@@ -62,7 +62,8 @@ class BuildConfig:
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
         ## Artifactory URL for dependency uploads and downloads
-        self.artifactory_url = None
+        self.artifactory_ftp = None
+        self.artifactory_auth = None
         ## Ninja
         self.ninja_path = self.find_ninja_build()
         ## MSVC, MSBuild
@@ -214,13 +215,25 @@ class BuildConfig:
             self.set_platform(windows=System.windows, linux=System.linux, macos=System.macos)
             if not self.is_platform_set():
                 raise RuntimeError(f'Unsupported platform {sys.platform}: Please specify platform!')
-        ## Arch itself is validated in set_arch(), however we need to validate if arch is allowed on platform
+
+        # set defaults if arch was not specified
+        if not self.arch:
+            if self.macos:        self.set_arch('x64')
+            elif self.ios:        self.set_arch('arm64')
+            elif self.android:    self.set_arch('arm64')
+            elif self.raspi:      self.set_arch('arm')
+            elif self.oclea:      self.set_arch('arm64')
+            elif System.is_64bit: self.set_arch('x64')
+            else:                 self.set_arch('x86')
+
+        # Arch itself is validated in set_arch(), 
+        # however we need to validate if arch is allowed on platform
         if self.arch:
             if self.linux and 'arm' in self.arch:
                 raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
             if self.raspi and self.arch != 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
-            if self.cv25 and self.arch != 'arm64':
+            if self.oclea and self.arch != 'arm64':
                 raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
 
 
@@ -232,8 +245,7 @@ class BuildConfig:
 
 
     def is_64bit_build(self):
-        return (self.arch == 'x64' or self.arch == 'arm64') \
-            or (self.arch is None and System.is_64bit)
+        return (self.arch == 'x64' or self.arch == 'arm64')
 
 
     def name(self):
@@ -247,7 +259,7 @@ class BuildConfig:
         return 'build'
 
 
-    def build_folder(self):
+    def platform_name(self):
         """
         Gets the build folder name depending on platform and architecture.
         By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
@@ -278,13 +290,23 @@ class BuildConfig:
         return True
 
 
-    def set_artifactory_url(self, ftp_url):
+    def set_artifactory_ftp(self, ftp_url, auth='store'):
         """
-        Configures the remote Artifactory URL where packages
+        Configures the remote Artifactory FTP URL where packages
         will be checked for download. If a package with correct commit hash
         exists, it will be used instead of building locally.
+
+        If auth='store' then system's secure keyring is used to store
+        the credentials. If authentication fails, then credentials are cleared.
+        ```
+            def dependencies(self):
+                self.config.set_artifactory_url('myserver.com', auth='store')
+                self.config.set_artifactory_url('myserver.com', auth='prompt')
+        ```
+        NOTE: Currently only FTP is supported
         """
-        self.artifactory_url = ftp_url
+        self.artifactory_ftp = ftp_url
+        self.artifactory_auth = auth
 
 
     def prefer_clang(self, target_name):
@@ -528,20 +550,10 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         return self._visualstudio_path
 
 
-    def is_target_arch_x64(self):
-        return self.arch == 'x64' or (System.is_64bit and not self.arch)
-
-
-    def is_target_arch_x86(self):
-        return self.arch == 'x86' or (not System.is_64bit and not self.arch)
-
-
-    def is_target_arch_arm64(self):
-        return self.arch == 'arm64' or (not self.arch)
-
-
-    def is_target_arch_armv7(self):
-        return self.arch == 'arm'
+    def is_target_arch_x64(self): return self.arch == 'x64'
+    def is_target_arch_x86(self): return self.arch == 'x86'
+    def is_target_arch_arm64(self): return self.arch == 'arm64'
+    def is_target_arch_armv7(self): return self.arch == 'arm'
 
 
     def get_gcc_linux_march(self):

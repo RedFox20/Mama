@@ -171,6 +171,16 @@ def read_lines_from(file):
         return f.readlines()
 
 
+def get_file_size_str(size):
+    """
+    Returns file size as a human readable string, eg 96.5KB, or 100.1MB
+    """
+    if size < 128: return f'{size}B' # only show bytes for really small < 0.1 KB sizes
+    if size < (1024*1024): return f'{size/1024:.1f}KB'
+    if size < (1024*1024*1024): return f'{size/(1024*1024):.1f}MB'
+    return f'{size/(1024*1024):.2}GB'
+
+
 def download_file(remote_url, local_dir, force=False):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
@@ -178,27 +188,32 @@ def download_file(remote_url, local_dir, force=False):
         return local_file
     if not os.path.exists(local_dir):
         os.makedirs(local_dir, exist_ok=True)
+
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+
     with request.urlopen(remote_url, context=ctx) as urlfile:
         with open(local_file, 'wb') as output:
-            total = int(urlfile.info()['Content-Length'].strip())
-            total_megas = int(total/(1024*1024))
-            prev_progress = -100
-            written = 0
+            size = int(urlfile.info()['Content-Length'].strip())
+            print(f'Downloading {remote_url} {get_file_size_str(size)}')
+            print(f'  |{" ":50}<| {0:>3} %', end='')
+            transferred = 0
+            lastpercent = 0
             while True:
                 data = urlfile.read(32*1024) # large chunks plz
                 if not data:
-                    console(f"\rDownload {remote_url} finished.                 ")
+                    print(f'\r  |<{"="*50}| {percent:>3} %')
                     return local_file
                 output.write(data)
-                written += len(data)
-                progress = int((written*100)/total)
-                if (progress - prev_progress) >= 5: # report every 5%
-                    prev_progress = progress
-                    written_megas = int(written/(1024*1024))
-                    console(f"\rDownloading {remote_url} {written_megas}/{total_megas}MB ({progress}%)...")
+                transferred += len(data)
+                percent = int((transferred / size) * 100.0)
+                if abs(lastpercent - percent) >= 5: # report every 5%
+                    lastpercent = percent
+                    n = int(percent / 2)
+                    right = '=' * n
+                    left = ' ' * int(50 - n)
+                    print(f'\r  |{left}<{right}| {percent:>3} %', end='')
 
 
 def unzip(local_zip, extract_dir):
