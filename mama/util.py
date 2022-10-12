@@ -210,9 +210,12 @@ def unzip(local_zip, extract_dir):
 def download_and_unzip(remote_zip, extract_dir, unless_file_exists):
     if unless_file_exists and os.path.exists(unless_file_exists):
         console(f"Skipping {os.path.basename(remote_zip)} because {unless_file_exists} exists.")
-        return
+        return extract_dir
     local_file = download_file(remote_zip, extract_dir)
+    if not local_file:
+        return None
     unzip(local_file, extract_dir)
+    return extract_dir
 
 
 def _should_copy(src, dst):
@@ -231,13 +234,23 @@ def _should_copy(src, dst):
     return False
 
 
-def copy_file(src, dst):
-    if _should_copy(src, dst):
+def _passes_filter(src_file, filter):
+    if not filter: return True
+    for f in filter:
+        if src_file.endswith(f):
+            return True
+    return False
+
+
+def copy_file(src, dst, filter):
+    if _passes_filter(src, filter) and _should_copy(src, dst):
         #console(f'copy {src}\n --> {dst}')
         shutil.copy2(src, dst)
 
 
-def copy_dir(src_dir, out_dir):
+def copy_dir(src_dir, out_dir, filter=None):
+    if not os.path.exists(src_dir):
+        raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
     root = os.path.dirname(src_dir)
     for fulldir, _, files in os.walk(src_dir):
         reldir = fulldir[len(root):].lstrip('\\/')
@@ -249,13 +262,13 @@ def copy_dir(src_dir, out_dir):
         for file in files:
             src_file = os.path.join(fulldir, file)
             dst_file = os.path.join(dst_folder, file)
-            copy_file(src_file, dst_file)
+            copy_file(src_file, dst_file, filter)
 
 
-def copy_if_needed(src, dst):
+def copy_if_needed(src, dst, filter=None):
     #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
-        copy_dir(src, dst)
+        copy_dir(src, dst, filter)
     else:
-        copy_file(src, dst)
+        copy_file(src, dst, filter)
 

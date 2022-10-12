@@ -1,7 +1,7 @@
 import os, subprocess, shlex, time
 from mama.system import System, console, execute
 from mama.build_config import BuildConfig
-from mama.async_file_reader import AsyncFileReader, AsyncConsoleReader
+from mama.async_file_reader import AsyncConsoleReader
 
 
 def _rerunnable_cmake_conf(cwd, args, allow_rerun, target):
@@ -12,6 +12,7 @@ def _rerunnable_cmake_conf(cwd, args, allow_rerun, target):
     verbose = target.config.verbose
     if verbose: console(args)
     #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
+    # TODO: use forktty instead of AsyncConsoleReader
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     reader = AsyncConsoleReader(proc.stdout, proc.stderr)
 

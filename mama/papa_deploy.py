@@ -1,6 +1,5 @@
-import os, shutil
-from .util import write_text_to, console, glob_with_name_match, copy_dir, copy_if_needed
-from typing import List
+import os
+from .util import write_text_to, console, copy_if_needed
 
 
 class Asset:
@@ -31,61 +30,50 @@ def _is_a_dynamic_library(lib):
         or lib.endswith('.aar')
 
 
+def _results_contain(results, contains_value):
+    for target,value in results:
+        if value == contains_value:
+            return True
+    return False
+
+
+def _gather(target, recurse, results:list, get_candidates):
+    for value in get_candidates(target):
+        if not _results_contain(results, value):
+            results.append((target,value))
+    if recurse:
+        for child in target.dep.children:
+            _gather(child.target, True, results, get_candidates)
+    return results
+
+
 def _gather_includes(target, recurse):
     includes = []
-    def append_includes(target):
-        nonlocal includes, recurse
-        for lib in target.exported_libs:
-            if _is_a_dynamic_library(lib):
-                for include in target.exported_includes:
-                    includes.append((target,include))
-                break
-        if recurse:
-            for child in target.dep.children:
-                append_includes(child.target)
-    append_includes(target)
-    return includes
+    return _gather(target, recurse, includes, lambda t: t.exported_includes)
 
 
-def _gather_dylibs(target, recurse):
-    dylibs = []
-    def append_dylibs(target):
-        nonlocal dylibs, recurse
-        for lib in target.exported_libs:
-            if _is_a_dynamic_library(lib):
-                dylibs.append((target,lib))
-        if recurse:
-            for child in target.dep.children:
-                append_dylibs(child.target)
-    append_dylibs(target)
-    return dylibs
+def _gather_libs(target, recurse):
+    # gather all libs from the root target
+    libs = [(target,l) for l in target.exported_libs]
+
+    # and for children, only gather dynamic libs if recurse is set
+    if recurse:
+        def get_dylibs(t):
+            for l in t.exported_libs:
+                if _is_a_dynamic_library(l): yield l
+        for child in target.dep.children:
+            _gather(child, recurse, libs, get_dylibs)
+    return libs
 
 
 def _gather_syslibs(target, recurse):
     syslibs = []
-    def append_syslibs(target):
-        nonlocal syslibs, recurse
-        for lib in target.exported_syslibs:
-            if not lib in syslibs:
-                syslibs.append((target,lib))
-        if recurse:
-            for child in target.dep.children:
-                append_syslibs(child.target)
-    append_syslibs(target)
-    return syslibs
+    return _gather(target, recurse, syslibs, lambda t: t.exported_syslibs)
 
 
 def _gather_assets(target, recurse):
     assets = []
-    def append_assets(target):
-        nonlocal assets, recurse
-        for asset in target.exported_assets:
-            assets.append((target,asset))
-        if recurse:
-            for child in target.dep.children:
-                append_assets(child.target)
-    append_assets(target)
-    return assets
+    return _gather(target, recurse, assets, lambda t: t.exported_assets)
 
 
 def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
@@ -94,29 +82,34 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
     includes = _gather_includes(target, r_includes)
-    libs     = _gather_dylibs(target, r_dylibs)
+    libs     = _gather_libs(target, r_dylibs)
     syslibs  = _gather_syslibs(target, r_syslibs)
     assets   = _gather_assets(target, r_assets)
 
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
-    
+
     descr = [f'P {os.path.basename(package_full_path)}']
     relincludes = []
+    includes_root = package_full_path + '/include'
+    # TODO: should we include .cpp files for easier debugging?
+    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
+    if includes: # only use a single include root -- simplifies everything
+        descr.append(f'I include')
     for inctarget, include in includes:
         relpath = os.path.basename(include)
         if not relpath in relincludes:
-            descr.append(f'I {relpath}')
             relincludes.append(relpath)
-        if detail_echo: console(f'    I ({inctarget.name+")": <16}  {relpath}')
-        copy_dir(include, package_full_path)
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
+            if config.verbose: console(f'    copy {include} -> {includes_root}')
+            copy_if_needed(include, includes_root, includes_filter)
 
     for libtarget, lib in libs:
         relpath = os.path.basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
-        if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
         #outpath = os.path.join(package_full_path, relpath)
         outpath = package_full_path
+        if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
         if config.verbose: console(f'    copy {lib} -> {outpath}')
         copy_if_needed(lib, outpath)
 
@@ -132,7 +125,6 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         folder = os.path.dirname(outpath)
         if not os.path.exists(folder):
             os.makedirs(folder, exist_ok=True)
-        
         copy_if_needed(asset.srcpath, outpath)
 
     write_text_to(os.path.join(package_full_path, 'papa.txt'), '\n'.join(descr))
@@ -141,3 +133,7 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
     if config.print:
         console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 
+
+def papa_upload_to(target, package_full_path):
+    console(f'papa_upload_to {target.name} {package_full_path}')
+    

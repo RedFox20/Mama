@@ -1,12 +1,12 @@
 from .system import System, console
 from .build_config import BuildConfig
-from .async_file_reader import AsyncFileReader
 import subprocess, os
 
 
 def _run_msbuild(cwd, args, config:BuildConfig):
     if config.verbose:
         console(args)
+    # TODO: use forktty instead of Popen
     proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd)
     retcode = proc.wait()
     if retcode == 0:

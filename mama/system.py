@@ -18,6 +18,7 @@ def execute_piped(command, cwd=None):
     return cp.stdout.decode('utf-8').rstrip()
 
 
+# TODO: use forktty instead of AsyncFileReader
 def execute_echo(cwd, cmd):
     try:
         proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

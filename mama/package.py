@@ -66,8 +66,14 @@ def clean_intermediate_files(target):
 
 
 def export_libs(target, path, pattern_substrings, src_dir, order):
-    libs = glob_with_name_match(target_root_path(target, path, src_dir), pattern_substrings)
+    root_path = target_root_path(target, path, src_dir)
+    libs = glob_with_name_match(root_path, pattern_substrings)
     libs = cleanup_libs_list(libs)
+
+    # ignore root_path/deploy
+    root_deploy = root_path + '/deploy/'
+    libs = [l for l in libs if not l.startswith(root_deploy)]
+
     if order:
         def lib_index(lib):
             for i in range(len(order)):

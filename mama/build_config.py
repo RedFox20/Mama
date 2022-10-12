@@ -26,6 +26,9 @@ class BuildConfig:
         self.rebuild = False
         self.update  = False
         self.deploy  = False
+        # if root mamafile has defined an artifacts URL
+        # this will upload deploy archive through SFTP
+        self.upload  = False
         self.reclone   = False
         self.mama_init = False
         self.print     = True
@@ -58,6 +61,8 @@ class BuildConfig:
         self.open    = None
         self.ios_version   = '11.0'
         self.macos_version = '10.12'
+        ## Artifactory URL for dependency uploads and downloads
+        self.artifactory_url = None
         ## Ninja
         self.ninja_path = self.find_ninja_build()
         ## MSVC, MSBuild
@@ -100,6 +105,7 @@ class BuildConfig:
             elif arg == 'rebuild':   self.rebuild = True
             elif arg == 'update':    self.update  = True
             elif arg == 'deploy':    self.deploy  = True
+            elif arg == 'upload':    self.upload  = True
             # Updates, Builds and Deploys the project as a package
             elif arg == 'serve':
                 self.build = True
@@ -201,8 +207,8 @@ class BuildConfig:
     def is_platform_set(self):
         return self.windows or self.linux or self.macos \
             or self.ios or self.android or self.raspi or self.oclea
-    
-    
+
+
     def check_platform(self):
         if not self.is_platform_set():
             self.set_platform(windows=System.windows, linux=System.linux, macos=System.macos)
@@ -216,7 +222,7 @@ class BuildConfig:
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
             if self.cv25 and self.arch != 'arm64':
                 raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
-            
+
 
     def set_arch(self, arch):
         arches = ['x86', 'x64', 'arm', 'arm64']
@@ -229,7 +235,7 @@ class BuildConfig:
         return (self.arch == 'x64' or self.arch == 'arm64') \
             or (self.arch is None and System.is_64bit)
 
-    
+
     def name(self):
         if self.windows: return 'windows'
         if self.linux:   return 'linux'
@@ -270,6 +276,15 @@ class BuildConfig:
         self.release = release
         self.debug   = debug
         return True
+
+
+    def set_artifactory_url(self, ftp_url):
+        """
+        Configures the remote Artifactory URL where packages
+        will be checked for download. If a package with correct commit hash
+        exists, it will be used instead of building locally.
+        """
+        self.artifactory_url = ftp_url
 
 
     def prefer_clang(self, target_name):
@@ -342,7 +357,7 @@ class BuildConfig:
             cxx = f'{self.gcc_path}g++{suffix}'
             return (cc, cxx)
         raise EnvironmentError('No preferred compiler for this platform!')
-        
+
 
     def find_ninja_build(self):
         ninja_executables = [
@@ -426,7 +441,7 @@ class BuildConfig:
 Default search paths: {paths} 
 Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/ndk-bundle.''')
 
-    
+
     def init_raspi_path(self):
         paths = []
         self.append_env_path(paths, 'RASPI_HOME')
@@ -511,7 +526,7 @@ Define env OCLEA_HOME with path to Oclea tools.''')
                 return path
 
         return self._visualstudio_path
-    
+
 
     def is_target_arch_x64(self):
         return self.arch == 'x64' or (System.is_64bit and not self.arch)

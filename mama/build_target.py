@@ -1,11 +1,9 @@
 import os.path, shutil
-import pathlib, stat, time, subprocess, concurrent.futures
 from mama.system import System, console, execute, execute_echo
-from mama.util import save_file_if_contents_changed, glob_with_name_match, \
-                      normalized_path, write_text_to, copy_if_needed
+from mama.util import normalized_path, copy_if_needed
 from mama.build_dependency import BuildDependency
 from mama.build_config import BuildConfig
-from mama.papa_deploy import papa_deploy_to, Asset
+from mama.papa_deploy import Asset, papa_deploy_to, papa_upload_to
 import mama.util as util
 from typing import List
 from mama.msbuild import msbuild_build
@@ -490,7 +488,7 @@ class BuildTarget:
         for flag in flags:
             if isinstance(flag, list): self.add_cxx_flags(*flag)
             else: self._add_dict_flag(self.cmake_cxxflags, flag)
-    
+
 
     def add_c_flags(self, *flags):
         """
@@ -668,7 +666,7 @@ class BuildTarget:
             # --> 'bin/file1'
         ```
         """
-        util.download_file(remote_url, local_dir, force)
+        return util.download_file(remote_url, local_dir, force)
 
 
     def download_and_unzip(self, remote_zip, extract_dir, unless_file_exists=None):
@@ -679,9 +677,11 @@ class BuildTarget:
         ```
             self.download_and_unzip('http://example.com/archive.zip', 
                                     'bin', 'bin/unzipped_file.txt')
+            # --> 'bin/'  on success
+            # --> None    on failure
         ```
         """
-        util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
+        return util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
 
 
     def visibility_hidden(self, hidden=True):
@@ -767,7 +767,7 @@ class BuildTarget:
         """
         execute_echo(working_dir, command)
 
-    
+
     def gdb(self, command, src_dir=True):
         """
         Run a command with gdb in the build folder.
@@ -945,15 +945,15 @@ class BuildTarget:
         ```
         """
         self.default_deploy()
-    
+
 
     def default_deploy(self):
-        self.papa_deploy(f'deploy/{self.name}')
+        self.papa_deploy(f'deploy/{self.name}', src_dir=False)
 
-    
-    def papa_deploy(self, package_path, src_dir=True,
-                    r_includes=True, r_dylibs=True,
-                    r_syslibs=False, r_assets=True):
+
+    def papa_deploy(self, package_path, src_dir=False,
+                    r_includes=False, r_dylibs=False,
+                    r_syslibs=False, r_assets=False):
         """
         This will create a PAPA package, which includes
             package_path/papa.txt
@@ -974,7 +974,7 @@ class BuildTarget:
             MyPackageName/libawesome.so
             MyPackageName/include/...
             MyPackageName/someassets/extra.txt
-            
+        
         PAPA descriptor `papa.txt` format:
             P MyPackageName
             I include
@@ -984,8 +984,10 @@ class BuildTarget:
         """
         if self.config.list:
             return # don't deploy during listing
-        path = package.target_root_path(self, package_path, src_dir)
-        papa_deploy_to(self, path, r_includes, r_dylibs, r_syslibs, r_assets)
+        self.papa_path = package.target_root_path(self, package_path, src_dir)
+        papa_deploy_to(self, self.papa_path, \
+            r_includes=r_includes, r_dylibs=r_dylibs, \
+            r_syslibs=r_syslibs, r_assets=r_assets)
 
 
     def test(self, args):
@@ -1096,12 +1098,16 @@ class BuildTarget:
         # Only run deploy for either:
         # -> Root target by default
         # -> or Specific target
-        if self.config.deploy:
+        if self.config.deploy or self.config.upload:
             specific_target = not self.config.no_specific_target()
-            if (not specific_target and self.dep.is_root) or \
-                (specific_target and self.config.target_matches(self.name)):
+            if (not specific_target and self.dep.is_root) \
+                or (specific_target and self.config.target_matches(self.name)):
                 self.deploy() # user customization
-
+                if self.config.upload:
+                    if not self.papa_path:
+                        raise RuntimeError(f'BuildTarget {self.name} was not deployed! '\
+                                            'Add self.papa_deploy() to mamafile deploy()!')
+                    papa_upload_to(self, self.papa_path)
 
     def _execute_run_tasks(self):
         if self.is_test_target():
@@ -1139,7 +1145,7 @@ class BuildTarget:
         for include in self.exported_includes: self._print_ws_path('<I>', include)
         for library in self.exported_libs:     self._print_ws_path('[L]', library)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
-        if self.config.deploy:
+        if self.config.deploy or self.config.upload:
             for asset in self.exported_assets: self._print_ws_path('[A]', str(asset), check_exists=False)
         elif self.exported_assets:
             assets = 'assets' if len(self.exported_assets) > 1 else 'asset'
