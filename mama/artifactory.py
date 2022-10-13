@@ -1,14 +1,14 @@
-import os, ftplib
-import traceback
-import keyring, getpass
-from .util import console, download_file
+import os, ftplib, traceback, getpass, keyring
+from typing import List
+from .asset import Asset
+from .util import console, download_and_unzip, download_file, normalized_join, read_lines_from, unzip
 from .system import System, execute_piped
 
 
 def _get_commit_hash(target):
     result = None
-    if os.path.exists(f'{target.dep.src_dir}/.git'):
-        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=target.dep.src_dir)
+    if os.path.exists(f'{target.source_dir()}/.git'):
+        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=target.source_dir())
     return result if result else 'latest'
 
 
@@ -79,16 +79,6 @@ def artifactory_sanitize_url(url):
     return url.replace('ftp://', '').replace('http://','').replace('https://','')
 
 
-def artifactory_fetch(target):
-    url = target.config.artifactory_ftp
-    if not url: raise RuntimeError(f'Artifactory Fetch failed: artifactory_ftp not set by config.set_artifactory_ftp()')
-    url = artifactory_sanitize_url(url)
-
-    archive_name = artifactory_archive_name(target) + '.zip'
-    remote_file = f'https://{url}/{archive_name}'
-    download_file(remote_file, target.dep.build_dir, force=True)
-
-
 def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
     size = os.path.getsize(file_path)
     transferred = 0
@@ -120,11 +110,68 @@ def artifactory_upload_ftp(target, file_path):
             # sanitize url for ftplib
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
-            #ftp.dir()
-            #artifactory_upload(ftp, file_path)
         except:
             traceback.print_exc()
         finally:
             ftp.quit()
 
-    artifactory_fetch(target)
+
+def artifactory_reconfigure_target_from_deployment(target, deploy_path):
+    papa_list = normalized_join(deploy_path, 'papa.txt')
+    if not os.path.exists(papa_list):
+        console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} does not exist')
+        return False
+
+    project_name = None
+    includes = []
+    libs = []
+    syslibs = []
+    assets:List[Asset] = []
+
+    def append_to(to:list, line):
+        to.append(normalized_join(deploy_path, line[2:].strip()))
+
+    for line in read_lines_from(papa_list):
+        if   line.startswith('P '): project_name = line[2:].strip()
+        elif line.startswith('I '): append_to(includes, line)
+        elif line.startswith('L '): append_to(libs, line)
+        elif line.startswith('S '): append_to(syslibs, line)
+        elif line.startswith('A '):
+            relpath = line[2:].strip()
+            fullpath = normalized_join(deploy_path, relpath)
+            assets.append(Asset(relpath, fullpath, None))
+
+    if project_name != target.name:
+        console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
+        return False
+
+    target.exported_includes = includes # include folders to export from this target
+    target.exported_libs     = libs # libs to export from this target
+    target.exported_syslibs  = syslibs # exported system libraries
+    target.exported_assets   = assets # exported asset files
+    return True
+
+
+def artifactory_fetch_and_reconfigure(target):
+    url = target.config.artifactory_ftp
+    if not url:
+        return False
+    url = artifactory_sanitize_url(url)
+    archive = artifactory_archive_name(target)
+    archive_file = archive + '.zip'
+    remote_file = f'https://{url}/{archive_file}'
+    build_dir = target.build_dir()
+    local_file = normalized_join(build_dir, archive_file)
+
+    if os.path.exists(local_file):
+        console(f'Artifactory using existing Package at: {local_file}')
+    else:
+        local_file = download_file(remote_file, build_dir, force=True, 
+                                   message=f'Artifactory fetch {url}/{archive} ')
+        if not local_file:
+            return False
+
+    unzip(local_file, build_dir)
+    console(f'Artifactory unzip {archive}')
+    return artifactory_reconfigure_target_from_deployment(target, build_dir)
+

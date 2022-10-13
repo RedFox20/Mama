@@ -1,11 +1,11 @@
 import os
 from mama.system import console
 from mama.util import normalized_path, glob_with_name_match
-from mama.papa_deploy import Asset
+from mama.asset import Asset
 
 
 def target_root_path(target, path, src_dir):
-    root = target.dep.src_dir if src_dir else target.dep.build_dir
+    root = target.source_dir() if src_dir else target.build_dir()
     return normalized_path(os.path.join(root, path))
 
 
@@ -58,9 +58,9 @@ def cleanup_libs_list(libs):
 
 
 def clean_intermediate_files(target):
-    files_to_clean = glob_with_name_match(target.dep.build_dir, ['.obj', '.o'])
-    if target.config.print:
-        print(f'Cleaning {len(files_to_clean)} intermediate files in {target.dep.build_dir}')
+    files_to_clean = glob_with_name_match(target.build_dir(), ['.obj', '.o'])
+    if target.config.print and files_to_clean:
+        print(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
         for file in files_to_clean:
             os.remove(file)
 
@@ -87,7 +87,7 @@ def export_libs(target, path, pattern_substrings, src_dir, order):
     return len(target.exported_libs) > 0
 
 
-def export_asset(target, asset, category, src_dir):
+def export_asset(target, asset, category=None, src_dir=True):
     full_asset = target_root_path(target, asset, src_dir)
     if os.path.exists(full_asset):
         target.exported_assets.append(Asset(asset, full_asset, category))
@@ -97,7 +97,7 @@ def export_asset(target, asset, category, src_dir):
         return False
 
 
-def export_assets(target, assets_path, pattern_substrings, category, src_dir):
+def export_assets(target, assets_path, pattern_substrings, category=None, src_dir=True):
     assets_path += '/'
     assets = glob_with_name_match(target_root_path(target, assets_path, src_dir), pattern_substrings, match_dirs=False)
     if assets:

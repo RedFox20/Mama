@@ -22,7 +22,7 @@ class Git:
 
 
     def run_git(self, git_command):
-        cmd = f"cd {self.dep.src_dir} && git {git_command}"
+        cmd = f"cd {self.source_dir()} && git {git_command}"
         if self.dep.config.verbose:
             console(f'  {self.dep.name: <16} git {git_command}')
         execute(cmd)
@@ -33,7 +33,7 @@ class Git:
 
 
     def current_commit(self):
-        result = execute_piped(['git', 'show', '--oneline', '-s'], cwd=self.dep.src_dir)
+        result = execute_piped(['git', 'show', '--oneline', '-s'], cwd=self.source_dir())
         if self.dep.config.verbose:
             console(f'  {self.dep.name: <16} git show --oneline -s:   {result}')
         return result
@@ -41,15 +41,15 @@ class Git:
 
     def save_status(self):
         status = f"{self.url}\n{self.tag}\n{self.branch}\n{self.current_commit()}\n"
-        write_text_to(f"{self.dep.build_dir}/git_status", status)
+        write_text_to(f"{self.build_dir()}/git_status", status)
 
 
     def check_status(self):
-        lines = read_lines_from(f"{self.dep.build_dir}/git_status")
+        lines = read_lines_from(f"{self.build_dir()}/git_status")
         if not lines:
             self.missing_status = True
             if not self.url: return False
-            #console(f'check_status {self.url}: NO STATUS AT {self.dep.build_dir}/git_status')
+            #console(f'check_status {self.url}: NO STATUS AT {self.build_dir()}/git_status')
             self.url_changed = True
             self.tag_changed = True
             self.branch_changed = True
@@ -90,12 +90,12 @@ class Git:
 
 
     def clone_or_pull(self, wiped=False):
-        if is_dir_empty(self.dep.src_dir):
+        if is_dir_empty(self.source_dir()):
             if not wiped and self.dep.config.print:
                 console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
-            execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {self.dep.src_dir}", self.dep.config.verbose)
+            execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {self.source_dir()}", self.dep.config.verbose)
             self.checkout_current_branch()
         else:
             if self.dep.config.print:

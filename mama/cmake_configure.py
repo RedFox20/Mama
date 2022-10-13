@@ -64,13 +64,13 @@ def run_config(target):
     
     cmake_flags = get_flags()
     generator = _generator(target)
-    src_dir = target.dep.src_dir
+    src_dir = target.source_dir()
     cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
-    _rerunnable_cmake_conf(target.dep.build_dir, cmd, True, target)
+    _rerunnable_cmake_conf(target.build_dir(), cmd, True, target)
 
 
 def run_build(target, install, extraflags=''):
-    build_dir = target.dep.build_dir
+    build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)
     execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)

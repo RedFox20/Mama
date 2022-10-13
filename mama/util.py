@@ -74,8 +74,8 @@ def save_file_if_contents_changed(filename, new_contents):
     pathlib.Path(filename).write_text(new_contents)
 
 
-# always join with forward slash /
 def path_join(first, second):
+    """ Always join with forward/ slashes """
     first  = first.rstrip('/\\')
     second = second.lstrip('/\\')
     if not first: return second
@@ -84,16 +84,24 @@ def path_join(first, second):
 
 
 def forward_slashes(pathstring):
+    """ Replace all back\\ slashes with forward/ slashes"""
     return pathstring.replace('\\', '/')
 
 
 def back_slashes(pathstring):
+    """ Replace all forward/ slashes with back\\ slashes"""
     return pathstring.replace('/', '\\')
 
 
 def normalized_path(pathstring):
+    """ Normalizes a path to ABSOLUTE path and all forward/ slashes """
     pathstring = os.path.abspath(pathstring)
     return pathstring.replace('\\', '/').rstrip()
+
+
+def normalized_join(path1, path2):
+    """ Joins two paths and the calls normalized_path() """
+    return normalized_path(os.path.join(path1, path2))
 
 
 def glob_with_extensions(rootdir, extensions):
@@ -181,7 +189,7 @@ def get_file_size_str(size):
     return f'{size/(1024*1024):.2}GB'
 
 
-def download_file(remote_url, local_dir, force=False):
+def download_file(remote_url, local_dir, force=False, message=None):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
         console(f"Using locally cached {local_file}")
@@ -196,7 +204,8 @@ def download_file(remote_url, local_dir, force=False):
     with request.urlopen(remote_url, context=ctx) as urlfile:
         with open(local_file, 'wb') as output:
             size = int(urlfile.info()['Content-Length'].strip())
-            print(f'Downloading {remote_url} {get_file_size_str(size)}')
+            if not message: message = f'Downloading {remote_url}'
+            print(f'{message} {get_file_size_str(size)}')
             print(f'  |{" ":50}<| {0:>3} %', end='')
             transferred = 0
             lastpercent = 0
@@ -219,17 +228,17 @@ def download_file(remote_url, local_dir, force=False):
 def unzip(local_zip, extract_dir):
     with zipfile.ZipFile(local_zip, "r") as zip:
         zip.extractall(extract_dir)
-    console(f'Extracted {local_zip} to {extract_dir}')
 
 
-def download_and_unzip(remote_zip, extract_dir, unless_file_exists):
-    if unless_file_exists and os.path.exists(unless_file_exists):
-        console(f"Skipping {os.path.basename(remote_zip)} because {unless_file_exists} exists.")
+def download_and_unzip(remote_file, extract_dir, local_file):
+    if local_file and os.path.exists(local_file):
+        console(f"Skipping {os.path.basename(remote_file)} because {local_file} exists.")
         return extract_dir
-    local_file = download_file(remote_zip, extract_dir)
+    local_file = download_file(remote_file, extract_dir)
     if not local_file:
         return None
     unzip(local_file, extract_dir)
+    console(f'Extracted {local_file} to {extract_dir}')
     return extract_dir
 
 

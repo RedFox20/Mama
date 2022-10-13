@@ -2,26 +2,6 @@ import os, shutil
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .util import write_text_to, console, copy_if_needed
 
-class Asset:
-    def __init__(self, relpath, fullpath, category):
-        """
-        Creates an asset. If category is set, then relpath is ignored during deploy
-            relpath  -- Relative path to source
-            fullpath -- Single full path
-            category -- Deployment category
-        """
-        reldir = os.path.dirname(relpath)
-        self.name     = os.path.basename(fullpath)
-        self.outpath  = fullpath[fullpath.find(reldir) + len(reldir):].lstrip('\\/')
-        self.srcpath  = fullpath
-
-        if category: self.outpath = f'{category}/{self.outpath}'
-        else:        self.outpath = f'{reldir}/{self.outpath}'
-        #console(f'asset {self.outpath}')
-
-    def __str__(self):  return self.outpath
-    def __repr__(self): return self.outpath
-
 
 def _is_a_dynamic_library(lib):
     return lib.endswith('.dll')    or lib.endswith('.pdb') \
@@ -140,7 +120,7 @@ def papa_upload_to(target, package_full_path):
     - package_full_path: Full path to deployed PAPA package
     """
     config = target.config
-    dst_dir = target.dep.build_dir
+    dst_dir = target.build_dir()
     archive_name = artifactory_archive_name(target)
 
     if config.print:   console(f'  - PAPA Upload {archive_name}')

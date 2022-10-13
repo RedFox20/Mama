@@ -8,7 +8,7 @@ def _get_full_path(target, path):
         if target.dep.mamafile: # if setting mamafile, then use mamafile folder:
             path = os.path.join(os.path.dirname(target.dep.mamafile), path)
         else:
-            path = os.path.join(target.dep.src_dir, path)
+            path = os.path.join(target.source_dir(), path)
         path = normalized_path(path)
     return path
 

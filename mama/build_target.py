@@ -1,12 +1,14 @@
 import os.path, shutil
-from mama.system import System, console, execute, execute_echo
-from mama.util import normalized_path, copy_if_needed
-from mama.build_dependency import BuildDependency
-from mama.build_config import BuildConfig
-from mama.papa_deploy import Asset, papa_deploy_to, papa_upload_to
-import mama.util as util
+from .artifactory import artifactory_fetch_and_reconfigure
+from .system import System, console, execute, execute_echo
+from .util import normalized_path, copy_if_needed
+from .build_dependency import BuildDependency
+from .build_config import BuildConfig
+from .asset import Asset
+from .papa_deploy import papa_deploy_to, papa_upload_to
+from .msbuild import msbuild_build
 from typing import List
-from mama.msbuild import msbuild_build
+import mama.util as util
 import mama.cmake_configure as cmake
 import mama.package as package
 import mama.add_dependencies as add_dependencies
@@ -41,7 +43,7 @@ class BuildTarget:
             self.papa_deploy('deploy/MyProject')
     ```
     """
-    def __init__(self, name, config:BuildConfig, dep:BuildDependency, args:list):
+    def __init__(self, name, config:BuildConfig, dep:BuildDependency, args:List[str]):
         if config is None: raise RuntimeError(f'BuildTarget {name} config argument must be set')
         if dep is None:    raise RuntimeError(f'BuildTarget {name} dep argument must be set')
         self.config = config
@@ -86,7 +88,7 @@ class BuildTarget:
         self._set_args(args)
 
 
-    def _set_args(self, args:list):
+    def _set_args(self, args:List[str]):
         if not isinstance(args, list):
             raise RuntimeError(f'BuildTarget {self.name} target args must be a list')
         self.args += args
@@ -103,6 +105,7 @@ class BuildTarget:
             # --> C:/Projects/ReCpp/lib/ReCpp.lib
         ```
         """
+        if not subpath: return self.dep.src_dir
         return util.path_join(self.dep.src_dir, subpath)
 
 
@@ -116,6 +119,7 @@ class BuildTarget:
             # --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
         ```
         """
+        if not subpath: return self.dep.build_dir
         return util.path_join(self.dep.build_dir, subpath)
 
 
@@ -288,7 +292,7 @@ class BuildTarget:
         """
         dependency = all if all else self.select(windows, linux, macos, ios, android)
         if dependency:
-            dependency = normalized_path(os.path.join(self.dep.build_dir, dependency))
+            dependency = normalized_path(os.path.join(self.build_dir(), dependency))
             self.build_dependencies.append(dependency)
             #console(f'    {self.name}.build_dependencies += {dependency}')
 
@@ -642,8 +646,8 @@ class BuildTarget:
             self.copy_built_file('RelWithDebInfo/libawesome.a', 'lib')
         ```
         """
-        src = f'{self.dep.build_dir}/{builtFile}'
-        dst = f'{self.dep.build_dir}/{copyToFolder}'
+        src = f'{self.build_dir()}/{builtFile}'
+        dst = f'{self.build_dir()}/{copyToFolder}'
         shutil.copy(src, dst)
 
 
@@ -753,7 +757,7 @@ class BuildTarget:
             self.run('make release -j7')
         ```
         """
-        dir = self.dep.src_dir if src_dir else self.dep.build_dir
+        dir = self.source_dir() if src_dir else self.build_dir()
         execute(f'cd {dir} && {command}', echo=True)
 
 
@@ -782,7 +786,7 @@ class BuildTarget:
         split = command.split(' ', 1)
         cmd = split[0].lstrip('.')
         args = split[1] if len(split) >= 2 else ''
-        path = self.dep.src_dir if src_dir else self.dep.build_dir
+        path = self.source_dir() if src_dir else self.build_dir()
         path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
         exe = os.path.basename(cmd)
 
@@ -1066,19 +1070,27 @@ class BuildTarget:
 
 
     def _execute_build_tasks(self):
+        do_package_step = True
         if self.dep.should_rebuild and not self.dep.nothing_to_build:
             self.configure() # user customization
             if not self.dep.nothing_to_build:
-                self.build() # user customization
+                clean_intermediate = False
+                if artifactory_fetch_and_reconfigure(self): # this will reconfigure packaging
+                    do_package_step = False # no need to package after reconfiguration
+                    clean_intermediate = True # remove any unnecessary .obj files
+                else:
+                    self.build() # user customization
+
                 self.dep.successful_build()
 
                 # NOTE: clean_intermediate_files is a suggestion !
                 # for `always_build` and `root` we don't want to clean the files
-                if self.clean_intermediate_files \
-                    and not (self.dep.always_build or self.dep.is_root):
+                if clean_intermediate or \
+                    (self.clean_intermediate_files and not (self.dep.always_build or self.dep.is_root)):
                     package.clean_intermediate_files(self)
-        
-        self.package() # user customization
+
+        if do_package_step:
+            self.package() # user customization
 
         # no packaging provided by user; use default packaging instead
         if not self.exported_includes and not self.no_includes:
@@ -1128,8 +1140,8 @@ class BuildTarget:
             console(f'    {what}  {path}')
         elif path.startswith(self.config.workspaces_root):
             console(f'    {what}  {path[len(self.config.workspaces_root) + 1:]}{exists()}')
-        elif path.startswith(self.dep.src_dir):
-            console(f'    {what}  {path[len(self.dep.src_dir) + 1:]}{exists()}')
+        elif path.startswith(self.source_dir()):
+            console(f'    {what}  {path[len(self.source_dir()) + 1:]}{exists()}')
         else:
             ex = exists() if check_exists else ''
             console(f'    {what}  {path}{ex}')
