@@ -1,20 +1,20 @@
 import os, ftplib, traceback, getpass
 from typing import List, Tuple
 
-from .types.git import Git
-from .types.local_source import LocalSource
-from .types.dep_source import DepSource
-from .types.asset import Asset
-from .types.artifactory_pkg import ArtifactoryPkg
-from .system import System, execute_piped
-from .util import console, download_file, normalized_join, read_lines_from, unzip
+import mama.types.git as git
+import mama.types.local_source as src
+import mama.types.artifactory_pkg as pkg
+import mama.types.dep_source as dep
+import mama.types.asset as asset
+import mama.system as system
 import mama.package as package
+from .util import console, download_file, normalized_join, read_lines_from, unzip
 
 def _get_commit_hash(target):
     result = None
     src_dir = target.source_dir()
     if os.path.exists(f'{src_dir}/.git'):
-        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=src_dir)
+        result = system.execute_piped(['git', 'show', '--format=%h', '-s'], cwd=src_dir)
     return result if result else 'latest'
 
 
@@ -24,16 +24,16 @@ def artifactory_archive_name(target):
     {name}-{platform}-{arch}-{build_type}-{commit_hash}
     Example: opencv-linux-x64-release-df76b66
     """
-    pkg:ArtifactoryPkg = target.dep.dep_source
-    if pkg.is_pkg and pkg.fullname:
-        return pkg.fullname
+    p:pkg.ArtifactoryPkg = target.dep.dep_source
+    if p.is_pkg and p.fullname:
+        return p.fullname
 
     name = target.name
     # triplets information to make this package platform unique
     platform = target.config.name() # eg 'windows', 'linux', 'oclea'
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
-    commit_hash = pkg.version if pkg.is_pkg else _get_commit_hash(target)
+    commit_hash = p.version if p.is_pkg else _get_commit_hash(target)
     return f'{name}-{platform}-{arch}-{build_type}-{commit_hash}'
 
 
@@ -42,7 +42,7 @@ def _get_keyring():
     global keyr
     if not keyr: # lazy init keyring, because it loads certs and other slow stuff
         import keyring
-        if System.linux:
+        if system.System.linux:
             import importlib
             cryptfile = importlib.import_module('keyrings.cryptfile.cryptfile')
             kr = cryptfile.CryptFileKeyring()
@@ -142,10 +142,10 @@ def artifactory_upload_ftp(target, file_path):
             ftp.quit()
 
 
-def make_dep_source(s:str) -> DepSource:
-    if s.startswith('git '): return Git.from_papa_string(s[4:])
-    if s.startswith('pkg '): return ArtifactoryPkg.from_papa_string(s[4:])
-    if s.startswith('src '): return LocalSource.from_papa_string(s[4:])
+def make_dep_source(s:str) -> dep.DepSource:
+    if s.startswith('git '): return git.Git.from_papa_string(s[4:])
+    if s.startswith('pkg '): return pkg.ArtifactoryPkg.from_papa_string(s[4:])
+    if s.startswith('src '): return src.LocalSource.from_papa_string(s[4:])
     raise RuntimeError(f'Unrecognized dependency source: {s}')
 
 
@@ -164,7 +164,7 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
     includes: List[str] = []
     libs: List[str] = []
     syslibs: List[str] = []
-    assets: List[Asset] = []
+    assets: List[asset.Asset] = []
 
     def append_to(to:list, line):
         to.append(normalized_join(deploy_path, line[2:].strip()))
@@ -178,7 +178,7 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
         elif line.startswith('A '):
             relpath = line[2:].strip()
             fullpath = normalized_join(deploy_path, relpath)
-            assets.append(Asset(relpath, fullpath, None))
+            assets.append(asset.Asset(relpath, fullpath, None))
 
     if project_name != target.name:
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
