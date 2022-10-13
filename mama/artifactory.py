@@ -8,11 +8,13 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 from .system import System, execute_piped
 from .util import console, download_file, normalized_join, read_lines_from, unzip
+import mama.package as package
 
 def _get_commit_hash(target):
     result = None
-    if os.path.exists(f'{target.source_dir()}/.git'):
-        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=target.source_dir())
+    src_dir = target.source_dir()
+    if os.path.exists(f'{src_dir}/.git'):
+        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=src_dir)
     return result if result else 'latest'
 
 
@@ -116,10 +118,10 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
                 n = int(percent / 2)
                 left = '=' * n
                 right = ' ' * int(50 - n)
-                print(f'\r  |{left}>{right}| {percent:>3} %', end='')
-        print(f'  |>{" ":50}| {0:>3} %', end='')
+                print(f'\r    |{left}>{right}| {percent:>3} %', end='')
+        print(f'    |>{" ":50}| {0:>3} %', end='')
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
-        print()
+        print(f'\r    |{"="*50}>| 100 %')
 
 
 def artifactory_upload_ftp(target, file_path):
@@ -183,9 +185,9 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
         return (False, None)
 
     target.exported_includes = includes # include folders to export from this target
-    target.exported_libs     = libs # libs to export from this target
-    target.exported_syslibs  = syslibs # exported system libraries
-    target.exported_assets   = assets # exported asset files
+    target.exported_libs = libs # libs to export from this target
+    target.exported_assets = assets # exported asset files
+    package.reload_syslibs(target, syslibs) # set exported system libraries
     return (True, dependencies)
 
 

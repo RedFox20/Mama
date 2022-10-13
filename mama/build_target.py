@@ -165,9 +165,8 @@ class BuildTarget:
     
         Any arguments are passed onto child targets as `self.args`.
         ```
-        self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
-        self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git', 
-                     git_branch='master')
+        self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git')
+        self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git', git_branch='master')
         self.add_git('opencv', 'https://github.com/opencv/opencv.git', 
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
         ```
@@ -667,7 +666,7 @@ class BuildTarget:
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
         """
-        console(f'copy {src} --> {dst}')
+        if self.config.verbose: console(f'copy {src} --> {dst}')
         copy_if_needed(src, dst)
 
 
@@ -679,7 +678,9 @@ class BuildTarget:
         ```
         """
         src = f'{self.build_dir()}/{builtFile}'
-        dst = f'{self.build_dir()}/{copyToFolder}'
+        dst = f'{self.build_dir()}/{copyToFolder}/{os.path.basename(builtFile)}'
+        if not os.path.exists(src) and os.path.exists(dst):
+            return # src is missing, but dst exists, ignore error
         shutil.copy(src, dst)
 
 
@@ -848,10 +849,8 @@ class BuildTarget:
         ```
         class MyProject(mama.BuildTarget):
             def dependencies(self):
-                self.add_git('ReCpp',
-                             'http://github.com/RedFox20/ReCpp.git')
-                self.add_local('fbxsdk',
-                               'third_party/FBX')
+                self.add_git('ReCpp', 'http://github.com/RedFox20/ReCpp.git')
+                self.add_local('fbxsdk', 'third_party/FBX')
         ```
         """
         pass
@@ -1095,21 +1094,17 @@ class BuildTarget:
             self._execute_run_tasks()
         except Exception as err:
             import traceback
-            if self.config.verbose: # full stacktrace in verbose mode
-                traceback.print_exc()
-                console(f'  [BUILD FAILED]  {self.dep.name}')
-            else:
-                tb = traceback.format_exc().splitlines(True)
-                tb = tb[-3]+tb[-2] if len(tb) >= 3 else ''.join(tb)
-                console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\nError Source:\n{tb}')
-            exit(-1) # exit without stack trace
+            console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\n')
+            traceback.print_exc()
+            exit(-1) # exit without further stack trace
 
 
     def _execute_build_tasks(self):
         do_package_step = True
-        if self.dep.should_rebuild and not self.dep.nothing_to_build:
+        can_build = not self.dep.nothing_to_build
+        if can_build and self.dep.should_rebuild:
             self.configure() # user customization
-            if not self.dep.nothing_to_build:
+            if can_build:
                 clean_intermediate = False
                 fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
                 if fetched:

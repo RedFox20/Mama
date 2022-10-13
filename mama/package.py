@@ -9,15 +9,20 @@ def target_root_path(target, path, src_dir):
     return normalized_path(os.path.join(root, path))
 
 
-def _get_unique_basenames(items):
+def get_lib_basename(lib):
+    if isinstance(lib, tuple):
+        return os.path.basename(lib[0])
+    elif lib.startswith('-framework '):
+        return lib.split(' ', 1)[1]
+    else:
+        return os.path.basename(lib)
+
+
+def get_unique_basenames(items):
     unique = dict()
     for item in items:
-        if isinstance(item, tuple):
-            unique[os.path.basename(item[0])] = item
-        elif item.startswith('-framework '):
-            unique[item.split(' ', 1)[1]] = item
-        else:
-            unique[os.path.basename(item)] = item
+        basename = get_lib_basename(item)
+        unique[basename] = item
     return list(unique.values())
 
 
@@ -42,7 +47,7 @@ def export_lib(target, relative_path, src_dir):
     path = target_root_path(target, relative_path, src_dir)
     if os.path.exists(path):
         target.exported_libs.append(path)
-        target.exported_libs = _get_unique_basenames(target.exported_libs)
+        target.exported_libs = get_unique_basenames(target.exported_libs)
     else:
         console(f'export_lib failed to find: {path}')
 
@@ -83,7 +88,7 @@ def export_libs(target, path, pattern_substrings, src_dir, order):
             return lib_index(lib)
         libs.sort(key=sort_key)
     target.exported_libs += libs
-    target.exported_libs = _get_unique_basenames(target.exported_libs)
+    target.exported_libs = get_unique_basenames(target.exported_libs)
     return len(target.exported_libs) > 0
 
 
@@ -107,26 +112,47 @@ def export_assets(target, assets_path, pattern_substrings, category=None, src_di
     return False
 
 
-def export_syslib(target, name, apt, required):
+def find_syslib(target, name, apt, required):
     if target.ios or target.macos:
         if not name.startswith('-framework '):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
-        lib = name
+        return name # '-framework Foundation'
     elif target.linux:
-        lib = f'/usr/lib/x86_64-linux-gnu/{name}'
-        if not os.path.isfile(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.so'
-        if not os.path.isfile(lib): lib = f'/usr/lib/x86_64-linux-gnu/lib{name}.a'
-        if not os.path.isfile(lib): lib = f'/usr/lib/lib{name}.so'
-        if not os.path.isfile(lib): lib = f'/usr/lib/lib{name}.a'
-        if not os.path.isfile(lib):
-            if not required: return False
-            if apt:
-                raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
-            raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
+        for candidate in [
+            lambda: f'/usr/lib/x86_64-linux-gnu/{name}',
+            lambda: f'/usr/lib/x86_64-linux-gnu/lib{name}.so',
+            lambda: f'/usr/lib/x86_64-linux-gnu/lib{name}.a',
+            lambda: f'/usr/lib/lib{name}.so',
+            lambda: f'/usr/lib/lib{name}.a' ]:
+            if os.path.isfile(candidate()):
+                return candidate()
+        if not required: return False
+        if apt: raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
+        raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
     else:
-        lib = name # just export it. expect system linker to find it.
+        return name # just export it. expect system linker to find it.
+
+
+def export_syslib(target, name, apt, required):
+    lib = find_syslib(target, name, apt, required)
     #console(f'Exporting syslib: {name}:{lib}')
     target.exported_syslibs.append(lib)
-    target.exported_syslibs = _get_unique_basenames(target.exported_syslibs)
+    target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
     return True
 
+
+def get_lib_basename(syslib):
+    if syslib.startswith('-framework '):
+        return syslib
+    return os.path.basename(syslib)
+
+
+def reload_syslibs(target, syslibs):
+    reloaded = []
+    for syslib in syslibs:
+        if syslib.startswith('-framework '):
+            reloaded.append(syslib)
+        else:
+            lib = find_syslib(target, os.path.basename(syslib), apt=None, required=True)
+            reloaded.append(lib)
+    target.exported_syslibs = reloaded

@@ -1,4 +1,4 @@
-import os, subprocess, shlex, time
+import os, subprocess, time
 from mama.system import System, console, execute
 from mama.build_config import BuildConfig
 from mama.async_file_reader import AsyncConsoleReader

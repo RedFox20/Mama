@@ -5,7 +5,6 @@ from typing import List
 from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
-from .types.artifactory_pkg import ArtifactoryPkg
 from .system import console
 from .package import cleanup_libs_list
 from .artifactory import artifactory_fetch_and_reconfigure
@@ -18,7 +17,8 @@ from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelis
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, parent:"BuildDependency", config, workspace, dep_source:DepSource):
+    def __init__(self, parent:"BuildDependency", config,
+                 workspace, dep_source:DepSource):
         self.config = config
         self.workspace = workspace
         self.mamafile = None
@@ -101,11 +101,16 @@ class BuildDependency:
         """
         dep = BuildDependency.get_loaded_dependency(dep_source.name)
         if dep:
+            # reuse & update existing dep
             dep.update_existing_dependency(dep_source)
-            return dep
+        else:
+            # add new
+            dep = BuildDependency(self, self.config, self.workspace, dep_source)
+            BuildDependency.loaded_deps[dep_source.name] = dep
 
-        dep = BuildDependency(self, self.config, self.workspace, dep_source)
-        BuildDependency.loaded_deps[dep_source.name] = dep
+        if dep in self.children:
+            raise RuntimeError(f"BuildTarget {self.name} add dependency '{dep.name}'"\
+                                " failed because it has already been added")
 
         self.children.append(dep)
 
@@ -261,18 +266,34 @@ class BuildDependency:
             if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
             if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
-            if not self.nothing_to_build:
-                if not self.has_build_files(): return build('not built yet')
-                if not target.build_products:  return build('no build dependencies')
-
-            missing_product = self.find_first_missing_build_product()
-            if missing_product: return build(f'{missing_product} does not exist')
-            missing_dep = self.find_missing_dependency()
-            if missing_dep: return build(f'{missing_dep} was removed')
-
-            # Finally, if we call `update this_target`
+            # if we call `update this_target`
             if conf.update and conf.target == target.name:
                 return build('update target='+conf.target)
+
+            # if the project has been built at least once or downloaded from artifactory package
+            # then there will be a list of build products
+            # if any of those are missing, then this needs to be rebuilt to re-acquire them
+            missing_product = self.find_first_missing_build_product()
+            if missing_product:
+                return build(f'{missing_product} does not exist')
+
+            # project has not defined `nothing_to_build` which is for header-only projects
+            # thus we need to check if build should execute
+            can_build = not self.nothing_to_build
+            if can_build:
+                # there are no build products defined at all, it hasn't been built or downloaded
+                if not target.build_products:
+                    if not self.has_build_files(): return build('not built yet')
+                    return build('no build dependencies')
+
+                # we have build products, and none of them are missing
+                if target.build_products and not missing_product:
+                    pass # added this condition for clarity -- all should be OK
+
+            # something changed in the mamafile, or artifactory package
+            # and the list of dependency targets changed, thus we need to rebuild
+            missing_dep = self.find_missing_dependency()
+            if missing_dep: return build(f'{missing_dep} was removed')
 
             if conf.print:
                 console(f'  - Target {target.name: <16}   OK')

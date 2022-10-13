@@ -3,7 +3,8 @@ from typing import List
 
 from .build_dependency import BuildDependency
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .util import write_text_to, console, copy_if_needed
+from .util import get_file_size_str, normalized_path, write_text_to, console, copy_if_needed
+import mama.package as package
 
 
 def _is_a_dynamic_library(lib):
@@ -92,16 +93,23 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
     includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
     if includes: # only use a single include root -- simplifies everything
         descr.append(f'I include')
-    for inctarget, include in includes:
-        relpath = os.path.basename(include)
+
+    for inctarget, abs_include in includes:
+        relpath = os.path.basename(abs_include)
         if not relpath in relincludes:
             relincludes.append(relpath)
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
-            if config.verbose: console(f'    copy {include}\n      -> {includes_root}')
-            copy_if_needed(include, includes_root, includes_filter)
+            src_path = abs_include
+            dst_dir = includes_root
+            if relpath == 'include' or relpath == 'include/':
+                if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
+                dst_dir = normalized_path(includes_root + '/../')
+            else:
+                if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
+            if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
+            copy_if_needed(src_path, dst_dir, includes_filter)
 
     for libtarget, lib in libs:
-        relpath = os.path.basename(lib) # TODO: how to get a proper relpath??
+        relpath = package.get_lib_basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
         #outpath = os.path.join(package_full_path, relpath)
         outpath = package_full_path
@@ -110,8 +118,9 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         copy_if_needed(lib, outpath)
 
     for systarget, syslib in syslibs:
-        descr.append(f'S {syslib}')
-        if detail_echo: console(f'    S ({systarget.name+")": <16}  {syslib}')
+        syslib_basename = package.get_lib_basename(syslib)
+        descr.append(f'S {syslib_basename}')
+        if detail_echo: console(f'    S ({systarget.name+")": <16}  {syslib_basename}')
 
     for asstarget, asset in assets:
         descr.append(f'A {asset.outpath}')
@@ -138,9 +147,8 @@ def papa_upload_to(target, package_full_path):
     config = target.config
     dst_dir = target.build_dir()
     archive_name = artifactory_archive_name(target)
-
-    if config.print:   console(f'  - PAPA Upload {archive_name}')
-    if config.verbose: console(f'    archiving {package_full_path}\n {"":10}-> {dst_dir}/{archive_name}.zip')
+    if config.verbose:
+        console(f'    archiving {package_full_path}\n {"":10}-> {dst_dir}/{archive_name}.zip')
 
     archive = shutil.make_archive(archive_name, 'zip', package_full_path, '.', verbose=True)
     archive_path = dst_dir + '/' + os.path.basename(archive)
@@ -148,6 +156,9 @@ def papa_upload_to(target, package_full_path):
         os.remove(archive_path)
     shutil.move(archive, archive_path)
 
+    if config.print:
+        size = os.path.getsize(archive_path)
+        console(f'  - PAPA Upload {archive_name}  {get_file_size_str(size)}')
     artifactory_upload_ftp(target, archive_path)
 
     if config.verbose:
