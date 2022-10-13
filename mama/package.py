@@ -1,7 +1,7 @@
 import os
 from mama.system import console
 from mama.util import normalized_path, glob_with_name_match
-from mama.asset import Asset
+from .types.asset import Asset
 
 
 def target_root_path(target, path, src_dir):

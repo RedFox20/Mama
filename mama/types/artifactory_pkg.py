@@ -1,13 +1,13 @@
-from .dependency_source import DependencySource
+from .dep_source import DepSource
 
-class ArtifactoryPackage(DependencySource):
+class ArtifactoryPkg(DepSource):
     """
     For BuildDependency whose source is from an Artifactory Package
     """
     def __init__(self, name:str, version:str, fullname:str):
-        super(ArtifactoryPackage, self).__init__(name, is_pkg=True)
+        super(ArtifactoryPkg, self).__init__(name)
         self.is_pkg = True
-        if self.fullname:
+        if fullname:
             self.fullname = fullname
             self.version = ''
         else:
@@ -15,18 +15,18 @@ class ArtifactoryPackage(DependencySource):
             self.version = version
 
 
-    def __str__(self):  return f'pkg {self.name} {self.fullname if self.fullname else self.version}'
+    def __str__(self):  return f'DepSource ArtifactoryPkg {self.name} {self.fullname if self.fullname else self.version}'
     def __repr__(self): return self.__str__()
 
 
     @staticmethod
-    def from_papa_string(s: str) -> "ArtifactoryPackage":
+    def from_papa_string(s: str) -> "ArtifactoryPkg":
         p = s.split(',')
-        name, version, fullname = p
-        return ArtifactoryPackage(name, version, fullname)
+        name, version, fullname = p[0:3]
+        return ArtifactoryPkg(name, version, fullname)
 
 
     def get_papa_string(self):
-        fields = DependencySource.papa_join(
+        fields = DepSource.papa_join(
             self.name, self.fullname, self.version)
         return 'pkg ' + fields

@@ -1,5 +1,5 @@
 
-class DependencySource(object):
+class DepSource(object):
     def __init__(self, name):
         self.name = name
         self.is_git = False

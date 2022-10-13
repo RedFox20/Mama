@@ -2,10 +2,10 @@ import os, shutil, time
 import sys
 from typing import List
 
-from .dependency_source import DependencySource
-from .git import Git
-from .local_source import LocalSource
-from .artifactory_package import ArtifactoryPackage
+from .types.dep_source import DepSource
+from .types.git import Git
+from .types.local_source import LocalSource
+from .types.artifactory_pkg import ArtifactoryPkg
 from .system import console
 from .package import cleanup_libs_list
 from .artifactory import artifactory_fetch_and_reconfigure
@@ -18,7 +18,7 @@ from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelis
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, parent:"BuildDependency", config, workspace, dep_source:DependencySource):
+    def __init__(self, parent:"BuildDependency", config, workspace, dep_source:DepSource):
         self.config = config
         self.workspace = workspace
         self.mamafile = None
@@ -54,7 +54,7 @@ class BuildDependency:
         elif dep_source.is_pkg:
             if not config.artifactory_ftp:
                 raise RuntimeError(f'add_artifactory_pkg({self.name}) failed because config.artifactory_ftp is not set!')
-            pkg:ArtifactoryPackage = dep_source
+            pkg:ArtifactoryPkg = dep_source
             self.src_dir = None # there is no src_dir when using artifactory packages
             self.children = None # mark as unresolved until we actually resolve the child deps
             self.create_build_target()
@@ -90,14 +90,14 @@ class BuildDependency:
         return None
 
 
-    def update_existing_dependency(self, dep_source:DependencySource):
+    def update_existing_dependency(self, dep_source:DepSource):
         if dep_source.is_git or dep_source.is_src:
             self.target_args += dep_source.args
             if self.target:
                 self.target._set_args(self.target_args)
 
 
-    def add_child(self, dep_source:DependencySource) -> "BuildDependency":
+    def add_child(self, dep_source:DepSource) -> "BuildDependency":
         """
         Adds a new child dependency to this BuildDependency
         """
@@ -109,6 +109,7 @@ class BuildDependency:
         dep = BuildDependency(self, self.config, self.workspace, dep_source)
         BuildDependency.loaded_deps[dep_source.name] = dep
 
+        if not self.children: self.children = []
         self.children.append(dep)
 
 
@@ -236,6 +237,7 @@ class BuildDependency:
         if not fetched:
             raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg')
         for dep_name in dependencies:
+            print(dep_name)
             self.add_child(dep_name)
 
 
@@ -376,6 +378,8 @@ class BuildDependency:
         elif self.mamafile: # if we have mamafile, set path relative to it
             return normalized_join(os.path.dirname(self.mamafile), relpath)
         else: # otherwise relative to source dir
+            if not self.src_dir: # however, artifactory pkgs have no source dir!
+                return relpath
             return normalized_join(self.src_dir, relpath)
 
 

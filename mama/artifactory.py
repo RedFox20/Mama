@@ -1,11 +1,11 @@
 import os, ftplib, traceback, getpass, keyring
 from typing import List, Tuple
 
-from .git import Git
-from .local_source import LocalSource
-from .dependency_source import DependencySource
-from .asset import Asset
-from .artifactory_package import ArtifactoryPackage
+from .types.git import Git
+from .types.local_source import LocalSource
+from .types.dep_source import DepSource
+from .types.asset import Asset
+from .types.artifactory_pkg import ArtifactoryPkg
 from .system import System, execute_piped
 from .util import console, download_file, normalized_join, read_lines_from, unzip
 
@@ -22,7 +22,7 @@ def artifactory_archive_name(target):
     {name}-{platform}-{arch}-{build_type}-{commit_hash}
     Example: opencv-linux-x64-release-df76b66
     """
-    pkg:ArtifactoryPackage = target.dep.dep_source
+    pkg:ArtifactoryPkg = target.dep.dep_source
     if pkg.is_pkg and pkg.fullname:
         return pkg.fullname
 
@@ -125,9 +125,9 @@ def artifactory_upload_ftp(target, file_path):
             ftp.quit()
 
 
-def make_dep_source(s:str) -> DependencySource:
+def make_dep_source(s:str) -> DepSource:
     if s.startswith('git '): return Git.from_papa_string(s[4:])
-    if s.startswith('pkg '): return ArtifactoryPackage.from_papa_string(s[4:])
+    if s.startswith('pkg '): return ArtifactoryPkg.from_papa_string(s[4:])
     if s.startswith('src '): return LocalSource.from_papa_string(s[4:])
     raise RuntimeError(f'Unrecognized dependency source: {s}')
 

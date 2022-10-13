@@ -1,9 +1,9 @@
 import os, shutil, stat
-from .system import System, console, execute, execute_piped
-from .util import is_dir_empty, write_text_to, read_lines_from
-from .dependency_source import DependencySource
+from .dep_source import DepSource
+from mama.system import System, console, execute, execute_piped
+from mama.util import is_dir_empty, write_text_to, read_lines_from
 
-class Git(DependencySource):
+class Git(DepSource):
     """
     For BuildDependency whose source is from a Git repository
     """
@@ -23,19 +23,24 @@ class Git(DependencySource):
         self.branch_changed = False
         self.commit_changed = False
 
-    def __str__(self):  return f'git {self.name} {self.url} {self.branch_or_tag()} {self.mamafile}'
     def __repr__(self): return self.__str__()
+    def __str__(self):
+        s = f'DepSource Git {self.name} {self.url}'
+        tag = self.branch_or_tag()
+        if tag: s += ' ' + tag
+        if self.mamafile: s += ' ' + self.mamafile
+        return s
 
     @staticmethod
     def from_papa_string(s: str) -> "Git":
         p = s.split(',')
-        name, url, branch, tag, mamafile = p
+        name, url, branch, tag, mamafile = p[0:5]
         args = p[5:]
         return Git(name, url, branch, tag, mamafile, args)
 
 
     def get_papa_string(self):
-        fields = DependencySource.papa_join(
+        fields = DepSource.papa_join(
             self.name, self.url, self.branch, self.tag, self.mamafile, self.args)
         return 'git ' + fields
 

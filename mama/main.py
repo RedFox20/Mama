@@ -1,7 +1,7 @@
 #!/usr/bin/python3.6
 import sys, os, importlib
 
-from mama.local_source import LocalSource
+from mama.types.local_source import LocalSource
 from .system import console, execute
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig

@@ -1,12 +1,12 @@
 import os.path, shutil
 
 from typing import List
-from .git import Git
-from .local_source import LocalSource
-from .asset import Asset
+from .types.git import Git
+from .types.local_source import LocalSource
+from .types.asset import Asset
 from .build_config import BuildConfig
 from .build_dependency import BuildDependency
-from .artifactory_package import ArtifactoryPackage
+from .types.artifactory_pkg import ArtifactoryPkg
 from .artifactory import artifactory_fetch_and_reconfigure
 from .system import System, console, execute, execute_echo
 from .util import normalized_path, copy_if_needed
@@ -196,7 +196,7 @@ class BuildTarget:
         self.add_artifactory_pkg('mylib', fullname='mylib-linux-x64-release-df76b66')
         ```
         """
-        self.dep.add_child(ArtifactoryPackage(name, version=version, fullname=fullname))
+        self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname))
 
 
     def get_dependency(self, name):
