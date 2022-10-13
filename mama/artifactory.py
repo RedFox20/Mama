@@ -1,9 +1,13 @@
 import os, ftplib, traceback, getpass, keyring
-from typing import List
-from .asset import Asset
-from .util import console, download_and_unzip, download_file, normalized_join, read_lines_from, unzip
-from .system import System, execute_piped
+from typing import List, Tuple
 
+from .git import Git
+from .local_source import LocalSource
+from .dependency_source import DependencySource
+from .asset import Asset
+from .artifactory_package import ArtifactoryPackage
+from .system import System, execute_piped
+from .util import console, download_file, normalized_join, read_lines_from, unzip
 
 def _get_commit_hash(target):
     result = None
@@ -18,12 +22,16 @@ def artifactory_archive_name(target):
     {name}-{platform}-{arch}-{build_type}-{commit_hash}
     Example: opencv-linux-x64-release-df76b66
     """
+    pkg:ArtifactoryPackage = target.dep.dep_source
+    if pkg.is_pkg and pkg.fullname:
+        return pkg.fullname
+
     name = target.name
     # triplets information to make this package platform unique
     platform = target.config.name() # eg 'windows', 'linux', 'oclea'
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
-    commit_hash = _get_commit_hash(target)
+    commit_hash = pkg.version if pkg.is_pkg else _get_commit_hash(target)
     return f'{name}-{platform}-{arch}-{build_type}-{commit_hash}'
 
 
@@ -110,29 +118,43 @@ def artifactory_upload_ftp(target, file_path):
             # sanitize url for ftplib
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
+            artifactory_upload(ftp, file_path)
         except:
             traceback.print_exc()
         finally:
             ftp.quit()
 
 
-def artifactory_reconfigure_target_from_deployment(target, deploy_path):
+def make_dep_source(s:str) -> DependencySource:
+    if s.startswith('git '): return Git.from_papa_string(s[4:])
+    if s.startswith('pkg '): return ArtifactoryPackage.from_papa_string(s[4:])
+    if s.startswith('src '): return LocalSource.from_papa_string(s[4:])
+    raise RuntimeError(f'Unrecognized dependency source: {s}')
+
+
+def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple[bool, list]:
+    """
+    Reconfigures `target` from {deployment_path}/papa.txt.
+    Returns (fetched:bool, dep_sources:list)
+    """
     papa_list = normalized_join(deploy_path, 'papa.txt')
     if not os.path.exists(papa_list):
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} does not exist')
-        return False
+        return (False, None)
 
     project_name = None
-    includes = []
-    libs = []
-    syslibs = []
-    assets:List[Asset] = []
+    dependencies: list = []
+    includes: List[str] = []
+    libs: List[str] = []
+    syslibs: List[str] = []
+    assets: List[Asset] = []
 
     def append_to(to:list, line):
         to.append(normalized_join(deploy_path, line[2:].strip()))
 
     for line in read_lines_from(papa_list):
         if   line.startswith('P '): project_name = line[2:].strip()
+        elif line.startswith('D '): dependencies.append(make_dep_source(line[2:].strip()))
         elif line.startswith('I '): append_to(includes, line)
         elif line.startswith('L '): append_to(libs, line)
         elif line.startswith('S '): append_to(syslibs, line)
@@ -143,33 +165,50 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path):
 
     if project_name != target.name:
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
-        return False
+        return (False, None)
 
+    print(f'dependencies = {dependencies}')
     target.exported_includes = includes # include folders to export from this target
     target.exported_libs     = libs # libs to export from this target
     target.exported_syslibs  = syslibs # exported system libraries
     target.exported_assets   = assets # exported asset files
-    return True
+    return (True, dependencies)
 
 
-def artifactory_fetch_and_reconfigure(target):
+def _fetch_package(target, url, archive, build_dir):
+    remote_file = f'https://{url}/{archive}.zip'
+    try:
+        return download_file(remote_file, build_dir, force=True, 
+                             message=f'Artifactory fetch {url}/{archive} ')
+    except Exception as e:
+        if target.config.verbose:
+            console(f'Artifactory fetch failed with {e} {url}/{archive}.zip')
+        # this is an artifactory pkg, so the url MUST exist
+        if target.dep.dep_source.is_pkg:
+            raise RuntimeError(f'Artifactory package {target.dep.dep_source} did not exist at {url}')
+        return None
+
+
+def artifactory_fetch_and_reconfigure(target) -> Tuple[bool, list]:
+    """
+    Try to fetch prebuilt package from artifactory
+    Returns (fetched:bool, dep_sources:list)
+    """
     url = target.config.artifactory_ftp
     if not url:
-        return False
+        return (False, None)
+
     url = artifactory_sanitize_url(url)
     archive = artifactory_archive_name(target)
-    archive_file = archive + '.zip'
-    remote_file = f'https://{url}/{archive_file}'
     build_dir = target.build_dir()
-    local_file = normalized_join(build_dir, archive_file)
+    local_file = normalized_join(build_dir, f'{archive}.zip')
 
     if os.path.exists(local_file):
         console(f'Artifactory using existing Package at: {local_file}')
     else:
-        local_file = download_file(remote_file, build_dir, force=True, 
-                                   message=f'Artifactory fetch {url}/{archive} ')
+        local_file = _fetch_package(target, url, archive, build_dir)
         if not local_file:
-            return False
+            return (False, None)
 
     unzip(local_file, build_dir)
     console(f'Artifactory unzip {archive}')

@@ -1,4 +1,7 @@
 import os, shutil
+from typing import List
+
+from .build_dependency import BuildDependency
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .util import write_text_to, console, copy_if_needed
 
@@ -8,6 +11,13 @@ def _is_a_dynamic_library(lib):
         or lib.endswith('.dylib')  or lib.endswith('.so')  \
         or lib.endswith('.bundle') or lib.endswith('.framework') \
         or lib.endswith('.aar')
+
+
+def _gather_dependencies(target) -> List[BuildDependency]:
+    dependecies = []
+    for child in target.children():
+        dependecies.append(child)
+    return dependecies
 
 
 def _results_contain(results, contains_value):
@@ -22,7 +32,7 @@ def _gather(target, recurse, results:list, get_candidates):
         if not _results_contain(results, value):
             results.append((target,value))
     if recurse:
-        for child in target.dep.children:
+        for child in target.dep.children():
             _gather(child.target, True, results, get_candidates)
     return results
 
@@ -41,7 +51,7 @@ def _gather_libs(target, recurse):
         def get_dylibs(t):
             for l in t.exported_libs:
                 if _is_a_dynamic_library(l): yield l
-        for child in target.dep.children:
+        for child in target.dep.children():
             _gather(child, recurse, libs, get_dylibs)
     return libs
 
@@ -61,6 +71,7 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
     detail_echo = config.print and config.target_matches(target.name) and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
+    dependencies = _gather_dependencies(target)
     includes = _gather_includes(target, r_includes)
     libs     = _gather_libs(target, r_dylibs)
     syslibs  = _gather_syslibs(target, r_syslibs)
@@ -69,7 +80,12 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
 
-    descr = [f'P {os.path.basename(package_full_path)}']
+    # set up project and dependencies
+    descr = [ f'P {os.path.basename(package_full_path)}' ]
+    for d in dependencies:
+        if detail_echo: console(f'    D {d.dep_source}')
+        descr.append(f'D {d.dep_source.get_papa_string()}')
+
     relincludes = []
     includes_root = package_full_path + '/include'
     # TODO: should we include .cpp files for easier debugging?

@@ -1,5 +1,7 @@
 #!/usr/bin/python3.6
 import sys, os, importlib
+
+from mama.local_source import LocalSource
 from .system import console, execute
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
@@ -139,7 +141,9 @@ def main():
 
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)
-    root = BuildDependency(name, config, BuildTarget, src=source_dir, is_root=True)
+    local_src = LocalSource(name, source_dir, mamafile=None, always_build=False, args=[])
+    workspace = None # figure out the workspace from the root mamafile.py
+    root = BuildDependency(None, config, workspace, local_src)
 
     if config.mama_init:
         mama_init_project(root)

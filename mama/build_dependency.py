@@ -1,176 +1,132 @@
-import os, subprocess, shutil, stat
-from mama.parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
-from mama.system import System, console, execute, execute_piped
-from mama.util import is_dir_empty, has_tag_changed, write_text_to, read_lines_from, forward_slashes, back_slashes
-from mama.package import cleanup_libs_list
-from time import sleep
+import os, shutil, time
+import sys
+from typing import List
+
+from .dependency_source import DependencySource
+from .git import Git
+from .local_source import LocalSource
+from .artifactory_package import ArtifactoryPackage
+from .system import console
+from .package import cleanup_libs_list
+from .artifactory import artifactory_fetch_and_reconfigure
+from .util import normalized_join, normalized_path, write_text_to, read_lines_from
+from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
+
 
 ######################################################################################
-
-class Git:
-    def __init__(self, url, branch, tag):
-        if not url: raise RuntimeError("Git url must not be empty!")
-        self.url = url
-        self.branch = branch
-        self.tag = tag
-        self.dep = None
-        self.missing_status = False
-        self.url_changed = False
-        self.tag_changed = False
-        self.branch_changed = False
-        self.commit_changed = False
-
-
-    def run_git(self, git_command):
-        cmd = f"cd {self.source_dir()} && git {git_command}"
-        if self.dep.config.verbose:
-            console(f'  {self.dep.name: <16} git {git_command}')
-        execute(cmd)
-
-
-    def fetch_origin(self):
-        self.run_git(f"pull origin {self.branch_or_tag()} -q")
-
-
-    def current_commit(self):
-        result = execute_piped(['git', 'show', '--oneline', '-s'], cwd=self.source_dir())
-        if self.dep.config.verbose:
-            console(f'  {self.dep.name: <16} git show --oneline -s:   {result}')
-        return result
-
-
-    def save_status(self):
-        status = f"{self.url}\n{self.tag}\n{self.branch}\n{self.current_commit()}\n"
-        write_text_to(f"{self.build_dir()}/git_status", status)
-
-
-    def check_status(self):
-        lines = read_lines_from(f"{self.build_dir()}/git_status")
-        if not lines:
-            self.missing_status = True
-            if not self.url: return False
-            #console(f'check_status {self.url}: NO STATUS AT {self.build_dir()}/git_status')
-            self.url_changed = True
-            self.tag_changed = True
-            self.branch_changed = True
-            self.commit_changed = True
-            return True
-        self.fetch_origin()
-        self.url_changed = self.url != lines[0].rstrip()
-        self.tag_changed = self.tag != lines[1].rstrip()
-        self.branch_changed = self.branch != lines[2].rstrip()
-        self.commit_changed = self.current_commit() != lines[3].rstrip()
-        #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
-        return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
-
-
-    def branch_or_tag(self):
-        if self.branch: return self.branch
-        if self.tag: return self.tag
-        return ''
-
-
-    def checkout_current_branch(self):
-        branch = self.branch_or_tag()
-        if branch:
-            if self.tag and self.tag_changed:
-                self.run_git("reset --hard")
-            self.run_git(f"checkout {branch}")
-
-
-    def reclone_wipe(self):
-        if self.dep.config.print:
-            console(f'  - Target {self.dep.name: <16}   RECLONE WIPE')
-        if os.path.exists(self.dep.dep_dir):
-            if System.windows: # chmod everything to user so we can delete:
-                for root, dirs, files in os.walk(self.dep.dep_dir):
-                    for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
-                    for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
-            shutil.rmtree(self.dep.dep_dir)
-
-
-    def clone_or_pull(self, wiped=False):
-        if is_dir_empty(self.source_dir()):
-            if not wiped and self.dep.config.print:
-                console(f"  - Target {self.dep.name: <16}   CLONE because src is missing")
-            branch = self.branch_or_tag()
-            if branch: branch = f" --branch {self.branch_or_tag()}"
-            execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {self.source_dir()}", self.dep.config.verbose)
-            self.checkout_current_branch()
-        else:
-            if self.dep.config.print:
-                console(f"  - Pulling {self.dep.name: <16}  SCM change detected")
-            self.checkout_current_branch()
-            execute("git submodule update --init --recursive")
-            if not self.tag: # pull if not a tag
-                self.run_git("reset --hard -q")
-                self.run_git("pull")
 
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, name, config, target_class, workspace=None, src=None, git=None, \
-                       is_root=False, mamafile=None, always_build=False, args=[]):
-        self.name       = name
-        self.workspace  = workspace
-        self.config     = config
-        self.target     = None
-        self.target_class = target_class
-        self.target_args  = args
-        self.mamafile     = mamafile
-        self.always_build    = always_build
-        self.should_rebuild    = False
-        self.nothing_to_build  = False
-        self.already_loaded    = False
-        self.already_executed  = False
+    def __init__(self, parent:"BuildDependency", config, workspace, dep_source:DependencySource):
+        self.config = config
+        self.workspace = workspace
+        self.mamafile = None
+        self.target = None
+        self.target_args = []
+        self.always_build = False
+        self.should_rebuild = False
+        self.nothing_to_build = False
+        self.already_loaded = False
+        self.already_executed = False
         self.currently_loading = False
-        self.is_root         = is_root # Root deps are always built
-        self.children        = []
-        self.depends_on      = []
+        self.is_root = parent is None # Root deps are always built
+        self.children = []
+        self.depends_on = []
         self.product_sources = []
         self.flattened_deps = [] # used for debugging
-        if not src and not git:
-            raise RuntimeError(f'{name} src and git not configured. Specify at least one.')
 
-        if git:
-            self.git     = git
-            git.dep      = self
+        self.src_dir = None # source directory where the code is located
+        self.dep_dir = None # dependency dir where platform build dirs are kept
+        self.build_dir = None # {dep_dir}/{config.platform_name()}
+        self.dep_source = dep_source
+        self.name = dep_source.name
+
+        if dep_source.is_git:
+            git:Git = dep_source
+            self.mamafile = git.mamafile # git.mamafile is the relative path
+            if parent:
+                self.mamafile = parent.get_mamafile_path_relative_to_us(self.name, git.mamafile)
+            self.target_args = git.args
             self.update_dep_dir()
-            self.src_dir = forward_slashes(os.path.join(self.dep_dir, self.name))
-            self.target  = None
-        else:
-            self.git     = None
-            self.src_dir = forward_slashes(src)
+            # put the git repo in workspace
+            self.src_dir = normalized_join(self.dep_dir, self.name)
+        elif dep_source.is_pkg:
+            if not config.artifactory_ftp:
+                raise RuntimeError(f'add_artifactory_pkg({self.name}) failed because config.artifactory_ftp is not set!')
+            pkg:ArtifactoryPackage = dep_source
+            self.src_dir = None # there is no src_dir when using artifactory packages
+            self.children = None # mark as unresolved until we actually resolve the child deps
             self.create_build_target()
-            self.name = self.target.name
             self.update_dep_dir()
-    
-    
+        elif dep_source.is_src:
+            src:LocalSource = dep_source
+            self.mamafile = src.mamafile
+            self.target_args = src.args
+            self.always_build = src.always_build
+
+            if parent:
+                self.mamafile = parent.get_mamafile_path_relative_to_us(self.name, src.mamafile)
+                self.src_dir = parent.path_relative_to_us(src.rel_path)
+            else:
+                self.src_dir = normalized_path(src.rel_path)
+
+            if self.mamafile and not os.path.exists(self.mamafile):
+                raise OSError(f'{self.name} mamafile path does not exist: {self.mamafile}')
+            if not os.path.exists(self.src_dir):
+                raise OSError(f'{self.name} source dir does not exist: {self.src_dir}')
+
+            self.create_build_target()
+            self.name = str(self.target.name) # might change due to mamafile ??
+            self.update_dep_dir()
+        else:
+            raise RuntimeError(f'{self.name} src or git or pkg not configured. Specify at least one.')
+
+
     @staticmethod
-    def get(name, config, target_class, workspace, src=None, git=None, \
-            mamafile=None, always_build=False, args=[]):
+    def get_loaded_dependency(name:str) -> "BuildDependency":
         if name in BuildDependency.loaded_deps:
-            #console(f'Using existing BuildDependency {name}')
-            dependency = BuildDependency.loaded_deps[name]
-            dependency.target_args += args
-            if dependency.target:
-                dependency.target._set_args(args)
-            return dependency
-        
-        dependency = BuildDependency(name, config, target_class, \
-                        workspace=workspace, src=src, git=git, mamafile=mamafile,
-                        always_build=always_build, args=args)
-        BuildDependency.loaded_deps[name] = dependency
-        return dependency
+            return BuildDependency.loaded_deps[name]
+        return None
+
+
+    def update_existing_dependency(self, dep_source:DependencySource):
+        if dep_source.is_git or dep_source.is_src:
+            self.target_args += dep_source.args
+            if self.target:
+                self.target._set_args(self.target_args)
+
+
+    def add_child(self, dep_source:DependencySource) -> "BuildDependency":
+        """
+        Adds a new child dependency to this BuildDependency
+        """
+        dep = BuildDependency.get_loaded_dependency(dep_source.name)
+        if dep:
+            dep.update_existing_dependency(dep_source)
+            return dep
+
+        dep = BuildDependency(self, self.config, self.workspace, dep_source)
+        BuildDependency.loaded_deps[dep_source.name] = dep
+
+        self.children.append(dep)
+
+
+    def get_children(self) -> List["BuildDependency"]:
+        """ Gets already resolved dependencies """
+        if self.children is None:
+            raise RuntimeError(f'Target {self.name} child dependencies unresolved')
+        return self.children
 
 
     def update_dep_dir(self):
         dep_name = self.name
-        if self.git:
-            if self.git.branch: dep_name = f'{self.name}-{self.git.branch}'
-            elif self.git.tag:  dep_name = f'{self.name}-{self.git.tag}'
-        self.dep_dir   = forward_slashes(os.path.join(self.config.workspaces_root, self.workspace, dep_name))
-        self.build_dir = forward_slashes(os.path.join(self.dep_dir, self.config.platform_name()))
+        if self.dep_source.is_git:
+            git:Git = self.dep_source
+            if git.branch: dep_name = f'{self.name}-{git.branch}'
+            elif git.tag: dep_name = f'{self.name}-{git.tag}'
+        self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
+        self.build_dir = normalized_join(self.dep_dir, self.config.platform_name())
 
 
     def has_build_files(self):
@@ -182,11 +138,12 @@ class BuildDependency:
         return self.build_dir + '/mama_exported_libs'
 
 
-    def load_build_dependencies(self, target):
+    def load_build_products(self, target):
+        """ These are the build products that were generated during last build """
         loaded_deps = read_lines_from(self.exported_libs_file())
         loaded_deps = cleanup_libs_list(loaded_deps)
         if loaded_deps:
-            target.build_dependencies += loaded_deps
+            target.build_products += loaded_deps
 
 
     def save_exports_as_dependencies(self, exports):
@@ -194,7 +151,7 @@ class BuildDependency:
 
 
     def find_first_missing_build_product(self):
-        for depfile in self.target.build_dependencies:
+        for depfile in self.target.build_products:
             if not os.path.exists(depfile):
                 return depfile
         return None
@@ -218,7 +175,7 @@ class BuildDependency:
         if self.currently_loading:
             #console(f'WAIT {self.name}')
             while self.currently_loading:
-                sleep(0.1)
+                time.sleep(0.1)
             return self.should_rebuild
         #console(f'LOAD {self.name}')
         changed = False
@@ -231,32 +188,11 @@ class BuildDependency:
 
 
     def git_checkout(self):
-        if not self.git or self.is_root:    # No git for local or root targets
+        # ignore non-git or root targets
+        if not self.dep_source.is_git or self.is_root:
             return False
-
-        if not self.source_dir_exists():  # we MUST pull here
-            self.git.clone_or_pull()
-            return True
-
-        changed = self.git.check_status() if self.config.update else False
-        is_target = self.config.target_matches(self.name)
-
-        wiped = False
-        should_wipe = self.git.url_changed and not self.git.missing_status
-        if should_wipe or (is_target and self.config.reclone):
-            self.git.reclone_wipe()
-            wiped = True
-        else:
-            # don't pull if no changes to git status
-            # or if we're current target of a non-update build
-            # mama update target=ReCpp  -- this should git pull
-            # mama build target=ReCpp   -- should NOT pull
-            non_update_target = is_target and not self.config.update
-            if non_update_target or not changed:
-                return False
-
-        self.git.clone_or_pull(wiped)
-        return True
+        git:Git = self.dep_source
+        return git.dependency_checkout(self)
 
 
     def _load(self):
@@ -271,9 +207,12 @@ class BuildDependency:
         if conf.clean and is_target:
             self.clean()
 
+        if self.dep_source.is_pkg:
+            self.load_artifactory_package(target)
+
         if not self.is_root:
-            self.load_build_dependencies(target)
-        
+            self.load_build_products(target)
+
         target.dependencies() ## customization point for additional dependencies
 
         build = False
@@ -282,13 +221,22 @@ class BuildDependency:
             if build:
                 self.create_build_dir_if_needed() # in case we just cleaned
             if git_changed:
-                self.git.save_status()
+                git:Git = self.dep_source
+                git.save_status(self)
 
         self.already_loaded = True
         self.should_rebuild = build
         if conf.list:
             self._print_list(conf, target)
         return build
+
+
+    def load_artifactory_package(self, target):
+        fetched, dependencies = artifactory_fetch_and_reconfigure(target)
+        if not fetched:
+            raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg')
+        for dep_name in dependencies:
+            self.add_child(dep_name)
 
 
     def _print_list(self, conf, target):
@@ -307,16 +255,17 @@ class BuildDependency:
                 return False # skip build if target doesn't match
 
             ## build also entails packaging
-            if conf.clean and is_target:     return build('cleaned target')
-            if self.is_root:                 return build('root target')
-            if self.always_build:            return build('always build')
-            if git_changed:                  return build('git commit changed')
-            if   update_mamafile_tag(self.mamafile_path(),   self.build_dir): return build(target.name+'/mamafile.py modified')
-            if update_cmakelists_tag(self.cmakelists_path(), self.build_dir): return build(target.name+'/CMakeLists.txt modified')
+            if conf.clean and is_target: return build('cleaned target')
+            if self.is_root:             return build('root target')
+            if self.always_build:        return build('always build')
+            if git_changed:              return build('git commit changed')
+            if self.dep_source.is_pkg:   return build('artifactory pkg')
+            if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
+            if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             if not self.nothing_to_build:
-                if not self.has_build_files():    return build('not built yet')
-                if not target.build_dependencies: return build('no build dependencies')
+                if not self.has_build_files(): return build('not built yet')
+                if not target.build_products:  return build('no build dependencies')
 
             missing_product = self.find_first_missing_build_product()
             if missing_product: return build(f'{missing_product} does not exist')
@@ -343,11 +292,12 @@ class BuildDependency:
 
 
     def successful_build(self):
-        update_mamafile_tag(self.mamafile_path(), self.build_dir)
-        update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+        self.update_mamafile_tag()
+        self.update_cmakelists_tag()
         self.save_dependency_list()
-        if self.git:
-            self.git.save_status()
+        if self.dep_source.is_git:
+            git:Git = self.dep_source
+            git.save_status(self)
 
 
     def create_build_target(self):
@@ -355,7 +305,11 @@ class BuildDependency:
             self.target._set_args(self.target_args)
             return
 
-        project, buildTarget = parse_mamafile(self.config, self.target_class, self.mamafile_path())
+        # load the default mama.BuildTarget class
+        mamaBuildTarget = getattr(sys.modules['mama.build_target'], 'BuildTarget')
+
+        # this will load the specific `<class project(mama.build_target)>` class
+        project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, self.mamafile_path())
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:
@@ -373,7 +327,7 @@ class BuildDependency:
         else:
             if not self.workspace:
                 self.workspace = 'build'
-            self.target = self.target_class(name=self.name, config=self.config, dep=self, args=self.target_args)
+            self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
 
 
     def is_root_or_config_target(self):
@@ -388,7 +342,7 @@ class BuildDependency:
 
     def cmakelists_exists(self):
         return os.path.exists(self.cmakelists_path())
-    
+
 
     def ensure_cmakelists_exists(self):
         if not os.path.exists(self.cmakelists_path()):
@@ -396,30 +350,68 @@ class BuildDependency:
 
 
     def mamafile_path(self):
-        return self.mamafile if self.mamafile else os.path.join(self.src_dir, 'mamafile.py')
+        if self.mamafile: return self.mamafile
+        if self.src_dir: return os.path.join(self.src_dir, 'mamafile.py')
+        return None
 
 
     def mamafile_exists(self):
         return os.path.exists(self.mamafile_path())
 
 
+    def update_mamafile_tag(self):
+        return self.src_dir and update_mamafile_tag(self.mamafile_path(), self.build_dir)
+
+
+    def update_cmakelists_tag(self):
+        return self.src_dir and update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+
+
+    def path_relative_to_us(self, relpath) -> str:
+        """
+        Converts relative path into an absolute path based on self mamafile location
+        """
+        if not relpath or os.path.isabs(relpath):
+            return relpath # the path is already None, or Absolute
+        elif self.mamafile: # if we have mamafile, set path relative to it
+            return normalized_join(os.path.dirname(self.mamafile), relpath)
+        else: # otherwise relative to source dir
+            return normalized_join(self.src_dir, relpath)
+
+
+    def get_mamafile_path_relative_to_us(self, name, relative_mamafile) -> str:
+        """
+        Converts a relative mamafile path into an absolute path relative to self mamafile location
+        """
+        if relative_mamafile:
+            local_mamafile = self.path_relative_to_us(relative_mamafile)
+            if not os.path.exists(local_mamafile):
+                raise OSError(f'mama add {name} failed! local mamafile does not exist: {local_mamafile}')
+            return local_mamafile
+        maybe_mamafile = self.path_relative_to_us(f'mama/{name}.py')
+        if os.path.exists(maybe_mamafile):
+            return maybe_mamafile
+        return None
+
+
     # "name(-branch)"
     def get_dependency_name(self):
-        if self.git:
-            branch = self.git.branch_or_tag()
+        if self.dep_source.is_git:
+            git:Git = self.dep_source
+            branch = git.branch_or_tag()
             if branch:
                 return self.name + '-' + branch
         return self.name
 
 
     def save_dependency_list(self):
-        deps = [dep.get_dependency_name() for dep in self.children]
+        deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
 
 
     def find_missing_dependency(self):
         last_build = [dep.rstrip() for dep in read_lines_from(f'{self.build_dir}/mama_dependency_libs')]
-        current = [dep.get_dependency_name() for dep in self.children]
+        current = [dep.get_dependency_name() for dep in self.get_children()]
         #console(f'{self.name: <32} last_build: {last_build}')
         #console(f'{self.name: <32} current:    {current}')
         for last in last_build:
@@ -438,3 +430,4 @@ class BuildDependency:
         
         self.target.clean() # Customization point
         shutil.rmtree(self.build_dir, ignore_errors=True)
+

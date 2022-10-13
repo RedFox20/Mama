@@ -1,17 +1,20 @@
 import os.path, shutil
+
+from typing import List
+from .git import Git
+from .local_source import LocalSource
+from .asset import Asset
+from .build_config import BuildConfig
+from .build_dependency import BuildDependency
+from .artifactory_package import ArtifactoryPackage
 from .artifactory import artifactory_fetch_and_reconfigure
 from .system import System, console, execute, execute_echo
 from .util import normalized_path, copy_if_needed
-from .build_dependency import BuildDependency
-from .build_config import BuildConfig
-from .asset import Asset
 from .papa_deploy import papa_deploy_to, papa_upload_to
 from .msbuild import msbuild_build
-from typing import List
 import mama.util as util
 import mama.cmake_configure as cmake
 import mama.package as package
-import mama.add_dependencies as add_dependencies
 
 ######################################################################################
 
@@ -68,7 +71,7 @@ class BuildTarget:
         self.enable_multiprocess_build = True
         self.clean_intermediate_files = True # delete .o and .obj files after build success if not root or always_build
         self.gcc_clang_visibility_hidden = True # -fvisibility=hidden
-        self.build_dependencies = [] # dependency files
+        self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
         self.exported_includes = [] # include folders to export from this target
@@ -93,6 +96,11 @@ class BuildTarget:
             raise RuntimeError(f'BuildTarget {self.name} target args must be a list')
         self.args += args
         #console(f'Added args to {self.name}: {self.args}')
+
+
+    def children(self) -> List[BuildDependency]:
+        """ Get resolved child dependencies """
+        return self.dep.get_children()
 
 
     def source_dir(self, subpath=''):
@@ -143,7 +151,7 @@ class BuildTarget:
         self.add_local('avdecoder', 'lib/avdecoder', always_build=True)
         ```
         """
-        add_dependencies.add_local(self, name, source_dir, mamafile, always_build, args)
+        self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
     def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):
@@ -164,7 +172,31 @@ class BuildTarget:
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
         ```
         """
-        add_dependencies.add_git(self, name, git_url, git_branch, git_tag, mamafile, args)
+        self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, args))
+
+
+    def add_artifactory_pkg(self, name, version='latest', fullname=None):
+        """
+        Adds an Artifactory only dependency.
+        The dependency will be downloaded from the artifactory url.
+
+        If the remote artifactory does not contain this package,
+        an error is thrown during build.
+
+        If a version value is given, mamabuild will try to automatically
+        figure out the appropriate remote package.
+
+        If a fullname value is given, only the specific artifactory package
+        will be used as an override. This is mostly useful for source-only packages
+        and for platform-specific configuration.
+
+        ```
+        self.add_artifactory_pkg('mylib', version='latest')
+        self.add_artifactory_pkg('mylib', version='df76b66')
+        self.add_artifactory_pkg('mylib', fullname='mylib-linux-x64-release-df76b66')
+        ```
+        """
+        self.dep.add_child(ArtifactoryPackage(name, version=version, fullname=fullname))
 
 
     def get_dependency(self, name):
@@ -176,7 +208,7 @@ class BuildTarget:
         """
         if self.dep.name == name:
             return self.dep
-        for dep in self.dep.children:
+        for dep in self.children():
             if dep.name == name:
                 return dep
         raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
@@ -191,7 +223,7 @@ class BuildTarget:
         """
         if self.name == name:
             return self
-        for dep in self.dep.children:
+        for dep in self.children():
             if dep.name == name:
                 return dep.target
         raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
@@ -293,8 +325,8 @@ class BuildTarget:
         dependency = all if all else self.select(windows, linux, macos, ios, android)
         if dependency:
             dependency = normalized_path(os.path.join(self.build_dir(), dependency))
-            self.build_dependencies.append(dependency)
-            #console(f'    {self.name}.build_dependencies += {dependency}')
+            self.build_products.append(dependency)
+            #console(f'    {self.name}.build_products += {dependency}')
 
 
     def no_export_includes(self):
@@ -1063,9 +1095,13 @@ class BuildTarget:
             self._execute_run_tasks()
         except Exception as err:
             import traceback
-            tb = traceback.format_exc().splitlines(True)
-            tb = tb[-3]+tb[-2] if len(tb) >= 3 else ''.join(tb)
-            console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\nError Source:\n{tb}')
+            if self.config.verbose: # full stacktrace in verbose mode
+                traceback.print_exc()
+                console(f'  [BUILD FAILED]  {self.dep.name}')
+            else:
+                tb = traceback.format_exc().splitlines(True)
+                tb = tb[-3]+tb[-2] if len(tb) >= 3 else ''.join(tb)
+                console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\nError Source:\n{tb}')
             exit(-1) # exit without stack trace
 
 
@@ -1075,7 +1111,8 @@ class BuildTarget:
             self.configure() # user customization
             if not self.dep.nothing_to_build:
                 clean_intermediate = False
-                if artifactory_fetch_and_reconfigure(self): # this will reconfigure packaging
+                fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
+                if fetched:
                     do_package_step = False # no need to package after reconfiguration
                     clean_intermediate = True # remove any unnecessary .obj files
                 else:

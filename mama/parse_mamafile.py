@@ -1,10 +1,8 @@
-import os, sys, py_compile, runpy, inspect, pathlib, time
-from mama.system import console
-from mama.util import path_join
+import os, runpy, inspect, pathlib
+from .util import path_join
 
 def parse_mamafile(config, target_class, mamafile):
-
-    if not os.path.exists(mamafile):
+    if not mamafile or not os.path.exists(mamafile):
         return None, None
     #console(f'loaded_mamafile: {mamafile}')
 

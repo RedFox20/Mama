@@ -1,4 +1,4 @@
-import os, shutil, random, shlex, time, subprocess, pathlib, ssl, urllib, zipfile
+import os, shutil, random, shlex, time, subprocess, pathlib, ssl, zipfile
 from mama.system import System, console, execute
 from urllib import request
 
@@ -99,9 +99,9 @@ def normalized_path(pathstring):
     return pathstring.replace('\\', '/').rstrip()
 
 
-def normalized_join(path1, path2):
-    """ Joins two paths and the calls normalized_path() """
-    return normalized_path(os.path.join(path1, path2))
+def normalized_join(path1, *pathsN):
+    """ Joins N paths and the calls normalized_path() """
+    return normalized_path(os.path.join(path1, *pathsN))
 
 
 def glob_with_extensions(rootdir, extensions):

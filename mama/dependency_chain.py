@@ -1,5 +1,5 @@
 import os, concurrent.futures
-from .build_target import BuildTarget
+from typing import List
 from .build_dependency import BuildDependency
 from .util import save_file_if_contents_changed
 from .system import console
@@ -41,7 +41,7 @@ def _get_hierarchical_libs(root: BuildDependency):
     def add_deps(dep: BuildDependency):
         nonlocal deps
         deps += _get_exported_libs(dep.target)
-        for child in dep.children:
+        for child in dep.get_children():
             add_deps(child)
     add_deps(root)
     return deps
@@ -50,13 +50,13 @@ def _get_hierarchical_libs(root: BuildDependency):
 def _get_flattened_deps(root: BuildDependency):
     # deps have to be sorted in [parent] [child] order for Unix linkers
     ordered = []
-    def add_unique_items(deps):
+    def add_unique_items(deps: List[BuildDependency]):
         for child in deps:
             if child in ordered: # already in deps list, so we need to move it lower
                 ordered.remove(child)
             ordered.append(child)
-            add_unique_items(child.children)
-    add_unique_items(root.children)
+            add_unique_items(child.get_children())
+    add_unique_items(root.get_children())
     return ordered
 
 
@@ -69,7 +69,7 @@ def _save_dependencies_cmake(root: BuildDependency):
     if not root.build_dir_exists():
         return # probably CLEAN, so nothing to save
     outfile = f'{root.build_dir}/mama-dependencies.cmake'
-    if not root.children:
+    if not root.get_children():
         if os.path.exists(outfile):
             os.remove(outfile) # no more deps, get rid of the dependency file
         return
@@ -95,12 +95,14 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIB}})
 
 
 def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
-    if not root.children:
+    if not root.get_children():
         return ''
     return f'include("{root.dep_dir}/{build}/mama-dependencies.cmake")'
 
 
 def _mama_cmake_path(root: BuildDependency):
+    if not root.src_dir: # for artifactory pkgs, there is no src_dir
+        return f'{root.build_dir}/mama.cmake'
     return f'{root.src_dir}/mama.cmake'
 
 
@@ -186,13 +188,17 @@ endif()
 
 
 def load_dependency_chain(root: BuildDependency):
+    """
+    This is main entrypoint for building the dependency chain.
+    All dependencies must be resolved at this stage
+    """
     with concurrent.futures.ThreadPoolExecutor() as e:
         def load_dependency(dep: BuildDependency):
             if dep.already_loaded:
                 return dep.should_rebuild
             changed = dep.load()
             futures = []
-            for child in dep.children:
+            for child in dep.get_children():
                 futures.append(e.submit(load_dependency, child))
             for f in futures:
                 changed |= f.result()
@@ -208,7 +214,7 @@ def execute_task_chain(root: BuildDependency):
     if not os.path.exists(_mama_cmake_path(root)):
         _save_mama_cmake(root) # save a dummy mama.cmake before build
 
-    for dep in root.children:
+    for dep in root.get_children():
         execute_task_chain(dep)
 
     if root.already_executed:
@@ -228,7 +234,7 @@ def execute_task_chain(root: BuildDependency):
         for dep in all_deps:
             libs += [(dep.name, 'L', lib) for lib in dep.target.exported_libs]
             libs += [(dep.name, 'S', lib) for lib in dep.target.exported_syslibs]
-        
+
         if libs:
             console(f'  - {root.name} Exported Libs:')
             for lib in libs:
@@ -238,9 +244,10 @@ def execute_task_chain(root: BuildDependency):
 
 
 def find_dependency(root: BuildDependency, name) -> BuildDependency:
+    """ This is mainly used for finding root target or specific command line target """
     if root.name == name:
         return root
-    for dep in root.children:
+    for dep in root.get_children():
         found = find_dependency(dep, name)
         if found: return found
     return None
