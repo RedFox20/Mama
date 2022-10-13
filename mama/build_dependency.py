@@ -54,9 +54,7 @@ class BuildDependency:
         elif dep_source.is_pkg:
             if not config.artifactory_ftp:
                 raise RuntimeError(f'add_artifactory_pkg({self.name}) failed because config.artifactory_ftp is not set!')
-            pkg:ArtifactoryPkg = dep_source
             self.src_dir = None # there is no src_dir when using artifactory packages
-            self.children = None # mark as unresolved until we actually resolve the child deps
             self.create_build_target()
             self.update_dep_dir()
         elif dep_source.is_src:
@@ -109,7 +107,6 @@ class BuildDependency:
         dep = BuildDependency(self, self.config, self.workspace, dep_source)
         BuildDependency.loaded_deps[dep_source.name] = dep
 
-        if not self.children: self.children = []
         self.children.append(dep)
 
 
@@ -159,7 +156,7 @@ class BuildDependency:
 
 
     def source_dir_exists(self):
-        return os.path.exists(self.src_dir)
+        return self.src_dir and os.path.exists(self.src_dir)
 
 
     def build_dir_exists(self):
@@ -237,7 +234,6 @@ class BuildDependency:
         if not fetched:
             raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg')
         for dep_name in dependencies:
-            print(dep_name)
             self.add_child(dep_name)
 
 

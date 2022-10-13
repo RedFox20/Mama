@@ -298,6 +298,9 @@ class BuildConfig:
 
         If auth='store' then system's secure keyring is used to store
         the credentials. If authentication fails, then credentials are cleared.
+
+        The username and password can be overriden by ENV variables
+        `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS` for use in build systems
         ```
             def dependencies(self):
                 self.config.set_artifactory_url('myserver.com', auth='store')

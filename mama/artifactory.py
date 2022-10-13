@@ -1,4 +1,4 @@
-import os, ftplib, traceback, getpass, keyring
+import os, ftplib, traceback, getpass
 from typing import List, Tuple
 
 from .types.git import Git
@@ -35,35 +35,50 @@ def artifactory_archive_name(target):
     return f'{name}-{platform}-{arch}-{build_type}-{commit_hash}'
 
 
-if System.linux:
-    from keyrings.cryptfile.cryptfile import CryptFileKeyring
-    kr = CryptFileKeyring()
-    kr.keyring_key = f'mamabuild-{os.getenv("USER")}'
-    keyring.set_keyring(kr)
+keyr = None
+def _get_keyring():
+    global keyr
+    if not keyr: # lazy init keyring, because it loads certs and other slow stuff
+        import keyring
+        if System.linux:
+            import importlib
+            cryptfile = importlib.import_module('keyrings.cryptfile.cryptfile')
+            kr = cryptfile.CryptFileKeyring()
+            kr.keyring_key = f'mamabuild-{os.getenv("USER")}'
+            keyring.set_keyring(kr)
+        keyr = keyring
+    return keyr
 
 
 def _get_artifactory_ftp_credentials(config, url):
+    # get the values from ENV
+    username = os.getenv('MAMA_ARTIFACTORY_USER', None)
+    password = os.getenv('MAMA_ARTIFACTORY_PASS', '')  # empty password as default
+    if username is not None:
+        return username, password
+
     if config.artifactory_auth == 'store':
-        username = keyring.get_password('mamabuild', f'username-{url}')
-        password = keyring.get_password('mamabuild', f'password-{url}')
+        username = _get_keyring().get_password('mamabuild', f'username-{url}')
+        password = _get_keyring().get_password('mamabuild', f'password-{url}')
         if username is not None:
             return username, password
+
     username = input(f'{url} username: ').strip()
     password = getpass.getpass(f'{username}@{url} password: ').strip()
     return username, password
 
 
 def _remove_artifactory_ftp_credentials(url):
-    if keyring.get_password('mamabuild', f'username-{url}'):
-        keyring.delete_password('mamabuild', f'username-{url}')
-    if keyring.get_password('mamabuild', f'password-{url}'):
-        keyring.delete_password('mamabuild', f'password-{url}')
+    if _get_keyring().get_password('mamabuild', f'username-{url}'):
+        _get_keyring().delete_password('mamabuild', f'username-{url}')
+    if _get_keyring().get_password('mamabuild', f'password-{url}'):
+        _get_keyring().delete_password('mamabuild', f'password-{url}')
 
 
 def _store_artifactory_ftp_credentials(config, url, username, password):
     if config.artifactory_auth == 'store':
-        keyring.set_password('mamabuild', f'username-{url}', username)
-        keyring.set_password('mamabuild', f'password-{url}', password)
+        _get_keyring().set_password('mamabuild', f'username-{url}', username)
+        _get_keyring().set_password('mamabuild', f'password-{url}', password)
 
 
 def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config, url):
@@ -167,7 +182,6 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
         return (False, None)
 
-    print(f'dependencies = {dependencies}')
     target.exported_includes = includes # include folders to export from this target
     target.exported_libs     = libs # libs to export from this target
     target.exported_syslibs  = syslibs # exported system libraries
@@ -179,10 +193,10 @@ def _fetch_package(target, url, archive, build_dir):
     remote_file = f'https://{url}/{archive}.zip'
     try:
         return download_file(remote_file, build_dir, force=True, 
-                             message=f'Artifactory fetch {url}/{archive} ')
+                             message=f'    Artifactory fetch {url}/{archive} ')
     except Exception as e:
         if target.config.verbose:
-            console(f'Artifactory fetch failed with {e} {url}/{archive}.zip')
+            console(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
         # this is an artifactory pkg, so the url MUST exist
         if target.dep.dep_source.is_pkg:
             raise RuntimeError(f'Artifactory package {target.dep.dep_source} did not exist at {url}')
@@ -204,13 +218,14 @@ def artifactory_fetch_and_reconfigure(target) -> Tuple[bool, list]:
     local_file = normalized_join(build_dir, f'{archive}.zip')
 
     if os.path.exists(local_file):
-        console(f'Artifactory using existing Package at: {local_file}')
+        console(f'    Artifactory cache {local_file}')
+        unzip(local_file, build_dir)
     else:
         local_file = _fetch_package(target, url, archive, build_dir)
         if not local_file:
             return (False, None)
+        console(f'    Artifactory unzip {archive}')
+        unzip(local_file, build_dir)
 
-    unzip(local_file, build_dir)
-    console(f'Artifactory unzip {archive}')
     return artifactory_reconfigure_target_from_deployment(target, build_dir)
 

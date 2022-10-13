@@ -192,7 +192,7 @@ def get_file_size_str(size):
 def download_file(remote_url, local_dir, force=False, message=None):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
-        console(f"Using locally cached {local_file}")
+        console(f"    Using locally cached {local_file}")
         return local_file
     if not os.path.exists(local_dir):
         os.makedirs(local_dir, exist_ok=True)
@@ -206,13 +206,13 @@ def download_file(remote_url, local_dir, force=False, message=None):
             size = int(urlfile.info()['Content-Length'].strip())
             if not message: message = f'Downloading {remote_url}'
             print(f'{message} {get_file_size_str(size)}')
-            print(f'  |{" ":50}<| {0:>3} %', end='')
+            print(f'    |{" ":50}<| {0:>3} %', end='')
             transferred = 0
             lastpercent = 0
             while True:
                 data = urlfile.read(32*1024) # large chunks plz
                 if not data:
-                    print(f'\r  |<{"="*50}| {percent:>3} %')
+                    print(f'\r    |<{"="*50}| {percent:>3} %')
                     return local_file
                 output.write(data)
                 transferred += len(data)
@@ -222,7 +222,7 @@ def download_file(remote_url, local_dir, force=False, message=None):
                     n = int(percent / 2)
                     right = '=' * n
                     left = ' ' * int(50 - n)
-                    print(f'\r  |{left}<{right}| {percent:>3} %', end='')
+                    print(f'\r    |{left}<{right}| {percent:>3} %', end='')
 
 
 def unzip(local_zip, extract_dir):
