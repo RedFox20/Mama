@@ -1,7 +1,4 @@
-import os
-import re
-import shlex
-import shutil
+import os, shlex, shutil
 from signal import SIGTERM
 from errno import ECHILD
 from time import sleep
@@ -26,10 +23,13 @@ class SubProcess:
         env = env if env else os.environ.copy()
         args = shlex.split(cmd)
 
-        # we need to lookup full path to the program
-        executable = shutil.which(args[0])
-        if not executable:
-            raise OSError(f"SubProcessed failed to start: {args[0]} not found in PATH")
+        executable = args[0]
+        if os.path.exists(executable): # it's something like `./run_tests` or `/usr/bin/gcc`
+            executable = os.path.abspath(executable)
+        else: # lookup from PATH
+            executable = shutil.which(args[0])
+            if not executable:
+                raise OSError(f"SubProcessed failed to start: {args[0]} not found in PATH")
         args[0] = executable
 
         if io_func:
