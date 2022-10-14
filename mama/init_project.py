@@ -1,3 +1,4 @@
+import os
 from .build_dependency import BuildDependency
 from .util import read_lines_from, write_text_to
 from .system import console
@@ -123,18 +124,20 @@ def patch_existing_cmakelists(project_name, cmakefile):
     write_text_to(cmakefile, contents)
 
 
-def mama_init_project(root_dependency: BuildDependency):
-    if not root_dependency.mamafile_exists():
-        console('Creating new mamafile.py')
-        write_default_mamafile(root_dependency.name, root_dependency.mamafile_path())
+def mama_init_project(root: BuildDependency):
+    mamafile = root.mamafile_path()
+    if not os.path.exists(mamafile):
+        console(f'{root.name} Creating new mamafile.py: {mamafile}')
+        write_default_mamafile(root.name, root.mamafile_path())
     else:
-        console('Mamafile already exists')
+        console(f'{root.name} Mamafile already exists: {mamafile}')
 
-    if not root_dependency.cmakelists_exists():
-        console('Creating new CMakeLists.txt')
-        write_default_cmakelists(root_dependency.name, root_dependency.cmakelists_path())
+    cmakelists = root.cmakelists_path()
+    if not os.path.exists(cmakelists):
+        console(f'{root.name} Creating new CMakeLists.txt: {cmakelists}')
+        write_default_cmakelists(root.name, cmakelists)
     else:
-        console('Patching existing CMakeLists.txt')
-        patch_existing_cmakelists(root_dependency.name, root_dependency.cmakelists_path())
+        console(f'{root.name} Patching existing CMakeLists.txt: {cmakelists}')
+        patch_existing_cmakelists(root.name, cmakelists)
 
 

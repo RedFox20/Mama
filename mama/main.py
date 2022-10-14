@@ -149,7 +149,11 @@ def main():
     workspace = None # figure out the workspace from the root mamafile.py
     root = BuildDependency(None, config, workspace, local_src)
 
-    if config.mama_init:
+    if config.unused_args:
+        set_target_from_unused_args(config)
+
+    # root init
+    if config.mama_init and not config.target:
         mama_init_project(root)
         return
 
@@ -161,9 +165,6 @@ def main():
     if not root.mamafile_exists() and not has_cmake:
         console('FATAL ERROR: mamafile.py not found and CMakeLists.txt not found')
         exit(-1)
-
-    if config.unused_args:
-        set_target_from_unused_args(config)
 
     if config.update:
         if not config.target:
@@ -181,6 +182,15 @@ def main():
 
     load_dependency_chain(root)
     check_config_target(config, root)
+
+    # target init
+    if config.mama_init and config.target:
+        dep = find_dependency(root, config.target)
+        if not dep:
+            console(f'init command failed: target {config.target} not found')
+            exit(-1)
+        mama_init_project(dep)
+        return
 
     if config.list:
         console(f'    Dependency List: {get_full_flattened_deps(root)}')
