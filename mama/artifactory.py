@@ -221,7 +221,8 @@ def artifactory_fetch_and_reconfigure(target) -> Tuple[bool, list]:
     local_file = normalized_join(build_dir, f'{archive}.zip')
 
     if os.path.exists(local_file):
-        if target.is_current_target() or target.config.no_specific_target():
+        if (target.is_current_target() or target.config.no_specific_target()) \
+            and not target.test:
             console(f'    Artifactory cache {local_file}')
         unzip(local_file, build_dir)
     else:

@@ -154,7 +154,7 @@ def find_syslib(target, name, apt, required):
             lambda: f'/usr/lib/lib{name}.so',
             lambda: f'/usr/lib/lib{name}.a' ]:
             if os.path.isfile(candidate()):
-                return candidate()
+                return name # example: we found `libdl.so`, so just return `dl` for the linker
         if not required: return False
         if apt: raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
         raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
@@ -176,12 +176,25 @@ def get_lib_basename(syslib):
     return os.path.basename(syslib)
 
 
+def _reset_syslib_name(syslib):
+    """ Resets the syslib name from `/usr/lib/x86_64-linux-gnu/liblzma.so` to `lzma` """
+    fname = os.path.basename(syslib)
+    if fname.startswith('lib'):
+        if fname.endswith('.so'):
+            return fname[3:-3]  # pop 'lib'(3) from front and '.so'(3) from back
+        if fname.endswith('.a'):
+            return fname[3:-2]  # pop 'lib' and '.a'
+    return fname
+
+
 def reload_syslibs(target, syslibs):
     reloaded = []
     for syslib in syslibs:
         if syslib.startswith('-framework '):
             reloaded.append(syslib)
         else:
-            lib = find_syslib(target, os.path.basename(syslib), apt=None, required=True)
+            libname = _reset_syslib_name(syslib)
+            lib = find_syslib(target, libname, apt=None, required=False)
+            if not lib: lib = syslib # not found, fall back to original syslib
             reloaded.append(lib)
     target.exported_syslibs = reloaded
