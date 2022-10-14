@@ -8,7 +8,7 @@ from .build_config import BuildConfig
 from .build_dependency import BuildDependency
 from .types.artifactory_pkg import ArtifactoryPkg
 from .artifactory import artifactory_fetch_and_reconfigure
-from .system import System, console, execute, execute_echo
+from .utils.system import System, console, execute, execute_echo
 from .util import normalized_path, copy_if_needed
 from .papa_deploy import papa_deploy_to, papa_upload_to
 from .msbuild import msbuild_build

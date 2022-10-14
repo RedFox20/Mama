@@ -5,7 +5,7 @@ from typing import List
 from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
-from .system import console
+from .utils.system import console
 from .artifactory import artifactory_fetch_and_reconfigure
 from .util import normalized_join, normalized_path, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag

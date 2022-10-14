@@ -1,7 +1,7 @@
 import os
-from mama.system import System, console, execute
+from mama.utils.system import System, console, execute
 from mama.build_config import BuildConfig
-from mama.utils.sub_process import SubProcess
+from .utils.sub_process import SubProcess
 
 
 def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):

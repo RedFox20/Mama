@@ -1,5 +1,5 @@
 import sys, os, subprocess
-from mama.utils.sub_process import SubProcess
+from .sub_process import SubProcess
 
 
 ## Always flush to properly support Jenkins

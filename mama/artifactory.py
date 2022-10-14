@@ -6,7 +6,7 @@ import mama.types.local_source as src
 import mama.types.artifactory_pkg as pkg
 import mama.types.dep_source as dep
 import mama.types.asset as asset
-import mama.system as system
+import mama.utils.system as system
 import mama.package as package
 from .util import console, download_file, normalized_join, read_lines_from, unzip
 

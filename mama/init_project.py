@@ -1,7 +1,7 @@
 import os
 from .build_dependency import BuildDependency
 from .util import read_lines_from, write_text_to
-from .system import console
+from .utils.system import console
 import re
 
 def write_default_mamafile(project_name, mamafile):

@@ -2,7 +2,7 @@ import os, concurrent.futures
 from typing import List
 from .build_dependency import BuildDependency
 from .util import save_file_if_contents_changed
-from .system import console
+from .utils.system import console
 
 
 def _get_cmake_path_list(paths):

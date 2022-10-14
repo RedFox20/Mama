@@ -1,5 +1,5 @@
 import os, sys, multiprocessing, tempfile
-from mama.system import System, console, execute, execute_piped
+from mama.utils.system import System, console, execute, execute_piped
 from mama.util import download_file, forward_slashes, find_executable_from_system
 
 if System.linux:

@@ -2,7 +2,7 @@
 import sys, os, importlib
 
 from mama.types.local_source import LocalSource
-from .system import console, execute
+from .utils.system import console, execute
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget

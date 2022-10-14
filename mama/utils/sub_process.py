@@ -2,7 +2,7 @@ import os, shlex, shutil
 from signal import SIGTERM
 from errno import ECHILD
 from time import sleep
-from mama.utils.nonblocking_io import set_nonblocking
+from .nonblocking_io import set_nonblocking
 
 
 class SubProcess:

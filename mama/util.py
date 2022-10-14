@@ -1,5 +1,5 @@
 import os, shutil, random, pathlib, ssl, zipfile, subprocess
-from mama.system import System, console, execute
+from mama.utils.system import System, console, execute
 from urllib import request
 
 
