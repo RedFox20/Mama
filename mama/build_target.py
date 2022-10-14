@@ -1,20 +1,24 @@
+from __future__ import annotations
+from typing import List, TYPE_CHECKING
 import os.path, shutil
 
-from typing import List
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.asset import Asset
-from .build_config import BuildConfig
-from .build_dependency import BuildDependency
 from .types.artifactory_pkg import ArtifactoryPkg
+
 from .artifactory import artifactory_fetch_and_reconfigure
 from .utils.system import System, console, execute, execute_echo
-from .util import normalized_path, copy_if_needed
 from .papa_deploy import papa_deploy_to, papa_upload_to
-from .msbuild import msbuild_build
+import mama.msbuild as msbuild
 import mama.util as util
 import mama.cmake_configure as cmake
 import mama.package as package
+
+if TYPE_CHECKING:
+    from .build_config import BuildConfig
+    from .build_dependency import BuildDependency
+
 
 ######################################################################################
 
@@ -349,7 +353,7 @@ class BuildTarget:
         """
         dependency = all if all else self.select(windows, linux, macos, ios, android)
         if dependency:
-            dependency = normalized_path(os.path.join(self.build_dir(), dependency))
+            dependency = util.normalized_join(self.build_dir(), dependency)
             self.build_products.append(dependency)
             #console(f'    {self.name}.build_products += {dependency}')
 
@@ -693,7 +697,7 @@ class BuildTarget:
         ```
         """
         if self.config.verbose: console(f'copy {src} --> {dst}')
-        copy_if_needed(src, dst)
+        util.copy_if_needed(src, dst)
 
 
     def copy_built_file(self, builtFile, copyToFolder):
@@ -718,7 +722,7 @@ class BuildTarget:
             # --> 'C:/Projects/Game/Plugins/NanoMesh
         ```
         """
-        copy_if_needed(self.source_dir(src_dir), dst_dir)
+        util.copy_if_needed(self.source_dir(src_dir), dst_dir)
 
 
     def download_file(self, remote_url, local_dir, force=False):
@@ -1279,7 +1283,7 @@ class BuildTarget:
         if self.config.print:
             console('\n#########################################')
             console(f'MSBuild {self.name} {projectfile}')
-        msbuild_build(self.config, self.source_dir(projectfile), properties)
+        msbuild.msbuild_build(self.config, self.source_dir(projectfile), properties)
 
 
 ######################################################################################

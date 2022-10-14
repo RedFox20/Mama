@@ -1,7 +1,7 @@
 import os, shutil, stat
 from .dep_source import DepSource
 from ..utils.system import System, console, execute, execute_piped
-from mama.util import is_dir_empty, write_text_to, read_lines_from
+from ..util import is_dir_empty, write_text_to, read_lines_from
 
 class Git(DepSource):
     """

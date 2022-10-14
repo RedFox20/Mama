@@ -1,6 +1,6 @@
 import os
-from mama.utils.system import System, console, execute
-from mama.build_config import BuildConfig
+from .utils.system import System, console, execute
+from .build_config import BuildConfig
 from .utils.sub_process import SubProcess
 
 

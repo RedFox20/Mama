@@ -179,8 +179,7 @@ Uploading a source distribution
 It will prompt for Username and Password, unless you set up ~/.pypirc file:
 ```
 [distutils]
-index-servers =
-    pypi
+index-servers = pypi
 [pypi]
 username=<your-mama-pypi-username>
 password=<your-mama-pypi-password>

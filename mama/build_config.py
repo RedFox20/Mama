@@ -1,6 +1,6 @@
 import os, sys, multiprocessing, tempfile
-from mama.utils.system import System, console, execute, execute_piped
-from mama.util import download_file, forward_slashes, find_executable_from_system
+from .utils.system import System, console, execute, execute_piped
+from .util import download_file, forward_slashes, find_executable_from_system
 
 if System.linux:
     import distro

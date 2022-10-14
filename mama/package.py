@@ -1,6 +1,6 @@
 import os
-from mama.utils.system import console
-from mama.util import normalized_path, glob_with_name_match
+from .utils.system import console
+from .util import normalized_path, glob_with_name_match
 from .types.asset import Asset
 
 
