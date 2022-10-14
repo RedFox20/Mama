@@ -33,18 +33,20 @@ def _get_exported_libs(target):
             if lib.endswith(ext):
                 filtered.append(lib)
     #print(f'{target.name: <16} filtered: {filtered}')
-    return filtered + target.exported_syslibs
+    return filtered
 
 
 def _get_hierarchical_libs(root: BuildDependency):
     deps = []
+    syslibs = []
     def add_deps(dep: BuildDependency):
-        nonlocal deps
+        nonlocal deps, syslibs
         deps += _get_exported_libs(dep.target)
+        syslibs += dep.target.exported_syslibs
         for child in dep.get_children():
             add_deps(child)
     add_deps(root)
-    return deps
+    return deps + syslibs
 
 
 def _get_flattened_deps(root: BuildDependency):
@@ -86,6 +88,32 @@ def _save_mama_cmake_and_dependencies_cmake(root: BuildDependency):
     _save_mama_cmake(root)
 
 
+def _get_dependency_cmake_defines(dep: BuildDependency):
+    name = dep.name
+    own_libs = _get_exported_libs(dep.target) + dep.target.exported_syslibs
+    all_libs = _get_hierarchical_libs(dep)
+
+    includes = _get_cmake_path_list(dep.target.exported_includes)
+    own_libs_list = _get_cmake_path_list(own_libs)
+    all_libs_list = _get_cmake_path_list(all_libs)
+
+    # reference name_LIB if it equals name_LIBS
+    if own_libs_list == all_libs_list:
+        all_libs_list = f'${{{name}_LIB}}'
+    #console(f'{name} own_libs: {own_libs_list}')
+    #console(f'{name} all_libs: {all_libs_list}')
+    return f'''
+# Package {name}
+set({name}_INCLUDES {includes})
+# only {name} libs
+set({name}_LIB {own_libs_list})
+# includes {name} libs and all dependency libs
+set({name}_LIBS {all_libs_list})
+set(MAMA_INCLUDES ${{MAMA_INCLUDES}} ${{{name}_INCLUDES}})
+set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{name}_LIB}})
+'''
+
+
 def _save_dependencies_cmake(root: BuildDependency):
     if not root.build_dir_exists():
         return # probably CLEAN, so nothing to save
@@ -95,21 +123,7 @@ def _save_dependencies_cmake(root: BuildDependency):
 '''
     root.flattened_deps = [root] + _get_flattened_deps(root)
     for dep in root.flattened_deps:
-        includes  = _get_cmake_path_list(dep.target.exported_includes)
-        flatlibs = _get_cmake_path_list(_get_exported_libs(dep.target))
-        hierarchical = _get_cmake_path_list(_get_hierarchical_libs(dep))
-        #console(f'{dep.name} flatlibs: {flatlibs}')
-        #console(f'{dep.name} hierarchical: {hierarchical}')
-        text += f'''
-# Package {dep.name}
-set({dep.name}_INCLUDES {includes})
-# only {dep.name} libs
-set({dep.name}_LIB {flatlibs})
-# includes {dep.name} libs and all dependency libs
-set({dep.name}_LIBS {hierarchical})
-set(MAMA_INCLUDES ${{MAMA_INCLUDES}} ${{{dep.name}_INCLUDES}})
-set(MAMA_LIBS     ${{MAMA_LIBS}}     ${{{dep.name}_LIB}})
-'''
+        text += _get_dependency_cmake_defines(dep)
     save_file_if_contents_changed(outfile, text)
 
 
