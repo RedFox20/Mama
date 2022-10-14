@@ -129,6 +129,7 @@ def check_config_target(config: BuildConfig, root: BuildDependency):
             console(f"ERROR: specified target='{config.target}' not found!")
             exit(-1)
 
+
 def main():
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')

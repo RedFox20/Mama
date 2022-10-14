@@ -1,5 +1,6 @@
 import sys, os, subprocess
-from mama.async_file_reader import AsyncFileReader
+from mama.utils.sub_process import SubProcess
+
 
 ## Always flush to properly support Jenkins
 def console(s): print(s, flush=True)
@@ -18,27 +19,15 @@ def execute_piped(command, cwd=None):
     return cp.stdout.decode('utf-8').rstrip()
 
 
-# TODO: use forktty instead of AsyncFileReader
 def execute_echo(cwd, cmd):
+    exit_status = -1
     try:
-        proc = subprocess.Popen(cmd, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output = AsyncFileReader(proc.stdout)
-        errors = AsyncFileReader(proc.stderr)
-        while True:
-            if proc.poll() is None:
-                output.print()
-                errors.print()
-            else:
-                output.stop()
-                errors.stop()
-                output.print()
-                errors.print()
-                break
+        exit_status = SubProcess.run(cmd, cwd)
     except:
-        console(f'Popen failed! cwd={cwd} cmd={cmd} ')
+        console(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
         raise
-    if proc.returncode != 0:
-        raise Exception(f'Execute {cmd} failed with error: {proc.returncode}')
+    if exit_status != 0:
+        raise Exception(f'Execute {cmd} failed with error: {exit_status}')
 
 
 is_windows = sys.platform == 'win32'

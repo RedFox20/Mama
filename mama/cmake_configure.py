@@ -1,57 +1,41 @@
-import os, subprocess, time
+import os
 from mama.system import System, console, execute
 from mama.build_config import BuildConfig
-from mama.async_file_reader import AsyncConsoleReader
+from mama.utils.sub_process import SubProcess
 
 
-def _rerunnable_cmake_conf(cwd, args, allow_rerun, target):
+def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):
     rerun = False
     error = ''
     delete_cmakecache = False
     print_enabled = target.config.print
     verbose = target.config.verbose
-    if verbose: console(args)
+    if verbose: console(cmd)
     #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
-    # TODO: use forktty instead of AsyncConsoleReader
-    proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    reader = AsyncConsoleReader(proc.stdout, proc.stderr)
 
-    def handle_error(err):
+    def handle_output(line):
         nonlocal rerun, delete_cmakecache
-        print(err, flush=True, end='')
-        if err.startswith('CMake Error: The source'):
+        print(line) # newline is not included
+        if line.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
         elif System.windows:
             # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
-            rerun |= err.startswith('  is not a full path to an existing compiler tool.')
-        elif err.startswith('CMake Error: Error: generator :') or \
-             err.startswith('CMake Error: The source'):
+            rerun |= line.startswith('  is not a full path to an existing compiler tool.')
+        elif line.startswith('CMake Error: Error: generator :') or \
+             line.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
 
-    def read_out_err():
-        while reader.available():
-            out, err = reader.read()
-            if out:
-                if print_enabled:
-                    print(out, flush=True, end='')
-            elif err:
-                handle_error(err)
+    exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
 
-    while proc.poll() is None:
-        read_out_err()
-        time.sleep(0.015)
-    reader.stop()
-    read_out_err()
-    
     if delete_cmakecache:
         if print_enabled: console('Deleting CMakeCache.txt')
         os.remove(target.build_dir('CMakeCache.txt'))
     if rerun and allow_rerun:
         if print_enabled: console('Rerunning CMake configure')
-        return _rerunnable_cmake_conf(cwd, args, False, target)
-    if proc.returncode != 0:
+        return _rerunnable_cmake_conf(cmd, cwd, False, target)
+    if exit_status != 0:
         raise Exception(f'CMake configure error: {error}')
 
 
@@ -66,7 +50,7 @@ def run_config(target):
     generator = _generator(target)
     src_dir = target.source_dir()
     cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
-    _rerunnable_cmake_conf(target.build_dir(), cmd, True, target)
+    _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
 def run_build(target, install, extraflags=''):

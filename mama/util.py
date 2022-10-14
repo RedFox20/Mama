@@ -1,4 +1,4 @@
-import os, shutil, random, shlex, time, subprocess, pathlib, ssl, zipfile
+import os, shutil, random, pathlib, ssl, zipfile, subprocess
 from mama.system import System, console, execute
 from urllib import request
 
@@ -6,6 +6,13 @@ from urllib import request
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
            os.path.getsize(src) == os.path.getsize(dst)
+
+
+def find_executable_from_system(name):
+    finder = 'where' if System.windows else 'which'
+    output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
+    output = output.split('\n')[0].strip()
+    return output if os.path.isfile(output) else ''
 
 
 def copy_files(fromFolder, toFolder, fileNames):
@@ -40,26 +47,6 @@ def deploy_framework(framework, deployFolder):
         shutil.copytree(framework, deployPath)
         return True
     return False
-
-
-def run_with_timeout(executable, argstring, workingDir, timeoutSeconds=None):
-    args = [executable]
-    args += shlex.split(argstring)
-    start = time.time()
-    proc = subprocess.Popen(args, shell=True, cwd=workingDir)
-    try:
-        proc.wait(timeout=timeoutSeconds)
-        console(f'{executable} elapsed: {round(time.time()-start, 1)}s')
-    except subprocess.TimeoutExpired:
-        console('TIMEOUT, sending break signal')
-        if System.windows:
-            proc.send_signal(subprocess.signal.CTRL_C_EVENT)
-        else:
-            proc.send_signal(subprocess.signal.SIGINT)
-        raise
-    if proc.returncode == 0:
-        return
-    raise subprocess.CalledProcessError(proc.returncode, ' '.join(args))
 
 
 def has_contents_changed(filename, new_contents):

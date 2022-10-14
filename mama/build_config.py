@@ -1,16 +1,9 @@
-import os, sys, multiprocessing, subprocess, tempfile
+import os, sys, multiprocessing, tempfile
 from mama.system import System, console, execute, execute_piped
-from mama.util import download_file, forward_slashes
+from mama.util import download_file, forward_slashes, find_executable_from_system
 
 if System.linux:
     import distro
-
-
-def find_executable_from_system(name):
-    finder = 'where' if System.windows else 'which'
-    output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
-    output = output.split('\n')[0].strip()
-    return output if os.path.isfile(output) else ''
 
 
 ###

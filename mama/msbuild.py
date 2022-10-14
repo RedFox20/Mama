@@ -1,17 +1,17 @@
-from .system import System, console
+import os
+from .system import console
 from .build_config import BuildConfig
-import subprocess, os
+from mama.utils.sub_process import SubProcess
 
 
-def _run_msbuild(cwd, args, config:BuildConfig):
+def _run_msbuild(cmd, cwd, config:BuildConfig):
     if config.verbose:
-        console(args)
-    # TODO: use forktty instead of Popen
-    proc = subprocess.Popen(args, shell=True, universal_newlines=True, cwd=cwd)
-    retcode = proc.wait()
-    if retcode == 0:
+        console(cmd)
+
+    exit_status = SubProcess.run(cmd, cwd)
+    if exit_status == 0:
         return
-    raise Exception(f'MSBuild failed with return code {retcode}')
+    raise Exception(f'MSBuild failed with return code {exit_status}')
 
 
 def _add_if_missing(properties, key, value):
@@ -51,6 +51,6 @@ def msbuild_build(config: BuildConfig, projectfile: str, properties: dict):
     
     proj_dir  = os.path.dirname(projectfile)
     proj_file = os.path.basename(projectfile)
-    _run_msbuild(proj_dir, f'"{msbuild}" {options_str} "{proj_file}"', config)
+    _run_msbuild(f'"{msbuild}" {options_str} "{proj_file}"', proj_dir, config)
     console('')
 
