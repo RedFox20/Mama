@@ -131,6 +131,30 @@ class BuildTarget:
         return util.path_join(self.dep.build_dir, subpath)
 
 
+    def set_artifactory_ftp(self, ftp_url, auth='store'):
+        """
+        Configures the remote Artifactory FTP URL where packages
+        will be checked for download. If a package with correct commit hash
+        exists, it will be used instead of building locally.
+
+        If auth='store' then system's secure keyring is used to store
+        the credentials. If authentication fails, then credentials are cleared.
+
+        The username and password can be overriden by ENV variables
+        `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS` for use in build systems
+        ```
+            def dependencies(self):
+                self.config.set_artifactory_url('myserver.com', auth='store')
+                self.config.set_artifactory_url('myserver.com', auth='prompt')
+        ```
+        NOTE: Currently only FTP is supported
+        """
+        if not self.dep.is_root:
+            console(f'WARNING: {self.name} set_artifactory_ftp ignored for non-root targets')
+            return
+        self.config.set_artifactory_ftp(ftp_url=ftp_url, auth=auth)
+
+
     def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[]):
         """
         Add a local dependency. This can be a git submodule or just some local folder.
@@ -228,6 +252,7 @@ class BuildTarget:
         raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
 
 
+    ## TODO: Move this into `package.py`
     def inject_products(self, dst_dep, src_dep, include_path, libs, libfilters=None):
         """
         Injects products from `src_dep` into `dst_dep` as CMake defines.
@@ -253,6 +278,7 @@ class BuildTarget:
         dst_dep.product_sources.append( (src_dep, include_path, libs, libfilters) )
 
 
+    ## TODO: Move this into `package.py`
     def get_product_defines(self):
         """
         Collects all results injected by `inject_products()`.
@@ -805,6 +831,7 @@ class BuildTarget:
         execute_echo(working_dir, command)
 
 
+    ## TODO: Move this into a new utility
     def gdb(self, command, src_dir=True):
         """
         Run a command with gdb in the build folder.
@@ -815,7 +842,7 @@ class BuildTarget:
         if self.android or self.ios or self.raspi or self.oclea:
             console('Cannot run tests for Android, iOS, Raspi, Oclea builds.')
             return # nothing to run
-        
+
         split = command.split(' ', 1)
         cmd = split[0].lstrip('.')
         args = split[1] if len(split) >= 2 else ''
@@ -845,10 +872,17 @@ class BuildTarget:
 
     def dependencies(self):
         """
-        Add any dependencies in this step.
+        Add any additional dependencies in this step,
+        or setup project configuration for root targets.
+
+        If this target is fetched as a package from the artifactory,
+        then this step is skipped!
         ```
-        class MyProject(mama.BuildTarget):
+        class MyRootProject(mama.BuildTarget):
             def dependencies(self):
+                # only valid for root targets
+                self.set_artifactory_ftp('artifacts.myftp.com', auth='store')
+
                 self.add_git('ReCpp', 'http://github.com/RedFox20/ReCpp.git')
                 self.add_local('fbxsdk', 'third_party/FBX')
         ```
@@ -933,8 +967,9 @@ class BuildTarget:
         """
         if self.no_includes: self.default_package_includes()
         if self.no_libs: self.default_package_libs()
-    
 
+
+    ## TODO: move this into `package.py`
     def default_package_includes(self):
         """
         Performs default INCLUDE packaging steps.
@@ -951,6 +986,7 @@ class BuildTarget:
         elif self.export_include('',        build_dir=False): pass
 
 
+    ## TODO: move this into `package.py`
     def default_package_libs(self):
         """
         Performs default LIB packaging steps.
@@ -1077,10 +1113,27 @@ class BuildTarget:
 
     def is_test_target(self):
         """
-        TRUE if this build target was specified along with test command:
-        `mama test target=this_name`
+        TRUE if this build target was specified along with `test` command.
+        This matches `all`, specific cmdline targets, and the `root` target.
+        ```
+        mama test              # the root target
+        mama test this_target  # specific target
+        mama test all          # all targets
+        ```
         """
         return self.config.test and self.dep.is_root_or_config_target()
+
+
+    def is_current_target(self):
+        """
+        TRUE if this BuildTarget is a configuration target for
+        build/test/etc. This matches 'all' or specific cmdline targets:
+        ```
+            mama build
+            mama build this_target
+        ```
+        """
+        return self.config.target_matches(self.name)
 
 
     ## Build only this target
@@ -1099,43 +1152,50 @@ class BuildTarget:
             exit(-1) # exit without further stack trace
 
 
+    def try_automatic_artifactory_fetch(self):
+        is_deploy = self.config.deploy or self.config.upload
+        is_target = self.is_current_target()
+        # auto-fetch if it's not a deploy or if we're not the target
+        if not is_deploy or not is_target:
+            fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
+            return fetched
+        return None
+
+
+    ## TODO: move all of this into a new utility
     def _execute_build_tasks(self):
-        do_package_step = True
         can_build = not self.dep.nothing_to_build
         if can_build and self.dep.should_rebuild:
             self.configure() # user customization
             if can_build:
-                clean_intermediate = False
-                fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
-                if fetched:
-                    do_package_step = False # no need to package after reconfiguration
-                    clean_intermediate = True # remove any unnecessary .obj files
-                else:
-                    self.build() # user customization
+                fetched = self.try_automatic_artifactory_fetch()
+                if not fetched:
+                    self.build() # user build customization
 
                 self.dep.successful_build()
 
                 # NOTE: clean_intermediate_files is a suggestion !
                 # for `always_build` and `root` we don't want to clean the files
-                if clean_intermediate or \
+                if fetched or \
                     (self.clean_intermediate_files and not (self.dep.always_build or self.dep.is_root)):
                     package.clean_intermediate_files(self)
 
-        if do_package_step:
+        # skip package() if we already fetched it as a package from artifactory()
+        if not self.dep.from_artifactory:
             self.package() # user customization
 
-        # no packaging provided by user; use default packaging instead
-        if not self.exported_includes and not self.no_includes:
-            self.default_package_includes()
-        if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
-            self.default_package_libs()
+            # no packaging provided by user; use default packaging instead
+            if not self.exported_includes and not self.no_includes:
+                self.default_package_includes()
+            if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
+                self.default_package_libs()
 
         # only save and print exports if we built anything
         if self.dep.build_dir_exists():
             self.dep.save_exports_as_dependencies(self.exported_libs)
             # print exports only if target match
-            if self.config.target_matches(self.name):
-                self._print_exports()
+            if self.is_current_target():
+                self.print_exports()
 
 
     def _execute_deploy_tasks(self):
@@ -1145,7 +1205,7 @@ class BuildTarget:
         if self.config.deploy or self.config.upload:
             specific_target = not self.config.no_specific_target()
             if (not specific_target and self.dep.is_root) \
-                or (specific_target and self.config.target_matches(self.name)):
+                or (specific_target and self.is_current_target()):
                 self.deploy() # user customization
                 if self.config.upload:
                     if not self.papa_path:
@@ -1165,32 +1225,32 @@ class BuildTarget:
             self.start(start_args)
 
 
-    def _print_ws_path(self, what, path, check_exists=True):
+    def _print_ws_path(self, what, path, abs_path, check_exists=True):
         def exists():
             return '' if os.path.exists(path) else '   !! (path does not exist) !!'
         if path.startswith('-framework'):
             console(f'    {what}  {path}')
-        elif path.startswith(self.config.workspaces_root):
+        elif not abs_path and path.startswith(self.config.workspaces_root):
             console(f'    {what}  {path[len(self.config.workspaces_root) + 1:]}{exists()}')
-        elif path.startswith(self.source_dir()):
+        elif not abs_path and path.startswith(self.source_dir()):
             console(f'    {what}  {path[len(self.source_dir()) + 1:]}{exists()}')
         else:
             ex = exists() if check_exists else ''
             console(f'    {what}  {path}{ex}')
 
 
-    def _print_exports(self):
+    def print_exports(self, abs_paths=False):
         if not self.config.print:
             return
-        if not (self.exported_includes and self.exported_libs and self.exported_syslibs and self.exported_assets):
+        if not (self.exported_includes or self.exported_libs or self.exported_syslibs or self.exported_assets):
             return
 
         console(f'  - Package {self.name}')
-        for include in self.exported_includes: self._print_ws_path('<I>', include)
-        for library in self.exported_libs:     self._print_ws_path('[L]', library)
-        for library in self.exported_syslibs:  self._print_ws_path('[S]', library, check_exists=False)
+        for include in self.exported_includes: self._print_ws_path('<I>', include, abs_paths)
+        for library in self.exported_libs:     self._print_ws_path('[L]', library, abs_paths)
+        for library in self.exported_syslibs:  self._print_ws_path('[S]', library, abs_paths, check_exists=False)
         if self.config.deploy or self.config.upload:
-            for asset in self.exported_assets: self._print_ws_path('[A]', str(asset), check_exists=False)
+            for asset in self.exported_assets: self._print_ws_path('[A]', str(asset), abs_paths, check_exists=False)
         elif self.exported_assets:
             assets = 'assets' if len(self.exported_assets) > 1 else 'asset'
             console(f'    [A]  ({len(self.exported_assets)} {assets})')

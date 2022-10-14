@@ -291,23 +291,7 @@ class BuildConfig:
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):
-        """
-        Configures the remote Artifactory FTP URL where packages
-        will be checked for download. If a package with correct commit hash
-        exists, it will be used instead of building locally.
-
-        If auth='store' then system's secure keyring is used to store
-        the credentials. If authentication fails, then credentials are cleared.
-
-        The username and password can be overriden by ENV variables
-        `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS` for use in build systems
-        ```
-            def dependencies(self):
-                self.config.set_artifactory_url('myserver.com', auth='store')
-                self.config.set_artifactory_url('myserver.com', auth='prompt')
-        ```
-        NOTE: Currently only FTP is supported
-        """
+        """ @see BuildTarget.set_artifactory_ftp() for documentation """
         self.artifactory_ftp = ftp_url
         self.artifactory_auth = auth
 

@@ -4,6 +4,21 @@ from mama.util import normalized_path, glob_with_name_match
 from .types.asset import Asset
 
 
+def is_a_static_library(lib):
+    return lib.endswith('.a') or lib.endswith('.lib')
+
+
+def is_a_dynamic_library(lib):
+    return lib.endswith('.dll')    or lib.endswith('.pdb') \
+        or lib.endswith('.dylib')  or lib.endswith('.so')  \
+        or lib.endswith('.bundle') or lib.endswith('.framework') \
+        or lib.endswith('.aar')
+
+
+def is_a_library(lib):
+    return is_a_static_library(lib) or is_a_dynamic_library(lib)
+
+
 def target_root_path(target, path, src_dir):
     root = target.source_dir() if src_dir else target.build_dir()
     return normalized_path(os.path.join(root, path))
@@ -50,6 +65,20 @@ def export_lib(target, relative_path, src_dir):
         target.exported_libs = get_unique_basenames(target.exported_libs)
     else:
         console(f'export_lib failed to find: {path}')
+
+
+def set_export_libs_and_products(target, libs_and_deps:list):
+    """
+    Sets target's exported_libs and build_products from previously serialized
+    list of libraries and dependencies
+    """
+    libs_and_deps = cleanup_libs_list(libs_and_deps)
+    only_libs = []
+    for lib in libs_and_deps:
+        if os.path.exists(lib) and is_a_library(lib):
+            only_libs.append(lib)
+    target.exported_libs = get_unique_basenames(only_libs)
+    target.build_products = get_unique_basenames(libs_and_deps)
 
 
 def cleanup_libs_list(libs):

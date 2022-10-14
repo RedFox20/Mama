@@ -184,9 +184,10 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
         return (False, None)
 
+    target.dep.from_artifactory = True
     target.exported_includes = includes # include folders to export from this target
-    target.exported_libs = libs # libs to export from this target
     target.exported_assets = assets # exported asset files
+    package.set_export_libs_and_products(target, libs)
     package.reload_syslibs(target, syslibs) # set exported system libraries
     return (True, dependencies)
 
@@ -220,7 +221,8 @@ def artifactory_fetch_and_reconfigure(target) -> Tuple[bool, list]:
     local_file = normalized_join(build_dir, f'{archive}.zip')
 
     if os.path.exists(local_file):
-        console(f'    Artifactory cache {local_file}')
+        if target.is_current_target() or target.config.no_specific_target():
+            console(f'    Artifactory cache {local_file}')
         unzip(local_file, build_dir)
     else:
         local_file = _fetch_package(target, url, archive, build_dir)

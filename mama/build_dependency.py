@@ -10,6 +10,7 @@ from .package import cleanup_libs_list
 from .artifactory import artifactory_fetch_and_reconfigure
 from .util import normalized_join, normalized_path, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
+import mama.package as package
 
 
 ######################################################################################
@@ -30,6 +31,7 @@ class BuildDependency:
         self.already_loaded = False
         self.already_executed = False
         self.currently_loading = False
+        self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.is_root = parent is None # Root deps are always built
         self.children = []
         self.depends_on = []
@@ -141,12 +143,15 @@ class BuildDependency:
         return self.build_dir + '/mama_exported_libs'
 
 
+    def papa_package_file(self):
+        return self.build_dir + '/papa.txt'
+
+
     def load_build_products(self, target):
         """ These are the build products that were generated during last build """
         loaded_deps = read_lines_from(self.exported_libs_file())
-        loaded_deps = cleanup_libs_list(loaded_deps)
         if loaded_deps:
-            target.build_products += loaded_deps
+            package.set_export_libs_and_products(target, loaded_deps)
 
 
     def save_exports_as_dependencies(self, exports):
@@ -210,13 +215,14 @@ class BuildDependency:
         if conf.clean and is_target:
             self.clean()
 
-        if self.dep_source.is_pkg:
-            self.load_artifactory_package(target)
-
+        # load any build products from previous builds
         if not self.is_root:
             self.load_build_products(target)
 
-        target.dependencies() ## customization point for additional dependencies
+        # if this succeeds, it will overwrite products and libs
+        loaded_from_pkg = self.load_artifactory_package(target)
+        if not loaded_from_pkg:
+            target.dependencies() ## customization point for additional dependencies
 
         build = False
         if conf.build or conf.update:
@@ -235,11 +241,15 @@ class BuildDependency:
 
 
     def load_artifactory_package(self, target):
+        load_art = self.dep_source.is_pkg or os.path.exists(self.papa_package_file())
+        if not load_art:
+            return False
         fetched, dependencies = artifactory_fetch_and_reconfigure(target)
         if not fetched:
             raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg')
         for dep_name in dependencies:
             self.add_child(dep_name)
+        return True
 
 
     def _print_list(self, conf, target):

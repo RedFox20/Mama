@@ -7,13 +7,6 @@ from .util import get_file_size_str, normalized_path, write_text_to, console, co
 import mama.package as package
 
 
-def _is_a_dynamic_library(lib):
-    return lib.endswith('.dll')    or lib.endswith('.pdb') \
-        or lib.endswith('.dylib')  or lib.endswith('.so')  \
-        or lib.endswith('.bundle') or lib.endswith('.framework') \
-        or lib.endswith('.aar')
-
-
 def _gather_dependencies(target) -> List[BuildDependency]:
     dependecies = []
     for child in target.children():
@@ -51,7 +44,7 @@ def _gather_libs(target, recurse):
     if recurse:
         def get_dylibs(t):
             for l in t.exported_libs:
-                if _is_a_dynamic_library(l): yield l
+                if package.is_a_dynamic_library(l): yield l
         for child in target.dep.children():
             _gather(child, recurse, libs, get_dylibs)
     return libs
