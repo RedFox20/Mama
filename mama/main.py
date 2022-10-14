@@ -26,6 +26,7 @@ def print_usage():
     console('    rebuild    - clean, update and build main project or specific target')
     console('    reclone    - wipe specific target dependency and clone it again')
     console('    wipe       - alias of reclone')
+    console('    upload     - uploads target package to artifactory server')
     console('    test       - run tests for main project or specific target')
     console('    start=arg  - start a specific tool via mamafile.start(args)')
     console('    add        - add new dependency')
@@ -69,14 +70,17 @@ def print_usage():
     console('    mama update dep1               Update and build the specified target.')
     console('    mama serve android             Update, build and deploy for Android')
     console('    mama wipe dep1                 Wipe target dependency completely and clone again.')
+    console('    mama upload dep1               Deploys and uploads dependency to Artifactory server.')
     console('    mama test                      Run tests on main project.')
     console('    mama test=arg                  Run tests on main project with an argument.')
     console('    mama test="arg1 arg2"          Run tests on main project with multiple arguments.')
     console('    mama test dep1                 Run tests on target dependency project.')
     console('    mama start=dbtool              Call main project mamafile start() with args [`dbtool`].')
     console('  environment:')
-    console('    setenv("NINJA")                Path to NINJA build executable')
-    console('    setenv("ANDROID_HOME")         Path to Android SDK if auto-detect fails')
+    console('    setenv("NINJA")                  Path to NINJA build executable')
+    console('    setenv("ANDROID_HOME")           Path to Android SDK if auto-detect fails')
+    console('    setenv("MAMA_ARTIFACTORY_USER")  Username for Artifactory server')
+    console('    setenv("MAMA_ARTIFACTORY_PASS")  Password for Artifactory server')
 
 
 def open_project(config: BuildConfig, root_dependency: BuildDependency):

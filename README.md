@@ -84,6 +84,9 @@ class AlphaGL(mama.BuildTarget):
     # grab dependencies straight from git repositories
     # if the projects are trivial, then no extra configuration is needed
     def dependencies(self):
+        # set package server
+        self.set_artifactory_ftp('artifacts.myftp.com', auth='store')
+        # add packages
         self.add_git('ReCpp',   'https://github.com/RedFox20/ReCpp.git', branch='master')
         self.add_git('libpng',  'https://github.com/LuaDist/libpng.git')
         self.add_git('libjpeg', 'https://github.com/LuaDist/libjpeg.git')

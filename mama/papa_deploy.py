@@ -60,16 +60,46 @@ def _gather_assets(target, recurse):
     return _gather(target, recurse, assets, lambda t: t.exported_assets)
 
 
+def _append_includes(target, package_full_path, detail_echo, descr, includes):
+    if not includes:
+        return # nothing to do
+    config = target.config
+    includes_root = package_full_path + '/include'
+    # TODO: should we include .cpp files for easier debugging?
+    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
+
+    # set the default include
+    descr.append(f'I include')
+
+    def append(relpath):
+        src_path = abs_include
+        dst_dir = includes_root
+
+        # matches default include?
+        if relpath == 'include' or relpath == 'include/':
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
+            dst_dir = normalized_path(includes_root + '/../')
+        else:
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
+            descr.append(f'I include/{relpath}')
+
+        if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
+        copy_if_needed(src_path, dst_dir, includes_filter)
+
+    relincludes = []  # TODO: what was the point of this again?
+    for inctarget, abs_include in includes:
+        relpath = os.path.basename(abs_include)
+        if not relpath in relincludes:
+            relincludes.append(relpath)
+            append(relpath)
+
+
 def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
     config = target.config
     detail_echo = config.print and config.target_matches(target.name) and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
     dependencies = _gather_dependencies(target)
-    includes = _gather_includes(target, r_includes)
-    libs     = _gather_libs(target, r_dylibs)
-    syslibs  = _gather_syslibs(target, r_syslibs)
-    assets   = _gather_assets(target, r_assets)
 
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
@@ -80,27 +110,10 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
 
-    relincludes = []
-    includes_root = package_full_path + '/include'
-    # TODO: should we include .cpp files for easier debugging?
-    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
-    if includes: # only use a single include root -- simplifies everything
-        descr.append(f'I include')
+    includes = _gather_includes(target, r_includes)
+    _append_includes(target, package_full_path, detail_echo, descr, includes)
 
-    for inctarget, abs_include in includes:
-        relpath = os.path.basename(abs_include)
-        if not relpath in relincludes:
-            relincludes.append(relpath)
-            src_path = abs_include
-            dst_dir = includes_root
-            if relpath == 'include' or relpath == 'include/':
-                if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
-                dst_dir = normalized_path(includes_root + '/../')
-            else:
-                if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
-            if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
-            copy_if_needed(src_path, dst_dir, includes_filter)
-
+    libs = _gather_libs(target, r_dylibs)
     for libtarget, lib in libs:
         relpath = package.get_lib_basename(lib) # TODO: how to get a proper relpath??
         descr.append(f'L {relpath}')
@@ -110,11 +123,13 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
         copy_if_needed(lib, outpath)
 
+    syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:
         syslib_basename = package.get_lib_basename(syslib)
         descr.append(f'S {syslib_basename}')
         if detail_echo: console(f'    S ({systarget.name+")": <16}  {syslib_basename}')
 
+    assets = _gather_assets(target, r_assets)
     for asstarget, asset in assets:
         descr.append(f'A {asset.outpath}')
         if detail_echo: console(f'    A ({asstarget.name+")": <16}  {asset.outpath}')

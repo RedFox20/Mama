@@ -6,7 +6,6 @@ from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
 from .system import console
-from .package import cleanup_libs_list
 from .artifactory import artifactory_fetch_and_reconfigure
 from .util import normalized_join, normalized_path, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
@@ -242,14 +241,15 @@ class BuildDependency:
 
     def load_artifactory_package(self, target):
         load_art = self.dep_source.is_pkg or os.path.exists(self.papa_package_file())
-        if not load_art:
-            return False
-        fetched, dependencies = artifactory_fetch_and_reconfigure(target)
-        if not fetched:
-            raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg')
-        for dep_name in dependencies:
-            self.add_child(dep_name)
-        return True
+        if load_art:
+            fetched, dependencies = artifactory_fetch_and_reconfigure(target)
+            if fetched:
+                for dep_name in dependencies:
+                    self.add_child(dep_name)
+                return True
+            elif self.dep_source.is_pkg:
+                raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg {self.dep_source}')
+        return False
 
 
     def _print_list(self, conf, target):
