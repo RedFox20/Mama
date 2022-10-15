@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mama"
+version = "0.6.9"
+description = "A modular C++ build tool even your mama can use"
+license = { text = "MIT" }
+authors = [
+    { name="Jorma Rebane", email="jorma.rebane@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.6"
+keywords=[
+    'mama', 'build', 'mamabuild', 'c', 'c++', 'tool', 'cmake', 
+    'simple', 'easy', 'package', 'manager', 'cross-platform'
+]
+dependencies = [
+    "distro",
+    "keyring",
+    "keyrings.cryptfile",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/RedFox20/Mama"
+"Bug Tracker" = "https://github.com/RedFox20/Mama/issues"
+
+[project.scripts]
+mama = "mama.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mama*"]
