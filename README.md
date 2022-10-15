@@ -36,6 +36,10 @@ Single platform projects with platform specific build configuration and system w
 such as Linux exclusive G++ projects using apt-get libraries or iOS-only apps using cocoapods.
 
 
+## Artifactory
+Provides a mechanism to upload pre-built packages to a private artifactory server through `mama upload mypackage`. These packages will be automatically used if a git:package commit hash matches.
+
+
 ## Setup For Users
 1. Get python 3.6 and PIP
 2. `$ pip install mama --upgrade`
@@ -48,29 +52,33 @@ include_directories(${MAMA_INCLUDES})
 target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
 ```
 5. `$ mama build` and enjoy!
-6. `$ mama open` to open your project in an IDE
+6. `$ mama open` to open your project in an IDE / VSCode
 
 
 ## Command examples
 ```
-    mama init                     Create/Patch initial mamafile.py and CMakeLists.txt
-    mama build                    Update and build main project only. Defaults to system arch, usually x64.
-    mama build x86 opencv         Cross compile build target opencv to x86 architecture.
-    mama build android            Cross compile to arm64 android NDK, can also target arm.
-    mama clean                    Cleans main project only.
-    mama clean x86 opencv         Cleans build target opencv x86 intermediate files
-    mama rebuild                  Cleans, update and build main project only.
-    mama deploy                   Only runs the deploy stage of libs and assets.
-    mama serve ios                Update, build and deploy for Android.
-    mama update build             Update all dependencies and then build.
-    mama build dep1               Update and build dep1 only.
-    mama wipe dep1                Wipe target dependency completely and clone again.
-    mama test                     Run tests on main project.
-    mama test dep1                Run tests on target dependency project.
-    mama open opencv              Opens the default IDE for the specified build target.
-    mama help                     Full help and more command examples.
+  mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt
+  mama build                     Update and build main project only. This only clones, but does not update!
+  mama build x86 opencv          Cross compile build target opencv to x86 architecture
+  mama build android             Cross compile to arm64 android NDK
+  mama build android-26 arm      Cross compile to armv7 android NDK API level 26
+  mama update                    Update all dependencies by doing git pull and build.
+  mama clean                     Cleans main project only.
+  mama clean x86 opencv          Cleans main project only.
+  mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.
+  mama rebuild                   Cleans, update and build main project only.
+  mama build dep1                Update and build dep1 only.
+  mama update dep1               Update and build the specified target.
+  mama serve android             Update, build and deploy for Android
+  mama wipe dep1                 Wipe target dependency completely and clone again.
+  mama upload dep1               Deploys and uploads dependency to Artifactory server.
+  mama test                      Run tests on main project.
+  mama test=arg                  Run tests on main project with an argument.
+  mama test="arg1 arg2"          Run tests on main project with multiple arguments.
+  mama test dep1                 Run tests on target dependency project.
+  mama start=dbtool              Call main project mamafile start() with args [`dbtool`].
 ```
-
+Call `mama help` for more usage information.
 
 ## Mamafile examples
 
@@ -84,13 +92,22 @@ class AlphaGL(mama.BuildTarget):
     # grab dependencies straight from git repositories
     # if the projects are trivial, then no extra configuration is needed
     def dependencies(self):
-        # set package server
+        # set artifactory package server for prebuilt packages
+        # the credentials can be configured by env vars for CI, call `mama help`
         self.set_artifactory_ftp('artifacts.myftp.com', auth='store')
         # add packages
         self.add_git('ReCpp',   'https://github.com/RedFox20/ReCpp.git', branch='master')
         self.add_git('libpng',  'https://github.com/LuaDist/libpng.git')
         self.add_git('libjpeg', 'https://github.com/LuaDist/libjpeg.git')
         self.add_git('glfw',    'https://github.com/glfw/glfw.git')
+
+        # add local packages from existing directory root:
+        self.add_local('utils', 'libs/utils')
+
+        # add a prebuilt package, use `mama upload myproject` to generate these:
+        self.add_artifactory_pkg('opencv', version='df76b66')
+        if self.linux: # or do it conditionally for linux only:
+            self.add_artifactory_pkg('opencv', fullname='opencv-linux-x64-release-df76b66')
 
     # optional: customize package exports if repository doesn't have `include` or `src`
     def package(self):
@@ -166,12 +183,48 @@ $ mama build
     [L]  bin/FaceOne.dll
     [L]  bin/FaceOne.lib
 ```
+Uploading packages:
+```python
+    def dependencies(self):
+        self.set_artifactory_ftp('ftp.myartifactory.com', auth='store')
+        self.add_git('googletest', 'git@github.com:RedFox20/googletest.git')
+```
+```
+$ mama upload googletest
+========= Mama Build Tool ==========
+  - Package googletest
+    <I>  myworkspace/googletest/linux/include
+    [L]  myworkspace/googletest/linux/lib/libgmock.a
+    [L]  myworkspace/googletest/linux/lib/libgtest.a
+  - PAPA Deploy /home/XXX/myworkspace/googletest/linux/deploy/googletest
+    I (googletest)       include
+    L (googletest)       libgmock.a
+    L (googletest)       libgtest.a
+  PAPA Deployed: 1 includes, 2 libs, 0 syslibs, 0 assets
+  - PAPA Upload googletest-linux-x64-release-ebb36f3  770.6KB
+    |==================================================>| 100 %
+```
+And then rebuilding with an artifactory package available
+```
+$ mama rebuild googletest
+========= Mama Build Tool ==========
+  - Target googletest         CLEAN  linux
+  - Target googletest         BUILD [cleaned target]  
+    Artifactory fetch ftp.myartifactory.com/googletest-linux-x64-release-ebb36f3  770.6KB
+    |<==================================================| 100 %
+    Artifactory unzip googletest-linux-x64-release-ebb36f3
+  - Package googletest
+    <I>  myworkspace/googletest/linux/include
+    [L]  myworkspace/googletest/linux/libgmock.a
+    [L]  myworkspace/googletest/linux/libgtest.a
+```
 
 
 ## For Mama Contributors
 We are open for any improvements and feedback via pull requests.
 
-You can set up local development with `$ pip3 install -e . --no-cache-dir`
+The package `setuptools>=65.0` is required, ensure the version is correct with `pip3 show setuptools`
+You can set up local development with `$ pip install -e . --no-cache-dir`
 Uploading a source distribution
 1. Get dependencies: `pip3 install build twine`
 2. Build sdist: `python -m build`
