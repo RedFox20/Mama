@@ -23,6 +23,8 @@ class BuildConfig:
         # if root mamafile has defined an artifacts URL
         # this will upload deploy archive through SFTP
         self.upload  = False
+        # currently for uploads only, uploads only if package already not uploaded
+        self.if_needed = False
         self.reclone   = False
         self.mama_init = False
         self.print     = True
@@ -106,6 +108,7 @@ class BuildConfig:
             elif arg == 'update':    self.update  = True
             elif arg == 'deploy':    self.deploy  = True
             elif arg == 'upload':    self.upload  = True
+            elif arg == 'if_needed': self.if_needed = True
             # Updates, Builds and Deploys the project as a package
             elif arg == 'serve':
                 self.build = True

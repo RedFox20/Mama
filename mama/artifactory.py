@@ -133,7 +133,13 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
         print(f'\r    |{"="*50}>| 100 %')
 
 
-def artifactory_upload_ftp(target:BuildTarget, file_path):
+def artifact_already_exists(ftp:ftplib.FTP_TLS, file_path):
+    items = []
+    ftp.dir(os.path.basename(file_path), items.append)
+    return len(items) > 0 # the file already exists
+
+
+def artifactory_upload_ftp(target:BuildTarget, file_path) -> bool:
     config = target.config
     url = config.artifactory_ftp
     if not url: raise RuntimeError(f'Artifactory Upload failed: artifactory_ftp not set by config.set_artifactory_ftp()')
@@ -144,11 +150,16 @@ def artifactory_upload_ftp(target:BuildTarget, file_path):
             # sanitize url for ftplib
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
+            if config.if_needed and artifact_already_exists(ftp, file_path):
+                if config.verbose: console(f'  - Artifactory Upload skipped: artifact already exists')
+                return False # skip upload
             artifactory_upload(ftp, file_path)
+            return True
         except:
             traceback.print_exc()
         finally:
             ftp.quit()
+    return False
 
 
 def make_dep_source(s:str) -> DepSource:

@@ -173,7 +173,7 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     if config.print:
         size = os.path.getsize(archive_path)
         console(f'  - PAPA Upload {archive_name}  {get_file_size_str(size)}')
-    artifactory_upload_ftp(target, archive_path)
 
-    if config.verbose:
-        console(f'  PAPA Uploaded {os.path.basename(archive)}')
+    if artifactory_upload_ftp(target, archive_path):
+        if config.verbose:
+            console(f'  PAPA Uploaded {os.path.basename(archive)}')
