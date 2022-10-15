@@ -9,9 +9,9 @@ def is_file_modified(src, dst):
 
 
 def find_executable_from_system(name):
-    finder = 'where' if System.windows else 'which'
-    output = subprocess.run([finder, name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout.decode('utf-8')
-    output = output.split('\n')[0].strip()
+    if not name: return ''
+    output = shutil.which(name)
+    if not output: return ''
     return output if os.path.isfile(output) else ''
 
 
