@@ -158,7 +158,7 @@ def make_dep_source(s:str) -> DepSource:
     raise RuntimeError(f'Unrecognized dependency source: {s}')
 
 
-def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple[bool, list]:
+def artifactory_reconfigure_target_from_deployment(target:BuildTarget, deploy_path) -> Tuple[bool, list]:
     """
     Reconfigures `target` from {deployment_path}/papa.txt.
     Returns (fetched:bool, dep_sources:list)
@@ -201,7 +201,7 @@ def artifactory_reconfigure_target_from_deployment(target, deploy_path) -> Tuple
     return (True, dependencies)
 
 
-def _fetch_package(target, url, archive, build_dir):
+def _fetch_package(target:BuildTarget, url, archive, build_dir):
     remote_file = f'https://{url}/{archive}.zip'
     try:
         return download_file(remote_file, build_dir, force=True, 
@@ -215,7 +215,7 @@ def _fetch_package(target, url, archive, build_dir):
         return None
 
 
-def artifactory_fetch_and_reconfigure(target) -> Tuple[bool, list]:
+def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
     Try to fetch prebuilt package from artifactory
     Returns (fetched:bool, dep_sources:list)

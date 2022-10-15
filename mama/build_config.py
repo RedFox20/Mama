@@ -752,10 +752,14 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         return 'lib' if self.windows else 'a'
 
 
+    def targets_all(self):
+        return self.target == 'all'
+
+
     def target_matches(self, target_name):
-        return self.target == 'all' or self.target == target_name
+        return self.targets_all() or self.target == target_name
 
 
     def no_specific_target(self):
-        return (not self.target) or (self.target == 'all')
+        return (not self.target) or self.targets_all()
 

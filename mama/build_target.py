@@ -1206,19 +1206,23 @@ class BuildTarget:
 
 
     def _execute_deploy_tasks(self):
-        # Only run deploy for either:
-        # -> Root target by default
-        # -> or Specific target
-        if self.config.deploy or self.config.upload:
-            specific_target = not self.config.no_specific_target()
-            if (not specific_target and self.dep.is_root) \
-                or (specific_target and self.is_current_target()):
-                self.deploy() # user customization
-                if self.config.upload:
-                    if not self.papa_path:
-                        raise RuntimeError(f'BuildTarget {self.name} was not deployed! '\
-                                            'Add self.papa_deploy() to mamafile deploy()!')
-                    papa_upload_to(self, self.papa_path)
+        if not self.config.deploy and not self.config.upload:
+            return
+
+        no_targets = not self.config.target and self.dep.is_root # only root target
+        for_all = self.config.targets_all() # all targets
+        one_target = not for_all and self.is_current_target() # only one target
+        if not (for_all or no_targets or one_target):
+            return # not going to deploy
+
+        self.deploy() # user customization
+
+        if self.config.upload:
+            if not self.papa_path:
+                raise RuntimeError(f'BuildTarget {self.name} was not deployed! '\
+                                    'Add self.papa_deploy() to mamafile deploy()!')
+            papa_upload_to(self, self.papa_path)
+
 
     def _execute_run_tasks(self):
         if self.is_test_target():
