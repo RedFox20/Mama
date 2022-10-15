@@ -247,7 +247,4 @@ index-servers = pypi
 username=<your-mama-pypi-username>
 password=<your-mama-pypi-password>
 ```
-Quick build & upload:
-```
-python -m build && twine upload --skip-existing dist/*
-```
+Quick build & upload: `./deploy.sh`
