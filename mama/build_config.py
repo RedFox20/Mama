@@ -52,8 +52,10 @@ class BuildConfig:
         self.target  = None
         self.flags   = None
         self.open    = None
-        self.ios_version   = '11.0'
-        self.macos_version = '10.12'
+        # use this to customize ios sdk version
+        self.ios_version   = '16.0' # 16: ios 16
+        # use this to customize macos sdk version
+        self.macos_version = '13.0' # 13: macos 13
         ## Artifactory URL for dependency uploads and downloads
         self.artifactory_ftp = None
         self.artifactory_auth = None
@@ -68,7 +70,7 @@ class BuildConfig:
         self.android_sdk_path = ''
         self.android_ndk_path = ''
         self.android_ndk_release = ''
-        self.android_api     = 'android-24'
+        self.android_api     = 'android-26' # 26: Android 8.0 (2017)
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
         ## Raspberry PI - Raspi
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
@@ -211,7 +213,8 @@ class BuildConfig:
 
         # set defaults if arch was not specified
         if not self.arch:
-            if self.macos:        self.set_arch('x64')
+            # macos has now moved to arm64 starting with M1 series chips
+            if self.macos:        self.set_arch('arm64')
             elif self.ios:        self.set_arch('arm64')
             elif self.android:    self.set_arch('arm64')
             elif self.raspi:      self.set_arch('arm')
@@ -267,8 +270,12 @@ class BuildConfig:
         if self.linux:
             if self.is_target_arch_x64(): return 'linux'
             return 'linux32'
-        if self.macos: return 'macos'  # Apple dropped 32-bit support
-        if self.ios:   return 'ios'    # Apple dropped 32-bit support
+        if self.macos: # Apple dropped 32-bit support
+            # and new default should be arm64 starting from M1 series chips
+            if self.is_target_arch_arm64(): return 'macosarm'
+            return 'macos'
+        if self.ios: # Apple dropped 32-bit support
+            return 'ios'
         if self.android:
             if self.is_target_arch_arm64(): return 'android'
             return 'android32'

@@ -23,13 +23,21 @@ Custom build systems are also supported. For additional documentation explore: [
 
 ## Who is this FOR?
 Anyone who develops cross-platform C++ libraries or applications which
-target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry].
+target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea].
 And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
 If you require an easy to use, reproducible project/namespace scoped package+build system, this is for you.
 Your builds will not rely on hard to setup system packages, all you need to do is type `mama build`.
 
+### Supported platforms ###
+- Windows (64-bit x86_64, 32-bit x86, 64-bit arm64, 32-bit armv7)
+- Linux (Ubuntu) (64-bit x86_64, 32-bit x86)
+- MacOS (64-bit x86_64, 64-bit arm64)
+- iOS (64-bit arm64)
+- Android (64-bit arm64, 32-bit armv7)
+- Raspberry (32-bit armv7)
+- Oclea (64-bit arm64)
 
 ## Who is this NOT for?
 Single platform projects with platform specific build configuration and system wide dependency management
@@ -183,7 +191,7 @@ $ mama build
     [L]  bin/FaceOne.dll
     [L]  bin/FaceOne.lib
 ```
-Uploading packages:
+### Uploading packages ###
 ```python
     def dependencies(self):
         self.set_artifactory_ftp('ftp.myartifactory.com', auth='store')
@@ -223,9 +231,11 @@ $ mama rebuild googletest
 ## For Mama Contributors
 We are open for any improvements and feedback via pull requests.
 
-The package `setuptools>=65.0` is required, ensure the version is correct with `pip3 show setuptools`
+The package `setuptools>=65.0` is required, ensure the version is correct with `pip3 show setuptools`.
+
 You can set up local development with `$ pip install -e . --no-cache-dir`
-Uploading a source distribution
+
+Uploading a source distributionP:
 1. Get dependencies: `pip3 install build twine`
 2. Build sdist: `python -m build`
 3. Upload with twine: `twine upload dist/*`
