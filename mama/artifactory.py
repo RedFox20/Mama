@@ -14,10 +14,11 @@ from .util import download_file, normalized_join, read_lines_from, unzip
 
 
 if TYPE_CHECKING:
-    from mama.build_target import BuildTarget
+    from .build_target import BuildTarget
+    from .build_config import BuildConfig
 
 
-def _get_commit_hash(target):
+def _get_commit_hash(target:BuildTarget):
     result = None
     src_dir = target.source_dir()
     if os.path.exists(f'{src_dir}/.git'):
@@ -25,7 +26,7 @@ def _get_commit_hash(target):
     return result if result else 'latest'
 
 
-def artifactory_archive_name(target: BuildTarget):
+def artifactory_archive_name(target:BuildTarget):
     """
     Constructs archive name for papa deploy packages in the form of:
     {name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}
@@ -60,7 +61,7 @@ def _get_keyring():
     return keyr
 
 
-def _get_artifactory_ftp_credentials(config, url):
+def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
     # get the values from ENV
     username = os.getenv('MAMA_ARTIFACTORY_USER', None)
     password = os.getenv('MAMA_ARTIFACTORY_PASS', '')  # empty password as default
@@ -132,7 +133,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
         print(f'\r    |{"="*50}>| 100 %')
 
 
-def artifactory_upload_ftp(target, file_path):
+def artifactory_upload_ftp(target:BuildTarget, file_path):
     config = target.config
     url = config.artifactory_ftp
     if not url: raise RuntimeError(f'Artifactory Upload failed: artifactory_ftp not set by config.set_artifactory_ftp()')

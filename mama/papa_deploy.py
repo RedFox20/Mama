@@ -1,13 +1,17 @@
+from __future__ import annotations
+from typing import List, TYPE_CHECKING
 import os, shutil
-from typing import List
 
 from .build_dependency import BuildDependency
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .util import get_file_size_str, normalized_path, write_text_to, console, copy_if_needed
 import mama.package as package
 
+if TYPE_CHECKING:
+    from .build_target import BuildTarget
 
-def _gather_dependencies(target) -> List[BuildDependency]:
+
+def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     dependecies = []
     for child in target.children():
         dependecies.append(child)
@@ -21,46 +25,46 @@ def _results_contain(results, contains_value):
     return False
 
 
-def _gather(target, recurse, results:list, get_candidates):
+def _gather(target:BuildTarget, recurse, results:list, get_candidates):
     for value in get_candidates(target):
         if not _results_contain(results, value):
             results.append((target,value))
     if recurse:
-        for child in target.dep.children():
+        for child in target.children():
             _gather(child.target, True, results, get_candidates)
     return results
 
 
-def _gather_includes(target, recurse):
+def _gather_includes(target:BuildTarget, recurse):
     includes = []
     return _gather(target, recurse, includes, lambda t: t.exported_includes)
 
 
-def _gather_libs(target, recurse):
+def _gather_libs(target:BuildTarget, recurse):
     # gather all libs from the root target
     libs = [(target,l) for l in target.exported_libs]
 
     # and for children, only gather dynamic libs if recurse is set
     if recurse:
-        def get_dylibs(t):
+        def get_dylibs(t:BuildTarget):
             for l in t.exported_libs:
                 if package.is_a_dynamic_library(l): yield l
-        for child in target.dep.children():
-            _gather(child, recurse, libs, get_dylibs)
+        for child in target.children():
+            _gather(child.target, recurse, libs, get_dylibs)
     return libs
 
 
-def _gather_syslibs(target, recurse):
+def _gather_syslibs(target:BuildTarget, recurse):
     syslibs = []
     return _gather(target, recurse, syslibs, lambda t: t.exported_syslibs)
 
 
-def _gather_assets(target, recurse):
+def _gather_assets(target:BuildTarget, recurse):
     assets = []
     return _gather(target, recurse, assets, lambda t: t.exported_assets)
 
 
-def _append_includes(target, package_full_path, detail_echo, descr, includes):
+def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes):
     if not includes:
         return # nothing to do
     config = target.config
@@ -94,7 +98,9 @@ def _append_includes(target, package_full_path, detail_echo, descr, includes):
             append(relpath)
 
 
-def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r_assets):
+def papa_deploy_to(target:BuildTarget, package_full_path:str,
+                   r_includes:bool, r_dylibs:bool, 
+                   r_syslibs:bool, r_assets:bool):
     config = target.config
     detail_echo = config.print and config.target_matches(target.name) and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
@@ -147,7 +153,7 @@ def papa_deploy_to(target, package_full_path, r_includes, r_dylibs, r_syslibs, r
         console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 
 
-def papa_upload_to(target, package_full_path):
+def papa_upload_to(target:BuildTarget, package_full_path:str):
     """
     - target: Target which was configured and packaged
     - package_full_path: Full path to deployed PAPA package
