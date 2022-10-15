@@ -2,7 +2,8 @@
 import sys, os
 
 from .types.local_source import LocalSource
-from .utils.system import console, execute
+from .utils.system import console
+from .utils.sub_process import execute
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
@@ -35,6 +36,7 @@ def print_usage():
     console('    help       - shows this help list')
     console('  install utils:')
     console('    install-clang6  - configures and installs clang6 for linux')
+    console('    install-clang11 - configures and installs clang11 for linux')
     console('    install-msbuild - configures and installs MSBuild for linux')
     console('  args:')
     console('    windows    - build for windows')

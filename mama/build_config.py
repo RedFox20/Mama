@@ -1,6 +1,7 @@
 import os, sys, multiprocessing, tempfile
 import mama.util as util
 from .utils.system import System, console
+from .utils.sub_process import execute, execute_piped
 
 if System.linux:
     import distro
@@ -41,6 +42,9 @@ class BuildConfig:
         self.gcc   = False
         self.clang_path = ''
         self.gcc_path = ''
+        # can be used to overide C and C++ compiler paths
+        self.cc_path = ''
+        self.cxx_path = ''
         self.compiler_cmd = False # Was compiler specificed from command line?
         self.fortran = ''
         # build optimization
@@ -344,28 +348,54 @@ class BuildConfig:
 
 
     def get_preferred_compiler_paths(self, cxx_enabled):
+        if self.cc_path and self.cxx_path:
+            return (self.cc_path, self.cxx_path)
         if self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
-            cc  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
-            cxx = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            return (cc, cxx)
+            self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
+            self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
+            return (self.cc_path, self.cxx_path)
         if self.oclea:
-            cc  = f'{self.oclea_bin()}aarch64-oclea-linux-gcc'
-            cxx = f'{self.oclea_bin()}aarch64-oclea-linux-g++'
-            return (cc, cxx)
+            self.cc_path  = f'{self.oclea_bin()}aarch64-oclea-linux-gcc'
+            self.cxx_path = f'{self.oclea_bin()}aarch64-oclea-linux-g++'
+            return (self.cc_path, self.cxx_path)
         if self.clang:
             key = 'clang++' if cxx_enabled else 'clang'
             self.clang_path, suffix = self.find_compiler_root(self.clang_path, key, ['-12','-11','-10','-9','-8','-7','-6',''])
-            cc = f'{self.clang_path}clang{suffix}'
-            cxx = f'{self.clang_path}clang++{suffix}'
-            return (cc, cxx)
+            self.cc_path = f'{self.clang_path}clang{suffix}'
+            self.cxx_path = f'{self.clang_path}clang++{suffix}'
+            return (self.cc_path, self.cxx_path)
         if self.gcc:
             key = 'g++' if cxx_enabled else 'gcc'
             self.gcc_path, suffix = self.find_compiler_root(self.gcc_path, key, ['-11','-10','-9','-8','-7','-6',''])
-            cc = f'{self.gcc_path}gcc{suffix}'
-            cxx = f'{self.gcc_path}g++{suffix}'
-            return (cc, cxx)
+            self.cc_path = f'{self.gcc_path}gcc{suffix}'
+            self.cxx_path = f'{self.gcc_path}g++{suffix}'
+            return (self.cc_path, self.cxx_path)
         raise EnvironmentError('No preferred compiler for this platform!')
+
+
+    def compiler_version(self, cxx_enabled):
+        if self.windows:
+            msvc_tools = self.get_msvc_tools_path()
+            version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
+            return f'msvc{version}'
+        elif self.linux or self.raspi or self.oclea:
+            cc, _ = self.get_preferred_compiler_paths(cxx_enabled)
+            if 'gcc' in cc:
+                version = execute_piped(f'{cc} -dumpversion').strip().split('.')[0]
+                return f'gcc{version}'
+            if 'clang' in cc:
+                version = execute_piped(f'{cc} -dumpversion').strip().split('.')[0]
+                return f'clang{version}'
+            raise EnvironmentError(f'Unrecognized compiler {cc}!')
+        elif self.macos:
+            return self.macos_version
+        elif self.ios:
+            return self.ios_version
+        elif self.android:
+            return self.android_api
+        else:
+            raise EnvironmentError(f'Unknown compiler version!')
 
 
     def find_ninja_build(self):
@@ -513,7 +543,7 @@ Define env OCLEA_HOME with path to Oclea tools.''')
             raise EnvironmentError('VisualStudio tools support not available on this platform!')
 
         vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        vspath = util.execute_piped(f'{vswhere_exe} -latest -nologo -property installationPath')
+        vspath = execute_piped(f'{vswhere_exe} -latest -nologo -property installationPath')
         if vspath and os.path.exists(vspath):
             self._visualstudio_path = vspath
             if self.verbose: console(f'Detected VisualStudio: {vspath}')
@@ -579,8 +609,8 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         paths = [ util.find_executable_from_system('msbuild') ]
         if System.windows:
             vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
-            paths.append(f"{util.execute_piped(vswhere)}\\MSBuild\\Current\\Bin\\MSBuild.exe")
-            paths.append(f"{util.execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
+            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\Current\\Bin\\MSBuild.exe")
+            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
             
             vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
             for variant in vs_variants:
@@ -677,18 +707,18 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         clangpp = f'clang++{clang_major}'
         clang_zip = util.download_file(f'http://ateh10.net/dev/{clangpp}-{suffix}.zip', tempfile.gettempdir())
         console(f'Installing to /usr/local/{clangpp}')
-        util.execute(f'sudo rm -rf /usr/local/{clangpp}') # get rid of any old stuff
-        util.execute(f'cd /usr/local && sudo unzip -oq {clang_zip}') # extract /usr/local/clang++11/
+        execute(f'sudo rm -rf /usr/local/{clangpp}') # get rid of any old stuff
+        execute(f'cd /usr/local && sudo unzip -oq {clang_zip}') # extract /usr/local/clang++11/
         os.remove(clang_zip)
-        util.execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++.so.1    /usr/lib')
-        util.execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++abi.so.1 /usr/lib')
-        util.execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang      /usr/bin/clang-{clang_ver}')
-        util.execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang++    /usr/bin/clang++-{clang_ver}')
-        util.execute(f'sudo ln -sf /usr/local/{clangpp}/include/c++/v1 /usr/include/c++/v1')
-        util.execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_ver}   100')
-        util.execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_ver} 100')
-        util.execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_ver}')
-        util.execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_ver}')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++.so.1    /usr/lib')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++abi.so.1 /usr/lib')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang      /usr/bin/clang-{clang_ver}')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang++    /usr/bin/clang++-{clang_ver}')
+        execute(f'sudo ln -sf /usr/local/{clangpp}/include/c++/v1 /usr/include/c++/v1')
+        execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_ver}   100')
+        execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_ver} 100')
+        execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_ver}')
+        execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_ver}')
 
 
     def install_msbuild(self):
@@ -699,12 +729,12 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         if dist['id'] != "ubuntu": raise OSError('install_msbuild only supports Ubuntu')
         codename = dist['codename']
 
-        util.execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
-        util.execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')
-        util.execute(f"sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-{codename}-prod {codename} main\" > /etc/apt/sources.list.d/dotnetdev.list'")
-        util.execute('sudo apt-get install apt-transport-https')
-        util.execute('sudo apt-get update')
-        util.execute('sudo apt-get install dotnet-sdk-2.1')
+        execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
+        execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')
+        execute(f"sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-{codename}-prod {codename} main\" > /etc/apt/sources.list.d/dotnetdev.list'")
+        execute('sudo apt-get install apt-transport-https')
+        execute('sudo apt-get update')
+        execute('sudo apt-get install dotnet-sdk-2.1')
 
 
     def run_convenient_installs(self):

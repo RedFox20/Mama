@@ -1,7 +1,7 @@
 import os
-from .utils.system import System, console, execute
+from .utils.system import System, console
 from .build_config import BuildConfig
-from .utils.sub_process import SubProcess
+from .utils.sub_process import SubProcess, execute
 
 
 def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):

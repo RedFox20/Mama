@@ -8,7 +8,8 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console, execute, execute_echo
+from .utils.system import System, console
+from .utils.sub_process import execute, execute_echo
 from .papa_deploy import papa_deploy_to, papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
@@ -190,7 +191,9 @@ class BuildTarget:
     
         If the remote GIT repository does not contain a `mamafile.py`, you will have to
         provide your own relative or absolute mamafile path.
-    
+
+        For PUBLIC repositories, only use `https://` to prevent clone failures!!!
+
         Any arguments are passed onto child targets as `self.args`.
         ```
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git')

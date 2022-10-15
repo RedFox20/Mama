@@ -1,5 +1,6 @@
-import os, shutil, random, pathlib, ssl, zipfile, subprocess
-from .utils.system import System, console, execute
+import os, shutil, random, pathlib, ssl, zipfile
+from .utils.system import System, console
+from .utils.sub_process import execute
 from urllib import request
 
 

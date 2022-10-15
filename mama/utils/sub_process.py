@@ -1,6 +1,7 @@
 import os, shlex, shutil
 from signal import SIGTERM
 from errno import ECHILD
+import subprocess
 from time import sleep
 from .nonblocking_io import set_nonblocking
 
@@ -149,3 +150,30 @@ class SubProcess:
         finally:
             p.close()
         return p.status
+
+
+def execute(command, echo=False, throw=True):
+    if echo: print(command)
+    retcode = os.system(command)
+    if throw and retcode != 0:
+        raise Exception(f'{command} failed with return code {retcode}')
+    return retcode
+
+
+def execute_piped(command, cwd=None):
+    if not isinstance(command, list):
+        command = shlex.split(command)
+    cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd)
+    return cp.stdout.decode('utf-8').rstrip()
+
+
+def execute_echo(cwd, cmd):
+    """ Wrapper around SubProcess.run(), throws if exit_status != 0 """
+    exit_status = -1
+    try:
+        exit_status = SubProcess.run(cmd, cwd)
+    except:
+        print(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
+        raise
+    if exit_status != 0:
+        raise Exception(f'Execute {cmd} failed with error: {exit_status}')

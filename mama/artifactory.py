@@ -1,15 +1,21 @@
 from __future__ import annotations
 import os, ftplib, traceback, getpass
-from typing import List, Tuple
+from typing import List, Tuple, TYPE_CHECKING
 
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
-from .utils.system import System, execute_piped
+from .utils.system import System, console
+from .utils.sub_process import execute_piped
 import mama.package as package
-from .util import console, download_file, normalized_join, read_lines_from, unzip
+from .util import download_file, normalized_join, read_lines_from, unzip
+
+
+if TYPE_CHECKING:
+    from mama.build_target import BuildTarget
+
 
 def _get_commit_hash(target):
     result = None
@@ -19,11 +25,11 @@ def _get_commit_hash(target):
     return result if result else 'latest'
 
 
-def artifactory_archive_name(target):
+def artifactory_archive_name(target: BuildTarget):
     """
     Constructs archive name for papa deploy packages in the form of:
-    {name}-{platform}-{arch}-{build_type}-{commit_hash}
-    Example: opencv-linux-x64-release-df76b66
+    {name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}
+    Example: opencv-linux-x64-gcc9-release-df76b66
     """
     p:ArtifactoryPkg = target.dep.dep_source
     if p.is_pkg and p.fullname:
@@ -32,10 +38,11 @@ def artifactory_archive_name(target):
     name = target.name
     # triplets information to make this package platform unique
     platform = target.config.name() # eg 'windows', 'linux', 'oclea'
+    compiler = target.config.compiler_version(target.enable_cxx_build)
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
     commit_hash = p.version if p.is_pkg else _get_commit_hash(target)
-    return f'{name}-{platform}-{arch}-{build_type}-{commit_hash}'
+    return f'{name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}'
 
 
 keyr = None
