@@ -281,7 +281,6 @@ class BuildTarget:
         """
         dst_dep = self.get_dependency(dst_dep)
         src_dep = self.get_dependency(src_dep)
-        dst_dep.depends_on.append(src_dep)
         dst_dep.product_sources.append( (src_dep, include_path, libs, libfilters) )
 
 

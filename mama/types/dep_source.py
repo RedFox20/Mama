@@ -1,6 +1,6 @@
 
 class DepSource(object):
-    def __init__(self, name):
+    def __init__(self, name:str):
         self.name = name
         self.is_git = False
         self.is_pkg = False

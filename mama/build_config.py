@@ -47,7 +47,10 @@ class BuildConfig:
         # can be used to overide C and C++ compiler paths
         self.cc_path = ''
         self.cxx_path = ''
-        self.compiler_cmd = False # Was compiler specificed from command line?
+        self.cxx_version = '' # c++ compiler version, eg '8.3.0' for gcc 8.3.0
+        # If compiler specificed from command line
+        # using `mama build gcc` or `mama build clang`
+        self.compiler_cmd = False
         self.fortran = ''
         # build optimization
         self.release = True
@@ -339,57 +342,86 @@ class BuildConfig:
 
 
     # returns: root path where the compilers exist and the discovered suffix
+    #          (root_path, suffix)
     def find_compiler_root(self, suggested_path, compiler, suffixes):
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
+        candidates = []
         for root in roots:
             for suffix in suffixes:
-                if os.path.exists(root + compiler + suffix):
-                    return (root, suffix)
-        raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
+                cc_path = root + compiler + suffix
+                if os.path.exists(cc_path):
+                    version = self._get_gcc_clang_fullversion(cc_path) # eg 9.4.0
+                    candidates.append((root, suffix, version))
+        if not candidates:
+            raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
+
+        def version_to_int(version_str):
+            major_minor_patch = version_str.split('.')
+            integer = 0
+            for part in major_minor_patch: integer = integer*10 + int(part)
+            return integer
+
+        # sort by version, descending eg 10.3, 9.4, 8.3
+        candidates.sort(key=lambda x: version_to_int(x[2]), reverse=True)
+
+        # print this out for debugging on CI machines if they select verbose
+        if self.verbose:
+            for root, suffix, version in candidates:
+                console(f'Compiler {compiler+suffix} ({version}) at {root+compiler+suffix}')
+
+        root, suffix, version = candidates[0]
+        if self.verbose:
+            console(f'==> Selected {compiler+suffix} ({version}) at {root+compiler+suffix} <==')
+        return root, suffix, version
 
 
-    def get_preferred_compiler_paths(self, cxx_enabled):
-        if self.cc_path and self.cxx_path:
-            return (self.cc_path, self.cxx_path)
+    def get_preferred_compiler_paths(self):
+        if self.cc_path and self.cxx_path and self.cxx_version:
+            return (self.cc_path, self.cxx_path, self.cxx_version)
         if self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            return (self.cc_path, self.cxx_path)
-        if self.oclea:
+            self.cxx_version = self._get_gcc_clang_version(self.cc_path)
+        elif self.oclea:
             self.cc_path  = f'{self.oclea_bin()}aarch64-oclea-linux-gcc'
             self.cxx_path = f'{self.oclea_bin()}aarch64-oclea-linux-g++'
-            return (self.cc_path, self.cxx_path)
-        if self.clang:
-            key = 'clang++' if cxx_enabled else 'clang'
-            self.clang_path, suffix = self.find_compiler_root(self.clang_path, key, ['-12','-11','-10','-9','-8','-7','-6',''])
+            self.cxx_version = self._get_gcc_clang_version(self.cc_path)
+        elif self.clang:
+            suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
+            self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes)
             self.cc_path = f'{self.clang_path}clang{suffix}'
             self.cxx_path = f'{self.clang_path}clang++{suffix}'
-            return (self.cc_path, self.cxx_path)
-        if self.gcc:
-            key = 'g++' if cxx_enabled else 'gcc'
-            self.gcc_path, suffix = self.find_compiler_root(self.gcc_path, key, ['-11','-10','-9','-8','-7','-6',''])
+            self.cxx_version = ver
+        elif self.gcc:
+            suffixes = ['-11','-10','-9','-8','-7','-6','']
+            self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes)
             self.cc_path = f'{self.gcc_path}gcc{suffix}'
             self.cxx_path = f'{self.gcc_path}g++{suffix}'
-            return (self.cc_path, self.cxx_path)
+            self.cxx_version = ver
+
+        if self.cc_path and self.cxx_path and self.cxx_version:
+            return (self.cc_path, self.cxx_path, self.cxx_version)
+
         raise EnvironmentError('No preferred compiler for this platform!')
 
 
-    def compiler_version(self, cxx_enabled):
+    def _get_gcc_clang_fullversion(self, cc_path):
+        return execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
+
+
+    def compiler_version(self):
         if self.windows:
             msvc_tools = self.get_msvc_tools_path()
             version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
             return f'msvc{version}'
         elif self.linux or self.raspi or self.oclea:
-            cc, _ = self.get_preferred_compiler_paths(cxx_enabled)
-            if 'gcc' in cc:
-                version = execute_piped(f'{cc} -dumpversion').strip().split('.')[0]
-                return f'gcc{version}'
-            if 'clang' in cc:
-                version = execute_piped(f'{cc} -dumpversion').strip().split('.')[0]
-                return f'clang{version}'
+            cc, _, version = self.get_preferred_compiler_paths()
+            major_version = version.split('.')[0]
+            if 'gcc' in cc: return f'gcc{major_version}'
+            if 'clang' in cc: return f'clang{major_version}'
             raise EnvironmentError(f'Unrecognized compiler {cc}!')
         elif self.macos:
             return self.macos_version

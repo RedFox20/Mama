@@ -39,7 +39,7 @@ def artifactory_archive_name(target:BuildTarget):
     name = target.name
     # triplets information to make this package platform unique
     platform = target.config.name() # eg 'windows', 'linux', 'oclea'
-    compiler = target.config.compiler_version(target.enable_cxx_build)
+    compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
     commit_hash = p.version if p.is_pkg else _get_commit_hash(target)

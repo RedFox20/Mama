@@ -1,6 +1,6 @@
-import os, shutil, time
-import sys
-from typing import List
+from __future__ import annotations
+from typing import List, TYPE_CHECKING
+import os, sys, shutil, time
 
 from .types.dep_source import DepSource
 from .types.git import Git
@@ -12,17 +12,22 @@ from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelis
 import mama.package as package
 
 
+if TYPE_CHECKING:
+    from .build_config import BuildConfig
+    from .build_target import BuildTarget
+
+
 ######################################################################################
 
 
 class BuildDependency:
     loaded_deps = dict()
-    def __init__(self, parent:"BuildDependency", config,
-                 workspace, dep_source:DepSource):
+    def __init__(self, parent:BuildDependency, config:BuildConfig,
+                 workspace:str, dep_source:DepSource):
         self.config = config
         self.workspace = workspace
         self.mamafile = None
-        self.target = None
+        self.target: BuildTarget = None
         self.target_args = []
         self.always_build = False
         self.should_rebuild = False
@@ -32,10 +37,9 @@ class BuildDependency:
         self.currently_loading = False
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.is_root = parent is None # Root deps are always built
-        self.children = []
-        self.depends_on = []
+        self.children: List[BuildDependency] = []
         self.product_sources = []
-        self.flattened_deps = [] # used for debugging
+        self.flattened_deps: List[BuildDependency] = [] # used for debugging
 
         self.src_dir = None # source directory where the code is located
         self.dep_dir = None # dependency dir where platform build dirs are kept
@@ -83,7 +87,7 @@ class BuildDependency:
 
 
     @staticmethod
-    def get_loaded_dependency(name:str) -> "BuildDependency":
+    def get_loaded_dependency(name:str) -> BuildDependency:
         if name in BuildDependency.loaded_deps:
             return BuildDependency.loaded_deps[name]
         return None
@@ -96,7 +100,7 @@ class BuildDependency:
                 self.target._set_args(self.target_args)
 
 
-    def add_child(self, dep_source:DepSource) -> "BuildDependency":
+    def add_child(self, dep_source:DepSource) -> BuildDependency:
         """
         Adds a new child dependency to this BuildDependency
         """
@@ -116,7 +120,7 @@ class BuildDependency:
         self.children.append(dep)
 
 
-    def get_children(self) -> List["BuildDependency"]:
+    def get_children(self) -> List[BuildDependency]:
         """ Gets already resolved dependencies """
         if self.children is None:
             raise RuntimeError(f'Target {self.name} child dependencies unresolved')
@@ -222,6 +226,9 @@ class BuildDependency:
         loaded_from_pkg = self.load_artifactory_package(target)
         if not loaded_from_pkg:
             target.dependencies() ## customization point for additional dependencies
+            if self.is_root:
+                # fetch the compiler immediately from root settings
+                self.config.get_preferred_compiler_paths()
 
         build = False
         if conf.build or conf.update:

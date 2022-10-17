@@ -89,7 +89,7 @@ def _make_program(target):
 
 def _custom_compilers(target):
     config:BuildConfig = target.config
-    cc, cxx = config.get_preferred_compiler_paths(target.enable_cxx_build)
+    cc, cxx, ver = config.get_preferred_compiler_paths()
     compilers = [f'CMAKE_C_COMPILER={cc}']
     if target.enable_cxx_build:
         compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
