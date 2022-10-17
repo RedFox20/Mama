@@ -75,29 +75,36 @@ def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
             return username, password
 
     username = input(f'{url} username: ').strip()
+    if not username:
+        raise EnvironmentError(f'Artifactory user missing: try setting MAMA_ARTIFACTORY_USER env variable.')
+
     password = getpass.getpass(f'{username}@{url} password: ').strip()
+    if password is None: # None on CI
+        raise EnvironmentError(f'Artifactory user missing: try setting MAMA_ARTIFACTORY_PASS env variable.')
     return username, password
 
 
-def _remove_artifactory_ftp_credentials(url):
+def _remove_artifactory_ftp_credentials(url:str):
     if _get_keyring().get_password('mamabuild', f'username-{url}'):
         _get_keyring().delete_password('mamabuild', f'username-{url}')
     if _get_keyring().get_password('mamabuild', f'password-{url}'):
         _get_keyring().delete_password('mamabuild', f'password-{url}')
 
 
-def _store_artifactory_ftp_credentials(config, url, username, password):
+def _store_artifactory_ftp_credentials(config:BuildConfig, url, username, password):
     if config.artifactory_auth == 'store':
         _get_keyring().set_password('mamabuild', f'username-{url}', username)
         _get_keyring().set_password('mamabuild', f'password-{url}', password)
 
 
-def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config, url):
+def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config:BuildConfig, url:str):
     connected = False
     while True:
         username, password = _get_artifactory_ftp_credentials(config, url)
         if not connected:
-            ftp.connect(url, timeout=5)
+            if config.verbose:
+                console(f'  - Artifactory Connect {url}')
+            ftp.connect(url, timeout=60)
             connected = True
         try:
             ftp.login(username, password)
@@ -113,7 +120,7 @@ def artifactory_sanitize_url(url):
     return url.replace('ftp://', '').replace('http://','').replace('https://','')
 
 
-def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
+def artifactory_upload(ftp:ftplib.FTP_TLS, file_path:str):
     size = os.path.getsize(file_path)
     transferred = 0
     lastpercent = 0
@@ -133,13 +140,13 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, file_path):
         print(f'\r    |{"="*50}>| 100 %')
 
 
-def artifact_already_exists(ftp:ftplib.FTP_TLS, file_path):
+def artifact_already_exists(ftp:ftplib.FTP_TLS, file_path:str):
     items = []
     ftp.dir(os.path.basename(file_path), items.append)
     return len(items) > 0 # the file already exists
 
 
-def artifactory_upload_ftp(target:BuildTarget, file_path) -> bool:
+def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
     config = target.config
     url = config.artifactory_ftp
     if not url: raise RuntimeError(f'Artifactory Upload failed: artifactory_ftp not set by config.set_artifactory_ftp()')
