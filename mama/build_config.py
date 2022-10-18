@@ -265,7 +265,26 @@ class BuildConfig:
         return 'build'
 
 
-    def platform_name(self):
+    ## These are the hard references to all build directory variations
+    ## All parts of the codebase should use these, instead of raw strings
+    ## This will avoid accidental mismatches
+    def build_dir_win64(self): return 'windows'
+    def build_dir_win32(self): return 'windows32'
+    def build_dir_winarm64(self): return 'winarm'
+    def build_dir_winarm32(self): return 'winarm32'
+    def build_dir_linux64(self): return 'linux'
+    def build_dir_linux32(self): return 'linux32'
+    def build_dir_macosarm64(self): return 'macosarm' # arm64
+    def build_dir_macos64(self): return 'macos' # x64
+    def build_dir_ios(self): return 'ios' # arm64
+    def build_dir_android64(self): return 'android'
+    def build_dir_android32(self): return 'android32'
+    def build_dir_raspi32(self): return 'raspi'
+    def build_dir_oclea64(self): return 'oclea'
+    def build_dir_default(self): return 'build'
+
+
+    def platform_build_dir_name(self):
         """
         Gets the build folder name depending on platform and architecture.
         By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
@@ -273,25 +292,25 @@ class BuildConfig:
         """
         # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
         if self.windows:
-            if self.is_target_arch_x64(): return 'windows'
-            if self.is_target_arch_x86(): return 'windows32'
-            if self.is_target_arch_armv7(): return 'winarm32'
-            return 'winarm'
+            if self.is_target_arch_x64(): return self.build_dir_win64()
+            if self.is_target_arch_x86(): return self.build_dir_win32()
+            if self.is_target_arch_armv7(): return self.build_dir_winarm32()
+            return self.build_dir_winarm64()
         if self.linux:
-            if self.is_target_arch_x64(): return 'linux'
-            return 'linux32'
+            if self.is_target_arch_x64(): return self.build_dir_linux64()
+            return self.build_dir_linux32()
         if self.macos: # Apple dropped 32-bit support
             # and new default should be arm64 starting from M1 series chips
-            if self.is_target_arch_arm64(): return 'macosarm'
-            return 'macos'
+            if self.is_target_arch_arm64(): return self.build_dir_macosarm64()
+            return self.build_dir_macos64()
         if self.ios: # Apple dropped 32-bit support
-            return 'ios'
+            return self.build_dir_ios()
         if self.android:
-            if self.is_target_arch_arm64(): return 'android'
-            return 'android32'
-        if self.raspi: return 'raspi32'  # Only 32-bit raspi
-        if self.oclea: return 'oclea64'  # Only 64-bit oclea aarch64 (arm64)
-        return 'build'
+            if self.is_target_arch_arm64(): return self.build_dir_android64()
+            return self.build_dir_android32()
+        if self.raspi: return self.build_dir_raspi32()  # Only 32-bit raspi
+        if self.oclea: return self.build_dir_oclea64()  # Only 64-bit oclea aarch64 (arm64)
+        return self.build_dir_default()
 
 
     def set_build_config(self, release=False, debug=False):

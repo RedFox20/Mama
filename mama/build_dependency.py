@@ -43,7 +43,7 @@ class BuildDependency:
 
         self.src_dir = None # source directory where the code is located
         self.dep_dir = None # dependency dir where platform build dirs are kept
-        self.build_dir = None # {dep_dir}/{config.platform_name()}
+        self.build_dir = None # {dep_dir}/{config.platform_build_dir_name()}
         self.dep_source = dep_source
         self.name = dep_source.name
 
@@ -134,7 +134,7 @@ class BuildDependency:
             if git.branch: dep_name = f'{self.name}-{git.branch}'
             elif git.tag: dep_name = f'{self.name}-{git.tag}'
         self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
-        self.build_dir = normalized_join(self.dep_dir, self.config.platform_name())
+        self.build_dir = normalized_join(self.dep_dir, self.config.platform_build_dir_name())
 
 
     def has_build_files(self):
@@ -461,7 +461,7 @@ class BuildDependency:
     ## Clean
     def clean(self):
         if self.config.print:
-            console(f'  - Target {self.name: <16}   CLEAN  {self.config.platform_name()}')
+            console(f'  - Target {self.name: <16}   CLEAN  {self.config.platform_build_dir_name()}')
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
