@@ -53,13 +53,13 @@ def deploy_framework(framework, deployFolder):
 def has_contents_changed(filename, new_contents):
     if not os.path.exists(filename):
         return True
-    return pathlib.Path(filename).read_text() != new_contents
+    return read_text_from(filename) != new_contents
 
 
 def save_file_if_contents_changed(filename, new_contents):
     if not has_contents_changed(filename, new_contents):
         return
-    pathlib.Path(filename).write_text(new_contents)
+    write_text_to(filename, new_contents)
 
 
 def path_join(first, second):
@@ -148,12 +148,16 @@ def is_dir_empty(dir): # no files?
 def has_tag_changed(old_tag_file, new_tag):
     if not os.path.exists(old_tag_file):
         return True
-    old_tag = pathlib.Path(old_tag_file).read_text()
+    old_tag = read_text_from(old_tag_file)
     if old_tag != new_tag:
         console(f" tagchange '{old_tag.strip()}'\n"+
                 f"      ---> '{new_tag.strip()}'")
         return True
     return False
+
+
+def read_text_from(file_path):
+    return pathlib.Path(file_path).read_text()
 
 
 def write_text_to(file, text):

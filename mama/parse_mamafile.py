@@ -1,5 +1,5 @@
-import os, runpy, inspect, pathlib
-from .util import path_join
+import os, runpy, inspect
+from .util import path_join, read_text_from, write_text_to
 
 def parse_mamafile(config, target_class, mamafile):
     if not mamafile or not os.path.exists(mamafile):
@@ -20,12 +20,12 @@ def update_modification_tag(file, tagfile):
     filetime = os.path.getmtime(file)
     if not os.path.exists(tagfile):
         os.makedirs(os.path.dirname(tagfile), exist_ok=True)
-        pathlib.Path(tagfile).write_text(str(filetime))
+        write_text_to(tagfile, str(filetime))
         return True
 
-    tagtime = float(pathlib.Path(tagfile).read_text())
+    tagtime = float(read_text_from(tagfile))
     if filetime != tagtime:
-        pathlib.Path(tagfile).write_text(str(filetime))
+        write_text_to(tagfile, str(filetime))
         return True
     
     return False
