@@ -72,7 +72,7 @@ def print_usage():
     console('    mama build dep1                Update and build dep1 only.')
     console('    mama update dep1               Update and build the specified target.')
     console('    mama serve android             Update, build and deploy for Android')
-    console('    mama wipe dep1                 Wipe target dependency completely and clone again.')
+    console('    mama wipe dep1                 Wipe target dependency completely and clone again. Does not build!')
     console('    mama upload dep1               Deploys and uploads dependency to Artifactory server.')
     console('    mama test                      Run tests on main project.')
     console('    mama test=arg                  Run tests on main project with an argument.')

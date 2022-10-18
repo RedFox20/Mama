@@ -186,11 +186,6 @@ def _default_options(target):
     if config.windows:
         if config.is_target_arch_x86(): ## need to override the toolset host
             opt.append('CMAKE_GENERATOR_TOOLSET=host=x86')
-        if config.is_target_arch_x64():   opt.append('MAMA_ARCH_X64=TRUE')
-        elif config.is_target_arch_x86(): opt.append('MAMA_ARCH_X86=TRUE')
-    elif config.linux:
-        if config.is_target_arch_x64():   opt.append('MAMA_ARCH_X64=TRUE')
-        elif config.is_target_arch_x86(): opt.append('MAMA_ARCH_X86=TRUE')
     elif config.android:
         toolchain = target.cmake_ndk_toolchain
         if toolchain:

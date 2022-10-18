@@ -151,28 +151,40 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     set(GCC TRUE)
 endif()
+
+if(CMAKE_GENERATOR_PLATFORM)
+    set(MAMA_CMAKE_ARCH ${{CMAKE_GENERATOR_PLATFORM}})
+elseif(CMAKE_SYSTEM_PROCESSOR)
+    set(MAMA_CMAKE_ARCH ${{CMAKE_SYSTEM_PROCESSOR}})
+else()
+    message(FATAL_ERROR "MAMA: Missing CMake target architecture!")
+endif()
+
 # Initializes the INCLUDE and LIBS, they will overwritten in mama-dependencies.cmake
 set(MAMA_INCLUDE "")
 set(MAMA_LIBS "")
+
 # Set MAMA_INCLUDES and MAMA_LIBS for each platform
 if(ANDROID OR ANDROID_NDK)
     set(MAMA_BUILD "android")
     {_get_mama_dependencies_cmake(root, 'android')}
 elseif(WIN32)
-    if(MAMA_ARCH_X64)
+    if(MAMA_CMAKE_ARCH MATCHES "(AMD64)|(IA64)|(x86_64)")
+        set(MAMA_ARCH_X64 TRUE)
         set(MAMA_BUILD "windows")
         {_get_mama_dependencies_cmake(root, 'windows')}
-    elseif(MAMA_ARCH_X86)
+    elseif(MAMA_CMAKE_ARCH MATCHES "(x86)|(i386)|(i686)")
+        set(MAMA_ARCH_X86 TRUE)
         set(MAMA_BUILD "windows32")
         {_get_mama_dependencies_cmake(root, 'windows32')}
-    elseif(CMAKE_GENERATOR_PLATFORM MATCHES "ARM64")
+    elseif(MAMA_CMAKE_ARCH MATCHES "ARM64")
         set(MAMA_BUILD "winarm")
         {_get_mama_dependencies_cmake(root, 'winarm')}
-    elseif(CMAKE_GENERATOR_PLATFORM MATCHES "ARM")
+    elseif(MAMA_CMAKE_ARCH MATCHES "ARM")
         set(MAMA_BUILD "winarm32")
         {_get_mama_dependencies_cmake(root, 'winarm32')}
     else()
-        message(FATAL_ERROR "MAMA: Unrecognized target architecture ${{CMAKE_GENERATOR_PLATFORM}}")
+        message(FATAL_ERROR "MAMA: Unrecognized target architecture ${{MAMA_CMAKE_ARCH}}")
     endif()
 elseif(APPLE)
   if(IOS_PLATFORM)
@@ -196,10 +208,12 @@ elseif(OCLEA)
     {_get_mama_dependencies_cmake(root, 'oclea64')}
 elseif(UNIX)
     set(LINUX TRUE)
-    if(MAMA_ARCH_X64)
+    if(MAMA_CMAKE_ARCH MATCHES "(AMD64)|(IA64)|(x86_64)")
+        set(MAMA_ARCH_X64 TRUE)
         set(MAMA_BUILD "linux")
         {_get_mama_dependencies_cmake(root, 'linux')}
-    elseif(MAMA_ARCH_X86)
+    elseif(MAMA_CMAKE_ARCH MATCHES "(x86)|(i386)|(i686)")
+        set(MAMA_ARCH_X86 TRUE)
         set(MAMA_BUILD "linux32")
         {_get_mama_dependencies_cmake(root, 'linux32')}
     else()
