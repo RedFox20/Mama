@@ -1,9 +1,9 @@
-import os, concurrent.futures
+import os, concurrent.futures, re
 from typing import List
 
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
-from .util import save_file_if_contents_changed
+from .util import read_text_from, save_file_if_contents_changed
 from .utils.system import console
 
 
@@ -88,6 +88,47 @@ def _save_mama_cmake_and_dependencies_cmake(root: BuildDependency):
     # the following is the proxy `mysource/mama.cmake` file
     # which will reference each mama-dependencies.cmake depending on platform
     _save_mama_cmake(root)
+    # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
+    _save_vscode_compile_commands(root)
+
+
+def _get_compile_commands_path(dep: BuildDependency):
+    if os.path.exists(f'{dep.src_dir}/build/compile_commands.json'):
+        # for src_dir paths we use `${workspaceFolder}` macro:
+        return '${workspaceFolder}/build/compile_commands.json'
+    path = f'{dep.build_dir}/compile_commands.json'
+    if os.path.exists(path):
+        return path # absolute path for build dir paths
+    return None
+
+
+def _save_vscode_compile_commands(dep: BuildDependency):
+    if not dep.src_dir: # for artifactory pkgs, there is no src_dir
+        return
+    cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
+    if not os.path.exists(cpp_props_path):
+        return
+
+    commands_path = _get_compile_commands_path(dep)
+    if not commands_path:
+        return
+
+    new_command = f'"compileCommands": "{commands_path}"'
+
+    # we have a valid path for compile_commands.json, now link it into c_cpp_properties.json
+    cpp_props_text = read_text_from(cpp_props_path)
+    cpp_props_text, nsubs = re.subn('"compileCommands".*:.*"(.*?)"', new_command, cpp_props_text)
+    if nsubs:
+        #console(f'Made {nsubs} substitutions: {cpp_props_text}')
+        pass
+    else: # need to insert new
+        import json
+        props = json.loads(cpp_props_text)
+        for prop in props["configurations"]:
+            prop["compileCommands"] = commands_path
+        cpp_props_text = json.dumps(props, indent=4)
+
+    save_file_if_contents_changed(cpp_props_path, cpp_props_text)
 
 
 def _get_dependency_cmake_defines(dep: BuildDependency):
@@ -200,7 +241,7 @@ elseif(WIN32)
     endif()
 elseif(APPLE)
   if(IOS_PLATFORM)
-    set(IOS TRUE)
+        set(IOS TRUE)
         set(MAMA_ARCH_ARM64 TRUE) # Always arm64
         {get_build_dir_defines(c.build_dir_ios())}
   else()

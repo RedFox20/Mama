@@ -1,10 +1,15 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import os
 from .utils.system import System, console
-from .build_config import BuildConfig
 from .utils.sub_process import SubProcess, execute
 
+if TYPE_CHECKING:
+    from .build_target import BuildTarget
+    from .build_config import BuildConfig
 
-def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):
+
+def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget):
     rerun = False
     error = ''
     delete_cmakecache = False
@@ -13,7 +18,7 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):
     if verbose: console(cmd)
     #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
 
-    def handle_output(line):
+    def handle_output(line:str):
         nonlocal rerun, delete_cmakecache
         print(line) # newline is not included
         if line.startswith('CMake Error: The source'):
@@ -39,13 +44,13 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target):
         raise Exception(f'CMake configure error: {error}')
 
 
-def run_config(target):
+def run_config(target:BuildTarget):
     def get_flags():
         flags = ''
         options = target.cmake_opts + _default_options(target) + target.get_product_defines()
         for opt in options: flags += '-D'+opt+' '
         return flags
-    
+
     cmake_flags = get_flags()
     generator = _generator(target)
     src_dir = target.source_dir()
@@ -53,14 +58,14 @@ def run_config(target):
     _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
-def run_build(target, install, extraflags=''):
+def run_build(target:BuildTarget, install:bool, extraflags=''):
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)
     execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)
 
 
-def _generator(target):
+def _generator(target:BuildTarget):
     config:BuildConfig = target.config
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
     if config.windows:            return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
@@ -74,7 +79,7 @@ def _generator(target):
     else:                         return ''
 
 
-def _make_program(target):
+def _make_program(target:BuildTarget):
     config:BuildConfig = target.config
     if config.windows:     return ''
     if target.enable_unix_make:   return ''
@@ -87,7 +92,7 @@ def _make_program(target):
     return ''
 
 
-def _custom_compilers(target):
+def _custom_compilers(target:BuildTarget):
     config:BuildConfig = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
     compilers = [f'CMAKE_C_COMPILER={cc}']
@@ -96,10 +101,10 @@ def _custom_compilers(target):
     return compilers
 
 
-def _default_options(target):
+def _default_options(target:BuildTarget):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
-    ldflags:dict  = target.cmake_ldflags
+    ldflags:dict = target.cmake_ldflags
     exceptions = target.enable_exceptions
 
     def add_flag(flag:str, value=''):
@@ -127,7 +132,7 @@ def _default_options(target):
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
         if not exceptions: add_flag('-fno-exceptions')
-    
+
     if config.android:
         if config.is_target_arch_armv7():
             add_flag('-march', 'armv7-a')
@@ -161,7 +166,10 @@ def _default_options(target):
     if config.flags:
         add_flag(config.flags)
 
-    opt = ["CMAKE_POSITION_INDEPENDENT_CODE=ON"]
+    opt = [
+        "CMAKE_POSITION_INDEPENDENT_CODE=ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
+    ]
     if config.linux or config.raspi or config.oclea:
         opt += _custom_compilers(target)
     
@@ -253,7 +261,7 @@ def _default_options(target):
     return opt
 
 
-def inject_env(target):
+def inject_env(target:BuildTarget):
     config:BuildConfig = target.config
     if config.android:
         make = _make_program(target)
@@ -271,14 +279,14 @@ def inject_env(target):
         os.environ['MACOSX_DEPLOYMENT_TARGET'] = config.macos_version
 
 
-def _build_config(target, install):
+def _build_config(target:BuildTarget, install:bool):
     conf = f'--config {target.cmake_build_type}'
     if install and target.install_target:
         conf += f' --target {target.install_target}'
     return conf
 
 
-def _mp_flags(target):
+def _mp_flags(target:BuildTarget):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
     if config.windows:     return f'/maxcpucount:{config.jobs}'
@@ -289,7 +297,7 @@ def _mp_flags(target):
     return f'-j{config.jobs}'
 
 
-def _buildsys_flags(target):
+def _buildsys_flags(target:BuildTarget):
     config:BuildConfig = target.config
     def get_flags():
         mpf = _mp_flags(target)
