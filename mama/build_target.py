@@ -669,11 +669,21 @@ class BuildTarget:
         return None
 
 
+    def prefer_gcc(self):
+        """ Configures the entire build chain to prefer GCC if possible """
+        self.config.prefer_gcc(self.name)
+
+
+    def prefer_clang(self):
+        """ Configures the entire build chain to prefer Clang if possible """
+        self.config.prefer_clang(self.name)
+
+
     def enable_cxx20(self):
         """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++latest' if self.windows else 'c++2a'
-    
-    
+
+
     def enable_cxx17(self):
         """Enable a specific C++ standard"""
         self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++17'
@@ -1161,8 +1171,11 @@ class BuildTarget:
     def try_automatic_artifactory_fetch(self):
         is_deploy = self.config.deploy or self.config.upload
         is_target = self.is_current_target()
-        # auto-fetch if it's not a deploy or if we're not the target
-        if not is_deploy or not is_target:
+        # auto-fetch if:
+        # - not a deploy task
+        # - not the current build target eg `mama build this_target`
+        # - is not the root project, roots should never be fetched
+        if not is_deploy and not is_target and not self.dep.is_root:
             fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
             return fetched
         return None
