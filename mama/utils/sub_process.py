@@ -25,7 +25,7 @@ class SubProcess:
         args = shlex.split(cmd)
 
         executable = args[0]
-        if os.path.exists(executable): # it's something like `./run_tests` or `/usr/bin/gcc`
+        if os.path.isfile(executable): # it's something like `./run_tests` or `/usr/bin/gcc`
             executable = os.path.abspath(executable)
         else: # lookup from PATH
             executable = shutil.which(args[0])
