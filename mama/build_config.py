@@ -92,6 +92,7 @@ class BuildConfig:
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
+        self.parallel_load = False  ## Whether to load dependencies in parallel?
         self.global_workspace = False
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
@@ -124,6 +125,7 @@ class BuildConfig:
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
             elif arg == 'verbose':   self.verbose = True
+            elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
             elif arg == 'start':     self.start = ' ' # no start arguments

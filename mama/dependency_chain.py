@@ -300,12 +300,18 @@ def load_dependency_chain(root: BuildDependency):
         def load_dependency(dep: BuildDependency):
             if dep.already_loaded:
                 return dep.should_rebuild
+
             changed = dep.load()
-            futures = []
-            for child in dep.get_children():
-                futures.append(e.submit(load_dependency, child))
-            for f in futures:
-                changed |= f.result()
+            if dep.config.parallel_load:
+                futures = []
+                for child in dep.get_children():
+                    futures.append(e.submit(load_dependency, child))
+                for f in futures:
+                    changed |= f.result()
+            else:
+                for child in dep.get_children():
+                    changed |= load_dependency(child)
+
             dep.after_load()
             return changed
         load_dependency(root)
