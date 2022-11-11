@@ -138,8 +138,18 @@ class BuildDependency:
 
 
     def has_build_files(self):
-        return os.path.exists(self.build_dir+'/CMakeCache.txt') \
-            or os.path.exists(self.build_dir+'/Makefile')
+        return self.build_file_exists('CMakeCache.txt') \
+            or self.build_file_exists('Makefile')
+
+
+    def is_first_time_build(self):
+        # conditions for considering this as a first-time build
+        # - rebuild: always first time build
+        # - no_build_files: definitely a first time build
+        def first_time_build():
+            return not self.build_file_exists('mamafile_tag') \
+                and not self.build_file_exists('CMakeCache.txt')
+        return self.config.rebuild or first_time_build()
 
 
     def exported_libs_file(self):
@@ -223,9 +233,12 @@ class BuildDependency:
             self.load_build_products(target)
 
         # if this succeeds, it will overwrite products and libs
+        # and sets self.from_artifactory
         loaded_from_pkg = self.load_artifactory_package(target)
+        target.settings() ## customization point for project settings
+        target.dependencies() ## customization point for additional dependencies
+
         if not loaded_from_pkg:
-            target.dependencies() ## customization point for additional dependencies
             if self.is_root:
                 # fetch the compiler immediately from root settings
                 self.config.get_preferred_compiler_paths()
@@ -247,7 +260,9 @@ class BuildDependency:
 
 
     def load_artifactory_package(self, target):
-        load_art = self.dep_source.is_pkg or os.path.exists(self.papa_package_file())
+        # don't load anything during cleaning, because it will get cleaned anyways
+        load_art = not self.config.clean and \
+            (self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build())
         if load_art:
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
@@ -280,8 +295,6 @@ class BuildDependency:
             if self.always_build:        return build('always build')
             if git_changed:              return build('git commit changed')
             if self.dep_source.is_pkg:   return build('artifactory pkg')
-            if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
-            if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             # if we call `update this_target`
             if conf.update and conf.target == target.name:
@@ -311,6 +324,10 @@ class BuildDependency:
             # and the list of dependency targets changed, thus we need to rebuild
             missing_dep = self.find_missing_dependency()
             if missing_dep: return build(f'{missing_dep} was removed')
+
+            if not self.from_artifactory:
+                if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
+                if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             if conf.print:
                 console(f'  - Target {target.name: <16}   OK')
@@ -401,6 +418,11 @@ class BuildDependency:
 
     def update_cmakelists_tag(self):
         return self.src_dir and update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+
+
+    def build_file_exists(self, filename):
+        """ TRUE if a file relative to build_dir exists """
+        return os.path.exists(normalized_join(self.build_dir, filename))
 
 
     def path_relative_to_us(self, relpath) -> str:

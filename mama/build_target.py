@@ -155,7 +155,6 @@ class BuildTarget:
         NOTE: Currently only FTP is supported
         """
         if not self.dep.is_root:
-            console(f'WARNING: {self.name} set_artifactory_ftp ignored for non-root targets')
             return
         self.config.set_artifactory_ftp(ftp_url=ftp_url, auth=auth)
 
@@ -180,6 +179,7 @@ class BuildTarget:
         self.add_local('avdecoder', 'lib/avdecoder', always_build=True)
         ```
         """
+        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
         self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
@@ -202,6 +202,7 @@ class BuildTarget:
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
         ```
         """
+        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
         self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, args))
 
 
@@ -226,6 +227,7 @@ class BuildTarget:
         self.add_artifactory_pkg('mylib', fullname='mylib-linux-x64-release-df76b66')
         ```
         """
+        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
         self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname))
 
 
@@ -886,13 +888,28 @@ class BuildTarget:
     ########## Customization Points ###########
 
 
+    def settings(self):
+        """
+        Define any settings at this stage, it is always
+        the first step after git clone or loading from artifactory.
+
+        ```
+        class MyProject(mama.BuildTarget):
+            def settings(self):
+                # only valid for root targets
+                self.set_artifactory_ftp('artifacts.myftp.com', auth='store')
+                self.nothing_to_build()
+        """
+        pass
+
+
     def dependencies(self):
         """
         Add any additional dependencies in this step,
         or setup project configuration for root targets.
 
         If this target is fetched as a package from the artifactory,
-        then this step is skipped!
+        then any add_git()/add_local() calls will be ignored.
         ```
         class MyRootProject(mama.BuildTarget):
             def dependencies(self):
@@ -1170,7 +1187,7 @@ class BuildTarget:
 
     def try_automatic_artifactory_fetch(self):
         is_deploy = self.config.deploy or self.config.upload
-        is_target = self.is_current_target()
+        is_target = not self.config.rebuild and self.is_current_target()
         # auto-fetch if:
         # - not a deploy task
         # - not the current build target eg `mama build this_target`

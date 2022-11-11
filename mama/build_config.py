@@ -334,7 +334,7 @@ class BuildConfig:
             self.gcc   = False
             self.compiler_cmd = True
             if self.print:
-                console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler set.')
+                console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler flag passed.')
         else:
             if self.print: 
                 console(f'Target {target_name} requested Clang but compiler already set to GCC.')
@@ -347,7 +347,7 @@ class BuildConfig:
             self.gcc   = True
             self.compiler_cmd = True
             if self.print:
-                console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler set.')
+                console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler flag passed.')
         else:
             if self.print:
                 console(f'Target {target_name} requested GCC but compiler already set to Clang.')

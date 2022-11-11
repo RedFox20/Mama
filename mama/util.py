@@ -1,4 +1,5 @@
-import os, shutil, random, pathlib, ssl, zipfile
+import os, sys, shutil, random, pathlib, ssl, zipfile
+import time
 from .utils.system import System, console
 from .utils.sub_process import execute
 from urllib import request
@@ -181,11 +182,20 @@ def get_file_size_str(size):
     return f'{size/(1024*1024):.2}GB'
 
 
+def get_time_str(seconds: float):
+    if seconds < 1: return f'{int(seconds*1000)}ms'
+    if seconds < 60: return f'{seconds:.1f}s'
+    if seconds < 60*60: return f'{int(seconds%60)}m {int(seconds/60)}s'
+    if seconds < 24*60*60: return f'{int(seconds%(60*60))}h {int(seconds%60)}m {int(seconds/60)}s'
+    return f'{int(seconds%(24*60*60))}d {int(seconds%(60*60))}h {int(seconds%60)}m {int(seconds/60)}s'
+
+
 def download_file(remote_url, local_dir, force=False, message=None):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
         console(f"    Using locally cached {local_file}")
         return local_file
+    start = time.time()
     if not os.path.exists(local_dir):
         os.makedirs(local_dir, exist_ok=True)
 
@@ -193,33 +203,55 @@ def download_file(remote_url, local_dir, force=False, message=None):
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
-    with request.urlopen(remote_url, context=ctx) as urlfile:
+    with request.urlopen(remote_url, context=ctx, timeout=5) as urlfile:
+        size = int(urlfile.info()['Content-Length'].strip())
+        if not message: message = f'Downloading {remote_url}'
+        print(f'{message} {get_file_size_str(size) if size else "unknown size"}')
+        if not size:
+            return None
+
+        # for 100MB file, interval = 1
+        # for 10MB file, interval = 10
+        # for 1MB file, interval = 100 (so essentially disabled)
+        report_interval = max(1, int((100*1024*1024) / size))
+        transferred = 0
+        lastpercent = 0
+        print(f'    |{" ":50}<| {0:>3}%', end='')
         with open(local_file, 'wb') as output:
-            size = int(urlfile.info()['Content-Length'].strip())
-            if not message: message = f'Downloading {remote_url}'
-            print(f'{message} {get_file_size_str(size)}')
-            print(f'    |{" ":50}<| {0:>3} %', end='')
-            transferred = 0
-            lastpercent = 0
-            while True:
+            while transferred < size:
                 data = urlfile.read(32*1024) # large chunks plz
-                if not data:
-                    print(f'\r    |<{"="*50}| {percent:>3} %')
-                    return local_file
+                if not data: break
                 output.write(data)
                 transferred += len(data)
-                percent = int((transferred / size) * 100.0)
-                if abs(lastpercent - percent) >= 5: # report every 5%
-                    lastpercent = percent
-                    n = int(percent / 2)
-                    right = '=' * n
-                    left = ' ' * int(50 - n)
-                    print(f'\r    |{left}<{right}| {percent:>3} %', end='')
+                if report_interval < 100:
+                    percent = int((transferred / size) * 100.0)
+                    if abs(lastpercent - percent) >= report_interval:
+                        lastpercent = percent
+                        n = int(percent / 2)
+                        right = '=' * n
+                        left = ' ' * int(50 - n)
+                        elapsed = time.time() - start
+                        print(f'\r    |{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
+
+    # report actual percent here, just incase something goes wrong
+    elapsed = time.time() - start
+    percent = int((transferred / size) * 100.0)
+    print(f'\r    |<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
+    return local_file
 
 
 def unzip(local_zip, extract_dir):
+    """ Attempts to unzip an archive, throws on failure """
     with zipfile.ZipFile(local_zip, "r") as zip:
         zip.extractall(extract_dir)
+
+
+def try_unzip(local_file:str, build_dir:str) -> bool:
+    try:
+        unzip(local_file, build_dir)
+        return True
+    except zipfile.BadZipFile as e:
+        return False
 
 
 def download_and_unzip(remote_file, extract_dir, local_file):

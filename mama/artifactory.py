@@ -10,7 +10,7 @@ from .types.asset import Asset
 from .utils.system import System, console
 from .utils.sub_process import execute_piped
 import mama.package as package
-from .util import download_file, normalized_join, read_lines_from, unzip
+from .util import download_file, normalized_join, read_lines_from, try_unzip
 
 
 if TYPE_CHECKING:
@@ -186,6 +186,9 @@ def artifactory_reconfigure_target_from_deployment(target:BuildTarget, deploy_pa
         console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} does not exist')
         return (False, None)
 
+    if target.config.verbose:
+        console(f'    Artifactory reconfigure target={target.name}')
+
     project_name = None
     dependencies: list = []
     includes: List[str] = []
@@ -233,6 +236,15 @@ def _fetch_package(target:BuildTarget, url, archive, build_dir):
         return None
 
 
+def unzip_and_reconfigure(target:BuildTarget, local_file:str, build_dir:str) -> Tuple[bool, list]:
+    if try_unzip(local_file, build_dir):
+        return artifactory_reconfigure_target_from_deployment(target, build_dir)
+    else:
+        console(f'    Artifactory unzip failed, possibly corrupt package {local_file}')
+        os.remove(local_file) # it's probably corrupted
+        return (False, None)
+
+
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
     Try to fetch prebuilt package from artifactory
@@ -251,13 +263,13 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         if (target.is_current_target() or target.config.no_specific_target()) \
             and not target.test:
             console(f'    Artifactory cache {local_file}')
-        unzip(local_file, build_dir)
-    else:
-        local_file = _fetch_package(target, url, archive, build_dir)
-        if not local_file:
-            return (False, None)
-        console(f'    Artifactory unzip {archive}')
-        unzip(local_file, build_dir)
+        success, deps = unzip_and_reconfigure(target, local_file, build_dir)
+        if success: return (success, deps)
 
-    return artifactory_reconfigure_target_from_deployment(target, build_dir)
+    # use mama verbose to show the failure msgs
+    local_file = _fetch_package(target, url, archive, build_dir)
+    if not local_file:
+        return (False, None)
+    console(f'    Artifactory unzip {archive}')
+    return unzip_and_reconfigure(target, local_file, build_dir)
 

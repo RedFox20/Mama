@@ -233,7 +233,7 @@ We are open for any improvements and feedback via pull requests.
 
 The package `setuptools>=65.0` is required, ensure the version is correct with `pip3 show setuptools`.
 
-You can set up local development with `$ pip install -e . --no-cache-dir`
+You can set up local development with `$ pip3 install -e . --no-cache-dir` but make sure you have latest setuptools (>65.0) and latest pip3 (>22.3). This command will fail with older toolkits.
 
 Uploading a source distributionP:
 1. Get dependencies: `pip3 install build twine`
