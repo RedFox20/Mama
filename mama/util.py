@@ -274,9 +274,10 @@ def _should_copy(src, dst):
     dst_stat = os.stat(dst)
 
     if src_stat.st_size != dst_stat.st_size:
-        #console(f'copy {src}\n --> {dst}')
+        #console(f'_should_copy true src.size != dst.size\n┌──{src}\n└─>{dst}')
         return True
     if src_stat.st_mtime != dst_stat.st_mtime:
+        #console(f'_should_copy true src.mtime != dst.mtime\n┌<──{src}\n└──> {dst}')
         return True
     #console(f'skip {dst}')
     return False
@@ -290,15 +291,27 @@ def _passes_filter(src_file, filter):
     return False
 
 
-def copy_file(src, dst, filter):
+def copy_file(src, dst, filter) -> bool:
+    """
+        Copies a single file if it passes the filter and
+        if it has changed, returns TRUE if copied
+    """
     if _passes_filter(src, filter) and _should_copy(src, dst):
         #console(f'copy {src}\n --> {dst}')
         shutil.copy2(src, dst)
+        return True
+    return False
 
 
-def copy_dir(src_dir, out_dir, filter=None):
+def copy_dir(src_dir, out_dir, filter=None) -> bool:
+    """
+        Copies an entire dir if it passes the filter and
+        if the individual files have changed.
+        Returns TRUE if any files were copied.
+    """
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
+    copied = False
     root = os.path.dirname(src_dir)
     for fulldir, _, files in os.walk(src_dir):
         reldir = fulldir[len(root):].lstrip('\\/')
@@ -310,13 +323,15 @@ def copy_dir(src_dir, out_dir, filter=None):
         for file in files:
             src_file = os.path.join(fulldir, file)
             dst_file = os.path.join(dst_folder, file)
-            copy_file(src_file, dst_file, filter)
+            copied |= copy_file(src_file, dst_file, filter)
+    return copied
 
 
-def copy_if_needed(src, dst, filter=None):
+def copy_if_needed(src, dst, filter=None) -> bool:
+    """ Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied """
     #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
-        copy_dir(src, dst, filter)
+        return copy_dir(src, dst, filter)
     else:
-        copy_file(src, dst, filter)
+        return copy_file(src, dst, filter)
 

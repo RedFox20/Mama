@@ -710,8 +710,8 @@ class BuildTarget:
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
         """
-        if self.config.verbose: console(f'copy {src} --> {dst}')
-        util.copy_if_needed(src, dst)
+        if util.copy_if_needed(src, dst):
+            if self.config.verbose: console(f'copy {src} --> {dst}')
 
 
     def copy_built_file(self, builtFile, copyToFolder):
@@ -725,7 +725,8 @@ class BuildTarget:
         dst = f'{self.build_dir()}/{copyToFolder}/{os.path.basename(builtFile)}'
         if not os.path.exists(src) and os.path.exists(dst):
             return # src is missing, but dst exists, ignore error
-        shutil.copy(src, dst)
+        if util.copy_if_needed(src, dst):
+            if self.config.verbose: console(f'copy_built_file {src} --> {dst}')
 
 
     def copy_deployed_folder(self, src_dir, dst_dir):
@@ -736,7 +737,10 @@ class BuildTarget:
             # --> 'C:/Projects/Game/Plugins/NanoMesh
         ```
         """
-        util.copy_if_needed(self.source_dir(src_dir), dst_dir)
+        src = self.source_dir(src_dir)
+        dst = dst_dir
+        if util.copy_if_needed(src, dst):
+            if self.config.verbose: console(f'copy_deployed_folder {src} --> {dst}')
 
 
     def download_file(self, remote_url, local_dir, force=False):

@@ -93,8 +93,9 @@ def cleanup_libs_list(libs):
 
 def clean_intermediate_files(target):
     files_to_clean = glob_with_name_match(target.build_dir(), ['.obj', '.o'])
-    if target.config.print and files_to_clean:
-        print(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
+    if files_to_clean:
+        if target.config.print:
+            print(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
         for file in files_to_clean:
             os.remove(file)
 
