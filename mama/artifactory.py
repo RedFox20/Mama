@@ -223,7 +223,7 @@ def artifactory_reconfigure_target_from_deployment(target:BuildTarget, deploy_pa
 
 
 def _fetch_package(target:BuildTarget, url, archive, build_dir):
-    remote_file = f'https://{url}/{archive}.zip'
+    remote_file = f'http://{url}/{archive}.zip'
     try:
         return download_file(remote_file, build_dir, force=True, 
                              message=f'    Artifactory fetch {url}/{archive} ')

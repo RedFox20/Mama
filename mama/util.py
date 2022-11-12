@@ -190,7 +190,7 @@ def get_time_str(seconds: float):
     return f'{int(seconds%(24*60*60))}d {int(seconds%(60*60))}h {int(seconds%60)}m {int(seconds/60)}s'
 
 
-def download_file(remote_url, local_dir, force=False, message=None):
+def download_file(remote_url:str, local_dir:str, force=False, message=None):
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
     if not force and os.path.exists(local_file): # download file?
         console(f"    Using locally cached {local_file}")
@@ -199,11 +199,15 @@ def download_file(remote_url, local_dir, force=False, message=None):
     if not os.path.exists(local_dir):
         os.makedirs(local_dir, exist_ok=True)
 
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    # TODO: this causes issues inside some secure networks
+    if remote_url.startswith('https://'):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_OPTIONAL
+    else:
+        ctx = None
 
-    with request.urlopen(remote_url, context=ctx, timeout=5) as urlfile:
+    with request.urlopen(remote_url, context=ctx, timeout=15) as urlfile:
         size = int(urlfile.info()['Content-Length'].strip())
         if not message: message = f'Downloading {remote_url}'
         print(f'{message} {get_file_size_str(size) if size else "unknown size"}')
