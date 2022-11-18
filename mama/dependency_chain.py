@@ -88,17 +88,21 @@ def _save_mama_cmake_and_dependencies_cmake(root: BuildDependency):
     # the following is the proxy `mysource/mama.cmake` file
     # which will reference each mama-dependencies.cmake depending on platform
     _save_mama_cmake(root)
-    # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
-    _save_vscode_compile_commands(root)
 
 
 def _get_compile_commands_path(dep: BuildDependency):
-    if os.path.exists(f'{dep.src_dir}/build/compile_commands.json'):
+    src_build_cmds = f'{dep.src_dir}/build/compile_commands.json'
+    bin_build_cmds = f'{dep.build_dir}/compile_commands.json'
+
+    src_exists = os.path.exists(src_build_cmds)
+    bin_exists = os.path.exists(bin_build_cmds)
+
+    # choose the latest one
+    if src_exists and bin_exists and os.path.getmtime(src_build_cmds) > os.path.getmtime(bin_build_cmds):
         # for src_dir paths we use `${workspaceFolder}` macro:
         return '${workspaceFolder}/build/compile_commands.json'
-    path = f'{dep.build_dir}/compile_commands.json'
-    if os.path.exists(path):
-        return path # absolute path for build dir paths
+    if bin_exists:
+        return bin_build_cmds # absolute path for build dir paths
     return None
 
 
@@ -333,6 +337,9 @@ def execute_task_chain(root: BuildDependency):
 
     _save_mama_cmake_and_dependencies_cmake(root)
     root.target._execute_tasks()
+
+    # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
+    _save_vscode_compile_commands(root)
 
     if root.config.verbose and root.is_root_or_config_target():
         names = [dep.name for dep in root.flattened_deps]
