@@ -247,4 +247,4 @@ index-servers = pypi
 username=<your-mama-pypi-username>
 password=<your-mama-pypi-password>
 ```
-Quick build & upload: `./deploy.sh`
+Quick build & upload using Python 3.9: `./deploy.sh`
