@@ -23,6 +23,8 @@ def _get_commit_hash(target:BuildTarget):
     src_dir = target.source_dir()
     if os.path.exists(f'{src_dir}/.git'):
         result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=src_dir)
+    if target.dep.dep_source.is_git:
+        result = target.dep.dep_source.ls_remote_branch_commit(target.dep)
     return result if result else 'latest'
 
 

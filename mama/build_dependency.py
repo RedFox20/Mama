@@ -208,7 +208,7 @@ class BuildDependency:
         return changed
 
 
-    def git_checkout(self):
+    def git_checkout(self, target:BuildTarget):
         # ignore non-git or root targets
         if not self.dep_source.is_git or self.is_root:
             return False
@@ -217,7 +217,6 @@ class BuildDependency:
 
 
     def _load(self):
-        git_changed = self.git_checkout()
         self.create_build_target()  ## parses target mamafile
         self.update_dep_dir()
         self.create_build_dir_if_needed()
@@ -235,6 +234,10 @@ class BuildDependency:
         # if this succeeds, it will overwrite products and libs
         # and sets self.from_artifactory
         loaded_from_pkg = self.load_artifactory_package(target)
+        git_changed = False
+        if not loaded_from_pkg:
+            git_changed = self.git_checkout(target)
+
         target.settings() ## customization point for project settings
         target.dependencies() ## customization point for additional dependencies
 

@@ -162,6 +162,9 @@ def read_text_from(file_path):
 
 
 def write_text_to(file, text):
+    dirname = os.path.dirname(file)
+    if not os.path.exists(dirname):
+        os.makedirs(dirname, exist_ok=True)
     pathlib.Path(file).write_text(text, encoding='utf-8')
 
 

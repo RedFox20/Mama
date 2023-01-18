@@ -1,4 +1,4 @@
-import os, shutil, stat
+import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import System, console
 from ..utils.sub_process import execute, execute_piped
@@ -17,6 +17,8 @@ class Git(DepSource):
         self.tag = tag
         self.mamafile = mamafile
         self.args = args
+
+        self.from_source = False  # if True, this must be built from source, not from artifactory
 
         self.missing_status = False
         self.url_changed = False
@@ -52,6 +54,25 @@ class Git(DepSource):
             console(f'  {dep.name: <16} git {git_command}')
         execute(cmd)
 
+
+    def ls_remote_branch_commit(self, dep):
+        """
+        Gets the latest remote branch commit, based on git source tag and branch options.
+        """
+        if self.branch:
+            result = execute_piped(f'git ls-remote {self.url} {self.branch}')
+        elif self.tag:
+            if all(c in string.hexdigits for c in self.tag): # actually commit hash
+                result = self.tag
+            else:
+                result = execute_piped(f'git ls-remote {self.url} {self.tag}')
+        else:
+            result = execute_piped(f'git ls-remote {self.url} HEAD')
+
+        if result: result = result.split(' ')[0][0:7]
+        if dep.config.verbose:
+            console(f'git ls-remote {self.url}: {result}')
+        return result
 
     def fetch_origin(self, dep):
         self.run_git(dep, f"pull origin {self.branch_or_tag()} -q")
@@ -133,6 +154,10 @@ class Git(DepSource):
 
 
     def dependency_checkout(self, dep):
+        """
+        Do a git repository checkout. Can be an expensive operation.
+        If an existing artifactory package exists, then this step is skipped
+        """
         if not dep.source_dir_exists():  # we MUST pull here
             self.clone_or_pull(dep)
             return True
