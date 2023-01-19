@@ -90,9 +90,19 @@ class Git(DepSource):
         write_text_to(f"{dep.build_dir}/git_status", status)
 
 
-    def check_status(self, dep):
+    def read_stored_status(self, dep):
         lines = read_lines_from(f"{dep.build_dir}/git_status")
-        if not lines:
+        if not lines: return None
+        url = lines[0].rstrip()
+        tag = lines[1].rstrip()
+        branch = lines[2].rstrip()
+        commit = lines[3].rstrip()
+        return (url, tag, branch, commit)
+
+
+    def check_status(self, dep):
+        status = self.read_stored_status(dep)
+        if not status:
             self.missing_status = True
             if not self.url: return False
             #console(f'check_status {self.url}: NO STATUS AT {dep.build_dir}/git_status')
@@ -102,10 +112,10 @@ class Git(DepSource):
             self.commit_changed = True
             return True
         self.fetch_origin(dep)
-        self.url_changed = self.url != lines[0].rstrip()
-        self.tag_changed = self.tag != lines[1].rstrip()
-        self.branch_changed = self.branch != lines[2].rstrip()
-        self.commit_changed = self.current_commit(dep) != lines[3].rstrip()
+        self.url_changed = self.url != status[0]
+        self.tag_changed = self.tag != status[1]
+        self.branch_changed = self.branch != status[2]
+        self.commit_changed = self.current_commit(dep) != status[3]
         #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 

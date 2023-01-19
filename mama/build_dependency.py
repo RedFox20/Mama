@@ -416,11 +416,11 @@ class BuildDependency:
 
 
     def update_mamafile_tag(self):
-        return self.src_dir and update_mamafile_tag(self.mamafile_path(), self.build_dir)
+        return self.src_dir and update_mamafile_tag(self.config, self.mamafile_path(), self.build_dir)
 
 
     def update_cmakelists_tag(self):
-        return self.src_dir and update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+        return self.src_dir and update_cmakelists_tag(self.config, self.cmakelists_path(), self.build_dir)
 
 
     def build_file_exists(self, filename):

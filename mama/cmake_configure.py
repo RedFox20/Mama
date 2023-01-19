@@ -9,14 +9,17 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
 
 
-def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget):
+def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cmakecache:bool = False):
     rerun = False
     error = ''
-    delete_cmakecache = False
     print_enabled = target.config.print
     verbose = target.config.verbose
     if verbose: console(cmd)
     #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
+
+    if delete_cmakecache:
+        if print_enabled: console('Deleting CMakeCache.txt')
+        os.remove(target.build_dir('CMakeCache.txt'))
 
     def handle_output(line:str):
         nonlocal rerun, delete_cmakecache
@@ -32,19 +35,22 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget):
             rerun = True
             delete_cmakecache = True
 
+    # run CMake configure and handle output
     exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
 
-    if delete_cmakecache:
-        if print_enabled: console('Deleting CMakeCache.txt')
-        os.remove(target.build_dir('CMakeCache.txt'))
     if rerun and allow_rerun:
         if print_enabled: console('Rerunning CMake configure')
-        return _rerunnable_cmake_conf(cmd, cwd, False, target)
+        return _rerunnable_cmake_conf(cmd, cwd, False, target, delete_cmakecache=delete_cmakecache)
     if exit_status != 0:
         raise Exception(f'CMake configure error: {error}')
 
 
 def run_config(target:BuildTarget):
+    if not target.config.update and os.path.exists(target.build_dir('CMakeCache.txt')):
+        if target.config.verbose:
+            console('Not running CMake configure because CMakeCache.txt exists and `update` was not specified')
+        return
+
     def get_flags():
         flags = ''
         options = target.cmake_opts + _default_options(target) + target.get_product_defines()
