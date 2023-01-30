@@ -243,7 +243,7 @@ class BuildDependency:
 
         build = False
         if conf.build or conf.update:
-            build = self._should_build(conf, target, is_target, git_changed)
+            build = self._should_build(conf, target, is_target, git_changed, loaded_from_pkg)
             if build:
                 self.create_build_dir_if_needed() # in case we just cleaned
             if git_changed:
@@ -277,7 +277,7 @@ class BuildDependency:
             console(f'  - Target {target.name: <16}')
 
 
-    def _should_build(self, conf, target, is_target, git_changed):
+    def _should_build(self, conf, target, is_target, git_changed, loaded_from_pkg):
             def build(r):
                 if conf.print:
                     args = f'{target.args}' if target.args else ''
@@ -307,11 +307,12 @@ class BuildDependency:
 
             # project has not defined `nothing_to_build` which is for header-only projects
             # thus we need to check if build should execute
-            can_build = not self.nothing_to_build
+            can_build = not loaded_from_pkg and not self.nothing_to_build
             if can_build:
                 # there are no build products defined at all, it hasn't been built or downloaded
                 if not target.build_products:
-                    if not self.has_build_files(): return build('not built yet')
+                    if not self.has_build_files():
+                        return build('not built yet')
                     return build('no build dependencies')
 
                 # we have build products, and none of them are missing
