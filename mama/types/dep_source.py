@@ -6,6 +6,13 @@ class DepSource(object):
         self.is_pkg = False
         self.is_src = False
 
+
+    def get_type_string(self):
+        if self.is_git: return "Git"
+        if self.is_pkg: return "ART"
+        if self.is_src: return "Src"
+
+
     def get_papa_string(self):
         raise RuntimeError('get_papa_string() not implemented')
 

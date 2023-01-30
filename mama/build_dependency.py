@@ -214,7 +214,7 @@ class BuildDependency:
         self.create_build_dir_if_needed()
 
         if self.target.config.verbose:
-            console(f'  - Load Target {self.name}', color=Color.BLUE)
+            console(f'  - Load Target {self.name} ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
         target = self.target
         conf = self.config

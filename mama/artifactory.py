@@ -230,6 +230,12 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     target.exported_assets = assets # exported asset files
     package.set_export_libs_and_products(target, libs)
     package.reload_syslibs(target, syslibs) # set exported system libraries
+
+    # for git repos, save the used commit hash status, so that next time the fetch is faster
+    if target.dep.dep_source.is_git:
+        git: Git = target.dep.dep_source
+        git.save_status(target.dep)
+
     return (True, dependencies)
 
 
