@@ -1,14 +1,14 @@
 from __future__ import annotations
 import os, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
+from urllib.error import HTTPError
 
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
-from .utils.system import System, console
-from .utils.sub_process import execute_piped
+from .utils.system import Color, System, console, error
 import mama.package as package
 from .util import download_file, normalized_join, read_lines_from, try_unzip
 
@@ -18,23 +18,6 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
 
 
-def _get_commit_hash(target:BuildTarget):
-    result = None
-    src_dir = target.source_dir()
-    if os.path.exists(f'{src_dir}/.git'):
-        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=src_dir)
-    dep = target.dep
-    if dep.dep_source.is_git:
-        git:Git = dep.dep_source
-        if not target.config.update and os.path.exists(target.build_dir('git_status')):
-            status = git.read_stored_status(dep)
-            result = status[3].split(' ')[0]
-            if target.config.verbose: console(f'Using stored commit hash: {result}')
-        else:
-            result = git.ls_remote_branch_commit(dep)
-    return result if result else 'latest'
-
-
 def artifactory_archive_name(target:BuildTarget):
     """
     Constructs archive name for papa deploy packages in the form of:
@@ -42,8 +25,24 @@ def artifactory_archive_name(target:BuildTarget):
     Example: opencv-linux-x64-gcc9-release-df76b66
     """
     p:ArtifactoryPkg = target.dep.dep_source
+
+    # LocalSource has no archive name
+    if p.is_src:
+        return None
+
+    # if this is an ArtifactoryPkg with full name of the archive
     if p.is_pkg and p.fullname:
         return p.fullname
+
+    # automatically build name of the package
+    version = ''
+    if p.is_pkg:
+        version = p.version
+    elif p.is_git:
+        git:Git = p
+        version = git.get_commit_hash(target.dep)
+        if not version:
+            return None # nothing to do at this point
 
     name = target.name
     # triplets information to make this package platform unique
@@ -51,8 +50,8 @@ def artifactory_archive_name(target:BuildTarget):
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
-    commit_hash = p.version if p.is_pkg else _get_commit_hash(target)
-    return f'{name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}'
+
+    return f'{name}-{platform}-{compiler}-{arch}-{build_type}-{version}'
 
 
 keyr = None
@@ -185,18 +184,21 @@ def make_dep_source(s:str) -> DepSource:
     raise RuntimeError(f'Unrecognized dependency source: {s}')
 
 
-def artifactory_reconfigure_target_from_deployment(target:BuildTarget, deploy_path) -> Tuple[bool, list]:
+def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -> Tuple[bool, list]:
     """
     Reconfigures `target` from {deployment_path}/papa.txt.
     Returns (fetched:bool, dep_sources:list)
     """
     papa_list = normalized_join(deploy_path, 'papa.txt')
     if not os.path.exists(papa_list):
-        console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} does not exist')
+        error(f'    {target.name}  Artifactory Load failed because {papa_list} does not exist')
         return (False, None)
 
     if target.config.verbose:
-        console(f'    Artifactory reconfigure target={target.name}')
+        if num_files_copied != 0:
+            console(f'    {target.name}  Artifactory Load ({num_files_copied} files were copied)', color=Color.YELLOW)
+        else:
+            console(f'    {target.name}  Artifactory Load (no files modified)', color=Color.GREEN)
 
     project_name = None
     dependencies: list = []
@@ -220,7 +222,7 @@ def artifactory_reconfigure_target_from_deployment(target:BuildTarget, deploy_pa
             assets.append(Asset(relpath, fullpath, None))
 
     if project_name != target.name:
-        console(f'Artifactory Reconfigure Target={target.name} failed because {papa_list} ProjectName={project_name} mismatches!')
+        error(f'    {target.name}  Artifactory Load failed because {papa_list} ProjectName={project_name} mismatches!')
         return (False, None)
 
     target.dep.from_artifactory = True
@@ -238,18 +240,31 @@ def _fetch_package(target:BuildTarget, url, archive, build_dir):
                              message=f'    Artifactory fetch {url}/{archive} ')
     except Exception as e:
         if target.config.verbose:
-            console(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
+            error(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
+
+        d:DepSource = target.dep.dep_source
         # this is an artifactory pkg, so the url MUST exist
-        if target.dep.dep_source.is_pkg:
-            raise RuntimeError(f'Artifactory package {target.dep.dep_source} did not exist at {url}')
+        if d.is_pkg:
+            raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
+
+        # if server gives us 404, then we need to wipe the git_status and re-initialize
+        # the dependency source from scratch
+        if d.is_git:
+            d: Git = d
+            if isinstance(e, HTTPError) and e.code == 404:
+                if target.config.verbose:
+                    error(f'    Resetting Git status file: {target.name}')
+                d.reset_status(target.dep)
+
         return None
 
 
-def unzip_and_reconfigure(target:BuildTarget, local_file:str, build_dir:str) -> Tuple[bool, list]:
-    if try_unzip(local_file, build_dir):
-        return artifactory_reconfigure_target_from_deployment(target, build_dir)
+def unzip_and_load_target(target:BuildTarget, local_file:str, build_dir:str) -> Tuple[bool, list]:
+    success, num_extracted = try_unzip(local_file, build_dir)
+    if success:
+        return artifactory_load_target(target, build_dir, num_files_copied = num_extracted)
     else:
-        console(f'    Artifactory unzip failed, possibly corrupt package {local_file}')
+        error(f'    Artifactory unzip failed, possibly corrupt package {local_file}')
         os.remove(local_file) # it's probably corrupted
         return (False, None)
 
@@ -263,8 +278,11 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     if not url:
         return (False, None)
 
-    url = artifactory_sanitize_url(url)
     archive = artifactory_archive_name(target)
+    if not archive:
+        return (False, None)
+
+    url = artifactory_sanitize_url(url)
     build_dir = target.build_dir()
     local_file = normalized_join(build_dir, f'{archive}.zip')
 
@@ -272,7 +290,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         if (target.is_current_target() or target.config.no_specific_target()) \
             and not target.test:
             console(f'    Artifactory cache {local_file}')
-        success, deps = unzip_and_reconfigure(target, local_file, build_dir)
+        success, deps = unzip_and_load_target(target, local_file, build_dir)
         if success: return (success, deps)
 
     # use mama verbose to show the failure msgs
@@ -280,5 +298,5 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     if not local_file:
         return (False, None)
     console(f'    Artifactory unzip {archive}')
-    return unzip_and_reconfigure(target, local_file, build_dir)
+    return unzip_and_load_target(target, local_file, build_dir)
 

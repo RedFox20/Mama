@@ -5,7 +5,7 @@ import os, sys, shutil, time
 from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
-from .utils.system import console
+from .utils.system import Color, console, error
 from .artifactory import artifactory_fetch_and_reconfigure
 from .util import normalized_join, normalized_path, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
@@ -208,18 +208,13 @@ class BuildDependency:
         return changed
 
 
-    def git_checkout(self, target:BuildTarget):
-        # ignore non-git or root targets
-        if not self.dep_source.is_git or self.is_root:
-            return False
-        git:Git = self.dep_source
-        return git.dependency_checkout(self)
-
-
     def _load(self):
         self.create_build_target()  ## parses target mamafile
         self.update_dep_dir()
         self.create_build_dir_if_needed()
+
+        if self.target.config.verbose:
+            console(f'  - Load Target {self.name}', color=Color.BLUE)
 
         target = self.target
         conf = self.config
@@ -235,16 +230,16 @@ class BuildDependency:
         # and sets self.from_artifactory
         loaded_from_pkg = self.load_artifactory_package(target)
         git_changed = False
-        if not loaded_from_pkg:
-            git_changed = self.git_checkout(target)
+        if not loaded_from_pkg and not self.is_root and self.dep_source.is_git:
+            git:Git = self.dep_source
+            git_changed = git.dependency_checkout(self)
 
         target.settings() ## customization point for project settings
         target.dependencies() ## customization point for additional dependencies
 
-        if not loaded_from_pkg:
-            if self.is_root:
-                # fetch the compiler immediately from root settings
-                self.config.get_preferred_compiler_paths()
+        if not loaded_from_pkg and self.is_root:
+            # fetch the compiler immediately from root settings
+            self.config.get_preferred_compiler_paths()
 
         build = False
         if conf.build or conf.update:
@@ -286,7 +281,7 @@ class BuildDependency:
             def build(r):
                 if conf.print:
                     args = f'{target.args}' if target.args else ''
-                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}')
+                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}', color=Color.YELLOW)
                 return True
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"
@@ -333,7 +328,7 @@ class BuildDependency:
                 if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             if conf.print:
-                console(f'  - Target {target.name: <16}   OK')
+                console(f'  - Target {target.name: <16}   OK', color=Color.GREEN)
             return False # do not build, all is ok
 
 

@@ -1205,7 +1205,7 @@ class BuildTarget:
     ## TODO: move all of this into a new utility
     def _execute_build_tasks(self):
         can_build = not self.dep.nothing_to_build
-        if can_build and self.dep.should_rebuild:
+        if can_build and self.dep.should_rebuild and not self.dep.from_artifactory:
             self.configure() # user customization
             if can_build:
                 fetched = self.try_automatic_artifactory_fetch()

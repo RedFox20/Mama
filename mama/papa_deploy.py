@@ -161,6 +161,9 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     config = target.config
     dst_dir = target.build_dir()
     archive_name = artifactory_archive_name(target)
+    if not archive_name:
+        raise Exception(f'Could not get archive name for target: {target.name}')
+
     if config.verbose:
         console(f'    archiving {package_full_path}\n {"":10}-> {dst_dir}/{archive_name}.zip')
 

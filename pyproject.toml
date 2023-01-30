@@ -20,6 +20,7 @@ dependencies = [
     "distro",
     "keyring",
     "keyrings.cryptfile",
+    "termcolor",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

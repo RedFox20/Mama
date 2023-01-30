@@ -1,9 +1,10 @@
 import os, sys, shutil, random, pathlib, ssl, zipfile
+from typing import List
 import time
 from .utils.system import System, console
 from .utils.sub_process import execute
 from urllib import request
-
+from datetime import datetime, timezone
 
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
@@ -247,18 +248,64 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
     return local_file
 
 
+def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
+    zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
+    return datetime(zt[0], zt[1], zt[2], zt[3], zt[4], zt[5], tzinfo=timezone.utc)
+
+
 def unzip(local_zip, extract_dir):
-    """ Attempts to unzip an archive, throws on failure """
+    """
+    Attempts to unzip an archive, throws on failure
+    Returns # of files actually extracted
+    """
     with zipfile.ZipFile(local_zip, "r") as zip:
-        zip.extractall(extract_dir)
+        members_to_extract: List[zipfile.ZipInfo] = []
+        extracted_filenames: List[str] = []
+
+        for zipmember in zip.infolist():
+            if zipmember.is_dir():
+                continue
+            dst_path: str = path_join(extract_dir, zipmember.filename)
+            st: os.stat_result = None
+            changed = False
+            try:
+                st = os.stat(dst_path)
+                if st.st_size != zipmember.file_size:
+                    changed = True
+                else:
+                    dst_mtime: datetime = datetime.fromtimestamp(st.st_mtime, timezone.utc)
+                    src_mtime = get_zipinfo_datetime(zipmember)
+                    if dst_mtime != src_mtime:
+                        changed = True
+            except (OSError, ValueError):
+                changed = True # does not exist
+            if changed:
+                members_to_extract.append(zipmember)
+                extracted_filenames.append(dst_path)
+
+        zip.extractall(extract_dir, members=members_to_extract)
+
+        # extractall will set time.now() for the modified time, but we need to keep track of it between unpacks
+        # to avoid unnecessarily modifying files and causing full rebuilds
+        # so overwrite the modified time with the zip member time
+        for i in range(len(members_to_extract)):
+            mtime = get_zipinfo_datetime(members_to_extract[i]).timestamp()
+            os.utime(extracted_filenames[i], times=(mtime, mtime))
+
+        return len(members_to_extract)
 
 
 def try_unzip(local_file:str, build_dir:str) -> bool:
+    """
+    Attempts to unzip an archive, returns a tuple (success: bool, num_extracted: int)
+    If (success: True, num_extracted: 0) is returned, it means none of the destination files
+    were different from the zip contents, and zero extractions were performed
+    """
     try:
-        unzip(local_file, build_dir)
-        return True
+        files_extracted = unzip(local_file, build_dir)
+        return (True, files_extracted)
     except zipfile.BadZipFile as e:
-        return False
+        return (False, -1)
 
 
 def download_and_unzip(remote_file, extract_dir, local_file):

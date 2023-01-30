@@ -4,6 +4,7 @@ from errno import ECHILD
 import subprocess
 from time import sleep
 from .nonblocking_io import set_nonblocking
+from .system import console, error
 
 
 class SubProcess:
@@ -153,17 +154,17 @@ class SubProcess:
 
 
 def execute(command, echo=False, throw=True):
-    if echo: print(command)
+    if echo: console(command)
     retcode = os.system(command)
     if throw and retcode != 0:
         raise Exception(f'{command} failed with return code {retcode}')
     return retcode
 
 
-def execute_piped(command, cwd=None):
+def execute_piped(command, cwd=None, timeout=None):
     if not isinstance(command, list):
         command = shlex.split(command)
-    cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd)
+    cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd, timeout=timeout)
     return cp.stdout.decode('utf-8').rstrip()
 
 
@@ -173,7 +174,7 @@ def execute_echo(cwd, cmd):
     try:
         exit_status = SubProcess.run(cmd, cwd)
     except:
-        print(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
+        error(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
         raise
     if exit_status != 0:
         raise Exception(f'Execute {cmd} failed with error: {exit_status}')
