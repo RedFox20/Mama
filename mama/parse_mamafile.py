@@ -1,4 +1,6 @@
 import os, runpy, inspect
+
+from .utils.system import console
 from .util import path_join, read_text_from, write_text_to
 
 def parse_mamafile(config, target_class, mamafile):
@@ -13,29 +15,32 @@ def parse_mamafile(config, target_class, mamafile):
             return key, value
     raise RuntimeError(f'No BuildTarget class found in mamafile: {mamafile}')
 
-def update_modification_tag(file, tagfile):
+def update_modification_tag(config, file, tagfile):
     if not os.path.exists(file):
         return False
 
     filetime = os.path.getmtime(file)
     if not os.path.exists(tagfile):
         os.makedirs(os.path.dirname(tagfile), exist_ok=True)
+        if config.verbose: console(f'Update tagfile: {tagfile}')
         write_text_to(tagfile, str(filetime))
         return True
 
     tagtime = float(read_text_from(tagfile))
     if filetime != tagtime:
+        if config.verbose: console(f'Update tagfile: {tagfile}')
         write_text_to(tagfile, str(filetime))
         return True
-    
+
+    if config.verbose: console(f'No Changes {file}')
     return False
 
 ## Return: TRUE if mamafile.py was modified
-def update_mamafile_tag(mamafile, build_dir):
+def update_mamafile_tag(config, mamafile, build_dir):
     mamafiletag = path_join(build_dir, 'mamafile_tag')
-    return update_modification_tag(mamafile, mamafiletag)
+    return update_modification_tag(config, mamafile, mamafiletag)
 
 ## Return: TRUE if CMakeLists.txt was modified
-def update_cmakelists_tag(cmakelists, build_dir):
+def update_cmakelists_tag(config, cmakelists, build_dir):
     cmakeliststag = path_join(build_dir, 'cmakelists_tag')
-    return update_modification_tag(cmakelists, cmakeliststag)
+    return update_modification_tag(config, cmakelists, cmakeliststag)

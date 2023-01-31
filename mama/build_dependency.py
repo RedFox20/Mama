@@ -5,7 +5,7 @@ import os, sys, shutil, time
 from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
-from .utils.system import console
+from .utils.system import Color, console, error
 from .artifactory import artifactory_fetch_and_reconfigure
 from .util import normalized_join, normalized_path, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
@@ -208,19 +208,13 @@ class BuildDependency:
         return changed
 
 
-    def git_checkout(self):
-        # ignore non-git or root targets
-        if not self.dep_source.is_git or self.is_root:
-            return False
-        git:Git = self.dep_source
-        return git.dependency_checkout(self)
-
-
     def _load(self):
-        git_changed = self.git_checkout()
         self.create_build_target()  ## parses target mamafile
         self.update_dep_dir()
         self.create_build_dir_if_needed()
+
+        if self.target.config.verbose:
+            console(f'  - Load Target {self.name} ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
         target = self.target
         conf = self.config
@@ -235,17 +229,21 @@ class BuildDependency:
         # if this succeeds, it will overwrite products and libs
         # and sets self.from_artifactory
         loaded_from_pkg = self.load_artifactory_package(target)
+        git_changed = False
+        if not loaded_from_pkg and not self.is_root and self.dep_source.is_git:
+            git:Git = self.dep_source
+            git_changed = git.dependency_checkout(self)
+
         target.settings() ## customization point for project settings
         target.dependencies() ## customization point for additional dependencies
 
-        if not loaded_from_pkg:
-            if self.is_root:
-                # fetch the compiler immediately from root settings
-                self.config.get_preferred_compiler_paths()
+        if not loaded_from_pkg and self.is_root:
+            # fetch the compiler immediately from root settings
+            self.config.get_preferred_compiler_paths()
 
         build = False
         if conf.build or conf.update:
-            build = self._should_build(conf, target, is_target, git_changed)
+            build = self._should_build(conf, target, is_target, git_changed, loaded_from_pkg)
             if build:
                 self.create_build_dir_if_needed() # in case we just cleaned
             if git_changed:
@@ -279,11 +277,11 @@ class BuildDependency:
             console(f'  - Target {target.name: <16}')
 
 
-    def _should_build(self, conf, target, is_target, git_changed):
+    def _should_build(self, conf, target, is_target, git_changed, loaded_from_pkg):
             def build(r):
                 if conf.print:
                     args = f'{target.args}' if target.args else ''
-                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}')
+                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}', color=Color.YELLOW)
                 return True
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"
@@ -309,11 +307,12 @@ class BuildDependency:
 
             # project has not defined `nothing_to_build` which is for header-only projects
             # thus we need to check if build should execute
-            can_build = not self.nothing_to_build
+            can_build = not loaded_from_pkg and not self.nothing_to_build
             if can_build:
                 # there are no build products defined at all, it hasn't been built or downloaded
                 if not target.build_products:
-                    if not self.has_build_files(): return build('not built yet')
+                    if not self.has_build_files():
+                        return build('not built yet')
                     return build('no build dependencies')
 
                 # we have build products, and none of them are missing
@@ -330,7 +329,7 @@ class BuildDependency:
                 if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             if conf.print:
-                console(f'  - Target {target.name: <16}   OK')
+                console(f'  - Target {target.name: <16}   OK', color=Color.GREEN)
             return False # do not build, all is ok
 
 
@@ -413,11 +412,11 @@ class BuildDependency:
 
 
     def update_mamafile_tag(self):
-        return self.src_dir and update_mamafile_tag(self.mamafile_path(), self.build_dir)
+        return self.src_dir and update_mamafile_tag(self.config, self.mamafile_path(), self.build_dir)
 
 
     def update_cmakelists_tag(self):
-        return self.src_dir and update_cmakelists_tag(self.cmakelists_path(), self.build_dir)
+        return self.src_dir and update_cmakelists_tag(self.config, self.cmakelists_path(), self.build_dir)
 
 
     def build_file_exists(self, filename):

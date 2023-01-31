@@ -1,8 +1,27 @@
 import sys, subprocess
+from termcolor import colored
 
 
-## Always flush to properly support Jenkins
-def console(s): print(s, flush=True)
+class Color:
+    DEFAULT = None
+    RED = "red"
+    GREEN = "green"
+    YELLOW = "yellow"
+    BLUE = "blue"
+
+
+def get_colored_text(s, color):
+    return colored(s, color=color) if color else s
+
+
+def console(s, color=None):
+    """ Always flush to support most build environments """
+    print(get_colored_text(s, color), flush=True)
+
+
+def error(s):
+    """ Prints a message as an error, usually colored red """
+    console(s, color=Color.RED)
 
 
 is_windows = sys.platform == 'win32'

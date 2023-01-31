@@ -4,7 +4,7 @@ from typing import List
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from .util import read_text_from, save_file_if_contents_changed
-from .utils.system import console
+from .utils.system import Color, console, error
 
 
 def _get_cmake_path_list(paths):
@@ -331,8 +331,11 @@ def execute_task_chain(root: BuildDependency):
     for dep in root.get_children():
         execute_task_chain(dep)
 
+    if root.config.verbose:
+        console(f'  - Execute Tasks: {root.name}', color=Color.BLUE)
+
     if root.already_executed:
-        print(f"Critical Error: '{root.name}' executed by child project")
+        error(f"Critical Error: '{root.name}' executed by child project")
         raise RuntimeError(f"Cyclical Dependency detected for '{root.name}'")
 
     _save_mama_cmake_and_dependencies_cmake(root)

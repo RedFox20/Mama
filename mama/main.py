@@ -2,7 +2,7 @@
 import sys, os
 
 from .types.local_source import LocalSource
-from .utils.system import console
+from .utils.system import Color, console
 from .utils.sub_process import execute
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
@@ -213,6 +213,8 @@ def main():
     if config.raspi:   config.init_raspi_path()
     if config.oclea:   config.init_oclea_path()
 
+    if config.verbose:
+        console(f'Executing task chain for build:', Color.BLUE)
     execute_task_chain(root)
 
     if config.open:

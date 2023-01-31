@@ -8,11 +8,11 @@ class ArtifactoryPkg(DepSource):
         super(ArtifactoryPkg, self).__init__(name)
         self.is_pkg = True
         if fullname:
-            self.fullname = fullname
+            self.fullname = fullname  # full name of the archive to use
             self.version = ''
         else:
             self.fullname = ''
-            self.version = version
+            self.version = version  # version name of the archive to use
 
 
     def __str__(self):  return f'DepSource ArtifactoryPkg {self.name} {self.fullname if self.fullname else self.version}'
