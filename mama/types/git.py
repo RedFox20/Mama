@@ -71,8 +71,8 @@ class Git(DepSource):
             self.commit_hash = self.init_commit_hash(dep, use_cache=use_cache, fetch_remote=True)
         return self.commit_hash
 
-
-    def get_current_repository_commit(self, dep: BuildDependency):
+    @staticmethod
+    def get_current_repository_commit(dep: BuildDependency):
         """ Assuming {src_dir}/.git exists, this will get the repository commit short hash """
         result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=dep.src_dir)
         if dep.config.verbose:
@@ -103,7 +103,7 @@ class Git(DepSource):
 
         # is this a git repository? we can get the current commit from that
         if os.path.exists(f'{dep.src_dir}/.git'):
-            result = self.get_current_repository_commit(dep)
+            result = Git.get_current_repository_commit(dep)
             if not result:
                 error(f'    {self.name}  invalid git repository at {dep.src_dir}')
             return result

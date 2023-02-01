@@ -26,8 +26,8 @@ def artifactory_archive_name(target:BuildTarget):
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
-    # LocalSource has no archive name
-    if p.is_src:
+    # LocalSource has no archive name, except for ROOT packages
+    if p.is_src and not target.dep.is_root:
         return None
 
     # if this is an ArtifactoryPkg with full name of the archive
@@ -36,7 +36,11 @@ def artifactory_archive_name(target:BuildTarget):
 
     # automatically build name of the package
     version = ''
-    if p.is_pkg:
+    if target.dep.is_root:
+        version = Git.get_current_repository_commit(target.dep)
+        if not version:
+            return None # nothing to do at this point
+    elif p.is_pkg:
         version = p.version
     elif p.is_git:
         git:Git = p
