@@ -259,7 +259,8 @@ class BuildDependency:
 
     def load_artifactory_package(self, target):
         # don't load anything during cleaning, because it will get cleaned anyways
-        load_art = not self.config.clean and \
+        can_load = self.config.rebuild or not self.config.clean
+        load_art = can_load and \
             (self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build())
         if load_art:
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
