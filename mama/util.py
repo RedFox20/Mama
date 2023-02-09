@@ -289,8 +289,12 @@ def unzip(local_zip, extract_dir):
         # to avoid unnecessarily modifying files and causing full rebuilds
         # so overwrite the modified time with the zip member time
         for i in range(len(members_to_extract)):
-            mtime = get_zipinfo_datetime(members_to_extract[i]).timestamp()
+            info: zipfile.ZipInfo = members_to_extract[i]
+            mtime = get_zipinfo_datetime(info).timestamp()
             os.utime(extracted_filenames[i], times=(mtime, mtime))
+            # also set the correct file permissions
+            perm = ((info.external_attr >> 16) & 0o777)
+            os.chmod(extracted_filenames[i], perm)
 
         return len(members_to_extract)
 
