@@ -61,7 +61,6 @@ class BuildTarget:
         self.install_target = 'install'
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
-        self.cmake_oclea_toolchain = '' # Custom Oclea toolchain file for this target only
         self.cmake_ios_toolchain   = '' # Custom iOS toolchain file for this target only
         self.cmake_opts       = []
         self.cmake_cxxflags   = dict()

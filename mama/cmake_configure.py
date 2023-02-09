@@ -165,9 +165,7 @@ def _default_options(target:BuildTarget):
         for path in config.raspi_includes():
             add_flag(f'-I {path}')
     elif config.oclea:
-        add_flag('--sysroot', config.oclea_sysroot())
-        for path in config.oclea_includes():
-            add_flag(f'-I {path}')
+        config.oclea.get_cxx_flags(add_flag)
 
     if config.flags:
         add_flag(config.flags)
@@ -236,19 +234,7 @@ def _default_options(target:BuildTarget):
             if config.print: console(f'Toolchain: {toolchain}')
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     elif config.oclea:
-        opt += [
-            'OCLEA=TRUE',
-            'CMAKE_SYSTEM_NAME=Linux',
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSTEM_PROCESSOR=arm64',
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-        ]
-        if target.cmake_oclea_toolchain:
-            toolchain = target.source_dir(target.cmake_oclea_toolchain)
-            if config.print: console(f'Toolchain: {toolchain}')
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
+        opt += config.oclea.get_cmake_build_opts()
     elif config.macos:
         pass
     elif config.ios:

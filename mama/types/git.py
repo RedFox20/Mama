@@ -207,14 +207,14 @@ class Git(DepSource):
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
-                console(f"  - Target {dep.name: <16}   CLONE because src is missing")
+                console(f"  - Target {dep.name: <16}   CLONE because src is missing", color=Color.BLUE)
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
             execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {dep.src_dir}", dep.config.verbose)
             self.checkout_current_branch(dep)
         else:
             if dep.config.print:
-                console(f"  - Pulling {dep.name: <16}  SCM change detected")
+                console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             self.checkout_current_branch(dep)
             execute("git submodule update --init --recursive")
             if not self.tag: # pull if not a tag
@@ -249,6 +249,8 @@ class Git(DepSource):
             # mama build target=ReCpp   -- should NOT pull
             non_update_target = is_target and not config.update
             if non_update_target or not changed:
+                if config.verbose:
+                    console(f'    {self.name} git no changes detected and update not specified', color=Color.YELLOW)
                 return False
 
         self.clone_or_pull(dep, wiped)
