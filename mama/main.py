@@ -209,9 +209,9 @@ def main():
                 target.print_exports(abs_paths=True)
         return
 
-    if config.android: config.init_ndk_path()
-    if config.raspi:   config.init_raspi_path()
-    if config.oclea:   config.init_oclea_path()
+    if config.android: config.android_home()
+    if config.raspi:   config.raspi_bin()
+    if config.oclea:   config.oclea.bin()
 
     if config.verbose:
         console(f'Executing task chain for build:', Color.BLUE)

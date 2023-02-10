@@ -1,4 +1,5 @@
 import os, sys, multiprocessing, tempfile
+from mama.platforms.oclea import Oclea
 import mama.util as util
 from .utils.system import System, console
 from .utils.sub_process import execute, execute_piped
@@ -38,7 +39,7 @@ class BuildConfig:
         self.ios     = False
         self.android = False
         self.raspi   = False
-        self.oclea    = False
+        self.oclea : Oclea = None
         # compilers
         self.clang = True # prefer clang on linux
         self.gcc   = False
@@ -85,10 +86,6 @@ class BuildConfig:
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
         self.raspi_include_paths = [] ## path to additional Raspberry include dirs
-        ## Oclea CV25/CVXX
-        self.oclea_compilers = ''  ## Oclea g++, gcc and ld
-        self.oclea_system    = ''  ## Path to Oclea system libraries
-        self.oclea_include_paths = []  ## Path to additional Oclea include dirs
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -208,7 +205,8 @@ class BuildConfig:
         self.ios     = ios
         self.android = android
         self.raspi   = raspi
-        self.oclea   = oclea
+        if not oclea: self.oclea = None
+        elif not self.oclea: self.oclea = Oclea(self)
         return True
 
 
@@ -405,11 +403,11 @@ class BuildConfig:
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            self.cxx_version = self._get_gcc_clang_version(self.cc_path)
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path)
         elif self.oclea:
-            self.cc_path  = f'{self.oclea_bin()}aarch64-oclea-linux-gcc'
-            self.cxx_path = f'{self.oclea_bin()}aarch64-oclea-linux-g++'
-            self.cxx_version = self._get_gcc_clang_version(self.cc_path)
+            self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
+            self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path)
         elif self.clang:
             suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
             self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes)
@@ -486,36 +484,6 @@ class BuildConfig:
     def android_ndk(self):
         if not self.android_ndk_path: self.init_ndk_path()
         return self.android_ndk_path
-    
-
-    def raspi_bin(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_compilers
-
-
-    def raspi_sysroot(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_system
-
-    
-    def raspi_includes(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_include_paths
-    
-
-    def oclea_bin(self):
-        if not self.oclea_compilers: self.init_oclea_path()
-        return self.oclea_compilers
-
-
-    def oclea_sysroot(self):
-        if not self.oclea_compilers: self.init_oclea_path()
-        return self.oclea_system
-
-    
-    def oclea_includes(self):
-        if not self.oclea_compilers: self.init_oclea_path()
-        return self.oclea_include_paths
 
 
     def init_ndk_path(self):
@@ -535,6 +503,21 @@ class BuildConfig:
         raise EnvironmentError(f'''Could not detect any Android NDK installations. 
 Default search paths: {paths} 
 Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/ndk-bundle.''')
+
+
+    def raspi_bin(self):
+        if not self.raspi_compilers: self.init_raspi_path()
+        return self.raspi_compilers
+
+
+    def raspi_sysroot(self):
+        if not self.raspi_compilers: self.init_raspi_path()
+        return self.raspi_system
+
+    
+    def raspi_includes(self):
+        if not self.raspi_compilers: self.init_raspi_path()
+        return self.raspi_include_paths
 
 
     def init_raspi_path(self):
@@ -560,24 +543,16 @@ Default search paths: {paths}
 Define env RASPI_HOME with path to Raspberry tools.''')
 
 
-    def init_oclea_path(self):
-        if not System.linux: raise RuntimeError('Oclea only supported on Linux')
-        paths = []
-        self.append_env_path(paths, 'OCLEA_HOME')
-        self.append_env_path(paths, 'OCLEA_SDK')
-        if System.linux: paths += ['/usr/bin/oclea', '/usr/local/bin/oclea']
-        compiler = ''
-        if System.linux: compiler = 'x86_64-ocleasdk-linux/usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc'
-        for oclea_path in paths:
-            if os.path.exists(f'{oclea_path}/{compiler}'):
-                self.oclea_compilers = f'{oclea_path}/x86_64-ocleasdk-linux/usr/bin/aarch64-oclea-linux/'
-                self.oclea_system    = f'{oclea_path}/x86_64-ocleasdk-linux/usr/lib'
-                self.oclea_include_paths = [f'{oclea_path}/aarch64-oclea-linux/usr/include']
-                if self.print: console(f'Found Oclea TOOLS: {self.oclea_compilers}\n    sysroot: {self.oclea_system}')
-                return
-        raise EnvironmentError(f'''No Oclea toolchain compilers detected! 
-Default search paths: {paths} 
-Define env OCLEA_HOME with path to Oclea tools.''')
+    def set_oclea_toolchain(self, toolchain_dir):
+        """
+        Sets the oclea toolchain root directory, where
+        aarch64-oclea-linux/
+        x86_64-ocleasdk-linux/
+        directories exist.
+        """
+        if not os.path.exists(toolchain_dir):
+            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
+        self.oclea.init_oclea_path(toolchain_dir)
 
 
     def find_default_fortran_compiler(self):
