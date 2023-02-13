@@ -86,6 +86,7 @@ Define env OCLEA_HOME with path to Oclea tools.''')
 
     def get_cmake_build_opts(self) -> list:
         opt = [
+            'OCLEA=TRUE',
             'CMAKE_SYSTEM_NAME=Linux',
             'CMAKE_SYSTEM_VERSION=1',
             'CMAKE_SYSTEM_PROCESSOR=arm64',
