@@ -132,7 +132,7 @@ def artifactory_sanitize_url(url):
     return url.replace('ftp://', '').replace('http://','').replace('https://','')
 
 
-def artifactory_upload(ftp:ftplib.FTP_TLS, file_path:str):
+def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
     size = os.path.getsize(file_path)
     transferred = 0
     lastpercent = 0
@@ -148,6 +148,12 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, file_path:str):
                 right = ' ' * int(50 - n)
                 print(f'\r    |{left}>{right}| {percent:>3} %', end='')
         print(f'    |>{" ":50}| {0:>3} %', end='')
+        # chdir into FTP_ROOT/target_name/
+        try:
+            ftp.cwd(target_name)
+        except:
+            ftp.mkd(target_name) # create subdirectory if needed
+            ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
         print(f'\r    |{"="*50}>| 100 %')
 
@@ -172,7 +178,7 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
             if config.if_needed and artifact_already_exists(ftp, file_path):
                 if config.verbose: console(f'  - Artifactory Upload skipped: artifact already exists')
                 return False # skip upload
-            artifactory_upload(ftp, file_path)
+            artifactory_upload(ftp, target.name, file_path)
             return True
         except:
             traceback.print_exc()
@@ -244,7 +250,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
 
 
 def _fetch_package(target:BuildTarget, url, archive, build_dir):
-    remote_file = f'http://{url}/{archive}.zip'
+    remote_file = f'http://{url}/{target.name}/{archive}.zip'
     try:
         return download_file(remote_file, build_dir, force=True, 
                              message=f'    Artifactory fetch {url}/{archive} ')
