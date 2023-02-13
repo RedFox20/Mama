@@ -258,6 +258,7 @@ class BuildDependency:
 
 
     def load_artifactory_package(self, target):
+        # always load during rebuild
         # don't load anything during cleaning, because it will get cleaned anyways
         can_load = self.config.rebuild or not self.config.clean
         load_art = can_load and \
@@ -487,7 +488,7 @@ class BuildDependency:
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
-        
+
         self.target.clean() # Customization point
         shutil.rmtree(self.build_dir, ignore_errors=True)
 
