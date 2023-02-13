@@ -1,6 +1,5 @@
-import os, sys, shutil, random, pathlib, ssl, zipfile
-from typing import List
-import time
+import os, stat, shutil, random, pathlib, ssl, zipfile, time
+from typing import List, Tuple
 from .utils.system import System, console
 from .utils.sub_process import execute
 from urllib import request
@@ -248,55 +247,66 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
     return local_file
 
 
-def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
-    zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
-    return datetime(zt[0], zt[1], zt[2], zt[3], zt[4], zt[5], tzinfo=timezone.utc)
-
-
-def unzip(local_zip, extract_dir):
+def unzip(local_zip, extract_dir, pwd=None):
     """
-    Attempts to unzip an archive, throws on failure
-    Returns # of files actually extracted
+    Attempts to unzip an archive, throws on failure.
+    Only extracts the files if their current size or modified time mismatches.
+    Always sets modified time from the zipfile info.
+    Preserves symlinks. And sets the correct file permission attributes.
+    Returns # of files actually extracted.
     """
+    def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
+        zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
+        return datetime(zt[0], zt[1], zt[2], zt[3], zt[4], zt[5], tzinfo=timezone.utc)
+
+    def has_file_changed(zipmember: zipfile.ZipInfo):
+        st: os.stat_result = None
+        try:
+            st = os.stat(dst_path, follow_symlinks=False)
+            if st.st_size != zipmember.file_size:
+                return True
+            dst_mtime: datetime = datetime.fromtimestamp(st.st_mtime, timezone.utc)
+            src_mtime = get_zipinfo_datetime(zipmember)
+            if dst_mtime != src_mtime:
+                return True
+        except (OSError, ValueError):
+            return True # does not exist
+        return False
+
+    def set_file_attributes(zipmember: zipfile.ZipInfo, dst_path):
+        # set the correct file permissions
+        perm = stat.S_IMODE(zipmember.external_attr >> 16)
+        os.chmod(dst_path, perm)
+        # always set the modification date from the zipmember timestamp,
+        # this way we can avoid unnecessarily modifying files and causing full rebuilds
+        mtime = get_zipinfo_datetime(zipmember).timestamp()
+        os.utime(dst_path, times=(mtime, mtime))
+
+    symlinks: List[Tuple[zipfile.ZipInfo, str]] = []
+
     with zipfile.ZipFile(local_zip, "r") as zip:
-        members_to_extract: List[zipfile.ZipInfo] = []
-        extracted_filenames: List[str] = []
-
+        num_unzipped = 0
         for zipmember in zip.infolist():
-            if zipmember.is_dir():
+            dst_path = os.path.normpath(os.path.join(extract_dir, zipmember.filename))
+            mode = zipmember.external_attr >> 16
+            #print(f'{zipmember.filename} S_IMODE={stat.S_IMODE(mode):0o} S_IFMT={stat.S_IFMT(mode):0o}')
+            if stat.S_ISLNK(mode): # symlinks are resolved in the last step
+                symlinks.append((zipmember, dst_path))
                 continue
-            dst_path: str = path_join(extract_dir, zipmember.filename)
-            st: os.stat_result = None
-            changed = False
-            try:
-                st = os.stat(dst_path)
-                if st.st_size != zipmember.file_size:
-                    changed = True
-                else:
-                    dst_mtime: datetime = datetime.fromtimestamp(st.st_mtime, timezone.utc)
-                    src_mtime = get_zipinfo_datetime(zipmember)
-                    if dst_mtime != src_mtime:
-                        changed = True
-            except (OSError, ValueError):
-                changed = True # does not exist
-            if changed:
-                members_to_extract.append(zipmember)
-                extracted_filenames.append(dst_path)
-
-        zip.extractall(extract_dir, members=members_to_extract)
-
-        # extractall will set time.now() for the modified time, but we need to keep track of it between unpacks
-        # to avoid unnecessarily modifying files and causing full rebuilds
-        # so overwrite the modified time with the zip member time
-        for i in range(len(members_to_extract)):
-            info: zipfile.ZipInfo = members_to_extract[i]
-            mtime = get_zipinfo_datetime(info).timestamp()
-            os.utime(extracted_filenames[i], times=(mtime, mtime))
-            # also set the correct file permissions
-            perm = ((info.external_attr >> 16) & 0o777)
-            os.chmod(extracted_filenames[i], perm)
-
-        return len(members_to_extract)
+            if zipmember.is_dir():  # make dirs if needed
+                if not os.path.isdir(dst_path):
+                    os.makedirs(dst_path, exist_ok=True)
+            elif has_file_changed(zipmember):  # only extract if file appears to be modified
+                num_unzipped += 1
+                with zip.open(zipmember, pwd=pwd) as src, open(dst_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                set_file_attributes(zipmember, dst_path)
+        # make the links
+        for zipmember, symlink_linkfile in symlinks:
+            target = zip.read(zipmember, pwd=pwd).decode('utf-8')
+            print(f'symlink {zipmember.filename} --> {target}')
+            os.symlink(target, symlink_linkfile, target_is_directory=zipmember.is_dir())
+        return num_unzipped
 
 
 def try_unzip(local_file:str, build_dir:str) -> bool:
