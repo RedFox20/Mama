@@ -265,6 +265,7 @@ elseif(RASPI)
         {get_build_dir_defines(c.build_dir_raspi32())}
 elseif(OCLEA)
         set(MAMA_ARCH_ARM64 TRUE)
+        add_compile_definitions(OCLEA=1)
         {get_build_dir_defines(c.build_dir_oclea64())}
 elseif(UNIX)
     set(LINUX TRUE)
