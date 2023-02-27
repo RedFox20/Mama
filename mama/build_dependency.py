@@ -266,7 +266,7 @@ class BuildDependency:
                 console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
             return False
 
-        if not force_art:
+        if is_target and not force_art:
             # don't load during rebuild -- defer to source based builds in that case
             if self.config.rebuild: return noart('target rebuild')
             # don't load anything during cleaning -- because it will get cleaned anyways
@@ -280,10 +280,8 @@ class BuildDependency:
         should_load = self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build()
         is_force_art_target = not self.is_root and self.config.force_artifactory \
                               and self.config.target_matches(target.name)
-        can_load = is_force_art_target or should_load
-        if can_load and not self.can_fetch_artifactory(target, print=True, which='LOAD'):
-            return False
-        if can_load:
+        can_load = should_load and is_force_art_target
+        if can_load and self.can_fetch_artifactory(target, print=True, which='LOAD'):
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
                 for dep_name in dependencies:
