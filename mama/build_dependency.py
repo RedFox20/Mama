@@ -257,32 +257,33 @@ class BuildDependency:
         return build
 
 
-    def can_fetch_artifactory(self, target:BuildTarget, print):
+    def can_fetch_artifactory(self, target:BuildTarget, print, which):
         force_art = self.config.force_artifactory
         is_target = self.config.target_matches(target.name)
 
         def noart(r):
             if print and (self.config.print or force_art):
-                console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{r}]', color=Color.YELLOW)
+                console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
             return False
 
-        # target specific checks
-        if is_target and not force_art:
+        if not force_art:
             # don't load during rebuild -- defer to source based builds in that case
             if self.config.rebuild: return noart('target rebuild')
             # don't load anything during cleaning -- because it will get cleaned anyways
             if self.config.clean: return noart('target clean')
         elif print and (self.config.verbose or force_art):
-            console(f'  - Target {target.name: <16}   FETCH ARTIFACTORY PKG', color=Color.YELLOW)
+            console(f'  - Target {target.name: <16}   FETCH ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
 
         return True
 
     def load_artifactory_package(self, target:BuildTarget):
-        if not self.can_fetch_artifactory(target, print=True):
-            return False
+        should_load = self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build()
         is_force_art_target = not self.is_root and self.config.force_artifactory \
                               and self.config.target_matches(target.name)
-        if is_force_art_target or self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build():
+        can_load = is_force_art_target or should_load
+        if can_load and not self.can_fetch_artifactory(target, print=True, which='LOAD'):
+            return False
+        if can_load:
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
                 for dep_name in dependencies:

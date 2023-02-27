@@ -1189,7 +1189,7 @@ class BuildTarget:
 
 
     def try_automatic_artifactory_fetch(self):
-        if not self.dep.can_fetch_artifactory(self, print=False):
+        if not self.dep.can_fetch_artifactory(self, print=True, which='AUTO'):
             return None
 
         # auto-fetch if:
