@@ -1189,13 +1189,17 @@ class BuildTarget:
 
 
     def try_automatic_artifactory_fetch(self):
-        is_deploy = self.config.deploy or self.config.upload
-        is_target = not self.config.rebuild and self.is_current_target()
+        if not self.dep.can_fetch_artifactory(self, print=False):
+            return None
+
         # auto-fetch if:
-        # - not a deploy task
-        # - not the current build target eg `mama build this_target`
         # - is not the root project, roots should never be fetched
-        if not is_deploy and not is_target and not self.dep.is_root:
+        # - not a deploy/upload task
+        # - not the current build target eg `mama build this_target`
+        is_target = not self.dep.is_root and self.is_current_target()
+        is_deploy = self.config.deploy or self.config.upload
+        is_build = self.config.build
+        if is_target and not is_deploy and not is_build:
             fetched, _ = artifactory_fetch_and_reconfigure(self) # this will reconfigure packaging
             return fetched
         return None

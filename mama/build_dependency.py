@@ -257,13 +257,32 @@ class BuildDependency:
         return build
 
 
-    def load_artifactory_package(self, target):
-        # don't load during rebuild -- defer to source based builds in that case
-        # don't load anything during cleaning -- because it will get cleaned anyways
-        can_load = not self.config.rebuild or not self.config.clean
-        load_art = can_load and \
-            (self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build())
-        if load_art:
+    def can_fetch_artifactory(self, target:BuildTarget, print):
+        force_art = self.config.force_artifactory
+        is_target = self.config.target_matches(target.name)
+
+        def noart(r):
+            if print and (self.config.print or force_art):
+                console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{r}]', color=Color.YELLOW)
+            return False
+
+        # target specific checks
+        if is_target and not force_art:
+            # don't load during rebuild -- defer to source based builds in that case
+            if self.config.rebuild: return noart('target rebuild')
+            # don't load anything during cleaning -- because it will get cleaned anyways
+            if self.config.clean: return noart('target clean')
+        elif print and (self.config.verbose or force_art):
+            console(f'  - Target {target.name: <16}   FETCH ARTIFACTORY PKG', color=Color.YELLOW)
+
+        return True
+
+    def load_artifactory_package(self, target:BuildTarget):
+        if not self.can_fetch_artifactory(target, print=True):
+            return False
+        is_force_art_target = not self.is_root and self.config.force_artifactory \
+                              and self.config.target_matches(target.name)
+        if is_force_art_target or self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build():
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
                 for dep_name in dependencies:
@@ -271,6 +290,8 @@ class BuildDependency:
                 return True
             elif self.dep_source.is_pkg:
                 raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg {self.dep_source}')
+        if is_force_art_target:
+            raise RuntimeError(f'  - Target {target.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
         return False
 
 

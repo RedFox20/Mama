@@ -255,7 +255,7 @@ def _fetch_package(target:BuildTarget, url, archive, build_dir):
         return download_file(remote_file, build_dir, force=True, 
                              message=f'    Artifactory fetch {url}/{archive} ')
     except Exception as e:
-        if target.config.verbose:
+        if target.config.verbose or target.config.force_artifactory:
             error(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
 
         d:DepSource = target.dep.dep_source

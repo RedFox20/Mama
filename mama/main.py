@@ -29,6 +29,7 @@ def print_usage():
     console('    wipe       - alias of reclone')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
+    console('    art        - always fetch pkgs from artifactory, failure will throw an error')
     console('    test       - run tests for main project or specific target')
     console('    start=arg  - start a specific tool via mamafile.start(args)')
     console('    add        - add new dependency')
