@@ -340,11 +340,17 @@ def download_and_unzip(remote_file, extract_dir, local_file):
 
 
 def _should_copy(src, dst):
-    if not os.path.exists(dst):
-        return True
+    src_stat = None
+    try:
+        src_stat = os.stat(src)
+    except (OSError, ValueError):
+        return False # does not exist, nothing to copy
 
-    src_stat = os.stat(src)
-    dst_stat = os.stat(dst)
+    dst_stat = None
+    try:
+        dst_stat = os.stat(dst)
+    except (OSError, ValueError):
+        return True # dst doesn't exist, definitely need to copy it
 
     if src_stat.st_size != dst_stat.st_size:
         #console(f'_should_copy true src.size != dst.size\n┌──{src}\n└─>{dst}')
