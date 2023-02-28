@@ -546,16 +546,21 @@ Default search paths: {paths}
 Define env RASPI_HOME with path to Raspberry tools.''')
 
 
-    def set_oclea_toolchain(self, toolchain_dir):
+    def set_oclea_toolchain(self, toolchain_dir, toolchain_file=None):
         """
-        Sets the oclea toolchain root directory, where
-        aarch64-oclea-linux/
-        x86_64-ocleasdk-linux/
-        directories exist.
+        Sets the toolchain file where these dirs exist:
+            aarch64-oclea-linux/
+            x86_64-ocleasdk-linux/
+        And optionally also sets the CMake toolchain file via `toolchain_dir`
         """
         if not os.path.exists(toolchain_dir):
             raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
-        self.oclea.init_oclea_path(toolchain_dir)
+        if toolchain_file:
+            if not os.path.exists(toolchain_file):
+                raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
+            self.oclea.init_oclea_toolchain_file(toolchain_file, toolchain_dir)
+        else:
+            self.oclea.init_oclea_path(toolchain_dir)
 
 
     def find_default_fortran_compiler(self):

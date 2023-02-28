@@ -7,6 +7,7 @@ class Oclea:
     def __init__(self, config):
         ## Oclea CV25/CVXX
         self.config = config
+        self.toolchain_file = None  ## for Docker based build, this is the aarch64_toolchain.cmake
         self.compilers = ''  ## Oclea g++, gcc and ld
         self.sdk_path = ''  ## Path to Oclea SDK libs root
         self.sysroot_path = ''  ## Path to Oclea system libs root
@@ -41,6 +42,11 @@ class Oclea:
     def append_env_path(self, paths, env):
         path = os.getenv(env)
         if path: paths.append(path)
+
+    
+    def init_oclea_toolchain_file(self, toolchain_file, toolchain_dir):
+        self.toolchain_file = toolchain_file
+        self.init_oclea_path(toolchain_dir)
 
 
     def init_oclea_path(self, toolchain_dir=None):
@@ -86,6 +92,13 @@ Define env OCLEA_HOME with path to Oclea tools.''')
 
 
     def get_cmake_build_opts(self) -> list:
+        if self.toolchain_file:
+            if self.config.print:
+                console(f'Toolchain: {self.toolchain_file}')
+            return [
+                'OCLEA=TRUE',
+                f'CMAKE_TOOLCHAIN_FILE="{self.toolchain_file}"'
+            ]
         opt = [
             'OCLEA=TRUE',
             'CMAKE_SYSTEM_NAME=Linux',
