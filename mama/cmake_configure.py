@@ -60,7 +60,9 @@ def run_config(target:BuildTarget):
     cmake_flags = get_flags()
     generator = _generator(target)
     src_dir = target.source_dir()
-    cmd = f'cmake {generator} {cmake_flags} -DCMAKE_INSTALL_PREFIX="." "{src_dir}"'
+    # use install prefix override for libraries, but for root target, leave it open-ended
+    install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
+    cmd = f'cmake {generator} {cmake_flags} {install_prefix} "{src_dir}"'
     _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
