@@ -178,3 +178,19 @@ def execute_echo(cwd, cmd):
         raise
     if exit_status != 0:
         raise Exception(f'Execute {cmd} failed with error: {exit_status}')
+
+
+def execute_piped_echo(cwd, cmd, echo=True):
+    """ Wrapper around SubProcess.run(), returns status code with piped output (status, output). """
+    try:
+        exit_status = -1
+        output = ''
+        def handle_output(line:str):
+            nonlocal output
+            if echo: print(line) # newline is not included
+            output += line
+            output += '\n'
+        exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
+        return (exit_status, output)
+    except Exception as e:
+        return (-1, f'{output}{e}')

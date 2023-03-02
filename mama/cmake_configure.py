@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
-from .utils.system import System, console
-from .utils.sub_process import SubProcess, execute
+from .utils.system import System, console, Color
+from .utils.sub_process import SubProcess, execute, execute_piped_echo
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -67,11 +67,31 @@ def run_config(target:BuildTarget):
     _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
-def run_build(target:BuildTarget, install:bool, extraflags=''):
+def is_rerunnable_error(output:str):
+    """ Checks output string if a rerunnable error occurred. 
+        These are non-fatal errors that disappear with a simple cmake configure. """
+    return 'Makefile: No such file or directory' in output
+
+
+def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)
-    execute(f'cmake --build {build_dir} {flags} {extraflags}', echo=target.config.verbose)
+    cmd = f'cmake --build {build_dir} {flags} {extraflags}'
+    if target.config.verbose:
+        console(cmd, color=Color.GREEN)
+    status, output = execute_piped_echo(build_dir, cmd, echo=True)
+    if status != 0:
+        if rerun and is_rerunnable_error(output):
+            if target.config.verbose:
+                console(f'Build {target.name} failed, attempting to rerun config', color=Color.GREEN)
+            cmake_cache = target.build_dir('CMakeCache.txt')
+            if os.path.exists(cmake_cache):
+                os.remove(cmake_cache)
+            run_config(target)
+            run_build(target, install, extraflags, rerun=False)
+        else:
+            raise Exception(f'{cmd} failed with return code {status}')
 
 
 def _generator(target:BuildTarget):
