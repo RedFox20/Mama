@@ -1,4 +1,4 @@
-import os, sys, multiprocessing, tempfile
+import os, sys, multiprocessing, tempfile, platform
 from mama.platforms.oclea import Oclea
 import mama.util as util
 from .utils.system import System, console
@@ -60,6 +60,7 @@ class BuildConfig:
         self.debug   = False
         # valid architectures: x86, x64, arm, arm64
         self.arch    = None
+        self.distro  = None  # distro information (name, major, minor)
         self.jobs    = multiprocessing.cpu_count()
         self.target  = None
         self.flags   = None
@@ -244,6 +245,41 @@ class BuildConfig:
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
             if self.oclea and self.arch != 'arm64':
                 raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
+
+
+    def get_distro_info(self):
+        if self.distro:
+            return self.distro
+        if self.windows:
+            version = platform.version().split('.') + ['0']
+            self.distro = (self.name(), int(version[0]), int(version[1]))
+        elif self.macos:
+            version = self.macos_version.split('.') + ['0']
+            self.distro = (self.name(), int(version[0]), int(version[1]))
+        elif self.ios:
+            version = self.ios_version.split('.') + ['0']
+            self.distro = (self.name(), int(version[0]), int(version[1]))
+        elif self.android:
+            version = self.android_api.split('-')[1]
+            self.distro = (self.name(), int(version), 0)
+        elif self.raspi:
+            # TODO: RASPI version
+            self.distro = (self.name(), 0, 0)
+        elif self.oclea:
+            # TODO: OCLEA version
+            self.distro = (self.name(), 0, 0)
+        elif self.linux:
+            try:
+                dist = distro.info()
+                major = int(dist['version_parts']['major'])
+                minor = int(dist['version_parts']['minor'])
+                self.distro = (dist['id'], major, minor)
+            except Exception as err:
+                console(f'Failed to parse linux distro; falling back to Ubuntu 16.04 LTS: {err}', color='red')
+                self.distro = ('ubuntu', 16, 4)
+        else:
+            self.distro = (platform.system().lower(), int(platform.release()), 0)
+        return self.distro
 
 
     def set_arch(self, arch):
@@ -441,9 +477,10 @@ class BuildConfig:
             return f'msvc{version}'
         elif self.linux or self.raspi or self.oclea:
             cc, _, version = self.get_preferred_compiler_paths()
-            major_version = version.split('.')[0]
-            if 'gcc' in cc: return f'gcc{major_version}'
-            if 'clang' in cc: return f'clang{major_version}'
+            version_parts = version.split('.')
+            major_version, minor_version = version_parts[0], version_parts[1]
+            if 'gcc' in cc: return f'gcc{major_version}.{minor_version}'
+            if 'clang' in cc: return f'clang{major_version}.{minor_version}'
             raise EnvironmentError(f'Unrecognized compiler {cc}!')
         elif self.macos:
             return self.macos_version
@@ -702,40 +739,27 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def install_clang6(self):
         if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
-        
-        suffix = '1404'
-        try:
-            dist = distro.info()
-            if dist['id'] != "ubuntu": raise OSError('install_clang6 only supports Ubuntu')
-            majorVersion = int(dist['version_parts']['major'])
-            if majorVersion >= 16:
-                suffix = '1604'
-            console(f'Choosing {suffix} for kernel major={majorVersion}')
-        except Exception as err:
-            console(f'Failed to parse linux distro; falling back to {suffix}: {err}')
 
+        id, major, _ = self.get_distro_info()
+        if id != "ubuntu": raise OSError('install_clang6 only supports ubuntu')
+        suffix = '1404'
+        if major >= 16: suffix = '1604'
+
+        console(f'Choosing {suffix} for kernel major={major}')
         self.install_clang(clang_major='6', clang_ver='6.0', suffix=suffix)
 
 
     def install_clang11(self):
         if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
-        
+
+        id, major, minor = self.get_distro_info()
+        if id != "ubuntu": raise OSError('install_clang11 only supports ubuntu')
         suffix = '1604'
-        try:
-            dist = distro.info()
-            if dist['id'] != "ubuntu": raise OSError('install_clang11 only supports Ubuntu')
-            majorVersion = int(dist['version_parts']['major'])
-            minorVersion = int(dist['version_parts']['minor'])
-            if majorVersion >= 20 and minorVersion >= 10:
-                suffix = '2010'
-            elif majorVersion >= 20:
-                suffix = '2004'
-            elif majorVersion >= 16:
-                suffix = '1604'
-            console(f'Choosing {suffix} for kernel major={majorVersion} minor={minorVersion}')
-        except Exception as err:
-            console(f'Failed to parse linux distro; falling back to {suffix}: {err}')
+        if major >= 20 and minor >= 10: suffix = '2010'
+        elif major >= 20: suffix = '2004'
+        elif major >= 16: suffix = '1604'
+        console(f'Choosing {suffix} for kernel major={major} minor={minor}')
 
         self.install_clang(clang_major='11', clang_ver='11.0', suffix=suffix)
 
@@ -763,10 +787,10 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def install_msbuild(self):
         if System.windows: raise OSError('Install Visual Studio 2019 to get MSBuild on Windows')
         if System.macos:   raise OSError('install_msbuild not implemented for macOS')
-        
-        dist = distro.info()
-        if dist['id'] != "ubuntu": raise OSError('install_msbuild only supports Ubuntu')
-        codename = dist['codename']
+
+        id, _, _ = self.get_distro_info()
+        if id != "ubuntu": raise OSError('install_msbuild only supports ubuntu')
+        codename = distro.info()['codename']
 
         execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
         execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')

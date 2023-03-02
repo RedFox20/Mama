@@ -50,12 +50,12 @@ def artifactory_archive_name(target:BuildTarget):
 
     name = target.name
     # triplets information to make this package platform unique
-    platform = target.config.name() # eg 'windows', 'linux', 'oclea'
+    platform, os_major = target.config.get_distro_info()
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
 
-    return f'{name}-{platform}-{compiler}-{arch}-{build_type}-{version}'
+    return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 
 
 keyr = None
