@@ -39,7 +39,7 @@ class BuildDependency:
         self.is_root = parent is None # Root deps are always built
         self.children: List[BuildDependency] = []
         self.product_sources = []
-        self.flattened_deps: List[BuildDependency] = [] # used for debugging
+        self.flattened_deps: List[BuildDependency] = [] # flat dependencies only, nothing else
 
         self.src_dir = None # source directory where the code is located
         self.dep_dir = None # dependency dir where platform build dirs are kept
@@ -84,6 +84,10 @@ class BuildDependency:
             self.update_dep_dir()
         else:
             raise RuntimeError(f'{self.name} src or git or pkg not configured. Specify at least one.')
+
+
+    def __str__(self): return f'BuildDependency {self.name} {self.dep_source}'
+    def __repr__(self): return f'BuildDependency {self.name} {self.dep_source}'
 
 
     @staticmethod

@@ -8,7 +8,7 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_full_flattened_deps
+from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_full_flattened_deps_names
 from .init_project import mama_init_project
 
 def print_title():
@@ -198,7 +198,7 @@ def main():
         return
 
     if config.list:
-        console(f'    Dependency List: {get_full_flattened_deps(root)}')
+        console(f'    Dependency List: {get_full_flattened_deps_names(root)}')
         if config.target:
             dep = find_dependency(root, config.target)
             if dep:
