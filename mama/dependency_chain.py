@@ -64,10 +64,9 @@ def _get_flattened_deps(root: BuildDependency):
     return ordered
 
 
-def get_full_flattened_deps_names(root: BuildDependency):
-    """ Information list of dep names """
-    deps = [root] + _get_flattened_deps(root)
-    return [dep.name for dep in deps]
+def get_flat_deps(root: BuildDependency):
+    """ Gets flat dependencies, including root """
+    return [root] + _get_flattened_deps(root)
 
 
 def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
@@ -325,46 +324,55 @@ def load_dependency_chain(root: BuildDependency):
         load_dependency(root)
 
 
-def execute_task_chain(root: BuildDependency):
-    if root.already_executed:
-        return
+def print_dependencies(root: BuildDependency):
+    names = [dep.name for dep in root.flattened_deps]
+    dep_names = " ".join(names) if root.flattened_deps else '<none>'
+    console(f'  - {root.name} Dependencies:  {dep_names}')
 
-    if not os.path.exists(_mama_cmake_path(root)):
-        _save_mama_cmake_and_dependencies_cmake(root) # save a dummy mama.cmake before build
+    all_deps = [root] + root.flattened_deps
+    libs = []
+    for dep in all_deps:
+        libs += [(dep.name, 'L', lib) for lib in dep.target.exported_libs]
+        libs += [(dep.name, 'S', lib) for lib in dep.target.exported_syslibs]
 
-    for dep in root.get_children():
-        execute_task_chain(dep)
+    if libs:
+        console(f'  - {root.name} Exported Libs:')
+        for lib in libs:
+            console(f'    {lib[0]} [{lib[1]}] {lib[2]}')
+    else:
+        console(f'  - {root.name} Exported Libs: <none>')
 
-    if root.config.verbose:
-        console(f'  - Execute Tasks: {root.name}', color=Color.BLUE)
 
-    if root.already_executed:
-        error(f"Critical Error: '{root.name}' executed by child project")
-        raise RuntimeError(f"Cyclical Dependency detected for '{root.name}'")
+def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
+    for dep in flat_deps_reverse:
+        if not os.path.exists(_mama_cmake_path(dep)):
+            _save_mama_cmake_and_dependencies_cmake(dep) # save a dummy mama.cmake before build
 
-    _save_mama_cmake_and_dependencies_cmake(root)
-    root.target._execute_tasks()
+        if dep.config.verbose:
+            console(f'  - Execute Tasks: {dep.name}', color=Color.BLUE)
 
-    # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
-    _save_vscode_compile_commands(root)
+        # validate we're not building twice
+        if dep.already_executed:
+            error(f"Critical Error: '{dep.name}' executed by child project")
+            raise RuntimeError(f"Cyclical Dependency detected for '{dep.name}'")
 
-    if root.config.verbose and root.is_root_or_config_target():
-        names = [dep.name for dep in root.flattened_deps]
-        dep_names = " ".join(names) if root.flattened_deps else '<none>'
-        console(f'  - {root.name} Dependencies:  {dep_names}')
-        
-        all_deps = [root] + root.flattened_deps
-        libs = []
-        for dep in all_deps:
-            libs += [(dep.name, 'L', lib) for lib in dep.target.exported_libs]
-            libs += [(dep.name, 'S', lib) for lib in dep.target.exported_syslibs]
+        # go through all child deps and make sure they executed
+        for c in dep.get_children():
+            if not c.already_executed:
+                error(f"Critical Error: child '{c.name}' has not been executed before executing target '{dep.name}'")
+                raise RuntimeError(f"Child target not executed before target which requires it: {c.name}")
 
-        if libs:
-            console(f'  - {root.name} Exported Libs:')
-            for lib in libs:
-                console(f'    {lib[0]} [{lib[1]}] {lib[2]}')
-        else:
-            console(f'  - {root.name} Exported Libs: <none>')
+        _save_mama_cmake_and_dependencies_cmake(dep)
+        dep.target._execute_tasks()
+
+        # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
+        _save_vscode_compile_commands(dep)
+
+        if dep.config.verbose:
+            if dep.is_root_or_config_target():
+                print_dependencies(dep)
+            else:
+                print_dependencies(dep) # TODO: different output for non-root targets
 
 
 def find_dependency(root: BuildDependency, name) -> BuildDependency:

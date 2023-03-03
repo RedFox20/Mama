@@ -8,7 +8,7 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_full_flattened_deps_names
+from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps
 from .init_project import mama_init_project
 
 def print_title():
@@ -30,6 +30,7 @@ def print_usage():
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
     console('    art        - always fetch pkgs from artifactory, failure will throw an error')
+    console('    noart      - temporarily ignore artifactory pkgs fetch')
     console('    test       - run tests for main project or specific target')
     console('    start=arg  - start a specific tool via mamafile.start(args)')
     console('    add        - add new dependency')
@@ -134,6 +135,15 @@ def check_config_target(config: BuildConfig, root: BuildDependency):
             exit(-1)
 
 
+def print_package_exports(dep: BuildDependency):
+    target:BuildTarget = dep.target
+    if dep.from_artifactory or target.try_automatic_artifactory_fetch():
+        console(f'    Target {target.name} fetched from artifactory')
+    else:
+        target.package()
+    target.print_exports(abs_paths=True)
+
+
 def main():
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
@@ -197,17 +207,14 @@ def main():
         mama_init_project(dep)
         return
 
+    flat_deps = get_flat_deps(root)
+    flat_deps_reverse = list(reversed(flat_deps))
+
     if config.list:
-        console(f'    Dependency List: {get_full_flattened_deps_names(root)}')
-        if config.target:
-            dep = find_dependency(root, config.target)
-            if dep:
-                target:BuildTarget = dep.target
-                if dep.from_artifactory or target.try_automatic_artifactory_fetch():
-                    console(f'    Target {target.name} fetched from artifactory')
-                else:
-                    target.package()
-                target.print_exports(abs_paths=True)
+        dep = find_dependency(root, config.target) if config.target else root
+        flat_deps_names = [d.name for d in flat_deps]
+        console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
+        print_package_exports(dep)
         return
 
     if config.android: config.android_home()
@@ -215,8 +222,11 @@ def main():
     if config.oclea:   config.oclea.bin()
 
     if config.verbose:
-        console(f'Executing task chain for build:', Color.BLUE)
-    execute_task_chain(root)
+        chain = ' -> '.join([d.name for d in flat_deps_reverse])
+        console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
+        print_package_exports(root)
+
+    execute_task_chain(flat_deps_reverse)
 
     if config.open:
         open_project(config, root)

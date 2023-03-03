@@ -28,6 +28,8 @@ class BuildConfig:
         self.if_needed = False
         # if `art` is specified, then artifactory download is mandatory, no source builds are done
         self.force_artifactory = False
+        # if `noart` is specified, then artifactory is temporarily ignored
+        self.disable_artifactory = False
         self.reclone   = False
         self.mama_init = False
         self.print     = True
@@ -114,6 +116,7 @@ class BuildConfig:
             elif arg == 'upload':    self.upload  = True
             elif arg == 'if_needed': self.if_needed = True
             elif arg == 'art':       self.force_artifactory = True
+            elif arg == 'noart':     self.disable_artifactory = True
             # Updates, Builds and Deploys the project as a package
             elif arg == 'serve':
                 self.build = True

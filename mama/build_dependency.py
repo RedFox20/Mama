@@ -264,6 +264,7 @@ class BuildDependency:
 
     def can_fetch_artifactory(self, target:BuildTarget, print, which):
         force_art = self.config.force_artifactory
+        disable_art = self.config.disable_artifactory
         is_target = self.config.target_matches(target.name)
 
         def noart(r):
@@ -271,13 +272,15 @@ class BuildDependency:
                 console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
             return False
 
-        if is_target and not force_art:
+        if disable_art:
+            return noart('noart override')
+        elif is_target and not force_art:
             # don't load during rebuild -- defer to source based builds in that case
             if self.config.rebuild: return noart('target rebuild')
             # don't load anything during cleaning -- because it will get cleaned anyways
             if self.config.clean: return noart('target clean')
         elif print and (self.config.verbose or force_art):
-            console(f'  - Target {target.name: <16}   FETCH ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
+            console(f'  - Target {target.name: <16}   CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
 
         return True
 
@@ -285,7 +288,7 @@ class BuildDependency:
         should_load = self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build()
         is_force_art_target = not self.is_root and self.config.force_artifactory \
                               and self.config.target_matches(target.name)
-        can_load = should_load and is_force_art_target
+        can_load = should_load or is_force_art_target
         if can_load and self.can_fetch_artifactory(target, print=True, which='LOAD'):
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
@@ -304,7 +307,7 @@ class BuildDependency:
             console(f'  - Target {target.name: <16}')
 
 
-    def _should_build(self, conf, target, is_target, git_changed, loaded_from_pkg):
+    def _should_build(self, conf:BuildConfig, target:BuildTarget, is_target, git_changed, loaded_from_pkg):
             def build(r):
                 if conf.print:
                     args = f'{target.args}' if target.args else ''
