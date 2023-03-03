@@ -158,7 +158,7 @@ class BuildTarget:
         self.config.set_artifactory_ftp(ftp_url=ftp_url, auth=auth)
 
 
-    def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[]):
+    def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[]) -> BuildDependency:
         """
         Add a local dependency. This can be a git submodule or just some local folder.
         which contains its own CMakeLists.txt.
@@ -178,11 +178,12 @@ class BuildTarget:
         self.add_local('avdecoder', 'lib/avdecoder', always_build=True)
         ```
         """
-        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
-        self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
+        if self.dep.from_artifactory: # already loaded from artifactory?
+            return self.get_dependency(name)
+        return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
-    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]):
+    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]) -> BuildDependency:
         """
         Add a remote GIT dependency.
         The dependency will be cloned and updated according to mamabuild.
@@ -201,11 +202,12 @@ class BuildTarget:
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
         ```
         """
-        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
-        self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, args))
+        if self.dep.from_artifactory: # already loaded from artifactory?
+            return self.get_dependency(name)
+        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, args))
 
 
-    def add_artifactory_pkg(self, name, version='latest', fullname=None):
+    def add_artifactory_pkg(self, name, version='latest', fullname=None) -> BuildDependency:
         """
         Adds an Artifactory only dependency.
         The dependency will be downloaded from the artifactory url.
@@ -226,11 +228,12 @@ class BuildTarget:
         self.add_artifactory_pkg('mylib', fullname='mylib-linux-x64-release-df76b66')
         ```
         """
-        if self.dep.from_artifactory: return # ignore if already loaded from artifactory
-        self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname))
+        if self.dep.from_artifactory: # already loaded from artifactory?
+            return self.get_dependency(name)
+        return self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname))
 
 
-    def get_dependency(self, name):
+    def get_dependency(self, name: str) -> BuildDependency:
         """
         Finds a child dependency by name.
         ```

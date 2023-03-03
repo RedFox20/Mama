@@ -122,6 +122,7 @@ class BuildDependency:
                                 " failed because it has already been added")
 
         self.children.append(dep)
+        return dep
 
 
     def get_children(self) -> List[BuildDependency]:
