@@ -304,7 +304,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
 
     if os.path.exists(local_file):
         if (target.is_current_target() or target.config.no_specific_target()) \
-            and not target.test:
+            and not target.config.test:
             console(f'    Artifactory cache {local_file}')
         success, deps = unzip_and_load_target(target, local_file, build_dir)
         if success: return (success, deps)

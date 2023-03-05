@@ -215,31 +215,52 @@ class BuildDependency:
         return changed
 
 
-    def _load(self):
-        self.create_build_target()  ## parses target mamafile
-        self.update_dep_dir()
+    def _load_target(self) -> BuildTarget:
+        self.create_build_target() ## parses target mamafile
+        self.update_dep_dir() ## requires target mamafile workspace
         self.create_build_dir_if_needed()
+        return self.target
 
-        if self.target.config.verbose:
+
+    def _load(self):
+        conf = self.config
+        if conf.verbose:
             console(f'  - Target {self.name: <16} LOAD ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
-        target = self.target
-        conf = self.config
-        is_target = conf.target_matches(target.name)
-        if conf.clean and is_target:
-            self.clean()
-
-        # load any build products from previous builds
-        if not self.is_root:
-            self.load_build_products(target)
+        is_target = conf.target_matches(self.name)
 
         # if this succeeds, it will overwrite products and libs
         # and sets self.from_artifactory
-        loaded_from_pkg = self.load_artifactory_package(target)
         git_changed = False
-        if not loaded_from_pkg and not self.is_root and self.dep_source.is_git:
-            git:Git = self.dep_source
-            git_changed = git.dependency_checkout(self)
+        loaded_from_pkg = False
+        should_load_art = self.should_load_artifactory()
+        if should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
+            # for artifactory which is based on Git repo
+            if not self.is_root and self.dep_source.is_git:
+                git:Git = self.dep_source
+                git_changed = git.dependency_checkout(self)
+            target = self._load_target() # load target for artifactory
+            if conf.clean and is_target:
+                self.clean() ## requires a parsed mamafile target
+            fetched, dependencies = artifactory_fetch_and_reconfigure(target)
+            if fetched:
+                for dep_name in dependencies:
+                    self.add_child(dep_name)
+                loaded_from_pkg = True
+            elif self.dep_source.is_pkg:
+                raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
+        elif should_load_art and self.is_force_art_target():
+            raise RuntimeError(f'  - Target {self.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
+        else: # non-artifactory path:
+            target = self._load_target() # load target for Git and Src
+            if conf.clean and is_target:
+                self.clean() ## requires a parsed mamafile target
+            # load any build products from previous builds
+            if not self.is_root:
+                self.load_build_products(target)
+            if not self.is_root and self.dep_source.is_git:
+                git:Git = self.dep_source
+                git_changed = git.dependency_checkout(self)
 
         if conf.verbose:
             console(f'  - Target {self.name: <16} load settings and dependencies')
@@ -248,7 +269,7 @@ class BuildDependency:
 
         if not loaded_from_pkg and self.is_root:
             # fetch the compiler immediately from root settings
-            self.config.get_preferred_compiler_paths()
+            conf.get_preferred_compiler_paths()
 
         build = False
         if conf.build or conf.update:
@@ -266,14 +287,14 @@ class BuildDependency:
         return build
 
 
-    def can_fetch_artifactory(self, target:BuildTarget, print, which):
+    def can_fetch_artifactory(self, print, which):
         force_art = self.config.force_artifactory
         disable_art = self.config.disable_artifactory
-        is_target = self.config.target_matches(target.name)
+        is_target = self.config.target_matches(self.name)
 
         def noart(r):
             if print and (self.config.print or force_art):
-                console(f'  - Target {target.name: <16}   NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
+                console(f'  - Target {self.name: <16} NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
             return False
 
         if disable_art:
@@ -284,26 +305,17 @@ class BuildDependency:
             # don't load anything during cleaning -- because it will get cleaned anyways
             if self.config.clean: return noart('target clean')
         elif print and (self.config.verbose or force_art):
-            console(f'  - Target {target.name: <16} CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
+            console(f'  - Target {self.name: <16} CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
 
         return True
 
-    def load_artifactory_package(self, target:BuildTarget):
+    def is_force_art_target(self):
+        return not self.is_root and self.config.force_artifactory and self.config.target_matches(self.name)
+    
+    def should_load_artifactory(self):
         should_load = self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build()
-        is_force_art_target = not self.is_root and self.config.force_artifactory \
-                              and self.config.target_matches(target.name)
-        can_load = should_load or is_force_art_target
-        if can_load and self.can_fetch_artifactory(target, print=True, which='LOAD'):
-            fetched, dependencies = artifactory_fetch_and_reconfigure(target)
-            if fetched:
-                for dep_name in dependencies:
-                    self.add_child(dep_name)
-                return True
-            elif self.dep_source.is_pkg:
-                raise RuntimeError(f'  - Target {target.name} failed to load artifactory pkg {self.dep_source}')
-        if is_force_art_target:
-            raise RuntimeError(f'  - Target {target.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
-        return False
+        is_force_art_target = self.is_force_art_target()
+        return should_load or is_force_art_target
 
 
     def _print_list(self, conf, target):
@@ -363,7 +375,7 @@ class BuildDependency:
                 if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
 
             if conf.print:
-                console(f'  - Target {target.name: <16}   OK', color=Color.GREEN)
+                console(f'  - Target {target.name: <16} OK', color=Color.GREEN)
             return False # do not build, all is ok
 
 
@@ -395,7 +407,10 @@ class BuildDependency:
         mamaBuildTarget = getattr(sys.modules['mama.build_target'], 'BuildTarget')
         mamaFilePath = self.mamafile_path()
         if self.config.verbose:
-            console(f'  - Target {self.name: <16} Load Mamafile: {mamaFilePath}', color=Color.BLUE)
+            exists = os.path.exists(mamaFilePath)
+            console(f'  - Target {self.name: <16} Load Mamafile: {mamaFilePath}  (Exists={exists})', color=Color.BLUE)
+            if not exists:
+                raise RuntimeError('omg')
 
         # this will load the specific `<class project(mama.build_target)>` class
         project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, mamaFilePath)
@@ -416,6 +431,8 @@ class BuildDependency:
         else:
             if not self.workspace:
                 self.workspace = 'build'
+            if self.config.verbose:
+                console(f'  - Target {self.name: <16} Using Default BuildTarget Project={project} BuildTarget={buildTarget}', color=Color.YELLOW)
             self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
 
 
@@ -519,7 +536,7 @@ class BuildDependency:
     ## Clean
     def clean(self):
         if self.config.print:
-            console(f'  - Target {self.name: <16}   CLEAN  {self.config.platform_build_dir_name()}')
+            console(f'  - Target {self.name: <16} CLEAN  {self.config.platform_build_dir_name()}')
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return
