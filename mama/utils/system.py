@@ -14,9 +14,9 @@ def get_colored_text(s, color):
     return colored(s, color=color) if color else s
 
 
-def console(s, color=None):
+def console(s, color=None, end="\n"):
     """ Always flush to support most build environments """
-    print(get_colored_text(s, color), flush=True)
+    print(get_colored_text(s, color), end=end, flush=True)
 
 
 def error(s):

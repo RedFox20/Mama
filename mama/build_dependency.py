@@ -116,6 +116,8 @@ class BuildDependency:
             # add new
             dep = BuildDependency(self, self.config, self.workspace, dep_source)
             BuildDependency.loaded_deps[dep_source.name] = dep
+            if self.config.verbose:
+                console(f'  - Target {self.name: <16} ADD {dep}', color=Color.BLUE)
 
         if dep in self.children:
             raise RuntimeError(f"BuildTarget {self.name} add dependency '{dep.name}'"\
@@ -219,7 +221,7 @@ class BuildDependency:
         self.create_build_dir_if_needed()
 
         if self.target.config.verbose:
-            console(f'  - Load Target {self.name} ({self.dep_source.get_type_string()})', color=Color.BLUE)
+            console(f'  - Target {self.name: <16} LOAD ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
         target = self.target
         conf = self.config
@@ -239,6 +241,8 @@ class BuildDependency:
             git:Git = self.dep_source
             git_changed = git.dependency_checkout(self)
 
+        if conf.verbose:
+            console(f'  - Target {self.name: <16} load settings and dependencies')
         target.settings() ## customization point for project settings
         target.dependencies() ## customization point for additional dependencies
 
@@ -280,7 +284,7 @@ class BuildDependency:
             # don't load anything during cleaning -- because it will get cleaned anyways
             if self.config.clean: return noart('target clean')
         elif print and (self.config.verbose or force_art):
-            console(f'  - Target {target.name: <16}   CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
+            console(f'  - Target {target.name: <16} CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
 
         return True
 
@@ -311,7 +315,7 @@ class BuildDependency:
             def build(r):
                 if conf.print:
                     args = f'{target.args}' if target.args else ''
-                    console(f'  - Target {target.name: <16}   BUILD [{r}]  {args}', color=Color.YELLOW)
+                    console(f'  - Target {target.name: <16} BUILD [{r}]  {args}', color=Color.YELLOW)
                 return True
 
             if conf.target and not is_target: # if we called: "target=SpecificProject"
@@ -369,7 +373,7 @@ class BuildDependency:
             if first_changed and not self.should_rebuild:
                 self.should_rebuild = True
                 if self.config.print:
-                    console(f'  - Target {self.name: <16}   BUILD [{first_changed.name} changed]')
+                    console(f'  - Target {self.name: <16} BUILD [{first_changed.name} changed]')
                 self.create_build_dir_if_needed() # in case we just cleaned
 
 
@@ -389,9 +393,12 @@ class BuildDependency:
 
         # load the default mama.BuildTarget class
         mamaBuildTarget = getattr(sys.modules['mama.build_target'], 'BuildTarget')
+        mamaFilePath = self.mamafile_path()
+        if self.config.verbose:
+            console(f'  - Target {self.name: <16} Load Mamafile: {mamaFilePath}', color=Color.BLUE)
 
         # this will load the specific `<class project(mama.build_target)>` class
-        project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, self.mamafile_path())
+        project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, mamaFilePath)
         if project and buildTarget:
             buildStatics = buildTarget.__dict__
             if not self.workspace:

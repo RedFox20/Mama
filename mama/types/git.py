@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
-from ..utils.sub_process import execute, execute_piped
+from ..utils.sub_process import SubProcess, execute, execute_piped
 from ..util import is_dir_empty, write_text_to, read_lines_from
 
 
@@ -195,7 +195,7 @@ class Git(DepSource):
 
     def reclone_wipe(self, dep: BuildDependency):
         if dep.config.print:
-            console(f'  - Target {dep.name: <16}   RECLONE WIPE')
+            console(f'  - Target {dep.name: <16} RECLONE WIPE')
         if os.path.exists(dep.dep_dir):
             if System.windows: # chmod everything to user so we can delete:
                 for root, dirs, files in os.walk(dep.dep_dir):
@@ -204,13 +204,54 @@ class Git(DepSource):
             shutil.rmtree(dep.dep_dir)
 
 
+    def clone_with_filtered_progress(self, cmd, dep: BuildDependency):
+        output = ''
+        current_percent = -1
+        def print_output(line:str):
+            nonlocal output, current_percent
+            if 'remote: Counting objects:' in line or \
+                'remote: Compressing objects:' in line or \
+                'Receiving objects:' in line or \
+                'Resolving deltas:' in line or \
+                'Updating files:' in line:
+                if dep.config.print:
+                    parts = line.split('%')[0].split(':')
+                    percent = int(parts[len(parts)-1].strip())
+                    if current_percent != percent:
+                        current_percent = percent
+                        status = 'status             '
+                        if 'remote: Counting objects:' in line:      status = 'counting objects   '
+                        elif 'remote: Compressing objects:' in line: status = 'compressing objects'
+                        elif 'Receiving objects:' in line:           status = 'receiving objects  '
+                        elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
+                        elif 'Updating files:' in line:              status = 'updating files     '
+                        print(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
+            elif 'Cloning into ' in line:
+                pass
+            elif line:
+                output += line
+                output += '\n'
+
+        result = SubProcess.run(cmd, io_func=print_output)
+
+        if dep.config.print:
+            if result == 0:
+                console(f'\r  - Target {dep.name: <16} CLONE SUCCESS                  ', color=Color.BLUE)
+                if dep.config.verbose:
+                    console(output, end='')
+            else:
+                console(f'\r  - Target {dep.name: <16} CLONE FAILED                   ', color=Color.RED)
+                console(output, end='')
+
+
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
-                console(f"  - Target {dep.name: <16}   CLONE because src is missing", color=Color.BLUE)
+                console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
-            execute(f"git clone --recurse-submodules --depth 1 {branch} {self.url} {dep.src_dir}", dep.config.verbose)
+            cmd = f"git clone --recurse-submodules --depth 1 {branch} {self.url} {dep.src_dir}"
+            self.clone_with_filtered_progress(cmd, dep)
             self.checkout_current_branch(dep)
         else:
             if dep.config.print:

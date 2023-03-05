@@ -134,8 +134,8 @@ class SubProcess:
         - cmd: full command string
         - cwd: working dir for the subprocess
         - env: execution environment, or None for default env
-        - io_func: if set, this callback will receive each line, 
-                   normal console output will be halted
+        - io_func: if set, this callback will receive each line from output
+                   if None, then no output will be shown
 
         ```
         SubProcess.run('tool', 'cmake xyz', env)
