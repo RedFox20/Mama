@@ -479,7 +479,7 @@ class BuildConfig:
 
 
     def _get_gcc_clang_fullversion(self, cc_path):
-        return execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
+        return execute_piped(f'{cc_path} -dumpversion').strip() # eg 9.4.0
 
 
     def compiler_version(self):
