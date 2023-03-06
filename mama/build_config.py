@@ -631,7 +631,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             raise EnvironmentError('VisualStudio tools support not available on this platform!')
 
         vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        vspath = execute_piped(f'{vswhere_exe} -latest -nologo -property installationPath')
+        vspath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
         if vspath and os.path.exists(vspath):
             self._visualstudio_path = vspath
             if self.verbose: console(f'Detected VisualStudio: {vspath}')

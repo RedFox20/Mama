@@ -1,29 +1,6 @@
 import sys, subprocess
 from termcolor import colored
 
-
-class Color:
-    DEFAULT = None
-    RED = "red"
-    GREEN = "green"
-    YELLOW = "yellow"
-    BLUE = "blue"
-
-
-def get_colored_text(s, color):
-    return colored(s, color=color) if color else s
-
-
-def console(s, color=None, end="\n"):
-    """ Always flush to support most build environments """
-    print(get_colored_text(s, color), end=end, flush=True)
-
-
-def error(s):
-    """ Prints a message as an error, usually colored red """
-    console(s, color=Color.RED)
-
-
 is_windows = sys.platform == 'win32'
 is_linux   = sys.platform.startswith('linux')
 is_macos   = sys.platform == 'darwin'
@@ -49,3 +26,28 @@ class System:
     linux   = is_linux
     macos   = is_macos
     is_64bit = is_64
+
+
+class Color:
+    DEFAULT = None
+    RED = "red"
+    GREEN = "green"
+    YELLOW = "yellow"
+    BLUE = "blue"
+
+
+def get_colored_text(s, color):
+    if System.windows:
+        return s
+    return colored(s, color=color) if color else s
+
+
+def console(s, color=None, end="\n"):
+    """ Always flush to support most build environments """
+    print(get_colored_text(s, color), end=end, flush=True)
+
+
+def error(s):
+    """ Prints a message as an error, usually colored red """
+    console(s, color=Color.RED)
+
