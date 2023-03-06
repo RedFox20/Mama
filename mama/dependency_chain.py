@@ -371,8 +371,8 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
         if dep.config.verbose:
             if dep.is_root_or_config_target():
                 print_dependencies(dep)
-            else:
-                print_dependencies(dep) # TODO: different output for non-root targets
+            # else:
+            #     print_dependencies(dep) # TODO: different output for non-root targets
 
 
 def find_dependency(root: BuildDependency, name) -> BuildDependency:

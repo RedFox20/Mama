@@ -211,10 +211,15 @@ def main():
     flat_deps_reverse = list(reversed(flat_deps))
 
     if config.list:
-        dep = find_dependency(root, config.target) if config.target else root
         flat_deps_names = [d.name for d in flat_deps]
-        console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
-        print_package_exports(dep)
+        if config.targets_all() or config.target == None:
+            console(f'    ALL Dependency List: {flat_deps_names}', Color.BLUE)
+            for dep in flat_deps:
+                print_package_exports(dep)
+        else:
+            dep = find_dependency(root, config.target)
+            console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
+            print_package_exports(dep)
         return
 
     if config.android: config.android_home()

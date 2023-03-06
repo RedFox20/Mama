@@ -414,6 +414,7 @@ class BuildConfig:
                 cc_path = root + compiler + suffix
                 if os.path.exists(cc_path):
                     version = self._get_gcc_clang_fullversion(cc_path) # eg 9.4.0
+                    if self.verbose: console(f'Compiler {cc_path} version: {version}')
                     candidates.append((root, suffix, version))
         if not candidates:
             raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
@@ -421,7 +422,10 @@ class BuildConfig:
         def version_to_int(version_str):
             major_minor_patch = version_str.split('.')
             integer = 0
-            for part in major_minor_patch: integer = integer*10 + int(part)
+            for part in major_minor_patch:
+                integer = integer*10 + int(part) if part else integer
+            if integer == 0:
+                console(f"Failed to check version for candidate='{version_str}'")
             return integer
 
         # sort by version, descending eg 10.3, 9.4, 8.3
