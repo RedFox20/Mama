@@ -19,6 +19,7 @@ class SubProcess:
     """
     def __init__(self, cmd, cwd, env=None, io_func=None):
         self.io_func = io_func
+        self.status = None
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd)
@@ -29,27 +30,23 @@ class SubProcess:
         else: # lookup from PATH
             executable = shutil.which(args[0])
             if not executable:
-                raise OSError(f"SubProcessed failed to start: {args[0]} not found in PATH")
+                raise OSError(f"SubProcess failed to start: {args[0]} not found in PATH")
         args[0] = executable
 
         if System.windows:
             self.process = None
-            
             try:
                 self.process = subprocess.Popen(args, cwd=cwd, env=env, shell=True,
                                                 universal_newlines=True,
-                                                stdin=subprocess.PIPE,
                                                 stdout=subprocess.PIPE,
                                                 stderr=subprocess.STDOUT)
-                set_nonblocking(self.process.stdout.fileno())
+                # set_nonblocking(self.process.stdout.fileno())
             except Exception as e:
-                raise Exception(f"Popen failed {args}: {e}")
+                raise RuntimeError(f"Popen failed {args}: {e}")
         else: # all UNIX based systems support fork or forkpty
             # FD visible only for the parent process, 
             # and can be used to read the child PTY output
             self.parent_fd = 0
-            self.status = -1
-
             if io_func:
                 self.pid, self.parent_fd = os.forkpty()
             else:
@@ -93,27 +90,28 @@ class SubProcess:
     def try_wait(self):
         """ Returns EXIT_STATUS int if process has finished, otherwise None """
         if System.windows:
-            return self.process.poll()
+            self.status = self.process.poll()
+            return self.status
         else:
             try:
                 r, status = os.waitpid(self.pid, os.WNOHANG)
                 if r == self.pid: # r == pid: process finished
-                    return self.handle_exitstatus(status)
+                    self.status = self._handle_exitstatus(status)
             except OSError as e:
                 if e.errno == ECHILD:
-                    return -1 # ECHILD: no such child
-            return None
+                    self.status = -1 # ECHILD: no such child
+            return self.status
 
 
-    def handle_exitstatus(self, status):
+    def _handle_exitstatus(self, status):
         if os.WIFSIGNALED(status):
-            self.status = -os.WTERMSIG(status)
+            return -os.WTERMSIG(status)
         elif os.WIFEXITED(status):
-            self.status = os.WEXITSTATUS(status)
+            return os.WEXITSTATUS(status)
         return -1
 
 
-    def parse_lines(self, text: str):
+    def _parse_lines(self, text: str):
         end = len(text)
         start = 0
         line = ''
@@ -138,27 +136,29 @@ class SubProcess:
         Newlines are INCLUDED.
         """
         try:
-            bytes = None
             if System.windows:
-                if not self.process:
+                if not self.process or self.process.stdout.closed:
                     return False
-                console('read start')
-                bytes = self.process.stdout.read()
-                console('read finished')
+
+                text = self.process.stdout.readline()
+                # console(f'line: {text} status={self.process.poll()}', end='')
+                got_bytes = len(text) > 0
+                if self.io_func and got_bytes:
+                    self._parse_lines(text)
+                return got_bytes
             else:
                 if not self.parent_fd:
                     return False
-                bytes = os.read(self.parent_fd, 8192)
 
-            got_bytes = len(bytes) > 0
-            if self.io_func and got_bytes:
-                text = bytes.decode()
-                self.parse_lines(text)
-            return got_bytes
-        except OSError as e:
+                data: bytes = os.read(self.parent_fd, 8192)
+                got_bytes = len(data) > 0
+                if self.io_func and got_bytes:
+                    text = data.decode()
+                    self._parse_lines(text)
+                return got_bytes
+        except OSError as _:
             # when in non-blocking IO, EAGAIN will be thrown if there's no data
             # and when the other process closes the pipes
-            console(f'OSError: {e}')
             return False
 
 
@@ -179,7 +179,7 @@ class SubProcess:
         """
         p = SubProcess(cmd, cwd, env, io_func=io_func)
         try:
-            while not p.try_wait():
+            while p.try_wait() is None:
                 p.read_output()
                 sleep(0.01)
             p.read_output() # read any trailing output
@@ -192,7 +192,7 @@ def execute(command, echo=False, throw=True):
     if echo: console(command)
     retcode = os.system(command)
     if throw and retcode != 0:
-        raise Exception(f'{command} failed with return code {retcode}')
+        raise RuntimeError(f'{command} failed with return code {retcode}')
     return retcode
 
 
@@ -203,7 +203,7 @@ def execute_piped(command, cwd=None, timeout=None):
         cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd, timeout=timeout)
         return cp.stdout.decode('utf-8').rstrip()
     except Exception as e:
-        raise Exception(f'subprocess.Run {command} failed: {e}')
+        raise RuntimeError(f'subprocess.Run {command} failed: {e}')
 
 
 def execute_echo(cwd, cmd):
@@ -215,7 +215,7 @@ def execute_echo(cwd, cmd):
         error(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
         raise
     if exit_status != 0:
-        raise Exception(f'Execute {cmd} failed with error: {exit_status}')
+        raise RuntimeError(f'Execute {cmd} failed with error: {exit_status}')
 
 
 def execute_piped_echo(cwd, cmd, echo=True):

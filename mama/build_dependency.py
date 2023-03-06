@@ -406,11 +406,9 @@ class BuildDependency:
         # load the default mama.BuildTarget class
         mamaBuildTarget = getattr(sys.modules['mama.build_target'], 'BuildTarget')
         mamaFilePath = self.mamafile_path()
-        if self.config.verbose:
+        if mamaFilePath and self.config.verbose:
             exists = os.path.exists(mamaFilePath)
             console(f'  - Target {self.name: <16} Load Mamafile: {mamaFilePath}  (Exists={exists})', color=Color.BLUE)
-            if not exists:
-                raise RuntimeError('omg')
 
         # this will load the specific `<class project(mama.build_target)>` class
         project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, mamaFilePath)
