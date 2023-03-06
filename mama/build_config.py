@@ -445,6 +445,11 @@ class BuildConfig:
     def get_preferred_compiler_paths(self):
         if self.cc_path and self.cxx_path and self.cxx_version:
             return (self.cc_path, self.cxx_path, self.cxx_version)
+
+        # no preferred cc path for MSVC
+        if self.windows:
+            return (self.cc_path, self.cxx_path, self.cxx_version)
+
         if self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'

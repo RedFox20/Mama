@@ -122,11 +122,12 @@ def _make_program(target:BuildTarget):
 
 
 def _custom_compilers(target:BuildTarget):
-    config:BuildConfig = target.config
-    cc, cxx, ver = config.get_preferred_compiler_paths()
-    compilers = [f'CMAKE_C_COMPILER={cc}']
-    if target.enable_cxx_build:
-        compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
+    compilers = []
+    cc, cxx, ver = target.config.get_preferred_compiler_paths()
+    if cc:
+        compilers.append(f'CMAKE_C_COMPILER={cc}')
+        if target.enable_cxx_build:
+            compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
     return compilers
 
 
