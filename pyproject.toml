@@ -21,6 +21,7 @@ dependencies = [
     "keyring",
     "keyrings.cryptfile",
     "termcolor",
+    "colorama",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

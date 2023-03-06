@@ -36,18 +36,22 @@ class Color:
     BLUE = "blue"
 
 
-def get_colored_text(s, color):
-    if System.windows:
-        return s
-    return colored(s, color=color) if color else s
+# on windows use colorama to enable ANSI color escape sequences
+if System.windows:
+    from colorama import just_fix_windows_console
+    just_fix_windows_console()
 
 
-def console(s, color=None, end="\n"):
+def get_colored_text(text:str, color):
+    return colored(text, color=color) if color else text
+
+
+def console(text:str, color=None, end="\n"):
     """ Always flush to support most build environments """
-    print(get_colored_text(s, color), end=end, flush=True)
+    print(get_colored_text(text, color), end=end, flush=True)
 
 
-def error(s):
+def error(text:str):
     """ Prints a message as an error, usually colored red """
-    console(s, color=Color.RED)
+    console(text, color=Color.RED)
 
