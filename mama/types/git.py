@@ -240,7 +240,7 @@ class Git(DepSource):
                 if dep.config.verbose:
                     console(output, end='')
             else:
-                console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result})                ', color=Color.RED)
+                console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result})              ', color=Color.RED)
                 console(output, end='')
                 raise RuntimeError(f'Target {self.name} clone failed: {cmd}')
 

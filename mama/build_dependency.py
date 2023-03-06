@@ -408,7 +408,8 @@ class BuildDependency:
         mamaFilePath = self.mamafile_path()
         if mamaFilePath and self.config.verbose:
             exists = os.path.exists(mamaFilePath)
-            console(f'  - Target {self.name: <16} Load Mamafile: {mamaFilePath}  (Exists={exists})', color=Color.BLUE)
+            relpath = os.path.relpath(mamaFilePath)
+            console(f'  - Target {self.name: <16} Load Mamafile: {relpath} (Exists={exists})', color=Color.BLUE)
 
         # this will load the specific `<class project(mama.build_target)>` class
         project, buildTarget = parse_mamafile(self.config, mamaBuildTarget, mamaFilePath)
@@ -441,7 +442,7 @@ class BuildDependency:
 
 
     def cmakelists_path(self):
-        return os.path.join(self.src_dir, 'CMakeLists.txt')
+        return normalized_join(self.src_dir, 'CMakeLists.txt')
 
 
     def cmakelists_exists(self):
@@ -455,7 +456,7 @@ class BuildDependency:
 
     def mamafile_path(self):
         if self.mamafile: return self.mamafile
-        if self.src_dir: return os.path.join(self.src_dir, 'mamafile.py')
+        if self.src_dir: return normalized_join(self.src_dir, 'mamafile.py')
         return None
 
 
