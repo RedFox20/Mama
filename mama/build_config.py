@@ -404,7 +404,7 @@ class BuildConfig:
 
     # returns: root path where the compilers exist and the discovered suffix
     #          (root_path, suffix)
-    def find_compiler_root(self, suggested_path, compiler, suffixes):
+    def find_compiler_root(self, suggested_path, compiler, suffixes, gcc):
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
@@ -413,7 +413,7 @@ class BuildConfig:
             for suffix in suffixes:
                 cc_path = root + compiler + suffix
                 if os.path.exists(cc_path):
-                    version = self._get_gcc_clang_fullversion(cc_path) # eg 9.4.0
+                    version = self._get_gcc_clang_fullversion(cc_path, gcc) # eg 9.4.0
                     if self.verbose: console(f'Compiler {cc_path} version: {version}')
                     candidates.append((root, suffix, version))
         if not candidates:
@@ -454,20 +454,20 @@ class BuildConfig:
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path)
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, gcc=True)
         elif self.oclea:
             self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
             self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path)
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, gcc=True)
         elif self.clang:
             suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
-            self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes)
+            self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, gcc=False)
             self.cc_path = f'{self.clang_path}clang{suffix}'
             self.cxx_path = f'{self.clang_path}clang++{suffix}'
             self.cxx_version = ver
         elif self.gcc:
             suffixes = ['-11','-10','-9','-8','-7','-6','']
-            self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes)
+            self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes, gcc=True)
             self.cc_path = f'{self.gcc_path}gcc{suffix}'
             self.cxx_path = f'{self.gcc_path}g++{suffix}'
             self.cxx_version = ver
@@ -478,8 +478,11 @@ class BuildConfig:
         raise EnvironmentError('No preferred compiler for this platform!')
 
 
-    def _get_gcc_clang_fullversion(self, cc_path):
-        return execute_piped(f'{cc_path} -dumpversion').strip() # eg 9.4.0
+    def _get_gcc_clang_fullversion(self, cc_path, gcc):
+        if gcc:
+            return execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
+        else: # clang++ doesn't support -dumpfullversion in latest releases -_-
+            return execute_piped(f'{cc_path} -dumpversion').strip()
 
 
     def compiler_version(self):
