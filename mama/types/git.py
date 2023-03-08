@@ -5,7 +5,7 @@ import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
 from ..utils.sub_process import SubProcess, execute, execute_piped
-from ..util import is_dir_empty, write_text_to, read_lines_from
+from ..util import is_dir_empty, write_text_to, read_lines_from, path_join
 
 
 if TYPE_CHECKING:
@@ -130,7 +130,7 @@ class Git(DepSource):
 
 
     def git_status_file(self, dep: BuildDependency):
-        return dep.target.build_dir('git_status')
+        return path_join(dep.build_dir, 'git_status')
 
 
     def save_status(self, dep: BuildDependency):

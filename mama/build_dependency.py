@@ -221,6 +221,12 @@ class BuildDependency:
         self.create_build_dir_if_needed()
         return self.target
 
+    def _git_checkout_if_needed(self) -> bool:
+        if not self.is_root and self.dep_source.is_git:
+            git:Git = self.dep_source
+            return git.dependency_checkout(self)
+        return False
+
 
     def _load(self):
         conf = self.config
@@ -229,19 +235,25 @@ class BuildDependency:
 
         is_target = conf.target_matches(self.name)
 
-        # if this succeeds, it will overwrite products and libs
+        # for root targets, always load the BuildTarget immediately, we need the root workspace from its mamafile
+        if self.is_root:
+            target = self._load_target()
+        # for non-root targets, only create the required dirs
+        else:
+            self.update_dep_dir()
+            self.create_build_dir_if_needed()
+
+        git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
+
+        target = self._load_target() ## load target for Git and Src
+        if conf.clean and is_target:
+            self.clean() ## requires a parsed mamafile target
+
+        # if artifactory_fetch_and_reconfigure succeeds, it will overwrite products and libs
         # and sets self.from_artifactory
-        git_changed = False
         loaded_from_pkg = False
         should_load_art = self.should_load_artifactory()
         if should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
-            # for artifactory which is based on Git repo
-            if not self.is_root and self.dep_source.is_git:
-                git:Git = self.dep_source
-                git_changed = git.dependency_checkout(self)
-            target = self._load_target() # load target for artifactory
-            if conf.clean and is_target:
-                self.clean() ## requires a parsed mamafile target
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
                 for dep_name in dependencies:
@@ -251,16 +263,10 @@ class BuildDependency:
                 raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
         elif should_load_art and self.is_force_art_target():
             raise RuntimeError(f'  - Target {self.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
-        else: # non-artifactory path:
-            target = self._load_target() # load target for Git and Src
-            if conf.clean and is_target:
-                self.clean() ## requires a parsed mamafile target
-            # load any build products from previous builds
-            if not self.is_root:
-                self.load_build_products(target)
-            if not self.is_root and self.dep_source.is_git:
-                git:Git = self.dep_source
-                git_changed = git.dependency_checkout(self)
+
+        # load any build products from previous builds
+        if not self.is_root and not loaded_from_pkg:
+            self.load_build_products(target)
 
         if conf.verbose:
             console(f'  - Target {self.name: <16} load settings and dependencies')
@@ -309,11 +315,15 @@ class BuildDependency:
 
         return True
 
+
     def is_force_art_target(self):
         return not self.is_root and self.config.force_artifactory and self.config.target_matches(self.name)
-    
+
+
     def should_load_artifactory(self):
-        should_load = self.dep_source.is_pkg or os.path.exists(self.papa_package_file()) or self.is_first_time_build()
+        should_load = self.dep_source.is_pkg \
+            or os.path.exists(self.papa_package_file()) \
+            or self.is_first_time_build()
         is_force_art_target = self.is_force_art_target()
         return should_load or is_force_art_target
 
