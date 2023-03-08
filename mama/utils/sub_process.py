@@ -27,6 +27,8 @@ class SubProcess:
         executable = args[0]
         if os.path.isfile(executable): # it's something like `./run_tests` or `/usr/bin/gcc`
             executable = os.path.abspath(executable)
+        elif System.windows and os.path.isfile(executable + '.exe'):
+            executable = os.path.abspath(executable + '.exe')
         else: # lookup from PATH
             executable = shutil.which(args[0])
             if not executable:
@@ -36,11 +38,12 @@ class SubProcess:
         if System.windows:
             self.process = None
             try:
+                stdout = subprocess.PIPE if io_func else None
+                stderr = subprocess.STDOUT if io_func else None
                 self.process = subprocess.Popen(args, cwd=cwd, env=env, shell=True,
                                                 universal_newlines=True,
-                                                stdout=subprocess.PIPE,
-                                                stderr=subprocess.STDOUT)
-                # set_nonblocking(self.process.stdout.fileno())
+                                                stdout=stdout,
+                                                stderr=stderr)
             except Exception as e:
                 raise RuntimeError(f"Popen failed {args}: {e}")
         else: # all UNIX based systems support fork or forkpty
@@ -137,7 +140,7 @@ class SubProcess:
         """
         try:
             if System.windows:
-                if not self.process or self.process.stdout.closed:
+                if not self.process.stdout or self.process.stdout.closed:
                     return False
 
                 text = self.process.stdout.readline()
@@ -170,7 +173,7 @@ class SubProcess:
         - cwd: working dir for the subprocess
         - env: execution environment, or None for default env
         - io_func: if set, this callback will receive each line from output
-                   if None, then no output will be shown
+                   if None, then output is echoed as normal to stdout/stderr
 
         ```
         SubProcess.run('tool', 'cmake xyz', env)
@@ -210,7 +213,7 @@ def execute_echo(cwd, cmd):
     """ Wrapper around SubProcess.run(), throws if exit_status != 0 """
     exit_status = -1
     try:
-        exit_status = SubProcess.run(cmd, cwd)
+        exit_status = SubProcess.run(cmd, cwd, io_func=None)
     except:
         error(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
         raise
@@ -225,9 +228,9 @@ def execute_piped_echo(cwd, cmd, echo=True):
         output = ''
         def handle_output(line:str):
             nonlocal output
-            if echo: print(line) # newline is not included
+            if echo: print(line)
             output += line
-            output += '\n'
+            output += '\n' # newline is not included
         exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
         return (exit_status, output)
     except Exception as e:

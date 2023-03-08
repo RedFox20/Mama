@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
 from .utils.system import System, console, Color
-from .utils.sub_process import SubProcess, execute, execute_piped_echo
+from .utils.sub_process import SubProcess, execute_piped_echo
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget

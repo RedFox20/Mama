@@ -874,9 +874,12 @@ class BuildTarget:
         path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
         exe = os.path.basename(cmd)
 
+        if System.windows and self.windows and '.exe' not in exe:
+            exe += '.exe'
+
         if self.windows:
             if not src_dir: path = f'{path}/{self.cmake_build_type}'
-            gdb = f'{exe} {args}'
+            gdb = f'{path}/{exe} {args}'
         elif self.macos:
             # b: batch, q: quiet, -o r: run
             # -k bt: on crash, backtrace
@@ -886,9 +889,9 @@ class BuildTarget:
             # r: run;  bt: give backtrace;  q: quit when done;
             gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
 
-        if not (os.path.exists(f'{path}/{exe}') or os.path.exists(f'{path}/{exe}.exe')):
+        if not os.path.exists(f'{path}/{exe}'):
             raise IOError(f'Could not find {path}/{exe}')
-        execute_echo(path, gdb)
+        execute_echo(cwd=path, cmd=gdb)
 
 
     ########## Customization Points ###########
