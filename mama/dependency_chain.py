@@ -368,7 +368,7 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
         # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
         _save_vscode_compile_commands(dep)
 
-        if dep.config.verbose:
+        if dep.config.verbose and not dep.config.test:
             if dep.is_root_or_config_target():
                 print_dependencies(dep)
             # else:
