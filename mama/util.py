@@ -169,7 +169,7 @@ def write_text_to(file, text):
     pathlib.Path(file).write_text(text, encoding='utf-8')
 
 
-def read_lines_from(file) -> list[str]:
+def read_lines_from(file) -> List[str]:
     if not os.path.exists(file):
         return []
     with pathlib.Path(file).open(encoding='utf-8') as f:
