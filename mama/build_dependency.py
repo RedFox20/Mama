@@ -233,7 +233,7 @@ class BuildDependency:
         if conf.verbose:
             console(f'  - Target {self.name: <16} LOAD ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
-        is_target = conf.target_matches(self.name)
+        is_target = self.is_current_target()
 
         # for root targets, always load the BuildTarget immediately, we need the root workspace from its mamafile
         if self.is_root:
@@ -296,7 +296,7 @@ class BuildDependency:
     def can_fetch_artifactory(self, print, which):
         force_art = self.config.force_artifactory
         disable_art = self.config.disable_artifactory
-        is_target = self.config.target_matches(self.name)
+        is_target = self.is_current_target()
 
         def noart(r):
             if print and (self.config.print or force_art):
@@ -317,7 +317,7 @@ class BuildDependency:
 
 
     def is_force_art_target(self):
-        return not self.is_root and self.config.force_artifactory and self.config.target_matches(self.name)
+        return not self.is_root and self.config.force_artifactory and self.is_current_target()
 
 
     def should_load_artifactory(self):
@@ -445,10 +445,12 @@ class BuildDependency:
             self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
 
 
+    def is_current_target(self):
+        return self.config.target_matches(self.name)
+
+
     def is_root_or_config_target(self):
-        if self.config.target:
-            return self.config.target_matches(self.name)
-        return self.is_root
+        return self.is_root or self.is_current_target()
 
 
     def cmakelists_path(self):

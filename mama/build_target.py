@@ -1172,7 +1172,7 @@ class BuildTarget:
             mama build this_target
         ```
         """
-        return self.config.target_matches(self.name)
+        return self.dep.is_current_target()
 
 
     ## Build only this target

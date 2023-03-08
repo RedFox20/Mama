@@ -375,9 +375,9 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
             #     print_dependencies(dep) # TODO: different output for non-root targets
 
 
-def find_dependency(root: BuildDependency, name) -> BuildDependency:
+def find_dependency(root: BuildDependency, name: str) -> BuildDependency:
     """ This is mainly used for finding root target or specific command line target """
-    if root.name == name:
+    if root.name.lower() == name.lower():
         return root
     for dep in root.get_children():
         found = find_dependency(dep, name)

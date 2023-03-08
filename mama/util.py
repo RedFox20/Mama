@@ -52,19 +52,19 @@ def deploy_framework(framework, deployFolder):
     return False
 
 
-def has_contents_changed(filename, new_contents):
+def has_contents_changed(filename: str, new_contents: str):
     if not os.path.exists(filename):
         return True
     return read_text_from(filename) != new_contents
 
 
-def save_file_if_contents_changed(filename, new_contents):
+def save_file_if_contents_changed(filename: str, new_contents: str):
     if not has_contents_changed(filename, new_contents):
         return
     write_text_to(filename, new_contents)
 
 
-def path_join(first, second):
+def path_join(first: str, second: str) -> str:
     """ Always join with forward/ slashes """
     first  = first.rstrip('/\\')
     second = second.lstrip('/\\')
@@ -73,23 +73,23 @@ def path_join(first, second):
     return first + '/' + second
 
 
-def forward_slashes(pathstring):
+def forward_slashes(pathstring: str) -> str:
     """ Replace all back\\ slashes with forward/ slashes"""
     return pathstring.replace('\\', '/')
 
 
-def back_slashes(pathstring):
+def back_slashes(pathstring: str) -> str:
     """ Replace all forward/ slashes with back\\ slashes"""
     return pathstring.replace('/', '\\')
 
 
-def normalized_path(pathstring):
+def normalized_path(pathstring: str) -> str:
     """ Normalizes a path to ABSOLUTE path and all forward/ slashes """
     pathstring = os.path.abspath(pathstring)
     return pathstring.replace('\\', '/').rstrip()
 
 
-def normalized_join(path1, *pathsN):
+def normalized_join(path1: str, *pathsN) -> str:
     """ Joins N paths and the calls normalized_path() """
     return normalized_path(os.path.join(path1, *pathsN))
 
@@ -158,7 +158,7 @@ def has_tag_changed(old_tag_file, new_tag):
     return False
 
 
-def read_text_from(file_path):
+def read_text_from(file_path) -> str:
     return pathlib.Path(file_path).read_text()
 
 
@@ -169,7 +169,7 @@ def write_text_to(file, text):
     pathlib.Path(file).write_text(text, encoding='utf-8')
 
 
-def read_lines_from(file):
+def read_lines_from(file) -> list[str]:
     if not os.path.exists(file):
         return []
     with pathlib.Path(file).open(encoding='utf-8') as f:
@@ -314,14 +314,14 @@ def unzip(local_zip, extract_dir, pwd=None):
     return len(unzipped_files)
 
 
-def try_unzip(local_file:str, build_dir:str) -> bool:
+def try_unzip(local_file:str, extract_dir:str) -> bool:
     """
     Attempts to unzip an archive, returns a tuple (success: bool, num_extracted: int)
     If (success: True, num_extracted: 0) is returned, it means none of the destination files
     were different from the zip contents, and zero extractions were performed
     """
     try:
-        files_extracted = unzip(local_file, build_dir)
+        files_extracted = unzip(local_file, extract_dir)
         return (True, files_extracted)
     except zipfile.BadZipFile as e:
         return (False, -1)

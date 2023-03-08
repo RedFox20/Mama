@@ -128,7 +128,7 @@ def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config:BuildConfig, url:str):
             return # success
 
 
-def artifactory_sanitize_url(url):
+def artifactory_sanitize_url(url: str):
     return url.replace('ftp://', '').replace('http://','').replace('https://','')
 
 
@@ -249,10 +249,10 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     return (True, dependencies)
 
 
-def _fetch_package(target:BuildTarget, url, archive, build_dir):
+def _fetch_package(target:BuildTarget, url, archive, cache_dir):
     remote_file = f'http://{url}/{target.name}/{archive}.zip'
     try:
-        return download_file(remote_file, build_dir, force=True, 
+        return download_file(remote_file, cache_dir, force=True, 
                              message=f'    Artifactory fetch {url}/{archive} ')
     except Exception as e:
         if target.config.verbose or target.config.force_artifactory:
@@ -275,10 +275,10 @@ def _fetch_package(target:BuildTarget, url, archive, build_dir):
         return None
 
 
-def unzip_and_load_target(target:BuildTarget, local_file:str, build_dir:str) -> Tuple[bool, list]:
-    success, num_extracted = try_unzip(local_file, build_dir)
+def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, list]:
+    success, num_extracted = try_unzip(local_file, target.dep.build_dir)
     if success:
-        return artifactory_load_target(target, build_dir, num_files_copied = num_extracted)
+        return artifactory_load_target(target, target.dep.build_dir, num_files_copied = num_extracted)
     else:
         error(f'    Artifactory unzip failed, possibly corrupt package {local_file}')
         os.remove(local_file) # it's probably corrupted
@@ -297,22 +297,23 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     archive = artifactory_archive_name(target)
     if not archive:
         return (False, None)
+    
+    cache_dir = target.dep.dep_dir #target.dep.workspace
+    local_file = normalized_join(cache_dir, f'{archive}.zip')
 
-    url = artifactory_sanitize_url(url)
-    build_dir = target.build_dir()
-    local_file = normalized_join(build_dir, f'{archive}.zip')
-
-    if os.path.exists(local_file):
+    # cache is normally used, however `mama update` will ignore the cache and re-downloads the latest
+    if os.path.exists(local_file) and not (target.config.update and target.is_current_target()):
         if (target.is_current_target() or target.config.no_specific_target()) \
             and not target.config.test:
             console(f'    Artifactory cache {local_file}')
-        success, deps = unzip_and_load_target(target, local_file, build_dir)
+        success, deps = unzip_and_load_target(target, local_file)
         if success: return (success, deps)
 
     # use mama verbose to show the failure msgs
-    local_file = _fetch_package(target, url, archive, build_dir)
+    url = artifactory_sanitize_url(url)
+    local_file = _fetch_package(target, url, archive, cache_dir)
     if not local_file:
         return (False, None)
     console(f'    Artifactory unzip {archive}')
-    return unzip_and_load_target(target, local_file, build_dir)
+    return unzip_and_load_target(target, local_file)
 

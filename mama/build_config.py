@@ -361,7 +361,7 @@ class BuildConfig:
         return True
 
 
-    def set_artifactory_ftp(self, ftp_url, auth='store'):
+    def set_artifactory_ftp(self, ftp_url: str, auth='store'):
         """ @see BuildTarget.set_artifactory_ftp() for documentation """
         self.artifactory_ftp = ftp_url
         self.artifactory_auth = auth
@@ -834,8 +834,9 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return self.target == 'all'
 
 
-    def target_matches(self, target_name):
-        return self.targets_all() or self.target == target_name
+    def target_matches(self, target_name: str):
+        return self.targets_all() \
+            or (self.target and self.target.lower() == target_name.lower())
 
 
     def no_specific_target(self):

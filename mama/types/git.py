@@ -273,11 +273,12 @@ class Git(DepSource):
             self.clone_or_pull(dep)
             return True
 
+        is_target = dep.is_current_target()
         config = dep.config
         changed = False
-        if config.update:
+
+        if config.update and is_target:
             changed = self.check_status(dep)
-        is_target = config.target_matches(self.name)
 
         wiped = False
         should_wipe = self.url_changed and not self.missing_status

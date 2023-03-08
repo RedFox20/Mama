@@ -102,7 +102,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
                    r_includes:bool, r_dylibs:bool, 
                    r_syslibs:bool, r_assets:bool):
     config = target.config
-    detail_echo = config.print and config.target_matches(target.name) and (not config.test)
+    detail_echo = config.print and target.is_current_target() and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
     dependencies = _gather_dependencies(target)
