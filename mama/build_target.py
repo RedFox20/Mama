@@ -1160,7 +1160,14 @@ class BuildTarget:
         mama test all          # all targets
         ```
         """
-        return self.config.test and self.dep.is_root_or_config_target()
+        if not self.config.test:
+            return False
+        # `mama test` --> only test root target
+        if not self.config.target and self.dep.is_root:
+            return True
+        # `mama test ReCpp` --> only test current target
+        # `mama test all` --> current target matches all
+        return self.config.target and self.dep.is_current_target()
 
 
     def is_current_target(self):
