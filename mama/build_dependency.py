@@ -36,6 +36,7 @@ class BuildDependency:
         self.already_executed = False
         self.currently_loading = False
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
+        self.did_check_artifactory = False # if true, artifactory was already checked and can be skipped
         self.is_root = parent is None # Root deps are always built
         self.children: List[BuildDependency] = []
         self.product_sources = []
@@ -80,7 +81,7 @@ class BuildDependency:
                 raise OSError(f'{self.name} source dir does not exist: {self.src_dir}')
 
             self.create_build_target()
-            self.name = str(self.target.name) # might change due to mamafile ??
+            self.name = str(self.target.name) # name can change due to mamafile !!
             self.update_dep_dir()
         else:
             raise RuntimeError(f'{self.name} src or git or pkg not configured. Specify at least one.')
@@ -254,6 +255,7 @@ class BuildDependency:
         loaded_from_pkg = False
         should_load_art = self.should_load_artifactory()
         if should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
+            self.did_check_artifactory = True
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
                 for dep_name in dependencies:
@@ -294,6 +296,9 @@ class BuildDependency:
 
 
     def can_fetch_artifactory(self, print, which):
+        if self.is_root or self.did_check_artifactory:
+            return False
+
         force_art = self.config.force_artifactory
         disable_art = self.config.disable_artifactory
         is_target = self.is_current_target()
@@ -301,6 +306,7 @@ class BuildDependency:
         def noart(r):
             if print and (self.config.print or force_art):
                 console(f'  - Target {self.name: <16} NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
+            self.did_check_artifactory = True
             return False
 
         if disable_art:
@@ -321,6 +327,8 @@ class BuildDependency:
 
 
     def should_load_artifactory(self):
+        if self.is_root or self.did_check_artifactory:
+            return False
         should_load = self.dep_source.is_pkg \
             or os.path.exists(self.papa_package_file()) \
             or self.is_first_time_build()
