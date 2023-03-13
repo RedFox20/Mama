@@ -108,6 +108,8 @@ def _get_compile_commands_path(dep: BuildDependency):
 def _save_vscode_compile_commands(dep: BuildDependency):
     if not dep.src_dir: # for artifactory pkgs, there is no src_dir
         return
+    if dep.config.oclea or dep.config.raspi or dep.config.android:
+        return # don't overwrite compile commands for cross-compilations
     cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
     if not os.path.exists(cpp_props_path):
         return
