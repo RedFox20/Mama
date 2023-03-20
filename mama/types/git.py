@@ -206,42 +206,46 @@ class Git(DepSource):
 
     def clone_with_filtered_progress(self, cmd, dep: BuildDependency):
         output = ''
-        current_percent = -1
-        def print_output(line:str):
-            nonlocal output, current_percent
-            if 'remote: Counting objects:' in line or \
-                'remote: Compressing objects:' in line or \
-                'Receiving objects:' in line or \
-                'Resolving deltas:' in line or \
-                'Updating files:' in line:
-                if dep.config.print:
-                    parts = line.split('%')[0].split(':')
-                    percent = int(parts[len(parts)-1].strip())
-                    if current_percent != percent:
-                        current_percent = percent
-                        status = 'status             '
-                        if 'remote: Counting objects:' in line:      status = 'counting objects   '
-                        elif 'remote: Compressing objects:' in line: status = 'compressing objects'
-                        elif 'Receiving objects:' in line:           status = 'receiving objects  '
-                        elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
-                        elif 'Updating files:' in line:              status = 'updating files     '
-                        print(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
-            elif 'Cloning into ' in line:
-                pass
-            elif line:
-                output += line
-                output += '\n'
-
-        result = SubProcess.run(cmd, io_func=print_output)
-
+        if dep.config.verbose:
+            console(cmd, color=Color.YELLOW)
+            result = execute(cmd, throw=False)
+        else:
+            current_percent = -1
+            def print_output(line:str):
+                nonlocal output, current_percent
+                if 'remote: Counting objects:' in line or \
+                    'remote: Compressing objects:' in line or \
+                    'Receiving objects:' in line or \
+                    'Resolving deltas:' in line or \
+                    'Updating files:' in line:
+                    if dep.config.print:
+                        parts = line.split('%')[0].split(':')
+                        percent = int(parts[len(parts)-1].strip())
+                        if current_percent != percent:
+                            current_percent = percent
+                            status = 'status             '
+                            if 'remote: Counting objects:' in line:      status = 'counting objects   '
+                            elif 'remote: Compressing objects:' in line: status = 'compressing objects'
+                            elif 'Receiving objects:' in line:           status = 'receiving objects  '
+                            elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
+                            elif 'Updating files:' in line:              status = 'updating files     '
+                            print(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
+                elif 'Cloning into ' in line:
+                    pass
+                elif line:
+                    output += line
+                    output += '\n'
+            result = SubProcess.run(cmd, io_func=print_output)
+        # handle the result:
         if dep.config.print:
             if result == 0:
                 console(f'\r  - Target {dep.name: <16} CLONE SUCCESS                  ', color=Color.BLUE)
-                if dep.config.verbose:
+                if dep.config.verbose and output:
                     console(output, end='')
             else:
                 console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result})              ', color=Color.RED)
-                console(output, end='')
+                if output:
+                    console(output, end='')
                 raise RuntimeError(f'Target {self.name} clone failed: {cmd}')
 
 
