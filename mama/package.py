@@ -146,7 +146,7 @@ def export_assets(target, assets_path, pattern_substrings, category=None, src_di
     return False
 
 
-def find_syslib(target, name, apt, required):
+def find_syslib(target: BuildTarget, name, apt, required: bool):
     if target.ios or target.macos:
         if not name.startswith('-framework '):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
@@ -160,23 +160,36 @@ def find_syslib(target, name, apt, required):
             lambda: f'/usr/lib/lib{name}.a' ]:
             if os.path.isfile(candidate()):
                 return name # example: we found `libdl.so`, so just return `dl` for the linker
-        if not required: return False
+        if not required: return None
         if apt: raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
         raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
     else:
         return name # just export it. expect system linker to find it.
 
 
-def export_syslib(target: BuildTarget, name, apt, required):
+def export_syslib(target: BuildTarget, name, apt: bool, required: bool):
+    """
+    - target: The build target where to add the export syslib
+    - name: Name of the system library, eg: lzma
+    - apt: if true, then apt suggestion is given
+    - required: if true, then an exception is thrown if syslib is not found
+    """
     try:
         lib = find_syslib(target, name, apt, required)
+        if lib:
+            #console(f'Exporting syslib: {name}:{lib}')
+            target.exported_syslibs.append(lib)
+            target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
+            return True
     except IOError:
-        if not target.config.clean:
+        if target.config.clean:
+            # just export it. expect system linker to find it.
+            target.exported_syslibs.append(name)
+            target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
+            return True
+        else:
             raise
-    #console(f'Exporting syslib: {name}:{lib}')
-    target.exported_syslibs.append(lib)
-    target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
-    return True
+    return False
 
 
 def get_lib_basename(syslib):
