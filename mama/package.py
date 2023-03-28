@@ -1,8 +1,12 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import os
 from .utils.system import console
 from .util import normalized_path, glob_with_name_match
 from .types.asset import Asset
 
+if TYPE_CHECKING:
+    from .build_target import BuildTarget
 
 def is_a_static_library(lib):
     return lib.endswith('.a') or lib.endswith('.lib')
@@ -163,8 +167,12 @@ def find_syslib(target, name, apt, required):
         return name # just export it. expect system linker to find it.
 
 
-def export_syslib(target, name, apt, required):
-    lib = find_syslib(target, name, apt, required)
+def export_syslib(target: BuildTarget, name, apt, required):
+    try:
+        lib = find_syslib(target, name, apt, required)
+    except IOError:
+        if not target.config.clean:
+            raise
     #console(f'Exporting syslib: {name}:{lib}')
     target.exported_syslibs.append(lib)
     target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
