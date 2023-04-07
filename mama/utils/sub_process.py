@@ -132,7 +132,7 @@ class SubProcess:
             self.io_func(line)
 
 
-    def read_output(self):
+    def read_output(self) -> bool:
         """ 
         Returns TRUE if output was read.
         Calls self.io_func(line) for every line that was read.
@@ -165,6 +165,16 @@ class SubProcess:
             return False
 
 
+    def read_outputs(self, max_blocks=-1) -> bool:
+        """ Reads output multiple times until max_blocks calls of read_output() are done """
+        num_reads = 0
+        while self.read_output():
+            num_reads += 1
+            if max_blocks != -1 and num_reads >= max_blocks:
+                break # we've read enough
+        return num_reads > 0
+
+
     @staticmethod
     def run(cmd, cwd=None, env=None, io_func=None):
         """
@@ -183,9 +193,9 @@ class SubProcess:
         p = SubProcess(cmd, cwd, env, io_func=io_func)
         try:
             while p.try_wait() is None:
-                p.read_output()
+                p.read_outputs(max_blocks=1)
                 sleep(0.01)
-            p.read_output() # read any trailing output
+            p.read_outputs() # read any trailing output
         finally:
             p.close()
         return p.status
