@@ -202,6 +202,13 @@ class SubProcess:
 
 
 def execute(command, echo=False, throw=True):
+    """ 
+    Executes a command and returns the status code.
+    - command: command string
+    - echo: if True, prints the command to console
+    - throw: if True, throws exception on status_code != 0
+    - returns: status code
+    """
     if echo: console(command)
     retcode = os.system(command)
     if throw and retcode != 0:
@@ -209,30 +216,58 @@ def execute(command, echo=False, throw=True):
     return retcode
 
 
-def execute_piped(command, cwd=None, timeout=None):
+# TODO: use new SubProcess.run instead
+def execute_piped(command, cwd=None, timeout=None, throw=True):
+    """
+    Executes a command and returns the piped outout string
+    - command: command string
+    - cwd: working dir for the subprocess
+    - timeout: timeout in seconds
+    - throw: if True, throws exception on status_code != 0
+    - returns: output string or None if throw=False
+    """
     if not isinstance(command, list):
         command = shlex.split(command)
     try:
         cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd, timeout=timeout)
         return cp.stdout.decode('utf-8').rstrip()
     except Exception as e:
-        raise RuntimeError(f'subprocess.Run {command} failed: {e}')
+        if throw:
+            raise RuntimeError(f'subprocess.Run {command} failed: {e}')
+        else:
+            return None
 
 
-def execute_echo(cwd, cmd):
-    """ Wrapper around SubProcess.run(), throws if exit_status != 0 """
+def execute_echo(cwd, cmd, exit_on_fail=False):
+    """
+    Wrapper around SubProcess.run(), by default throws if exit_status != 0
+    - cwd: working dir for the subprocess
+    - cmd: command string
+    - exit_on_fail: if True, exits the application with exit_status
+    """
     exit_status = -1
+    throw_on_fail = not exit_on_fail
     try:
         exit_status = SubProcess.run(cmd, cwd, io_func=None)
     except:
-        error(f'SubProcess failed! cwd={cwd} cmd={cmd} ')
-        raise
+        error(f'SubProcess exited cwd={cwd} cmd={cmd}')
+        if throw_on_fail:
+            raise
     if exit_status != 0:
-        raise RuntimeError(f'Execute {cmd} failed with error: {exit_status}')
+        if throw_on_fail:
+            raise RuntimeError(f'Execute {cmd} failed with error: {exit_status}')
+        elif exit_on_fail:
+            exit(exit_status)
 
 
 def execute_piped_echo(cwd, cmd, echo=True):
-    """ Wrapper around SubProcess.run(), returns status code with piped output (status, output). """
+    """
+    Wrapper around SubProcess.run(), returns status code with piped output (status, output).
+    - cwd: working dir for the subprocess
+    - cmd: command string
+    - echo: if True, also prints the output to console
+    - returns: (exit_status, output_string)
+    """
     try:
         exit_status = -1
         output = ''

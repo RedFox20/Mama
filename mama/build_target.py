@@ -830,7 +830,7 @@ class BuildTarget:
         self.dep.should_rebuild = False
 
 
-    def run(self, command, src_dir=False):
+    def run(self, command, src_dir=False, exit_on_fail=True):
         """
         Run a command in the build or source folder.
         Can be used for any custom commands or custom build systems.
@@ -841,7 +841,9 @@ class BuildTarget:
         ```
         """
         dir = self.source_dir() if src_dir else self.build_dir()
-        execute(f'cd {dir} && {command}', echo=True)
+        res = execute(f'cd {dir} && {command}', echo=True, throw=not exit_on_fail)
+        if res != 0 and exit_on_fail:
+            exit(res)
 
 
     def run_program(self, working_dir, command):
@@ -852,7 +854,7 @@ class BuildTarget:
                              self.source_dir('bin/DbTool'))
         ```
         """
-        execute_echo(working_dir, command)
+        execute_echo(working_dir, command, exit_on_fail=True)
 
 
     ## TODO: Move this into a new utility
