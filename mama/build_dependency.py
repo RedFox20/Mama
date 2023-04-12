@@ -462,7 +462,8 @@ class BuildDependency:
 
 
     def cmakelists_path(self):
-        return normalized_join(self.src_dir, 'CMakeLists.txt')
+        cmake_lists_path = self.target.cmake_lists_path if self.target else 'CMakeLists.txt'
+        return normalized_join(self.src_dir, cmake_lists_path)
 
 
     def cmakelists_exists(self):

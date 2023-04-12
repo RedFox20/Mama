@@ -60,7 +60,8 @@ def run_config(target:BuildTarget):
     type_flags = f'-DCMAKE_BUILD_TYPE={target.cmake_build_type}'
     cmake_flags = get_flags()
     generator = _generator(target)
-    src_dir = target.source_dir()
+    src_dir = os.path.dirname(target.dep.cmakelists_path())
+    src_dir = src_dir if src_dir else target.source_dir()
     install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'

@@ -67,6 +67,7 @@ class BuildTarget:
         self.cmake_cflags     = dict()
         self.cmake_ldflags    = dict()
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
+        self.cmake_lists_path = 'CMakeLists.txt' # relative to source_dir
         self.enable_exceptions = True
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
