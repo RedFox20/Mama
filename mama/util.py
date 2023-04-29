@@ -4,7 +4,8 @@ import time, ssl, pathlib, random
 from .utils.system import System, console
 from .utils.sub_process import execute
 from urllib import request
-from datetime import datetime, timezone
+from datetime import datetime
+from dateutil import tz
 
 def is_file_modified(src, dst):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
@@ -258,7 +259,8 @@ def unzip(local_zip, extract_dir, pwd=None):
     """
     def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
         zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
-        return datetime(zt[0], zt[1], zt[2], zt[3], zt[4], zt[5], tzinfo=timezone.utc)
+        # ZIP uses localtime
+        return datetime(zt[0], zt[1], zt[2], zt[3], zt[4], zt[5], tzinfo=tz.tzlocal())
 
     def has_file_changed(zipmember: zipfile.ZipInfo, dst_path):
         st: os.stat_result = None
@@ -266,7 +268,7 @@ def unzip(local_zip, extract_dir, pwd=None):
             st = os.stat(dst_path, follow_symlinks=False)
             if st.st_size != zipmember.file_size:
                 return True
-            dst_mtime: datetime = datetime.fromtimestamp(st.st_mtime, timezone.utc)
+            dst_mtime: datetime = datetime.fromtimestamp(st.st_mtime, tz=tz.tzlocal())
             src_mtime = get_zipinfo_datetime(zipmember)
             if dst_mtime != src_mtime:
                 return True
@@ -308,7 +310,9 @@ def unzip(local_zip, extract_dir, pwd=None):
             os.chmod(dst_path, perm)
             # always set the modification date from the zipmember timestamp,
             # this way we can avoid unnecessarily modifying files and causing full rebuilds
-            mtime = get_zipinfo_datetime(zipmember).timestamp()
+            time = get_zipinfo_datetime(zipmember)
+            #print(f'    | {dst_path} {time}')
+            mtime = time.timestamp()
             os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
 
     return len(unzipped_files)
