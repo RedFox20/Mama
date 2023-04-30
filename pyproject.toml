@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mama"
-version = "0.7.38"
+version = "0.7.39"
 description = "A modular C++ build tool even your mama can use"
 license = { text = "MIT" }
 authors = [
@@ -22,6 +22,7 @@ dependencies = [
     "keyrings.cryptfile",
     "termcolor",
     "colorama",
+    "python-dateutil",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
