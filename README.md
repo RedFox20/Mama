@@ -238,7 +238,7 @@ You can set up local development with `$ pip3 install -e . --no-cache-dir` but m
 Uploading a source distributionP:
 1. Get dependencies: `pip3 install build twine`
 2. Build sdist: `python -m build`
-3. Upload with twine: `twine upload dist/*`
+3. Upload with twine: `twine upload --skip-existing dist/*`
 It will prompt for Username and Password, unless you set up ~/.pypirc file:
 ```
 [distutils]
