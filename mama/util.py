@@ -313,7 +313,10 @@ def unzip(local_zip, extract_dir, pwd=None):
             time = get_zipinfo_datetime(zipmember)
             #print(f'    | {dst_path} {time}')
             mtime = time.timestamp()
-            os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
+            if System.windows:
+                os.utime(dst_path, times=(mtime, mtime))
+            else:
+                os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
 
     return len(unzipped_files)
 
