@@ -1150,14 +1150,19 @@ class BuildTarget:
         if self.config.print:
             console('\n\n#############################################################')
             console(f"CMakeBuild {self.name} ({self.cmake_build_type})")
-        start = time.time()
+        config_start = time.time()
         self.dep.ensure_cmakelists_exists()
         cmake.inject_env(self)
         cmake.run_config(self) # THROWS on CMAKE failure
+        config_stop = time.time()
+        build_start = config_stop
         cmake.run_build(self, install=True) # THROWS on CMAKE failure
+        build_stop = time.time()
         if self.config.print:
-            elapsed = util.get_time_str(time.time() - start)
-            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) elapsed {elapsed}", color='green')
+            e_config = util.get_time_str(config_stop - config_start)
+            e_build = util.get_time_str(build_stop - build_start)
+            e_total = util.get_time_str(build_stop - config_start)
+            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config} build {e_build} total {e_total}", color='green')
 
 
     def is_test_target(self):
