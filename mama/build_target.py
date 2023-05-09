@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os.path, shutil
+import os.path, time
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -1149,11 +1149,15 @@ class BuildTarget:
     def cmake_build(self):
         if self.config.print:
             console('\n\n#############################################################')
-            console(f"CMakeBuild {self.name}  ({self.cmake_build_type})")
+            console(f"CMakeBuild {self.name} ({self.cmake_build_type})")
+        start = time.time()
         self.dep.ensure_cmakelists_exists()
         cmake.inject_env(self)
         cmake.run_config(self) # THROWS on CMAKE failure
         cmake.run_build(self, install=True) # THROWS on CMAKE failure
+        if self.config.print:
+            elapsed = util.get_time_str(time.time() - start)
+            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) elapsed {elapsed}", color='green')
 
 
     def is_test_target(self):
