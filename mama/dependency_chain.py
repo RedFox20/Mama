@@ -101,6 +101,11 @@ def _get_compile_commands_path(dep: BuildDependency):
         # for src_dir paths we use `${workspaceFolder}` macro:
         return '${workspaceFolder}/build/compile_commands.json'
     if bin_exists:
+        # for build dir paths, check if build dir is relative to src dir
+        if dep.build_dir.startswith(dep.src_dir):
+            # if so, we chop off the src dir and use `${workspaceFolder}/`
+            rel_build_dir = f'${{workspaceFolder}}{dep.build_dir[len(dep.src_dir):]}/compile_commands.json'
+            return rel_build_dir
         return bin_build_cmds # absolute path for build dir paths
     return None
 
