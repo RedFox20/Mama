@@ -157,6 +157,8 @@ def main():
     config = BuildConfig(sys.argv[1:])
     if config.print:
         print_title()
+        if config.verbose:
+            console(f'Build jobs={config.jobs}')
 
     source_dir = os.getcwd()
     name = os.path.basename(source_dir)

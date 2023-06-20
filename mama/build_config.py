@@ -1,4 +1,4 @@
-import os, sys, multiprocessing, tempfile, platform
+import os, sys, tempfile, platform, psutil
 from mama.platforms.oclea import Oclea
 import mama.util as util
 from .utils.system import System, console
@@ -63,7 +63,7 @@ class BuildConfig:
         # valid architectures: x86, x64, arm, arm64
         self.arch    = None
         self.distro  = None  # distro information (name, major, minor)
-        self.jobs    = multiprocessing.cpu_count()
+        self.jobs    = psutil.cpu_count()
         self.target  = None
         self.flags   = None
         self.open    = None
