@@ -53,7 +53,7 @@ class BuildDependency:
             self.mamafile = git.mamafile # git.mamafile is the relative path
             if parent:
                 self.mamafile = parent.get_mamafile_path_relative_to_us(self.name, git.mamafile)
-            self.target_args = git.args
+            self._add_args(git.args)
             self.update_dep_dir()
             # put the git repo in workspace
             self.src_dir = normalized_join(self.dep_dir, self.name)
@@ -66,7 +66,7 @@ class BuildDependency:
         elif dep_source.is_src:
             src:LocalSource = dep_source
             self.mamafile = src.mamafile
-            self.target_args = src.args
+            self._add_args(src.args)
             self.always_build = src.always_build
 
             if parent:
@@ -92,20 +92,27 @@ class BuildDependency:
 
 
     @staticmethod
-    def get_loaded_dependency(name:str) -> BuildDependency:
+    def get_loaded_dependency(name: str) -> BuildDependency:
         if name in BuildDependency.loaded_deps:
             return BuildDependency.loaded_deps[name]
         return None
 
 
-    def update_existing_dependency(self, dep_source:DepSource):
+    def _add_args(self, args):
+        if args: # only add non-empty args (bugfix)
+            for arg in args:
+                if arg:
+                    self.target_args.append(arg)
+
+
+    def update_existing_dependency(self, dep_source: DepSource):
         if dep_source.is_git or dep_source.is_src:
-            self.target_args += dep_source.args
+            self._add_args(dep_source.args)
             if self.target:
                 self.target._set_args(self.target_args)
 
 
-    def add_child(self, dep_source:DepSource) -> BuildDependency:
+    def add_child(self, dep_source: DepSource) -> BuildDependency:
         """
         Adds a new child dependency to this BuildDependency
         """
@@ -295,7 +302,7 @@ class BuildDependency:
         return build
 
 
-    def can_fetch_artifactory(self, print, which):
+    def can_fetch_artifactory(self, print: bool, which: str):
         if self.is_root or self.did_check_artifactory:
             return False
 
@@ -342,59 +349,59 @@ class BuildDependency:
 
 
     def _should_build(self, conf:BuildConfig, target:BuildTarget, is_target, git_changed, loaded_from_pkg):
-            def build(r):
-                if conf.print:
-                    args = f'{target.args}' if target.args else ''
-                    console(f'  - Target {target.name: <16} BUILD [{r}]  {args}', color=Color.YELLOW)
-                return True
-
-            if conf.target and not is_target: # if we called: "target=SpecificProject"
-                return False # skip build if target doesn't match
-
-            ## build also entails packaging
-            if conf.clean and is_target: return build('cleaned target')
-            if self.is_root:             return build('root target')
-            if self.always_build:        return build('always build')
-            if git_changed:              return build('git commit changed')
-            if self.dep_source.is_pkg:   return build('artifactory pkg')
-
-            # if we call `update this_target`
-            if conf.update and conf.target == target.name:
-                return build('update target='+conf.target)
-
-            # if the project has been built at least once or downloaded from artifactory package
-            # then there will be a list of build products
-            # if any of those are missing, then this needs to be rebuilt to re-acquire them
-            missing_product = self.find_first_missing_build_product()
-            if missing_product:
-                return build(f'{missing_product} does not exist')
-
-            # project has not defined `nothing_to_build` which is for header-only projects
-            # thus we need to check if build should execute
-            can_build = not loaded_from_pkg and not self.nothing_to_build
-            if can_build:
-                # there are no build products defined at all, it hasn't been built or downloaded
-                if not target.build_products:
-                    if not self.has_build_files():
-                        return build('not built yet')
-                    return build('no build dependencies')
-
-                # we have build products, and none of them are missing
-                if target.build_products and not missing_product:
-                    pass # added this condition for clarity -- all should be OK
-
-            # something changed in the mamafile, or artifactory package
-            # and the list of dependency targets changed, thus we need to rebuild
-            missing_dep = self.find_missing_dependency()
-            if missing_dep: return build(f'{missing_dep} was removed')
-
-            if not self.from_artifactory:
-                if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
-                if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
-
+        def build(r):
             if conf.print:
-                console(f'  - Target {target.name: <16} OK', color=Color.GREEN)
-            return False # do not build, all is ok
+                args = f'{target.args}' if target.args else ''
+                console(f'  - Target {target.name: <16} BUILD [{r}]  {args}', color=Color.YELLOW)
+            return True
+
+        if conf.target and not is_target: # if we called: "target=SpecificProject"
+            return False # skip build if target doesn't match
+
+        ## build also entails packaging
+        if conf.clean and is_target: return build('cleaned target')
+        if self.is_root:             return build('root target')
+        if self.always_build:        return build('always build')
+        if git_changed:              return build('git commit changed')
+        if self.dep_source.is_pkg:   return build('artifactory pkg')
+
+        # if we call `update this_target`
+        if conf.update and conf.target == target.name:
+            return build('update target='+conf.target)
+
+        # if the project has been built at least once or downloaded from artifactory package
+        # then there will be a list of build products
+        # if any of those are missing, then this needs to be rebuilt to re-acquire them
+        missing_product = self.find_first_missing_build_product()
+        if missing_product:
+            return build(f'{missing_product} does not exist')
+
+        # project has not defined `nothing_to_build` which is for header-only projects
+        # thus we need to check if build should execute
+        can_build = not loaded_from_pkg and not self.nothing_to_build
+        if can_build:
+            # there are no build products defined at all, it hasn't been built or downloaded
+            if not target.build_products:
+                if not self.has_build_files():
+                    return build('not built yet')
+                return build('no build dependencies')
+
+            # we have build products, and none of them are missing
+            if target.build_products and not missing_product:
+                pass # added this condition for clarity -- all should be OK
+
+        # something changed in the mamafile, or artifactory package
+        # and the list of dependency targets changed, thus we need to rebuild
+        missing_dep = self.find_missing_dependency()
+        if missing_dep: return build(f'{missing_dep} was removed')
+
+        if not self.from_artifactory:
+            if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
+            if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
+
+        if conf.print:
+            console(f'  - Target {target.name: <16} OK', color=Color.GREEN)
+        return False # do not build, all is ok
 
 
     def after_load(self):

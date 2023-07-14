@@ -830,15 +830,15 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return 'lib' if self.windows else 'a'
 
 
-    def targets_all(self):
+    def targets_all(self) -> bool:
         return self.target == 'all'
 
 
-    def target_matches(self, target_name: str):
+    def target_matches(self, target_name: str) -> bool:
         return self.targets_all() \
             or (self.target and self.target.lower() == target_name.lower())
 
 
-    def no_specific_target(self):
+    def no_specific_target(self) -> bool:
         return (not self.target) or self.targets_all()
 

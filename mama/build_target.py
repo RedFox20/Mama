@@ -96,10 +96,11 @@ class BuildTarget:
         self._set_args(args)
 
 
-    def _set_args(self, args:List[str]):
+    def _set_args(self, args: List[str]):
         if not isinstance(args, list):
             raise RuntimeError(f'BuildTarget {self.name} target args must be a list')
-        self.args += args
+        for arg in args:
+            if arg: self.args.append(arg)
         #console(f'Added args to {self.name}: {self.args}')
 
 
