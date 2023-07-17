@@ -17,25 +17,25 @@ class Oclea:
 
     def bin(self):
         """ {toolchain_path}/x86_64-ocleasdk-linux/usr/bin/aarch64-oclea-linux/ """
-        if not self.compilers: self.init_oclea_path()
+        if not self.compilers: self.init_default()
         return self.compilers
 
 
     def sdk(self):
         """ {toolchain_path}/x86_64-ocleasdk-linux/ """
-        if not self.compilers: self.init_oclea_path()
+        if not self.compilers: self.init_default()
         return self.sdk_path
 
 
     def sysroot(self):
         """ {toolchain_path}/aarch64-oclea-linux/ """
-        if not self.compilers: self.init_oclea_path()
+        if not self.compilers: self.init_default()
         return self.sysroot_path
 
 
     def includes(self):
         """ [ '{toolchain_path}/aarch64-oclea-linux/usr/include' ] """
-        if not self.compilers: self.init_oclea_path()
+        if not self.compilers: self.init_default()
         return self.include_paths
 
 
@@ -43,14 +43,21 @@ class Oclea:
         path = os.getenv(env)
         if path: paths.append(path)
 
-    
-    def init_oclea_toolchain_file(self, toolchain_file, toolchain_dir):
+
+    def init_default(self):
+        if not self.compilers:
+            self.init_toolchain()
+
+
+    def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        if toolchain_file and not os.path.exists(toolchain_file):
+            raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
+        if toolchain_dir and not os.path.exists(toolchain_dir):
+            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
+        if not System.linux:
+            raise RuntimeError('Oclea only supported on Linux')
+
         self.toolchain_file = toolchain_file
-        self.init_oclea_path(toolchain_dir)
-
-
-    def init_oclea_path(self, toolchain_dir=None):
-        if not System.linux: raise RuntimeError('Oclea only supported on Linux')
         paths = []
         if toolchain_dir: paths += [ toolchain_dir ]
         paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain' ]
@@ -70,7 +77,7 @@ class Oclea:
                     console(f'Found Oclea TOOLS: {self.compilers}')
                     console(f'      Oclea SDK path: {self.sdk_path}')
                     console(f'      Oclea sys path: {self.sysroot_path}')
-                return
+                return # success
         raise EnvironmentError(f'''No Oclea toolchain compilers detected! 
 Default search paths: {paths} 
 Define env OCLEA_HOME with path to Oclea tools.''')

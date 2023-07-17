@@ -26,7 +26,7 @@ def _get_exported_libs(target):
         allowed = ['.a', '.dylib', '.bundle']
     elif target.ios:
         allowed = ['.a', '.dylib', '.framework']
-    elif target.raspi or target.oclea:
+    elif target.raspi or target.oclea or target.mips:
         allowed = ['.a', '.so']
 
     #print(f'{target.name: <16} exported: {target.exported_libs}')
@@ -113,7 +113,7 @@ def _get_compile_commands_path(dep: BuildDependency):
 def _save_vscode_compile_commands(dep: BuildDependency):
     if not dep.src_dir: # for artifactory pkgs, there is no src_dir
         return
-    if dep.config.oclea or dep.config.raspi or dep.config.android:
+    if dep.config.oclea or dep.config.mips or dep.config.raspi or dep.config.android:
         return # don't overwrite compile commands for cross-compilations
     cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
     if not os.path.exists(cpp_props_path):
@@ -276,6 +276,10 @@ elseif(OCLEA)
         set(MAMA_ARCH_ARM64 TRUE)
         add_compile_definitions(OCLEA=1)
         {get_build_dir_defines(c.build_dir_oclea64())}
+elseif(MIPS)
+        set(MAMA_ARCH_MIPS TRUE)
+        add_compile_definitions(MIPS=1)
+        {get_build_dir_defines(c.build_dir_mips())}
 elseif(UNIX)
     set(LINUX TRUE)
     if(MAMA_CMAKE_ARCH MATCHES "(amd64)|(AMD64)|(IA64)|(x86_64)")

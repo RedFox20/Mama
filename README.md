@@ -23,7 +23,7 @@ Custom build systems are also supported. For additional documentation explore: [
 
 ## Who is this FOR?
 Anyone who develops cross-platform C++ libraries or applications which
-target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea].
+target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, MIPS].
 And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
@@ -31,13 +31,14 @@ If you require an easy to use, reproducible project/namespace scoped package+bui
 Your builds will not rely on hard to setup system packages, all you need to do is type `mama build`.
 
 ### Supported platforms ###
-- Windows (64-bit x86_64, 32-bit x86, 64-bit arm64, 32-bit armv7)
-- Linux (Ubuntu) (64-bit x86_64, 32-bit x86)
-- MacOS (64-bit x86_64, 64-bit arm64)
-- iOS (64-bit arm64)
-- Android (64-bit arm64, 32-bit armv7)
-- Raspberry (32-bit armv7)
-- Oclea (64-bit arm64)
+- Windows (64-bit x86_64, 32-bit x86, 64-bit arm64, 32-bit armv7) default is latest MSVC
+- Linux (Ubuntu) (64-bit x86_64, 32-bit x86) both GCC and Clang
+- MacOS (64-bit x86_64, 64-bit arm64) via config.macos_version
+- iOS (64-bit arm64) via config.ios_version
+- Android (64-bit arm64, 32-bit armv7) via env ANDROID_HOME
+- Raspberry (32-bit armv7) via env RASPI_HOME
+- Oclea (64-bit arm64) via config.set_oclea_toolchain()
+- MIPS (mips mipsel, mips64, mips64el) via config.set_mips_toolchain()
 
 ## Who is this NOT for?
 Single platform projects with platform specific build configuration and system wide dependency management

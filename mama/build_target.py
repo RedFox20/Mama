@@ -90,6 +90,7 @@ class BuildTarget:
         self.android = self.config.android
         self.raspi   = self.config.raspi
         self.oclea   = self.config.oclea
+        self.mips    = self.config.mips
         self.os_windows = System.windows
         self.os_linux   = System.linux
         self.os_macos   = System.macos
@@ -685,24 +686,67 @@ class BuildTarget:
         self.config.prefer_clang(self.name)
 
 
+    def _get_cxx_std(self):
+        return self.cmake_cxxflags.get('/std' if self.windows else '-std', '')
+
+    def _set_cxx_std(self, std):
+        self.cmake_cxxflags['/std' if self.windows else '-std'] = std
+
+
+    def enable_cxx23(self):
+        """ Enable C++23 standard """
+        self._set_cxx_std('c++latest' if self.windows else 'c++2b')
+
+    def is_enabled_cxx23(self):
+        if 'CXX23' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++23' in std or 'c++2b' in std or 'c++latest' in std
+
+
     def enable_cxx20(self):
-        """Enable a specific C++ standard"""
-        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++latest' if self.windows else 'c++2a'
+        """Enable C++20 standard"""
+        if self.mips or self.raspi or self.oclea:
+            self._set_cxx_std('c++2a') # older toolchains typically need c++2a
+        else:
+            self._set_cxx_std('c++20')
+
+    def is_enabled_cxx20(self):
+        if 'CXX20' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++20' in std or 'c++2a' in std
 
 
     def enable_cxx17(self):
-        """Enable a specific C++ standard"""
-        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++17'
+        """Enable C++17 standard"""
+        if 'g++' in self.config.cxx_path and self.config.cxx_version < 8:
+            self._set_cxx_std('c++1z') # older toolchains typically need c++1z
+        else:
+            self._set_cxx_std('c++17')
+
+    def is_enabled_cxx17(self):
+        if 'CXX17' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++17' in std or 'c++1z' in std
 
 
     def enable_cxx14(self):
-        """Enable a specific C++ standard"""
-        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++14'
+        """Enable C++14 standard"""
+        self._set_cxx_std('c++14')
+
+    def is_enabled_cxx14(self):
+        if 'CXX14' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++14' in std
 
 
     def enable_cxx11(self):
-        """Enable a specific C++ standard"""
-        self.cmake_cxxflags['/std' if self.windows else '-std'] = 'c++11'
+        """Enable C++11 standard"""
+        self._set_cxx_std('c++11')
+
+    def is_enabled_cxx11(self):
+        if 'CXX11' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++11' in std
 
 
     def copy(self, src, dst):
@@ -867,8 +911,8 @@ class BuildTarget:
             self.gdb('bin/NanoMeshTests')
         ```
         """
-        if self.android or self.ios or self.raspi or self.oclea:
-            console('Cannot run tests for Android, iOS, Raspi, Oclea builds.')
+        if self.android or self.ios or self.raspi or self.oclea or self.mips:
+            console('Cannot run tests for Android, iOS, Raspi, Oclea, MIPS builds.')
             return # nothing to run
 
         split = command.split(' ', 1)

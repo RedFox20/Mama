@@ -1,5 +1,6 @@
 import os, sys, tempfile, platform, psutil
 from mama.platforms.oclea import Oclea
+from mama.platforms.mips import Mips
 import mama.util as util
 from .utils.system import System, console
 from .utils.sub_process import execute, execute_piped
@@ -44,6 +45,7 @@ class BuildConfig:
         self.android = False
         self.raspi   = False
         self.oclea : Oclea = None
+        self.mips : Mips = None
         # compilers
         self.clang = True # prefer clang on linux
         self.gcc   = False
@@ -140,6 +142,7 @@ class BuildConfig:
             elif arg == 'android': self.set_platform(android=True)
             elif arg == 'raspi':   self.set_platform(raspi=True)
             elif arg == 'oclea':   self.set_platform(oclea=True)
+            elif arg == 'mips':    self.set_platform(mips=True)
             elif arg == 'x86':     self.set_arch('x86')
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
@@ -205,21 +208,40 @@ class BuildConfig:
 
 
     def set_platform(self, windows=False, linux=False, macos=False, \
-                           ios=False, android=False, raspi=False, oclea=False):
-        self.windows = windows
-        self.linux   = linux
-        self.macos   = macos
-        self.ios     = ios
-        self.android = android
-        self.raspi   = raspi
-        if not oclea: self.oclea = None
-        elif not self.oclea: self.oclea = Oclea(self)
+                           ios=False, android=False, raspi=False, \
+                           oclea=False, mips=False):
+        """ Ensures only a single platform is set """
+        platforms = [False]*8
+        if windows: platforms[0] = True
+        elif linux:  platforms[1] = True
+        elif macos:  platforms[2] = True
+        elif ios:    platforms[3] = True
+        elif android: platforms[4] = True
+        elif raspi: platforms[5] = True
+        elif oclea: platforms[6] = True
+        elif mips: platforms[7] = True
+
+        def get_new_value(old_value, enable, type=None):
+            if old_value and not enable:
+                return None if type else False
+            if enable and not old_value:
+                return type(self) if type else True
+            return old_value
+        self.windows = get_new_value(self.windows, platforms[0])
+        self.linux   = get_new_value(self.linux,   platforms[1])
+        self.macos   = get_new_value(self.macos,   platforms[2])
+        self.ios     = get_new_value(self.ios,     platforms[3])
+        self.android = get_new_value(self.android, platforms[4])
+        self.raspi   = get_new_value(self.raspi,   platforms[5])
+        self.oclea   = get_new_value(self.oclea,   platforms[6], Oclea)
+        self.mips    = get_new_value(self.mips,    platforms[7], Mips)
         return True
 
 
     def is_platform_set(self):
         return self.windows or self.linux or self.macos \
-            or self.ios or self.android or self.raspi or self.oclea
+            or self.ios or self.android or self.raspi \
+            or self.oclea or self.mips
 
 
     def check_platform(self):
@@ -236,6 +258,7 @@ class BuildConfig:
             elif self.android:    self.set_arch('arm64')
             elif self.raspi:      self.set_arch('arm')
             elif self.oclea:      self.set_arch('arm64')
+            elif self.mips:       self.set_arch(self.mips.mips_arch)
             elif System.is_64bit: self.set_arch('x64')
             else:                 self.set_arch('x86')
 
@@ -248,6 +271,8 @@ class BuildConfig:
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
             if self.oclea and self.arch != 'arm64':
                 raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
+            if self.mips and self.arch not in self.mips.supported_arches:
+                raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
 
 
     def get_distro_info(self):
@@ -271,6 +296,9 @@ class BuildConfig:
         elif self.oclea:
             # TODO: OCLEA version
             self.distro = (self.name(), 0, 0)
+        elif self.mips:
+            # TODO: MIPS version
+            self.distro = (self.name(), 0, 0)
         elif self.linux:
             try:
                 dist = distro.info()
@@ -286,7 +314,7 @@ class BuildConfig:
 
 
     def set_arch(self, arch):
-        arches = ['x86', 'x64', 'arm', 'arm64']
+        arches = ['x86', 'x64', 'arm', 'arm64', 'mips', 'mipsel', 'mips64', 'mips64el']
         if not arch in arches:
             raise RuntimeError(f"Unrecognized architecture {arch}! Valid options are: {arches}")
         self.arch = arch
@@ -304,6 +332,7 @@ class BuildConfig:
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
         if self.oclea:   return 'oclea'
+        if self.mips:    return 'mips'
         return 'build'
 
 
@@ -323,6 +352,7 @@ class BuildConfig:
     def build_dir_android32(self): return 'android32'
     def build_dir_raspi32(self): return 'raspi'
     def build_dir_oclea64(self): return 'oclea'
+    def build_dir_mips(self): return 'mips'
     def build_dir_default(self): return 'build'
 
 
@@ -352,6 +382,8 @@ class BuildConfig:
             return self.build_dir_android32()
         if self.raspi: return self.build_dir_raspi32()  # Only 32-bit raspi
         if self.oclea: return self.build_dir_oclea64()  # Only 64-bit oclea aarch64 (arm64)
+        if self.mips: return self.build_dir_mips()
+
         return self.build_dir_default()
 
 
@@ -404,7 +436,7 @@ class BuildConfig:
 
     # returns: root path where the compilers exist and the discovered suffix
     #          (root_path, suffix)
-    def find_compiler_root(self, suggested_path, compiler, suffixes, gcc):
+    def find_compiler_root(self, suggested_path, compiler, suffixes, dumpfullversion):
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
@@ -413,7 +445,7 @@ class BuildConfig:
             for suffix in suffixes:
                 cc_path = root + compiler + suffix
                 if os.path.exists(cc_path):
-                    version = self._get_gcc_clang_fullversion(cc_path, gcc) # eg 9.4.0
+                    version = self._get_gcc_clang_fullversion(cc_path, dumpfullversion) # eg 9.4.0
                     if self.verbose: console(f'Compiler {cc_path} version: {version}')
                     candidates.append((root, suffix, version))
         if not candidates:
@@ -454,20 +486,24 @@ class BuildConfig:
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, gcc=True)
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.oclea:
             self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
             self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, gcc=True)
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+        elif self.mips:
+            self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
+            self.cxx_path = f'{self.mips.compiler_prefix()}g++'
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.clang:
             suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
-            self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, gcc=False)
+            self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, dumpfullversion=False)
             self.cc_path = f'{self.clang_path}clang{suffix}'
             self.cxx_path = f'{self.clang_path}clang++{suffix}'
             self.cxx_version = ver
         elif self.gcc:
             suffixes = ['-11','-10','-9','-8','-7','-6','']
-            self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes, gcc=True)
+            self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes, dumpfullversion=True)
             self.cc_path = f'{self.gcc_path}gcc{suffix}'
             self.cxx_path = f'{self.gcc_path}g++{suffix}'
             self.cxx_version = ver
@@ -478,11 +514,13 @@ class BuildConfig:
         raise EnvironmentError('No preferred compiler for this platform!')
 
 
-    def _get_gcc_clang_fullversion(self, cc_path, gcc):
-        if gcc:
-            return execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
-        else: # clang++ doesn't support -dumpfullversion in latest releases -_-
-            return execute_piped(f'{cc_path} -dumpversion').strip()
+    def _get_gcc_clang_fullversion(self, cc_path, dumpfullversion):
+        if dumpfullversion:
+            version = execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
+            if version.count('.') >= 1:
+                return version
+        # clang++ doesn't support -dumpfullversion in latest releases -_-
+        return execute_piped(f'{cc_path} -dumpversion').strip()
 
 
     def compiler_version(self):
@@ -490,7 +528,7 @@ class BuildConfig:
             msvc_tools = self.get_msvc_tools_path()
             version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
             return f'msvc{version}'
-        elif self.linux or self.raspi or self.oclea:
+        elif self.linux or self.raspi or self.oclea or self.mips:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
             major_version, minor_version = version_parts[0], version_parts[1]
@@ -598,21 +636,22 @@ Default search paths: {paths}
 Define env RASPI_HOME with path to Raspberry tools.''')
 
 
-    def set_oclea_toolchain(self, toolchain_dir, toolchain_file=None):
+    def set_oclea_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """
-        Sets the toolchain file where these dirs exist:
+        Sets the toolchain dir where these subdirs exist:
             aarch64-oclea-linux/
             x86_64-ocleasdk-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_dir`
+        And optionally also sets the CMake toolchain file via `toolchain_file`
         """
-        if not os.path.exists(toolchain_dir):
-            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
-        if toolchain_file:
-            if not os.path.exists(toolchain_file):
-                raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
-            self.oclea.init_oclea_toolchain_file(toolchain_file, toolchain_dir)
-        else:
-            self.oclea.init_oclea_path(toolchain_dir)
+        self.oclea.init_toolchain(toolchain_dir, toolchain_file)
+
+
+    def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):
+        """
+        Sets the toolchain dir for MIPS platform where at least the `bin` dir should exist
+        And optionally also sets the CMake toolchain file via `toolchain_file`
+        """
+        self.mips.init_toolchain(arch, toolchain_dir, toolchain_file)
 
 
     def find_default_fortran_compiler(self):

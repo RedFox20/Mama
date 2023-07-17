@@ -226,7 +226,8 @@ def main():
 
     if config.android: config.android_home()
     if config.raspi:   config.raspi_bin()
-    if config.oclea:   config.oclea.bin()
+    if config.oclea:   config.oclea.init_default()
+    if config.mips:    config.mips.init_default()
 
     if config.verbose:
         chain = ' -> '.join([d.name for d in flat_deps_reverse])
