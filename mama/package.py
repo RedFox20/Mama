@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console
 from .util import normalized_path, glob_with_name_match
@@ -8,27 +8,27 @@ from .types.asset import Asset
 if TYPE_CHECKING:
     from .build_target import BuildTarget
 
-def is_a_static_library(lib):
+def is_a_static_library(lib: str):
     return lib.endswith('.a') or lib.endswith('.lib')
 
 
-def is_a_dynamic_library(lib):
+def is_a_dynamic_library(lib: str):
     return lib.endswith('.dll')    or lib.endswith('.pdb') \
         or lib.endswith('.dylib')  or lib.endswith('.so')  \
         or lib.endswith('.bundle') or lib.endswith('.framework') \
         or lib.endswith('.aar')
 
 
-def is_a_library(lib):
+def is_a_library(lib: str):
     return is_a_static_library(lib) or is_a_dynamic_library(lib)
 
 
-def target_root_path(target, path, src_dir):
+def target_root_path(target: BuildTarget, path: str, src_dir: bool):
     root = target.source_dir() if src_dir else target.build_dir()
     return normalized_path(os.path.join(root, path))
 
 
-def get_lib_basename(lib):
+def get_lib_basename(lib: str|tuple):
     if isinstance(lib, tuple):
         return os.path.basename(lib[0])
     elif lib.startswith('-framework '):
@@ -37,7 +37,7 @@ def get_lib_basename(lib):
         return os.path.basename(lib)
 
 
-def get_unique_basenames(items):
+def get_unique_basenames(items: list):
     unique = dict()
     for item in items:
         basename = get_lib_basename(item)
@@ -45,7 +45,7 @@ def get_unique_basenames(items):
     return list(unique.values())
 
 
-def export_include(target, include_path, build_dir):
+def export_include(target: BuildTarget, include_path: str, build_dir: bool):
     include_path = target_root_path(target, include_path, not build_dir)
     #console(f'export_include={include_path}')
     if os.path.exists(include_path):
@@ -55,14 +55,14 @@ def export_include(target, include_path, build_dir):
     return False
 
 
-def export_includes(target, include_paths, build_dir):
+def export_includes(target: BuildTarget, include_paths: list, build_dir: bool):
     added = False
     for include_path in include_paths:
         added |= target.export_include(include_path, build_dir)
     return added
 
 
-def export_lib(target, relative_path, src_dir):
+def export_lib(target: BuildTarget, relative_path: str, src_dir: str):
     path = target_root_path(target, relative_path, src_dir)
     if os.path.exists(path):
         target.exported_libs.append(path)
@@ -71,7 +71,7 @@ def export_lib(target, relative_path, src_dir):
         console(f'export_lib failed to find: {path}')
 
 
-def set_export_libs_and_products(target, libs_and_deps:list):
+def set_export_libs_and_products(target: BuildTarget, libs_and_deps: List[str]):
     """
     Sets target's exported_libs and build_products from previously serialized
     list of libraries and dependencies
@@ -85,7 +85,7 @@ def set_export_libs_and_products(target, libs_and_deps:list):
     target.build_products = get_unique_basenames(libs_and_deps)
 
 
-def cleanup_libs_list(libs):
+def cleanup_libs_list(libs: List[str]):
     """Cleans up libs list by removing invalid entries"""
     cleaned = []
     for lib in libs:
@@ -95,7 +95,7 @@ def cleanup_libs_list(libs):
     return cleaned
 
 
-def clean_intermediate_files(target):
+def clean_intermediate_files(target: BuildTarget):
     files_to_clean = glob_with_name_match(target.build_dir(), ['.obj', '.o'])
     if files_to_clean:
         if target.config.print:
@@ -104,7 +104,7 @@ def clean_intermediate_files(target):
             os.remove(file)
 
 
-def export_libs(target, path, pattern_substrings, src_dir, order):
+def export_libs(target: BuildTarget, path, pattern_substrings: List[str], src_dir: bool, order: list):
     root_path = target_root_path(target, path, src_dir)
     libs = glob_with_name_match(root_path, pattern_substrings)
     libs = cleanup_libs_list(libs)
@@ -126,7 +126,7 @@ def export_libs(target, path, pattern_substrings, src_dir, order):
     return len(target.exported_libs) > 0
 
 
-def export_asset(target, asset, category=None, src_dir=True):
+def export_asset(target: BuildTarget, asset: str, category=None, src_dir=True):
     full_asset = target_root_path(target, asset, src_dir)
     if os.path.exists(full_asset):
         target.exported_assets.append(Asset(asset, full_asset, category))
@@ -136,7 +136,7 @@ def export_asset(target, asset, category=None, src_dir=True):
         return False
 
 
-def export_assets(target, assets_path, pattern_substrings, category=None, src_dir=True):
+def export_assets(target: BuildTarget, assets_path: str, pattern_substrings: list, category=None, src_dir=True):
     assets_path += '/'
     assets = glob_with_name_match(target_root_path(target, assets_path, src_dir), pattern_substrings, match_dirs=False)
     if assets:
@@ -146,7 +146,7 @@ def export_assets(target, assets_path, pattern_substrings, category=None, src_di
     return False
 
 
-def find_syslib(target: BuildTarget, name, apt, required: bool):
+def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
     if target.ios or target.macos:
         if not name.startswith('-framework '):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
@@ -167,7 +167,7 @@ def find_syslib(target: BuildTarget, name, apt, required: bool):
         return name # just export it. expect system linker to find it.
 
 
-def export_syslib(target: BuildTarget, name, apt: bool, required: bool):
+def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
     """
     - target: The build target where to add the export syslib
     - name: Name of the system library, eg: lzma
@@ -192,13 +192,13 @@ def export_syslib(target: BuildTarget, name, apt: bool, required: bool):
     return False
 
 
-def get_lib_basename(syslib):
+def get_lib_basename(syslib: str):
     if syslib.startswith('-framework '):
         return syslib
     return os.path.basename(syslib)
 
 
-def _reset_syslib_name(syslib):
+def _reset_syslib_name(syslib: str):
     """ Resets the syslib name from `/usr/lib/x86_64-linux-gnu/liblzma.so` to `lzma` """
     fname = os.path.basename(syslib)
     if fname.startswith('lib'):
@@ -209,7 +209,7 @@ def _reset_syslib_name(syslib):
     return fname
 
 
-def reload_syslibs(target, syslibs):
+def reload_syslibs(target: BuildTarget, syslibs: List[str]):
     reloaded = []
     for syslib in syslibs:
         if syslib.startswith('-framework '):

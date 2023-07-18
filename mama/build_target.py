@@ -9,7 +9,9 @@ from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
 from .utils.system import System, console
-from .utils.sub_process import execute, execute_echo
+from .utils.gdb import run_gdb
+from .utils.gtest import run_gtest
+from .utils.run import run_in_project_dir, run_in_working_dir
 from .papa_deploy import papa_deploy_to, papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
@@ -482,7 +484,7 @@ class BuildTarget:
         return package.export_asset(self, asset, category, src_dir)
 
 
-    def export_assets(self, assets_path, pattern_substrings = [], category=None, src_dir=True):
+    def export_assets(self, assets_path: str, pattern_substrings = [], category=None, src_dir=True):
         """
         Performs a GLOB recurse, using specific pattern substrings.
         This can be later used when creating a deployment
@@ -501,7 +503,7 @@ class BuildTarget:
         return package.export_assets(self, assets_path, pattern_substrings, category, src_dir)
 
 
-    def export_syslib(self, name, apt='', required=True):
+    def export_syslib(self, name: str, apt='', required=True):
         """
         For UNIX: Find and export system libraries so they are automatically linked with mamabuild.
 
@@ -655,7 +657,7 @@ class BuildTarget:
             if isinstance(option, list): self.cmake_opts += option
             else:                        self.cmake_opts.append(option)
 
-    
+
     def add_platform_options(self, windows=None, linux=None, macos=None, ios=None, android=None):
         """
         Selectively applies CMake options depending on configuration platform.
@@ -749,7 +751,7 @@ class BuildTarget:
         return 'c++11' in std
 
 
-    def copy(self, src, dst):
+    def copy(self, src: str, dst: str):
         """
         Utility for copying files and folders
         ```
@@ -762,7 +764,7 @@ class BuildTarget:
             if self.config.verbose: console(f'copy {src} --> {dst}')
 
 
-    def copy_built_file(self, builtFile, copyToFolder):
+    def copy_built_file(self, builtFile: str, copyToFolder: str):
         """
         Utility for copying files within the build directory.
         ```
@@ -777,7 +779,7 @@ class BuildTarget:
             if self.config.verbose: console(f'copy_built_file {src} --> {dst}')
 
 
-    def copy_deployed_folder(self, src_dir, dst_dir):
+    def copy_deployed_folder(self, src_dir: str, dst_dir: str):
         """
         Utility for copying folders from source dir.
         ```
@@ -791,7 +793,7 @@ class BuildTarget:
             if self.config.verbose: console(f'copy_deployed_folder {src} --> {dst}')
 
 
-    def download_file(self, remote_url, local_dir, force=False):
+    def download_file(self, remote_url: str, local_dir: str, force=False):
         """
         Downloads a file if it doesn't already exist.
         ```
@@ -802,7 +804,7 @@ class BuildTarget:
         return util.download_file(remote_url, local_dir, force)
 
 
-    def download_and_unzip(self, remote_zip, extract_dir, unless_file_exists=None):
+    def download_and_unzip(self, remote_zip: str, extract_dir: str, unless_file_exists=None):
         """
         Downloads and unzips an archive if it doesn't already exist.
 
@@ -876,23 +878,20 @@ class BuildTarget:
         self.dep.should_rebuild = False
 
 
-    def run(self, command, src_dir=False, exit_on_fail=True):
+    def run(self, command: str, src_dir=False, exit_on_fail=True):
         """
         Run a command in the build or source folder.
         Can be used for any custom commands or custom build systems.
         src_dir -- [False] If true, then command is relative to source directory.
         ```
-            self.run('./configure')
-            self.run('make release -j7')
+            self.run('./configure', src_dir=True)
+            self.run('make release -j7') # run in build dir
         ```
         """
-        dir = self.source_dir() if src_dir else self.build_dir()
-        res = execute(f'cd {dir} && {command}', echo=True, throw=not exit_on_fail)
-        if res != 0 and exit_on_fail:
-            exit(res)
+        run_in_project_dir(self, command, src_dir, exit_on_fail)
 
 
-    def run_program(self, working_dir, command):
+    def run_program(self, working_dir: str, command: str, exit_on_fail=True):
         """
         Run any program in any directory. Can be used for custom tools.
         ```
@@ -900,46 +899,34 @@ class BuildTarget:
                              self.source_dir('bin/DbTool'))
         ```
         """
-        execute_echo(working_dir, command, exit_on_fail=True)
+        run_in_working_dir(self, working_dir, command, exit_on_fail=exit_on_fail)
 
 
-    ## TODO: Move this into a new utility
-    def gdb(self, command, src_dir=True):
+    def gdb(self, command: str, src_dir=True):
         """
         Run a command with gdb in the build folder.
         ```
             self.gdb('bin/NanoMeshTests')
         ```
         """
-        if self.android or self.ios or self.raspi or self.oclea or self.mips:
-            console('Cannot run tests for Android, iOS, Raspi, Oclea, MIPS builds.')
-            return # nothing to run
+        return run_gdb(self, command, src_dir)
 
-        split = command.split(' ', 1)
-        cmd = split[0].lstrip('.')
-        args = split[1] if len(split) >= 2 else ''
-        path = self.source_dir() if src_dir else self.build_dir()
-        path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
-        exe = os.path.basename(cmd)
 
-        if System.windows and self.windows and '.exe' not in exe:
-            exe += '.exe'
-
-        if self.windows:
-            if not src_dir: path = f'{path}/{self.cmake_build_type}'
-            gdb = f'{path}/{exe} {args}'
-        elif self.macos:
-            # b: batch, q: quiet, -o r: run
-            # -k bt: on crash, backtrace
-            # -k q: on crash, quit 
-            gdb = f'lldb -b -o r -k bt -k q  -- ./{exe} {args}'
-        else: # linux
-            # r: run;  bt: give backtrace;  q: quit when done;
-            gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
-
-        if not os.path.exists(f'{path}/{exe}'):
-            raise IOError(f'Could not find {path}/{exe}')
-        execute_echo(cwd=path, cmd=gdb)
+    def gtest(self, executable: str, args: str, src_dir=True):
+        """
+        Runs a gtest executable with gdb by default.
+        The gtest report is written to $src_dir/test/report.xml.
+        Arguments
+        - executable -- which executable to run
+        - args -- a string of options separated by spaces, 
+          'gdb', 'nogdb' or gtest fixture/test partial name
+        - src_dir -- [True] If true, then executable is relative to source directory.
+        ```
+            self.gtest("bin/MyAppGtests", "nogdb", src_dir=True)
+            self.gtest("bin/MyAppGtests", "MyFixtureName.TheTestName", src_dir=True)
+        ```
+        """
+        run_gtest(self, executable, args, src_dir)
 
 
     ########## Customization Points ###########
@@ -1157,7 +1144,11 @@ class BuildTarget:
         `mama test arg1 arg2 arg3`
         ```
             def test(self, args):
+                # simply runs an executable with GDB
                 self.gdb(f'RppTests {args}')
+                # or run gtest executable, with GDB by default
+                # or you can provide `nogdb` argument to disable GDB
+                self.gtest(f'bin/project_gtests', args, src_dir=True)
         ```
         """
         pass

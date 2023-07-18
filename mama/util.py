@@ -7,19 +7,19 @@ from urllib import request
 from datetime import datetime
 from dateutil import tz
 
-def is_file_modified(src, dst):
+def is_file_modified(src: str, dst: str):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
            os.path.getsize(src) == os.path.getsize(dst)
 
 
-def find_executable_from_system(name):
+def find_executable_from_system(name: str):
     if not name: return ''
     output = shutil.which(name)
     if not output: return ''
     return output if os.path.isfile(output) else ''
 
 
-def copy_files(fromFolder, toFolder, fileNames):
+def copy_files(fromFolder: str, toFolder: str, fileNames: List[str]):
     for file in fileNames:
         sourceFile = os.path.join(fromFolder, file)
         if not os.path.exists(sourceFile):
@@ -40,7 +40,7 @@ def copy_files(fromFolder, toFolder, fileNames):
         shutil.copy2(sourceFile, destFile) # copy while preserving metadata
 
 
-def deploy_framework(framework, deployFolder):
+def deploy_framework(framework: str, deployFolder: str):
     if not os.path.exists(framework):
         raise IOError(f'no framework found at: {framework}') 
     if os.path.exists(deployFolder):
@@ -95,7 +95,7 @@ def normalized_join(path1: str, *pathsN) -> str:
     return normalized_path(os.path.join(path1, *pathsN))
 
 
-def glob_with_extensions(rootdir, extensions):
+def glob_with_extensions(rootdir: str, extensions: List[str]) -> List[str]:
     results = []
     for dirpath, _, dirfiles in os.walk(rootdir):
         for file in dirfiles:
@@ -107,7 +107,7 @@ def glob_with_extensions(rootdir, extensions):
     return results
 
 
-def strstr_multi(s, substrings):
+def strstr_multi(s: str, substrings: List[str]) -> bool:
     #console(f'file: {s} matches: {substrings}')
     if not substrings: # if no substrings, then match everything
         return True
@@ -117,7 +117,7 @@ def strstr_multi(s, substrings):
     return False
 
 
-def glob_with_name_match(rootdir, pattern_substrings, match_dirs=True):
+def glob_with_name_match(rootdir: str, pattern_substrings: list, match_dirs=True) -> List[str]:
     results = []
     for dirpath, dirnames, dirfiles in os.walk(rootdir):
         if match_dirs:
@@ -134,7 +134,7 @@ def glob_with_name_match(rootdir, pattern_substrings, match_dirs=True):
     return results
 
 
-def glob_folders_with_name_match(rootdir, pattern_substrings):
+def glob_folders_with_name_match(rootdir: str, pattern_substrings: List[str]):
     results = []
     for dirpath, _, _ in os.walk(rootdir):
         if strstr_multi(dirpath, pattern_substrings):
@@ -142,13 +142,13 @@ def glob_folders_with_name_match(rootdir, pattern_substrings):
     return results
 
 
-def is_dir_empty(dir): # no files?
+def is_dir_empty(dir: str): # no files?
     if not os.path.exists(dir): return True
     _, _, filenames = next(os.walk(dir))
     return len(filenames) == 0
 
 
-def has_tag_changed(old_tag_file, new_tag):
+def has_tag_changed(old_tag_file: str, new_tag: str):
     if not os.path.exists(old_tag_file):
         return True
     old_tag = read_text_from(old_tag_file)
@@ -159,18 +159,18 @@ def has_tag_changed(old_tag_file, new_tag):
     return False
 
 
-def read_text_from(file_path) -> str:
+def read_text_from(file_path: str) -> str:
     return pathlib.Path(file_path).read_text()
 
 
-def write_text_to(file, text):
+def write_text_to(file: str, text: str):
     dirname = os.path.dirname(file)
     if not os.path.exists(dirname):
         os.makedirs(dirname, exist_ok=True)
     pathlib.Path(file).write_text(text, encoding='utf-8')
 
 
-def read_lines_from(file) -> List[str]:
+def read_lines_from(file: str) -> List[str]:
     if not os.path.exists(file):
         return []
     with pathlib.Path(file).open(encoding='utf-8') as f:
@@ -249,7 +249,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
     return local_file
 
 
-def unzip(local_zip, extract_dir, pwd=None):
+def unzip(local_zip: str, extract_dir: str, pwd: str = None):
     """
     Attempts to unzip an archive, throws on failure.
     Only extracts the files if their current size or modified time mismatches.
@@ -346,7 +346,7 @@ def download_and_unzip(remote_file, extract_dir, local_file):
     return extract_dir
 
 
-def _should_copy(src, dst):
+def _should_copy(src: str, dst: str):
     src_stat = None
     try:
         src_stat = os.stat(src)
@@ -369,7 +369,7 @@ def _should_copy(src, dst):
     return False
 
 
-def _passes_filter(src_file, filter):
+def _passes_filter(src_file: str, filter: List[str]) -> bool:
     if not filter: return True
     for f in filter:
         if src_file.endswith(f):
@@ -377,7 +377,7 @@ def _passes_filter(src_file, filter):
     return False
 
 
-def copy_file(src, dst, filter) -> bool:
+def copy_file(src: str, dst: str, filter: List[str]) -> bool:
     """
         Copies a single file if it passes the filter and
         if it has changed, returns TRUE if copied
@@ -389,7 +389,7 @@ def copy_file(src, dst, filter) -> bool:
     return False
 
 
-def copy_dir(src_dir, out_dir, filter=None) -> bool:
+def copy_dir(src_dir: str, out_dir: str, filter=None) -> bool:
     """
         Copies an entire dir if it passes the filter and
         if the individual files have changed.
@@ -413,7 +413,7 @@ def copy_dir(src_dir, out_dir, filter=None) -> bool:
     return copied
 
 
-def copy_if_needed(src, dst, filter=None) -> bool:
+def copy_if_needed(src: str, dst: str, filter=None) -> bool:
     """ Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied """
     #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
