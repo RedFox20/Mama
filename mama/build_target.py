@@ -9,9 +9,9 @@ from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
 from .utils.system import System, console
-from .utils.gdb import run_gdb
+from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
-from .utils.run import run_in_project_dir, run_in_working_dir
+from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
 from .papa_deploy import papa_deploy_to, papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
@@ -900,6 +900,20 @@ class BuildTarget:
         ```
         """
         run_in_working_dir(self, working_dir, command, exit_on_fail=exit_on_fail)
+
+
+    def run_with_gdb(self, command: str, args: str, src_dir=True, gdb_by_default=True):
+        """
+        Run a program with gdb if requested, otherwise run normally.
+        To control this, add 'gdb' or 'nogdb' to args.
+        The parameter `gdb` controls what the default behavior is.
+        If used inside start(), then `mama start=nogdb` or `mama start=gdb` will control GDB enablement
+        """
+        args, gdb = filter_gdb_arg(args, gdb_by_default)
+        if gdb:
+            run_gdb(self, f'{command} {args}', src_dir=src_dir)
+        else:
+            run_in_command_dir(self, f'{command} {args}', src_dir=src_dir)
 
 
     def gdb(self, command: str, src_dir=True):

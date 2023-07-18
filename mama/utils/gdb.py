@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
-import os
+import os, shlex
 from .system import System, console
+from .run import get_cwd_exe_args
 from .sub_process import execute_echo
 
 if TYPE_CHECKING:
@@ -21,29 +22,23 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
         console('Cannot run tests for Android, iOS, Raspi, Oclea, MIPS builds.')
         return # nothing to run
 
-    split = command.split(' ', 1)
-    cmd = split[0].lstrip('.')
-    args = split[1] if len(split) >= 2 else ''
-    path = target.source_dir() if src_dir else target.build_dir()
-    path = f"{path}/{os.path.dirname(cmd).lstrip('/')}"
-    exe = os.path.basename(cmd)
+    root_dir = target.source_dir() if src_dir else target.build_dir()
+    if target.windows and not src_dir:
+        root_dir = f'{root_dir}/{target.cmake_build_type}'
 
-    if System.windows and target.windows and '.exe' not in exe:
-        exe += '.exe'
+    cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
 
     if target.windows:
-        if not src_dir:
-            path = f'{path}/{target.cmake_build_type}'
-        gdb = f'{path}/{exe} {args}'
+        debugger = f'{exe} {args}'
     elif target.macos:
         # b: batch, q: quiet, -o r: run
         # -k bt: on crash, backtrace
         # -k q: on crash, quit 
-        gdb = f'lldb -b -o r -k bt -k q  -- ./{exe} {args}'
+        debugger = f'lldb -b -o r -k bt -k q  -- {exe} {args}'
     else: # linux
         # r: run;  bt: give backtrace;  q: quit when done;
-        gdb = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args ./{exe} {args}'
+        debugger = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args {exe} {args}'
 
-    if not os.path.exists(f'{path}/{exe}'):
-        raise IOError(f'Could not find {path}/{exe}')
-    execute_echo(cwd=path, cmd=gdb, exit_on_fail=True)
+    if not os.path.exists(exe):
+        raise IOError(f'Could not find {exe}')
+    execute_echo(cwd=cwd, cmd=debugger, exit_on_fail=True)
