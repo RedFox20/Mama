@@ -3,6 +3,7 @@ from typing import Tuple, TYPE_CHECKING
 import os, shlex
 from .system import System
 from .sub_process import execute_echo
+from ..util import normalized_path
 
 if TYPE_CHECKING:
     from ..build_target import BuildTarget
@@ -45,6 +46,9 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         cwd = os.path.dirname(os.path.abspath(program))
         exe = f'{cwd}/{os.path.basename(program)}'
         #print(f'DEFAULT cwd={cwd} exe={exe} args={args}')
+
+    cwd = normalized_path(cwd)
+    exe = normalized_path(exe)
     return cwd, exe, args
 
 
