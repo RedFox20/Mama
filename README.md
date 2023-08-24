@@ -35,7 +35,7 @@ Your builds will not rely on hard to setup system packages, all you need to do i
 - Linux (Ubuntu) (64-bit x86_64, 32-bit x86) both GCC and Clang
 - MacOS (64-bit x86_64, 64-bit arm64) via config.macos_version
 - iOS (64-bit arm64) via config.ios_version
-- Android (64-bit arm64, 32-bit armv7) via env ANDROID_HOME
+- Android (64-bit arm64, 32-bit armv7) via env ANDROID_NDK_HOME or ANDROID_HOME
 - Raspberry (32-bit armv7) via env RASPI_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain()
 - MIPS (mips mipsel, mips64, mips64el) via config.set_mips_toolchain()

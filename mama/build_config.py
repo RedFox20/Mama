@@ -1,4 +1,4 @@
-import os, sys, tempfile, platform, psutil
+import os, sys, tempfile, platform, psutil, shutil
 from typing import List
 from mama.platforms.oclea import Oclea
 from mama.platforms.mips import Mips
@@ -187,6 +187,7 @@ class BuildConfig:
             elif arg == 'install-clang6':  self.convenient_install.append('clang6')
             elif arg == 'install-clang11': self.convenient_install.append('clang11')
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
+            elif arg == 'install-ndk':     self.convenient_install.append('ndk')
             else:
                 self.unused_args.append(arg)
             continue
@@ -597,6 +598,14 @@ Default search paths: {paths}
 Define env RASPI_HOME with path to Raspberry tools.''')
 
 
+    def set_android_toolchain(self, toolchain_file):
+        """
+        Sets the toolchain file for Android NDK.
+        This should be abspath such as `/opt/android-sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake`
+        """
+        self.android.set_toolchain_path(toolchain_file)
+
+
     def set_oclea_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """
         Sets the toolchain dir where these subdirs exist:
@@ -815,10 +824,48 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute('sudo apt-get install dotnet-sdk-2.1')
 
 
+    def install_ndk(self):
+        if System.macos:
+            raise OSError('install_ndk not implemented for macOS')
+        elif System.windows:
+            ndk_version = '25.2.9519653'
+            ndk_url = 'https://dl.google.com/android/repository/android-ndk-r25c-windows.zip'
+            ndk_dest = f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk\\ndk'
+        elif System.linux:
+            ndk_version = '25.2.9519653'
+            ndk_url = 'https://dl.google.com/android/repository/android-ndk-r25c-linux.zip'
+            ndk_dest = f'/opt/android-sdk/ndk'
+
+        console(f'Downloading NDK {ndk_version}')
+        ndk_zip = util.download_file(ndk_url, tempfile.gettempdir())
+
+        if System.windows:
+            os.makedirs(ndk_dest, exist_ok=True)
+        else:
+            execute(f'sudo mkdir -p {ndk_dest} && sudo chown -R $USER {ndk_dest}')
+
+        console(f'Extracting NDK to {ndk_dest}/{ndk_version}')
+        util.unzip(ndk_zip, ndk_dest)
+
+        final_dest = f'{ndk_dest}/{ndk_version}'
+        if os.path.exists(final_dest):
+            shutil.rmtree(final_dest)
+
+        shutil.move(f'{ndk_dest}/android-ndk-r25c', final_dest)
+        if os.path.exists(f'{final_dest}/build'):
+            console(f'NDK installed successfully to {final_dest}')
+        else:
+            raise RuntimeError(f'Failed to install NDK to {final_dest}')
+
+        console(f'Adding ANDROID_NDK_HOME={final_dest} to ~/.bashrc, run source ~/.bashrc or restart terminal to populate your env.')
+        execute(f'echo "export ANDROID_NDK_HOME={final_dest}" >> ~/.bashrc')
+
+
     def run_convenient_installs(self):
         if 'clang6'  in self.convenient_install: self.install_clang6()
         if 'clang11' in self.convenient_install: self.install_clang11()
         if 'msbuild' in self.convenient_install: self.install_msbuild()
+        if 'ndk'     in self.convenient_install: self.install_ndk()
 
 
     def libname(self, library):

@@ -16,6 +16,7 @@ class Android:
         self.android_ndk_path = ''
         self.android_api = 'android-29' # 29: Android 10.0 (2020)
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
+        self.ndk_version = 'ndk'
 
 
     def android_abi(self):
@@ -32,6 +33,12 @@ class Android:
     def android_ndk(self):
         if not self.android_ndk_path: self.init_ndk_path()
         return self.android_ndk_path
+
+
+    def set_toolchain_path(self, toolchain_file: str):
+        if not os.path.exists(toolchain_file):
+            raise RuntimeError(f'Android toolchain file not found: {toolchain_file}')
+        self.toolchain_file = toolchain_file
 
 
     def _set_ndk_sdk_paths(self, ndk_path: str, sdk_path: str):
@@ -83,6 +90,7 @@ class Android:
                 f'{os.getenv("HOME")}/Android/Sdk',
                 '/usr/bin/android-sdk',
                 '/opt/android-sdk',
+                '/opt/Android',
                 '/Android'
             ]
         elif System.macos:
@@ -99,6 +107,7 @@ class Android:
                 subdirs.sort(reverse=True)
                 for subdir in subdirs:
                     if os.path.exists(f'{sdk_path}/ndk/{subdir}/{ndk_build}'):
+                        self.ndk_version = subdir
                         self._set_ndk_sdk_paths(f'{sdk_path}/ndk/{subdir}', sdk_path)
                         return
         raise EnvironmentError(f'''Could not detect any Android NDK installations. 
@@ -114,8 +123,10 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
         else:
             add_flag('-march', 'armv8-a')
 
-        add_flag(f'-I {self.android_ndk()}/sources/cxx-stl/llvm-libc++/include ')
-        add_flag(f'-I {self.android_ndk()}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include ')
+        # this was only needed for legacy NDK toolchains
+        # but on latest toolchains these issues are fixed
+        # add_flag(f'-I"{self.android_ndk()}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"')
+        # add_flag(f'-I"{self.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
 
 
     def _get_make(self):
@@ -146,17 +157,15 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
     def get_cmake_build_opts(self, target: BuildTarget) -> list:
         opts = [
-            'BUILD_ANDROID=ON',
-            'TARGET_ARCH=ANDROID',
             'CMAKE_SYSTEM_NAME=Android',
             f'ANDROID_ABI={self.android_abi()}',
             'ANDROID_ARM_NEON=TRUE',
             f'ANDROID_NDK="{self.android_ndk()}"',
-            f'NDK_DIR="{self.android_ndk()}"',
             f'ANDROID_STL={self.android_ndk_stl}',
             f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
             'ANDROID_TOOLCHAIN=clang',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON'
+            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
+            'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE'
         ]
 
         # get the toolchain file overriden by build target

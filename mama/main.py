@@ -41,6 +41,7 @@ def print_usage():
     console('    install-clang6  - configures and installs clang6 for linux')
     console('    install-clang11 - configures and installs clang11 for linux')
     console('    install-msbuild - configures and installs MSBuild for linux')
+    console('    install-ndk     - configures and installs Android NDK for linux or windows')
     console('  args:')
     console('    windows    - build for windows')
     console('    linux      - build for linux')
