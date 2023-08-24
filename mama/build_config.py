@@ -1,6 +1,8 @@
 import os, sys, tempfile, platform, psutil
+from typing import List
 from mama.platforms.oclea import Oclea
 from mama.platforms.mips import Mips
+from mama.platforms.android import Android
 import mama.util as util
 from .utils.system import System, console
 from .utils.sub_process import execute, execute_piped
@@ -42,7 +44,7 @@ class BuildConfig:
         self.linux   = False
         self.macos   = False
         self.ios     = False
-        self.android = False
+        self.android : Android = None
         self.raspi   = False
         self.oclea : Oclea = None
         self.mips : Mips = None
@@ -83,12 +85,6 @@ class BuildConfig:
         self._visualstudio_cmake_id = None
         self._msbuild_path = None
         self._msvctools_path = None
-        ## Android
-        self.android_sdk_path = ''
-        self.android_ndk_path = ''
-        self.android_ndk_release = ''
-        self.android_api     = 'android-26' # 26: Android 8.0 (2017)
-        self.android_ndk_stl = 'c++_shared' # LLVM libc++
         ## Raspberry PI - Raspi
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
@@ -107,7 +103,7 @@ class BuildConfig:
         self.check_platform()
 
 
-    def parse_args(self, args):
+    def parse_args(self, args: List[str]):
         for arg in args:
             if   arg == 'list':      self.list    = True
             elif arg == 'build':     self.build   = True
@@ -187,7 +183,7 @@ class BuildConfig:
             # Ex: mama build android-24
             elif arg.startswith('android-'):
                 self.set_platform(android=True)
-                self.android_api = arg
+                self.android.android_api = arg
             elif arg == 'install-clang6':  self.convenient_install.append('clang6')
             elif arg == 'install-clang11': self.convenient_install.append('clang11')
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
@@ -231,7 +227,7 @@ class BuildConfig:
         self.linux   = get_new_value(self.linux,   platforms[1])
         self.macos   = get_new_value(self.macos,   platforms[2])
         self.ios     = get_new_value(self.ios,     platforms[3])
-        self.android = get_new_value(self.android, platforms[4])
+        self.android = get_new_value(self.android, platforms[4], Android)
         self.raspi   = get_new_value(self.raspi,   platforms[5])
         self.oclea   = get_new_value(self.oclea,   platforms[6], Oclea)
         self.mips    = get_new_value(self.mips,    platforms[7], Mips)
@@ -288,7 +284,7 @@ class BuildConfig:
             version = self.ios_version.split('.') + ['0']
             self.distro = (self.name(), int(version[0]), int(version[1]))
         elif self.android:
-            version = self.android_api.split('-')[1]
+            version = self.android.android_api.split('-')[1]
             self.distro = (self.name(), int(version), 0)
         elif self.raspi:
             # TODO: RASPI version
@@ -478,8 +474,8 @@ class BuildConfig:
         if self.cc_path and self.cxx_path and self.cxx_version:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
-        # no preferred cc path for MSVC
-        if self.windows:
+        # no preferred cc path for MSVC and Android
+        if self.windows or self.android:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         if self.raspi:  # only GCC available for this platform
@@ -528,6 +524,12 @@ class BuildConfig:
             msvc_tools = self.get_msvc_tools_path()
             version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
             return f'msvc{version}'
+        elif self.macos:
+            return self.macos_version
+        elif self.ios:
+            return self.ios_version
+        elif self.android:
+            return self.android.android_api
         elif self.linux or self.raspi or self.oclea or self.mips:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
@@ -535,12 +537,6 @@ class BuildConfig:
             if 'gcc' in cc: return f'gcc{major_version}.{minor_version}'
             if 'clang' in cc: return f'clang{major_version}.{minor_version}'
             raise EnvironmentError(f'Unrecognized compiler {cc}!')
-        elif self.macos:
-            return self.macos_version
-        elif self.ios:
-            return self.ios_version
-        elif self.android:
-            return self.android_api
         else:
             raise EnvironmentError(f'Unknown compiler version!')
 
@@ -561,41 +557,6 @@ class BuildConfig:
     def append_env_path(self, paths, env):
         path = os.getenv(env)
         if path: paths.append(path)
-
-
-    def android_abi(self):
-        if self.is_target_arch_armv7(): return 'armeabi-v7a'
-        elif self.arch == 'arm64': return 'arm64-v8a'
-        else: raise RuntimeError(f'Unrecognized android arch: {self.arch}')
-
-
-    def android_home(self):
-        if not self.android_sdk_path: self.init_ndk_path()
-        return self.android_sdk_path
-
-
-    def android_ndk(self):
-        if not self.android_ndk_path: self.init_ndk_path()
-        return self.android_ndk_path
-
-
-    def init_ndk_path(self):
-        paths = []
-        self.append_env_path(paths, 'ANDROID_HOME')
-        if System.windows: paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
-        elif System.linux: paths += [f'{os.getenv("HOME")}/Android/Sdk', '/usr/bin/android-sdk', '/opt/android-sdk']
-        elif System.macos: paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
-        ext = '.cmd' if System.windows else ''
-        for sdk_path in paths:
-            if os.path.exists(f'{sdk_path}/ndk-bundle/ndk-build{ext}'):
-                self.android_sdk_path = sdk_path
-                self.android_ndk_path = sdk_path  + '/ndk-bundle'
-                self.android_ndk_release = 'r16b'
-                if self.print: console(f'Found Android NDK: {self.android_ndk_path}')
-                return
-        raise EnvironmentError(f'''Could not detect any Android NDK installations. 
-Default search paths: {paths} 
-Define env ANDROID_HOME with path to Android SDK with NDK at ${{ANDROID_HOME}}/ndk-bundle.''')
 
 
     def raspi_bin(self):

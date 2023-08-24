@@ -224,7 +224,8 @@ def main():
             print_package_exports(dep)
         return
 
-    if config.android: config.android_home()
+    # initialize platform compiler config
+    if config.android: config.android.android_home()
     if config.raspi:   config.raspi_bin()
     if config.oclea:   config.oclea.init_default()
     if config.mips:    config.mips.init_default()

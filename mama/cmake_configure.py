@@ -113,14 +113,9 @@ def _generator(target:BuildTarget):
 
 def _make_program(target:BuildTarget):
     config:BuildConfig = target.config
-    if config.windows:     return ''
-    if target.enable_unix_make:   return ''
+    if config.windows: return ''
+    if target.enable_unix_make: return ''
     if target.enable_ninja_build: return config.ninja_path
-    if config.android:
-        if System.windows:
-            return f'{config.android_ndk()}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
-        elif System.macos:
-            return f'{config.android_ndk()}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
     return ''
 
 
@@ -155,7 +150,7 @@ def _default_options(target:BuildTarget):
             else:
                 res += f' {k}{sep}{v}'
         return res.lstrip()
-    
+
     if config.windows:
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
@@ -164,16 +159,11 @@ def _default_options(target:BuildTarget):
     else:
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
-        if not exceptions: add_flag('-fno-exceptions')
+        if not exceptions:
+            add_flag('-fno-exceptions')
 
     if config.android:
-        if config.is_target_arch_armv7():
-            add_flag('-march', 'armv7-a')
-            add_flag('-mfpu', 'neon')
-        else:
-            add_flag('-march', 'armv8-a')
-        if config.android_ndk_stl == 'c++_shared':
-            add_flag(f'-I"{config.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
+        config.android.get_cxx_flags(add_flag)
     elif config.linux:
         add_flag('-march', config.get_gcc_linux_march())
         if config.clang and target.enable_cxx_build:
@@ -228,26 +218,7 @@ def _default_options(target:BuildTarget):
         if config.is_target_arch_x86(): ## need to override the toolset host
             opt.append('CMAKE_GENERATOR_TOOLSET=host=x86')
     elif config.android:
-        toolchain = target.cmake_ndk_toolchain
-        if toolchain:
-            toolchain = target.source_dir(toolchain)
-        else:
-            toolchain = f'{config.android_ndk()}/build/cmake/android.toolchain.cmake'
-        opt += [
-            'BUILD_ANDROID=ON',
-            'TARGET_ARCH=ANDROID',
-            'CMAKE_SYSTEM_NAME=Android',
-            f'ANDROID_ABI={config.android_abi()}',
-            'ANDROID_ARM_NEON=TRUE',
-            f'ANDROID_NDK="{config.android_ndk()}"',
-            f'NDK_DIR="{config.android_ndk()}"',
-            f'NDK_RELEASE={config.android_ndk_release}',
-            f'ANDROID_STL={config.android_ndk_stl}',
-            f'ANDROID_NATIVE_API_LEVEL={config.android_api}',
-            'ANDROID_TOOLCHAIN=clang',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-            f'CMAKE_TOOLCHAIN_FILE="{toolchain}"'
-        ]
+        opt += config.android.get_cmake_build_opts(target)
     elif config.raspi:
         opt += [
             'RASPI=TRUE',
@@ -287,15 +258,7 @@ def _default_options(target:BuildTarget):
 def inject_env(target:BuildTarget):
     config:BuildConfig = target.config
     if config.android:
-        make = _make_program(target)
-        if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
-        os.environ['ANDROID_HOME'] = config.android_home()
-        os.environ['ANDROID_NDK'] = config.android_ndk()
-        os.environ['ANDROID_ABI'] = config.android_abi()
-        os.environ['NDK_RELEASE'] = 'r16b'
-        os.environ['ANDROID_STL'] = config.android_ndk_stl
-        os.environ['ANDROID_NATIVE_API_LEVEL'] = config.android_api
-        os.environ['ANDROID_TOOLCHAIN']        = 'clang'
+        config.android.inject_env()
     elif config.ios:
         os.environ['IPHONEOS_DEPLOYMENT_TARGET'] = config.ios_version
     elif config.macos:
