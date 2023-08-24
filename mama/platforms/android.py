@@ -35,6 +35,27 @@ class Android:
         return self.android_ndk_path
 
 
+    def bin(self):
+        if not self.android_ndk_path: self.init_ndk_path()
+        platform_dir = 'linux-x86_64'
+        if System.windows: platform_dir = 'windows-x86_64'
+        return f'{self.android_ndk_path}/toolchains/llvm/prebuilt/{platform_dir}/bin'
+
+
+    def cc_path(self):
+        platform_ver = self.android_api.replace('-', '')
+        arch = 'aarch64'
+        if self.config.arch == 'arm64': arch = 'aarch64'
+        elif self.config.arch == 'arm': arch = 'armv7a'
+        elif self.config.arch == 'x64': arch = 'x86_64'
+        elif self.config.arch == 'x86': arch = 'i686'
+        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang'
+
+
+    def cxx_path(self):
+        return f'{self.cc_path()}++'
+
+
     def set_toolchain_path(self, toolchain_file: str):
         if not os.path.exists(toolchain_file):
             raise RuntimeError(f'Android toolchain file not found: {toolchain_file}')

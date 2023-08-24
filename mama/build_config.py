@@ -476,10 +476,14 @@ class BuildConfig:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         # no preferred cc path for MSVC and Android
-        if self.windows or self.android:
+        if self.windows:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
-        if self.raspi:  # only GCC available for this platform
+        if self.android:
+            self.cc_path  = self.android.cc_path()
+            self.cxx_path = self.android.cxx_path()
+            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
+        elif self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
@@ -529,9 +533,7 @@ class BuildConfig:
             return self.macos_version
         elif self.ios:
             return self.ios_version
-        elif self.android:
-            return self.android.android_api
-        elif self.linux or self.raspi or self.oclea or self.mips:
+        elif self.linux or self.raspi or self.oclea or self.mips or self.android:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
             major_version, minor_version = version_parts[0], version_parts[1]

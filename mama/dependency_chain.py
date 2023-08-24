@@ -3,7 +3,7 @@ from typing import List
 
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
-from .util import read_text_from, save_file_if_contents_changed
+from .util import read_text_from, write_text_to, save_file_if_contents_changed
 from .utils.system import Color, console, error
 
 
@@ -110,11 +110,28 @@ def _get_compile_commands_path(dep: BuildDependency):
     return None
 
 
+def _find_matching_platform_config(dep: BuildDependency, configurations):
+    config_name = dep.config.name()
+    config_arch = dep.config.arch
+
+    # first look for Platform + Arch match such as Windows x64
+    for conf in configurations:
+        name = str(conf["name"]).lower()
+        if config_name in name and config_arch in name:
+            return conf
+
+    # then look for only Platform match like 'windows'
+    for conf in configurations:
+        name = str(conf["name"]).lower()
+        if config_name in name:
+            return conf
+    return None
+
+
 def _save_vscode_compile_commands(dep: BuildDependency):
     if not dep.src_dir: # for artifactory pkgs, there is no src_dir
         return
-    if dep.config.oclea or dep.config.mips or dep.config.raspi or dep.config.android:
-        return # don't overwrite compile commands for cross-compilations
+
     cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
     if not os.path.exists(cpp_props_path):
         return
@@ -123,22 +140,29 @@ def _save_vscode_compile_commands(dep: BuildDependency):
     if not commands_path:
         return
 
-    new_command = f'"compileCommands": "{commands_path}"'
-
     # we have a valid path for compile_commands.json, now link it into c_cpp_properties.json
     cpp_props_text = read_text_from(cpp_props_path)
-    cpp_props_text, nsubs = re.subn('"compileCommands".*:.*"(.*?)"', new_command, cpp_props_text)
-    if nsubs:
-        #console(f'Made {nsubs} substitutions: {cpp_props_text}')
-        pass
-    else: # need to insert new
-        import json
-        props = json.loads(cpp_props_text)
-        for prop in props["configurations"]:
-            prop["compileCommands"] = commands_path
-        cpp_props_text = json.dumps(props, indent=4)
+    import json
+    props = json.loads(cpp_props_text)
+    configurations = props["configurations"]
 
-    save_file_if_contents_changed(cpp_props_path, cpp_props_text)
+    platform_config = _find_matching_platform_config(dep, configurations)
+
+    # make a copy of the first config and rename it to the platform name
+    if not platform_config and len(configurations) > 0:
+        platform_config = configurations[0].copy()
+        platform_config['name'] = f'{dep.config.name()} {dep.config.arch}'
+        configurations.append(platform_config)
+
+    # set the compile commands for this platform
+    if platform_config:
+        platform_config["compileCommands"] = commands_path
+
+    new_cpp_props_text = json.dumps(props, indent=4)
+    if new_cpp_props_text != cpp_props_text:
+        write_text_to(cpp_props_path, new_cpp_props_text)
+        if dep.config.print and platform_config:
+            console(f'Updated c_cpp_properties.json "{platform_config["name"]}" compileCommands')
 
 
 def _get_dependency_cmake_defines(dep: BuildDependency):
