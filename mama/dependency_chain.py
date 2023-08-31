@@ -131,6 +131,8 @@ def _find_matching_platform_config(dep: BuildDependency, configurations):
 def _save_vscode_compile_commands(dep: BuildDependency):
     if not dep.src_dir: # for artifactory pkgs, there is no src_dir
         return
+    if not dep.is_root:
+        return
 
     cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
     if not os.path.exists(cpp_props_path):
