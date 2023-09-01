@@ -111,7 +111,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         os.makedirs(package_full_path, exist_ok=True)
 
     # set up project and dependencies
-    descr = [ f'P {os.path.basename(package_full_path)}' ]
+    descr = [ f'P {target.name}' ]
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
