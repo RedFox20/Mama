@@ -22,7 +22,7 @@ def print_usage():
     console('    build      - configure and build main project or specific target, this can clone, but does not pull')
     console('    update     - update and build target dependencies after calling git pull')
     console('    deploy     - runs PAPA deploy stage by gathering all libraries and assets')
-    console('    serve      - Equivalent of `update build deploy upload`')
+    console('    serve      - Equivalent of `update rebuild deploy upload`')
     console('    clean      - clean main project or specific target')
     console('    rebuild    - clean, update and build main project or specific target')
     console('    reclone    - wipe specific target dependency and clone it again')

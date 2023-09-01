@@ -117,7 +117,7 @@ class BuildConfig:
             elif arg == 'noart':     self.disable_artifactory = True
             # Updates, Builds and Deploys the project as a package
             elif arg == 'serve':
-                self.build = True
+                self.rebuild = True
                 self.update = True
                 self.deploy = True
                 self.upload = True
