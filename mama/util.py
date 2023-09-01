@@ -347,6 +347,8 @@ def download_and_unzip(remote_file, extract_dir, local_file):
 
 
 def _should_copy(src: str, dst: str):
+    if src == dst:
+        return False # same file
     src_stat = None
     try:
         src_stat = os.stat(src)
@@ -385,10 +387,14 @@ def copy_file(src: str, dst: str, filter: str|List[str]|None = None) -> bool:
         Copies a single file if it passes the filter and
         if it has changed, returns TRUE if copied
     """
-    if _passes_filter(src, filter) and _should_copy(src, dst):
-        #console(f'copy {src}\n --> {dst}')
-        shutil.copy2(src, dst)
-        return True
+    if _passes_filter(src, filter):
+        if os.path.isdir(dst):
+            dst = os.path.join(dst, os.path.basename(src))
+        if _should_copy(src, dst):
+            #console(f'copy {src}\n --> {dst}')
+            shutil.copyfile(src, dst, follow_symlinks=True)
+            shutil.copystat(src, dst, follow_symlinks=True)
+            return True
     return False
 
 
