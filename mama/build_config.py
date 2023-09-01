@@ -120,6 +120,7 @@ class BuildConfig:
                 self.build = True
                 self.update = True
                 self.deploy = True
+                self.upload = True
             elif arg == 'reclone':
                 console('WARNING: Argument `reclone` is deprecated, use `wipe` instead.')
                 self.reclone = True
