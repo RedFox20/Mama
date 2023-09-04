@@ -10,10 +10,10 @@ if TYPE_CHECKING:
 
 
 def filter_gdb_arg(args: str, default_gdb=True) -> Tuple[str, bool]:
-    if 'gdb' == args: return '', True
     if 'nogdb' == args: return '', False
-    if 'gdb ' in args: return args.replace('gdb ', ''), True
     if 'nogdb ' in args: return args.replace('nogdb ', ''), False
+    if 'gdb' == args: return '', True
+    if 'gdb ' in args: return args.replace('gdb ', ''), True
     return args, default_gdb
 
 
