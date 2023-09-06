@@ -752,7 +752,7 @@ class BuildTarget:
         return 'c++11' in std
 
 
-    def copy(self, src: str, dst: str, filter: str|List[str]|None = None):
+    def copy(self, src: str, dst: str, filter: str|list|None = None):
         """
         Utility for copying files and folders
         ```
@@ -780,7 +780,7 @@ class BuildTarget:
             if self.config.verbose: console(f'copy_built_file {src} --> {dst}')
 
 
-    def copy_deployed_folder(self, src_dir: str, dst_dir: str, filter: str|List[str]|None = None):
+    def copy_deployed_folder(self, src_dir: str, dst_dir: str, filter: str|list|None = None):
         """
         Utility for copying folders from source dir.
         ```
