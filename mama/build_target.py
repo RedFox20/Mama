@@ -720,10 +720,11 @@ class BuildTarget:
 
     def enable_cxx17(self):
         """Enable C++17 standard"""
-        if 'g++' in self.config.cxx_path and self.config.cxx_version < 8:
-            self._set_cxx_std('c++1z') # older toolchains typically need c++1z
-        else:
-            self._set_cxx_std('c++17')
+        flag = 'c++17'
+        if 'g++' in self.config.cxx_path and self.config.cxx_version:
+            gcc_major = int(self.config.cxx_version.split('.')[0])
+            if gcc_major < 8: flag = 'c++1z' # older toolchains typically need c++1z
+        self._set_cxx_std(flag)
 
     def is_enabled_cxx17(self):
         if 'CXX17' in self.args: return True
