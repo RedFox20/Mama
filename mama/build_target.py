@@ -752,7 +752,7 @@ class BuildTarget:
         return 'c++11' in std
 
 
-    def copy(self, src: str, dst: str, filter: str|list|None = None):
+    def copy(self, src: str, dst: str, filter: list = None):
         """
         Utility for copying files and folders
         ```
@@ -760,6 +760,8 @@ class BuildTarget:
             self.copy(self.build_dir('libAwesome.so'), 
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
+        - filter: can be a string or list of strings to filter files by suffix
+                  example: filter=['.h'] or filter='.hpp'
         """
         if util.copy_if_needed(src, dst, filter):
             if self.config.verbose: console(f'copy {src} --> {dst}')
@@ -780,7 +782,7 @@ class BuildTarget:
             if self.config.verbose: console(f'copy_built_file {src} --> {dst}')
 
 
-    def copy_deployed_folder(self, src_dir: str, dst_dir: str, filter: str|list|None = None):
+    def copy_deployed_folder(self, src_dir: str, dst_dir: str, filter: list = None):
         """
         Utility for copying folders from source dir.
         ```

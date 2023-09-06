@@ -371,7 +371,7 @@ def _should_copy(src: str, dst: str):
     return False
 
 
-def _passes_filter(src_file: str, filter: str|list|None) -> bool:
+def _passes_filter(src_file: str, filter: list) -> bool:
     if not filter:
         return True
     if isinstance(filter, str):
@@ -382,10 +382,11 @@ def _passes_filter(src_file: str, filter: str|list|None) -> bool:
     return False
 
 
-def copy_file(src: str, dst: str, filter: str|list|None = None) -> bool:
+def copy_file(src: str, dst: str, filter: list = None) -> bool:
     """
         Copies a single file if it passes the filter and
-        if it has changed, returns TRUE if copied
+        if it has changed, returns TRUE if copied.
+        The filter can be a string suffix or a list of string suffixes.
     """
     if _passes_filter(src, filter):
         if os.path.isdir(dst):
@@ -398,11 +399,12 @@ def copy_file(src: str, dst: str, filter: str|list|None = None) -> bool:
     return False
 
 
-def copy_dir(src_dir: str, out_dir: str, filter: str|list|None = None) -> bool:
+def copy_dir(src_dir: str, out_dir: str, filter: list = None) -> bool:
     """
         Copies an entire dir if it passes the filter and
         if the individual files have changed.
         Returns TRUE if any files were copied.
+        The filter can be a string suffix or a list of string suffixes.
     """
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
@@ -422,8 +424,11 @@ def copy_dir(src_dir: str, out_dir: str, filter: str|list|None = None) -> bool:
     return copied
 
 
-def copy_if_needed(src: str, dst: str, filter: str|list|None = None) -> bool:
-    """ Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied """
+def copy_if_needed(src: str, dst: str, filter: list = None) -> bool:
+    """
+        Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied.
+        The filter can be a string suffix or a list of string suffixes.
+    """
     #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
         return copy_dir(src, dst, filter)
