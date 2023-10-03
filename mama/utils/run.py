@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
-import os, shlex
+import os, shlex, shutil
 from .system import System
 from .sub_process import execute_echo
 from ..util import normalized_path
@@ -14,6 +14,7 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     shell_args = shlex.split(command)
     program = shell_args[0]
     args = ' '.join(shell_args[1:]) if shell_args else ''
+    #print(f'get_cwd_exe_args: program={program} args={args} cwd={cwd} root_dir={root_dir}')
 
     # add or remove .exe extension
     if System.windows and target.windows and not program.endswith('.exe'):
@@ -27,16 +28,24 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         # cwd: /path/to/root_dir/bin
         # exe: /path/to/root_dir/bin/app.exe
         cwd = os.path.join(root_dir, os.path.dirname(program))
-        if program.startswith('/'): exe = program # already absolute
-        else:                       exe = os.path.join(root_dir, program) # turn relative to absolute
+        if program.startswith('/'):
+            exe = program # already absolute
+        else:
+            exe = shutil.which(program) # is it a common executable?
+            if not exe:
+                exe = os.path.join(root_dir, program) # turn relative to absolute
         #print(f'ROOT cwd={cwd} exe={exe} args={args}')
     elif cwd:
         # if CWD is set, then command will be run in this dir
         # program: bin/app.exe
         # cwd: /path/to/project
         # exe: /path/to/project/bin/app.exe
-        if program.startswith('/'): exe = program # already absolute
-        else:                       exe = os.path.join(cwd, program) # turn relative to absolute
+        if program.startswith('/'):
+            exe = program # already absolute
+        else:
+            exe = shutil.which(program) # is it a common executable?
+            if not exe:
+                exe = os.path.join(cwd, program) # turn relative to absolute
         #print(f'CWD cwd={cwd} exe={exe} args={args}')
     else:
         # otherwise the command will be run at the same dir as the executable
@@ -44,7 +53,10 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         # cwd: /path/to/bin
         # exe: /path/to/bin/app.exe
         cwd = os.path.dirname(os.path.abspath(program))
-        exe = f'{cwd}/{os.path.basename(program)}'
+        # is it a common executable?
+        exe = shutil.which(program)
+        if not exe:
+            exe = f'{cwd}/{os.path.basename(program)}'
         #print(f'DEFAULT cwd={cwd} exe={exe} args={args}')
 
     cwd = normalized_path(cwd)

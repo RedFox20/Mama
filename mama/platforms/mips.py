@@ -5,6 +5,7 @@ from mama.utils.system import System, console
 class Mips:
     def __init__(self, config):
         self.config = config
+        self.toolchain_dir = None
         self.toolchain_file = None
         self.supported_arches = ['mips', 'mipsel', 'mips64', 'mips64el']
         self.mips_arch = 'mipsel' # prefer little endian mips
@@ -39,12 +40,32 @@ class Mips:
         if not System.linux:
             raise RuntimeError('MIPS only supported on Linux')
 
+        # check if we have already initialized the toolchain
+        if self.gcc_prefix and self.mips_arch == arch \
+            and self.toolchain_file == toolchain_file \
+            and self.toolchain_dir == toolchain_dir:
+            return
+
         # direct system installed MIPS toolchain
         self.mips_arch = arch
         self.toolchain_file = toolchain_file # additional toolchain to specify sysroot details
 
-        arch_compiler = f'/usr/bin/{arch}-linux-gnu-gcc'
-        if os.path.exists(arch_compiler):
+        # if a toolchain dir is provided, it should have a bin/ subdir with the compiler
+        if toolchain_dir:
+            self.toolchain_dir = toolchain_dir
+            if os.path.exists(f'{toolchain_dir}/bin/{arch}-linux-gnu-gcc'):
+                self.gcc_prefix = f'{toolchain_dir}/bin/{arch}-linux-gnu-'
+                libs_path = f'{toolchain_dir}/lib'
+                if os.path.exists(libs_path):
+                    self.libs_path = libs_path
+                if self.config.print:
+                    console(f'Found MIPS tools: {self.gcc_prefix}gcc')
+                    if libs_path:
+                        console(f'  MIPS syslibs: {libs_path}')
+                return # success
+
+        # check for system installed one as fallback
+        if os.path.exists(f'/usr/bin/{arch}-linux-gnu-gcc'):
             self.gcc_prefix = f'/usr/bin/{arch}-linux-gnu-'
             libs_path = f'/usr/{arch}-linux-gnu/lib'
             if os.path.exists(libs_path):
@@ -57,11 +78,6 @@ class Mips:
 
         raise EnvironmentError('No MIPS toolchain compilers detected, '+
                                f'try "sudo apt-get install g++-{arch}-linux-gnu"')
-
-
-    def _init_root_path(self, root_path):
-        
-        pass
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
