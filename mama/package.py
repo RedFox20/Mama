@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console
-from .util import normalized_path, glob_with_name_match
+from .util import normalized_path, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
 if TYPE_CHECKING:
@@ -96,12 +96,13 @@ def cleanup_libs_list(libs: List[str]):
 
 
 def clean_intermediate_files(target: BuildTarget):
-    files_to_clean = glob_with_name_match(target.build_dir(), ['.obj', '.o'])
+    files_to_clean = glob_with_extensions(target.build_dir(), ['.obj', '.o'])
     if files_to_clean:
         if target.config.print:
             print(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
         for file in files_to_clean:
-            os.remove(file)
+            if os.path.isfile(file):
+                os.remove(file)
 
 
 def export_libs(target: BuildTarget, path, pattern_substrings: List[str], src_dir: bool, order: list):
