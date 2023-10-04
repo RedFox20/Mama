@@ -254,6 +254,8 @@ class BuildDependency:
         git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
 
         target = self._load_target() ## load target for Git and Src
+        target.init() ## always call init after initial load is complete
+
         if conf.clean and is_target:
             self.clean() ## requires a parsed mamafile target
 

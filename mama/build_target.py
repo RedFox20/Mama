@@ -950,6 +950,17 @@ class BuildTarget:
     ########## Customization Points ###########
 
 
+    def init(self):
+        """
+        Perform any initialization steps right after the mamafile is loaded.
+        ```
+        class MyProject(mama.BuildTarget):
+            def init(self):
+                self.version = '1.2.3'
+        """
+        pass
+
+
     def settings(self):
         """
         Define any settings at this stage, it is always
