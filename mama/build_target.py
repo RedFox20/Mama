@@ -61,6 +61,7 @@ class BuildTarget:
         self.dep  = dep
         self.args = [] # user defined args for this target (must be a list)
         self.install_target = 'install'
+        self.version = ''  # Custom version string for packaging step
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
         self.cmake_ios_toolchain   = '' # Custom iOS toolchain file for this target only

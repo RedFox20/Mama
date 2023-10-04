@@ -26,10 +26,6 @@ def artifactory_archive_name(target:BuildTarget):
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
-    # LocalSource has no archive name, except for ROOT packages
-    if p.is_src and not target.dep.is_root:
-        return None
-
     # if this is an ArtifactoryPkg with full name of the archive
     if p.is_pkg and p.fullname:
         return p.fullname
@@ -47,6 +43,10 @@ def artifactory_archive_name(target:BuildTarget):
         version = git.get_commit_hash(target.dep)
         if not version:
             return None # nothing to do at this point
+    elif p.is_src:
+        version = target.version
+        if not version:
+            raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
 
     name = target.name
     # triplets information to make this package platform unique
