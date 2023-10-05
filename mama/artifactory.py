@@ -30,27 +30,32 @@ def artifactory_archive_name(target:BuildTarget):
     if p.is_pkg and p.fullname:
         return p.fullname
 
-    # automatically build name of the package
     version = ''
-    if target.dep.is_root:
-        version = Git.get_current_repository_commit(target.dep)
-        if not version:
-            return None # nothing to do at this point
-    elif p.is_pkg:
-        version = p.version
-    elif p.is_git:
-        git:Git = p
-        version = git.get_commit_hash(target.dep)
-        if not version:
-            return None # nothing to do at this point
-    elif p.is_src:
+
+    # if mamafile defines a specific version tag, then we will respect that
+    # regardless of dependency source type or any commit hashes
+    # explicit versioning will remove the version hash tag from the archive name
+    if target.version:
         version = target.version
-        if not version:
-            raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
+    else:
+        if target.dep.is_root:
+            version = Git.get_current_repository_commit(target.dep)
+            if not version:
+                return None # nothing to do at this point
+        elif p.is_pkg:
+            version = p.version
+        elif p.is_git:
+            git:Git = p
+            version = git.get_commit_hash(target.dep)
+            if not version:
+                return None # nothing to do at this point
+        elif p.is_src:
+            if not version:
+                raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
 
     name = target.name
     # triplets information to make this package platform unique
-    platform, os_major, os_minor = target.config.get_distro_info()
+    platform, os_major, _ = target.config.get_distro_info()
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'

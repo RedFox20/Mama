@@ -296,7 +296,7 @@ class BuildConfig:
             self.distro = (self.name(), 0, 0)
         elif self.mips:
             # TODO: MIPS version
-            self.distro = (self.name(), 0, 0)
+            self.distro = (self.name(), self.mips.toolchain_major, self.mips.toolchain_minor)
         elif self.linux:
             try:
                 dist = distro.info()
@@ -330,7 +330,7 @@ class BuildConfig:
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
         if self.oclea:   return 'oclea'
-        if self.mips:    return 'mips'
+        if self.mips:    return self.mips.name
         return 'build'
 
 

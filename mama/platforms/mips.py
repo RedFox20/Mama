@@ -1,17 +1,21 @@
 import os
 from typing import Callable
 from mama.utils.system import System, console
+from mama.util import path_join, read_lines_from
 
 class Mips:
     def __init__(self, config):
+        self.name = 'mips'
+        self.toolchain_major = 1
+        self.toolchain_minor = 0
         self.config = config
         self.toolchain_dir = None
         self.toolchain_file = None
         self.supported_arches = ['mips', 'mipsel', 'mips64', 'mips64el']
         self.mips_arch = 'mipsel' # prefer little endian mips
-        self.gcc_prefix = ''
-        self.libs_path = ''
-        self.include_paths = []
+        self.gcc_prefix = '' # prefix to gcc binary
+        self.libs_path = '' # toolchain lib/ path
+        self.include_path = '' # toolchain include/ path
 
 
     # returns the current path prefix where the compiler can be found
@@ -21,8 +25,9 @@ class Mips:
         return self.gcc_prefix
 
 
+    # forced includes that should be added to compiler flags as -I paths
     def includes(self):
-        return self.include_paths
+        return []
 
 
     def init_default(self):
@@ -54,30 +59,46 @@ class Mips:
         if toolchain_dir:
             self.toolchain_dir = toolchain_dir
             if os.path.exists(f'{toolchain_dir}/bin/{arch}-linux-gnu-gcc'):
-                self.gcc_prefix = f'{toolchain_dir}/bin/{arch}-linux-gnu-'
+                gcc_prefix = f'{toolchain_dir}/bin/{arch}-linux-gnu-'
                 libs_path = f'{toolchain_dir}/lib'
-                if os.path.exists(libs_path):
-                    self.libs_path = libs_path
-                if self.config.print:
-                    console(f'Found MIPS tools: {self.gcc_prefix}gcc')
-                    if libs_path:
-                        console(f'  MIPS syslibs: {libs_path}')
+                include_path = f'{toolchain_dir}/include'
+                self._set_mips_toolchain_dir(gcc_prefix, libs_path, include_path)
                 return # success
+
+        # might also be at `/usr/mipsel-linux-gnu`
 
         # check for system installed one as fallback
         if os.path.exists(f'/usr/bin/{arch}-linux-gnu-gcc'):
-            self.gcc_prefix = f'/usr/bin/{arch}-linux-gnu-'
+            gcc_prefix = f'/usr/bin/{arch}-linux-gnu-'
             libs_path = f'/usr/{arch}-linux-gnu/lib'
-            if os.path.exists(libs_path):
-                self.libs_path = libs_path
-            if self.config.print:
-                console(f'Found MIPS tools: {self.gcc_prefix}gcc')
-                if libs_path:
-                    console(f'  MIPS syslibs: {libs_path}')
+            include_path = f'/usr/{arch}-linux-gnu/include'
+            self._set_mips_toolchain_dir(gcc_prefix, libs_path, include_path)
             return # success
 
         raise EnvironmentError('No MIPS toolchain compilers detected, '+
                                f'try "sudo apt-get install g++-{arch}-linux-gnu"')
+
+    def _set_mips_toolchain_dir(self, gcc_prefix, libs_path, include_path):
+            self.gcc_prefix = gcc_prefix
+            self.libs_path = libs_path if os.path.exists(libs_path) else ''
+            self.include_path = include_path if os.path.exists(include_path) else ''
+
+            # attempt to detect toolchain version from gcc linux/version.h
+            try:
+                version_file = path_join(self.include_path, 'linux/version.h')
+                if os.path.exists(version_file):
+                    for line in read_lines_from(version_file):
+                        if line.startswith('#define LINUX_VERSION_MAJOR'):
+                            self.toolchain_major = int(line.split()[2])
+                        elif line.startswith('#define LINUX_VERSION_PATCHLEVEL'):
+                            self.toolchain_minor = int(line.split()[2])
+            except:
+                pass
+            
+            if self.config.print:
+                console(f'Found MIPS tools: {self.gcc_prefix}gcc  linux-v{self.toolchain_major}.{self.toolchain_minor}')
+                if self.libs_path:
+                    console(f'  MIPS syslibs: {self.libs_path}')
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
