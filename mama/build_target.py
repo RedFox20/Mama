@@ -12,6 +12,7 @@ from .utils.system import System, console
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
+from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to, papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
@@ -880,6 +881,17 @@ class BuildTarget:
         """
         self.dep.nothing_to_build = True
         self.dep.should_rebuild = False
+
+
+    def gnu_project(self, name: str, version: str, url: str, build_product: str):
+        """
+        Creates a new GnuProject instance for building GNU projects from source.
+        ```
+            gmp = self.gnu_project('gmp', '6.2.1', 'https://gmplib.org/download/gmp/{{project}}.tar.xz', 'lib/libgmp.a')
+            gmp.configure()
+        ```
+        """
+        return GnuProject(self, name, version, url, build_product)
 
 
     def run(self, command: str, src_dir=False, exit_on_fail=True):
