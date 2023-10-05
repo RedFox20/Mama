@@ -79,26 +79,25 @@ class Mips:
                                f'try "sudo apt-get install g++-{arch}-linux-gnu"')
 
     def _set_mips_toolchain_dir(self, gcc_prefix, libs_path, include_path):
-            self.gcc_prefix = gcc_prefix
-            self.libs_path = libs_path if os.path.exists(libs_path) else ''
-            self.include_path = include_path if os.path.exists(include_path) else ''
+        self.gcc_prefix = gcc_prefix
+        self.libs_path = libs_path if os.path.exists(libs_path) else ''
+        self.include_path = include_path if os.path.exists(include_path) else ''
 
-            # attempt to detect toolchain version from gcc linux/version.h
-            try:
-                version_file = path_join(self.include_path, 'linux/version.h')
-                if os.path.exists(version_file):
-                    for line in read_lines_from(version_file):
-                        if line.startswith('#define LINUX_VERSION_MAJOR'):
-                            self.toolchain_major = int(line.split()[2])
-                        elif line.startswith('#define LINUX_VERSION_PATCHLEVEL'):
-                            self.toolchain_minor = int(line.split()[2])
-            except:
-                pass
-            
-            if self.config.print:
-                console(f'Found MIPS tools: {self.gcc_prefix}gcc  linux-v{self.toolchain_major}.{self.toolchain_minor}')
-                if self.libs_path:
-                    console(f'  MIPS syslibs: {self.libs_path}')
+        # attempt to detect toolchain version from gcc linux/version.h
+        try:
+            version_file = path_join(self.include_path, 'linux/version.h')
+            if os.path.exists(version_file):
+                for line in read_lines_from(version_file):
+                    if line.startswith('#define LINUX_VERSION_MAJOR'):
+                        self.toolchain_major = int(line.split()[2])
+                    elif line.startswith('#define LINUX_VERSION_PATCHLEVEL'):
+                        self.toolchain_minor = int(line.split()[2])
+        except:
+            pass
+        if self.config.print:
+            console(f'Found MIPS tools: {self.gcc_prefix}gcc  linux-v{self.toolchain_major}.{self.toolchain_minor}')
+            if self.libs_path:
+                console(f'  MIPS syslibs: {self.libs_path}')
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
