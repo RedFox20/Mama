@@ -883,15 +883,39 @@ class BuildTarget:
         self.dep.should_rebuild = False
 
 
-    def gnu_project(self, name: str, version: str, url: str, build_product: str):
+    def gnu_project(self, name:str, version:str, 
+                    build_product:str,
+                    url:str='',
+                    git:str='',
+                    autogen=False,
+                    configure='configure'):
         """
         Creates a new GnuProject instance for building GNU projects from source.
+        - name: name of the project, eg 'gmp'
+        - version: version of the project, eg '6.2.1'
+        - build_product: the final product to build, eg 'lib/libgmp.a'
+        - url: url to download the project, eg 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
+        - git: git to clone the project from
+        - autogen: whether to use ./autogen.sh before running ./configure
+        - configure: the configuration command, by default 'configure' but can be 'make config' etc
         ```
             gmp = self.gnu_project('gmp', '6.2.1', 'https://gmplib.org/download/gmp/{{project}}.tar.xz', 'lib/libgmp.a')
             gmp.configure()
         ```
         """
-        return GnuProject(self, name, version, url, build_product)
+        return GnuProject(self, name, version, build_product, url=url, git=git,
+                          autogen=autogen, configure=configure)
+
+
+    def get_cc_prefix(self):
+        """
+        Useful for crosscompiling builds, returns the prefix of the compiler, eg '/usr/bin/mipsel-linux-gnu-'
+        """
+        cc = self.config.get_preferred_compiler_paths()[0]
+        filename = os.path.basename(cc)
+        if filename.endswith('gcc'):
+            filename = filename[:-3]
+        return os.path.join(os.path.dirname(cc), filename)
 
 
     def run(self, command: str, src_dir=False, exit_on_fail=True):

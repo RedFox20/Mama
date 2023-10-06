@@ -213,7 +213,8 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
         ctx = None
 
     with request.urlopen(remote_url, context=ctx, timeout=15) as urlfile:
-        size = int(urlfile.info()['Content-Length'].strip())
+        size = urlfile.info()['Content-Length']
+        size = int(size.strip()) if size else None
         if not message: message = f'Downloading {remote_url}'
         print(f'{message} {get_file_size_str(size) if size else "unknown size"}')
         if not size:
