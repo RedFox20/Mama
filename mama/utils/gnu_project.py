@@ -174,6 +174,7 @@ class GnuProject:
             if not self.autogen:
                 guess_machine = f'{self.source_dir()}/config.guess'
                 if os.path.exists(guess_machine):
+                    os.chmod(guess_machine, 0o755) # make sure it's executable
                     args += f' --build={proc.execute_piped(guess_machine)}'
 
             configure = f'./configure {args} {prefix}'
@@ -272,9 +273,12 @@ class GnuProject:
         if not dest_path:
             dest_path = src_path
         if strip and os.path.isfile(src_path):
-            self.strip(src_path, src_path)
+            self.strip(src_path, dest_path)
         else:
             self.copy_file_or_link(src_path, dest_path)
+        if not os.path.exists(dest_path):
+            raise Exception(f'Failed to deploy {src_path} to {dest_path}')
+        console(f'>>> Deployed {src_path} to {dest_path}', color='green')
 
 
     def deploy_dir(self, src_dir, dest_dir, strip=False):
@@ -294,6 +298,7 @@ class GnuProject:
                     self.strip(src_file, dest_path=dst_file)
                 else:
                     self.copy_file_or_link(src_file, dst_file)
+        console(f'>>> Deployed {src_dir} to {dest_dir}', color='green')
 
 
 ######################################################################################
