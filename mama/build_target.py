@@ -87,7 +87,17 @@ class BuildTarget:
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
-        self.windows = self.config.windows # convenient alias
+        self.os_windows = System.windows
+        self.os_linux   = System.linux
+        self.os_macos   = System.macos
+        self._set_args(args)
+        self._update_platform_aliases()
+        self.init()
+        self._update_platform_aliases() # allow init() to redefine the platform
+
+
+    def _update_platform_aliases(self):
+        self.windows = self.config.windows
         self.linux   = self.config.linux
         self.macos   = self.config.macos
         self.ios     = self.config.ios
@@ -95,10 +105,6 @@ class BuildTarget:
         self.raspi   = self.config.raspi
         self.oclea   = self.config.oclea
         self.mips    = self.config.mips
-        self.os_windows = System.windows
-        self.os_linux   = System.linux
-        self.os_macos   = System.macos
-        self._set_args(args)
 
 
     def _set_args(self, args: List[str]):
