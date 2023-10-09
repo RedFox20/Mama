@@ -50,7 +50,7 @@ class GnuProject:
         self.make_opts = '' # default options for make
         self.host = ''
         if self.target.config.mips:
-            self.host = 'mipsel-elf'
+            self.host = 'mipsel-linux-gnu'
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
@@ -106,7 +106,11 @@ class GnuProject:
         """
         source = self.source_dir()
         configure_file = self.get_configure_file()
-        if os.path.exists(configure_file):
+        autogen_file = f'{self.source_dir()}/autogen.sh' if self.autogen else ''
+        if autogen_file:
+            if os.path.exists(autogen_file):
+                return # nothing to do
+        elif os.path.exists(configure_file):
             return # nothing to do
 
         build_root = self.target.build_dir()
@@ -116,7 +120,10 @@ class GnuProject:
                 raise Exception(f'Failed to clone {self.git} to {source}')
         else:
             url = self.url.replace('{{project}}', self.name_with_version)
-            local_file = mama.util.download_file(url, local_dir=build_root)
+            try:
+                local_file = mama.util.download_file(url, local_dir=build_root)
+            except Exception as e:
+                raise Exception(f'Failed to download {url}: {e}')
 
             console(f'>>> Extracting to {source}', color='green')
             os.makedirs(source, exist_ok=True)
@@ -131,8 +138,12 @@ class GnuProject:
                 console(f'>>> ERROR: Unknown archive type: {local_file}', color='red')
 
         # final check if the configure file exists
-        if not os.path.exists(configure_file):
-            raise Exception(f'Checkout failed, no configure file at: {configure_file}')
+        if autogen_file:
+            if not os.path.exists(autogen_file):
+                raise Exception(f'Checkout failed, no autogen file at: {autogen_file}')
+        else:
+            if not os.path.exists(configure_file):
+                raise Exception(f'Checkout failed, no configure file at: {configure_file}')
 
 
     def configure_env(self):
@@ -152,7 +163,7 @@ class GnuProject:
         self.target.run_program(self.source_dir(), command)
 
 
-    def configure(self, options='', prefix=''):
+    def configure(self, options='', autogen_opts='', prefix=''):
         """
         Only configures the project for building by generating the Makefile
             - options: additional options to pass to the configure script
@@ -161,16 +172,17 @@ class GnuProject:
         self.configure_env()
 
         if self.autogen:
-            self.run('./autogen.sh')
+            self.run(f'./autogen.sh {autogen_opts}')
 
         if self.configure_command != 'configure':
             # user overrides with custom configurator, such as `make config` etc
             configure = self.configure_command
         else:
-            args = f'--host={self.host}'
+            args = ''
+            if self.host:
+                args += f' --host={self.host}'
             if not prefix:
                 prefix = f'--prefix {self.install_dir()}'
-
             if not self.autogen:
                 guess_machine = f'{self.source_dir()}/config.guess'
                 if os.path.exists(guess_machine):
@@ -213,6 +225,7 @@ class GnuProject:
         all_opts = self._get_make_opts(prefix, multithreaded=False)
         self.run(f'make {all_opts} install')
         console(f'>>> Installed {self.name}', color='green')
+        return self.install_dir()
 
 
     def build(self, options='', make_opts='', prefix='',
@@ -239,8 +252,8 @@ class GnuProject:
         except:
             console(f'>>> ERROR: Failed to build {self.name}', color='red')
             # with autoconf projects, delete the makefile so that it will be regenerated
-            if autoconf_makefile and os.path.exists(autoconf_makefile):
-                os.remove(autoconf_makefile)
+            #if autoconf_makefile and os.path.exists(autoconf_makefile):
+            #    os.remove(autoconf_makefile)
             raise
 
 
