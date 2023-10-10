@@ -1,14 +1,27 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 import os
 import shlex
-import shutil
 import mama.util
 import mama.utils.sub_process as proc
 from mama.utils.system import console
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget
+
+######################################################################################
+
+class BuildProduct:
+    """ Represents the build product of a project that should be deployed """
+    def __init__(self, built_path:str, deploy_path:str=None, strip=True):
+        """
+            - built_path: where the built file exists.
+                          Supported project variables {{installed}}, {{source}}, {{build}}
+            - deploy_path where the file should be deployed, can be None if no deploy needed
+        """
+        self.built_path = built_path
+        self.deploy_path = deploy_path
+        self.strip = strip
 
 ######################################################################################
 
@@ -22,19 +35,20 @@ class GnuProject:
     gmp = GnuProject(target, 'gmp', '6.2.1', 'https://gmplib.org/download/gmp/{{project}}.tar.xz', 'lib/libgmp.a')
     gmp.build()
     """
-    def __init__(self, target:BuildTarget, name:str, version:str, 
-                 build_product:str,
+    def __init__(self, target:BuildTarget, name:str, version:str,
                  url:str='',
                  git:str='',
+                 build_products=[],
                  autogen=False,
                  configure='configure'):
         """
         - target: mama.BuildTarget building this GnuProject and collecting the build products
         - name: name of the project, eg 'gmp'
         - version: version of the project, eg '6.2.1'
-        - build_product: the final product to build, eg 'lib/libgmp.a'
         - url: url to download the project, eg 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
         - git: git to clone the project from
+        - build_products: the final products to build, eg [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
+                          Supported project variables {{installed}}, {{source}}, {{build}}
         - autogen: whether to use ./autogen.sh before running ./configure
         - configure: the configuration command, by default 'configure' but can be 'make config' etc
         """
@@ -45,7 +59,12 @@ class GnuProject:
         self.url = url
         self.git = git
         self.autogen = autogen
-        self.build_product = build_product
+        if isinstance(build_products, list):
+            self.build_products = build_products
+        elif isinstance(build_products, BuildProduct):
+            self.build_products = [build_products]
+        else:
+            raise RuntimeError('build_product must be a BuildProduct or a list of BuildProducts')
         self.install_dir_suffix = '-built'
         self.make_opts = '' # default options for make
         self.host = ''
@@ -70,19 +89,45 @@ class GnuProject:
         return self.target.build_dir(self.name + self.install_dir_suffix)
 
 
-    def get_final_product(self):
-        """ Returns the final product path, eg project/mips/gdb-built/bin/gdb """
-        product = self.build_product
-        if '{{source}}' in product:
-            return product.replace('{{source}}', self.source_dir())
-        if '{{build}}' in product:
-            return product.replace('{{build}}', self.target.build_dir())
-        return self.install_dir() + "/" + product
+    def add_build_product(self, product:BuildProduct):
+        self.build_products.append(product)
+
+
+    def get_built_file(self, product:BuildProduct):
+        src = product.built_path
+        if '{{installed}}' in src:
+            src = src.replace('{{installed}}', self.install_dir())
+        if '{{source}}' in src:
+            src = src.replace('{{source}}', self.source_dir())
+        if '{{build}}' in src:
+            src = src.replace('{{build}}', self.target.build_dir())
+        return src
 
 
     def should_build(self):
-        """ Returns true if the final product does not exist """
-        return not os.path.exists(self.get_final_product())
+        """ Returns True if any of the built files are missing """
+        if not self.should_deploy():
+            return False
+        for p in self.build_products:
+            if not os.path.exists(self.get_built_file(p)):
+                return True
+        return False
+
+
+    def should_deploy(self):
+        """ Returns True if any of the deployed files are missing """
+        for f in self.build_products:
+            if f.deploy_path and not os.path.exists(f.deploy_path):
+                return True
+        return False
+
+
+    def deploy_all_products(self, force=False):
+        """ Deploys all built products if needed """
+        if force or self.should_deploy():
+            for p in self.build_products:
+                if p.deploy_path:
+                    self.deploy(self.get_built_file(p), p.deploy_path, strip=p.strip)
 
 
     def get_makefile(self):
@@ -275,14 +320,13 @@ class GnuProject:
             mama.util.copy_file(src_file, dst_file)
 
 
-    def deploy(self, src_path=None, dest_path=None, strip=False):
+    def deploy(self, src_path:str, dest_path=None, strip=False):
         """ 
         Deploys the src_path to dest_path, 
         optionally stripping the binary in the process.
-        If `src_path` is None, the get_final_product() will be used
         """
         if not src_path:
-            src_path = self.get_final_product()
+            raise RuntimeError('src_path must be specified')
         if not dest_path:
             dest_path = src_path
         if strip and os.path.isfile(src_path):

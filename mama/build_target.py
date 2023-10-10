@@ -92,6 +92,7 @@ class BuildTarget:
         self.os_macos   = System.macos
         self._set_args(args)
         self._update_platform_aliases()
+        self.dep._update_dep_name_and_dirs(self.name)
         self.init()
         self._update_platform_aliases() # allow init() to redefine the platform
 
@@ -889,17 +890,18 @@ class BuildTarget:
         self.dep.should_rebuild = False
 
 
-    def gnu_project(self, name:str, version:str, 
-                    build_product:str,
+    def gnu_project(self, name:str, version:str,
                     url:str='',
                     git:str='',
+                    build_products=[],
                     autogen=False,
                     configure='configure'):
         """
         Creates a new GnuProject instance for building GNU projects from source.
         - name: name of the project, eg 'gmp'
         - version: version of the project, eg '6.2.1'
-        - build_product: the final product to build, eg 'lib/libgmp.a'
+        - build_products: the final products to build, eg [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
+                          Supported project variables {{installed}}, {{source}}, {{build}}
         - url: url to download the project, eg 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
         - git: git to clone the project from
         - autogen: whether to use ./autogen.sh before running ./configure
@@ -909,7 +911,7 @@ class BuildTarget:
             gmp.configure()
         ```
         """
-        return GnuProject(self, name, version, build_product, url=url, git=git,
+        return GnuProject(self, name, version, url=url, git=git, build_products=build_products,
                           autogen=autogen, configure=configure)
 
 

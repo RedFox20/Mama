@@ -54,7 +54,7 @@ class BuildDependency:
             if parent:
                 self.mamafile = parent.get_mamafile_path_relative_to_us(self.name, git.mamafile)
             self._add_args(git.args)
-            self.update_dep_dir()
+            self._update_dep_name_and_dirs(self.name)
             # put the git repo in workspace
             self.src_dir = normalized_join(self.dep_dir, self.name)
         elif dep_source.is_pkg:
@@ -62,7 +62,6 @@ class BuildDependency:
                 raise RuntimeError(f'add_artifactory_pkg({self.name}) failed because config.artifactory_ftp is not set!')
             self.src_dir = None # there is no src_dir when using artifactory packages
             self.create_build_target()
-            self.update_dep_dir()
         elif dep_source.is_src:
             src:LocalSource = dep_source
             self.mamafile = src.mamafile
@@ -81,8 +80,6 @@ class BuildDependency:
                 raise OSError(f'{self.name} source dir does not exist: {self.src_dir}')
 
             self.create_build_target()
-            self.name = str(self.target.name) # name can change due to mamafile !!
-            self.update_dep_dir()
         else:
             raise RuntimeError(f'{self.name} src or git or pkg not configured. Specify at least one.')
 
@@ -142,8 +139,9 @@ class BuildDependency:
         return self.children
 
 
-    def update_dep_dir(self):
-        dep_name = self.name
+    def _update_dep_name_and_dirs(self, name):
+        self.name = name
+        dep_name = name
         if self.dep_source.is_git:
             git:Git = self.dep_source
             if git.branch: dep_name = f'{self.name}-{git.branch}'
@@ -225,7 +223,7 @@ class BuildDependency:
 
     def _load_target(self) -> BuildTarget:
         self.create_build_target() ## parses target mamafile
-        self.update_dep_dir() ## requires target mamafile workspace
+        self._update_dep_name_and_dirs(self.name) ## requires target mamafile workspace
         self.create_build_dir_if_needed()
         return self.target
 
@@ -248,7 +246,7 @@ class BuildDependency:
             target = self._load_target()
         # for non-root targets, only create the required dirs
         else:
-            self.update_dep_dir()
+            self._update_dep_name_and_dirs(self.name)
             self.create_build_dir_if_needed()
 
         git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
