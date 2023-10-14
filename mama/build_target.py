@@ -974,7 +974,7 @@ class BuildTarget:
         return run_gdb(self, command, src_dir)
 
 
-    def gtest(self, executable: str, args: str, src_dir=True):
+    def gtest(self, executable: str, args: str, src_dir=True, gdb=False):
         """
         Runs a gtest executable with gdb by default.
         The gtest report is written to $src_dir/test/report.xml.
@@ -983,12 +983,13 @@ class BuildTarget:
         - args -- a string of options separated by spaces, 
           'gdb', 'nogdb' or gtest fixture/test partial name
         - src_dir -- [True] If true, then executable is relative to source directory.
+        - gdb -- [False] If true, then run with gdb.
         ```
             self.gtest("bin/MyAppGtests", "nogdb", src_dir=True)
             self.gtest("bin/MyAppGtests", "MyFixtureName.TheTestName", src_dir=True)
         ```
         """
-        run_gtest(self, executable, args, src_dir)
+        run_gtest(self, executable, args=args, src_dir=src_dir, gdb=gdb)
 
 
     ########## Customization Points ###########

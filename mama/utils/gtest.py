@@ -7,7 +7,7 @@ from .run import run_in_working_dir
 if TYPE_CHECKING:
     from ..build_target import BuildTarget
 
-def run_gtest(target: BuildTarget, executable: str, args='', src_dir=False, gdb=True):
+def run_gtest(target: BuildTarget, executable: str, args='', src_dir=False, gdb=False):
     args, gdb = filter_gdb_arg(args, gdb)
     ## gtest flags:
     # https://github.com/google/googletest/blob/main/googletest/src/gtest.cc#L238

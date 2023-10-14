@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from ..build_target import BuildTarget
 
 
-def filter_gdb_arg(args: str, default_gdb=True) -> Tuple[str, bool]:
+def filter_gdb_arg(args: str, default_gdb=False) -> Tuple[str, bool]:
     if 'nogdb' == args: return '', False
     if 'nogdb ' in args: return args.replace('nogdb ', ''), False
     if 'gdb' == args: return '', True
