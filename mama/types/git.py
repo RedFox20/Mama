@@ -232,6 +232,10 @@ class Git(DepSource):
                             print(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
                 elif 'Cloning into ' in line:
                     pass
+                elif 'Are you sure you want to continue connecting' in line:
+                    # TODO: maybe auto-add the key before running clone?
+                    # if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
+                    print(line)
                 elif line:
                     output += line
                     output += '\n'
