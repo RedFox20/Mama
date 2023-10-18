@@ -190,9 +190,9 @@ def get_file_size_str(size):
 def get_time_str(seconds: float):
     if seconds < 1: return f'{int(seconds*1000)}ms'
     if seconds < 60: return f'{seconds:.1f}s'
-    if seconds < 60*60: return f'{int(seconds%60)}m {int(seconds/60)}s'
-    if seconds < 24*60*60: return f'{int(seconds%(60*60))}h {int(seconds%60)}m {int(seconds/60)}s'
-    return f'{int(seconds%(24*60*60))}d {int(seconds%(60*60))}h {int(seconds%60)}m {int(seconds/60)}s'
+    if seconds < 60*60: return f'{int(seconds/60)}m {int(seconds%60)}s'
+    if seconds < 24*60*60: return f'{int(seconds/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
+    return f'{int(seconds/(24*60*60))}d {int((seconds%(24*60*60))/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
 
 
 def download_file(remote_url:str, local_dir:str, force=False, message=None):
