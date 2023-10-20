@@ -23,8 +23,8 @@ def is_a_library(lib: str):
     return is_a_static_library(lib) or is_a_dynamic_library(lib)
 
 
-def target_root_path(target: BuildTarget, path: str, src_dir: bool):
-    root = target.source_dir() if src_dir else target.build_dir()
+def target_root_path(target: BuildTarget, path: str, build_dir: bool):
+    root = target.build_dir() if build_dir else target.source_dir()
     return normalized_path(os.path.join(root, path))
 
 
@@ -46,7 +46,7 @@ def get_unique_basenames(items: list):
 
 
 def export_include(target: BuildTarget, include_path: str, build_dir: bool):
-    include_path = target_root_path(target, include_path, not build_dir)
+    include_path = target_root_path(target, include_path, build_dir=build_dir)
     #console(f'export_include={include_path}')
     if os.path.exists(include_path):
         if not include_path in target.exported_includes:
@@ -62,8 +62,8 @@ def export_includes(target: BuildTarget, include_paths: list, build_dir: bool):
     return added
 
 
-def export_lib(target: BuildTarget, relative_path: str, src_dir: str):
-    path = target_root_path(target, relative_path, src_dir)
+def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):
+    path = target_root_path(target, relative_path, build_dir=build_dir)
     if os.path.exists(path):
         target.exported_libs.append(path)
         target.exported_libs = get_unique_basenames(target.exported_libs)
@@ -105,8 +105,8 @@ def clean_intermediate_files(target: BuildTarget):
                 os.remove(file)
 
 
-def export_libs(target: BuildTarget, path, pattern_substrings: List[str], src_dir: bool, order: list):
-    root_path = target_root_path(target, path, src_dir)
+def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_dir: bool, order: list):
+    root_path = target_root_path(target, path, build_dir=build_dir)
     libs = glob_with_name_match(root_path, pattern_substrings)
     libs = cleanup_libs_list(libs)
 
@@ -127,8 +127,8 @@ def export_libs(target: BuildTarget, path, pattern_substrings: List[str], src_di
     return len(target.exported_libs) > 0
 
 
-def export_asset(target: BuildTarget, asset: str, category=None, src_dir=True):
-    full_asset = target_root_path(target, asset, src_dir)
+def export_asset(target: BuildTarget, asset: str, category=None, build_dir=False):
+    full_asset = target_root_path(target, asset, build_dir=build_dir)
     if os.path.exists(full_asset):
         target.exported_assets.append(Asset(asset, full_asset, category))
         return True
@@ -137,9 +137,9 @@ def export_asset(target: BuildTarget, asset: str, category=None, src_dir=True):
         return False
 
 
-def export_assets(target: BuildTarget, assets_path: str, pattern_substrings: list, category=None, src_dir=True):
+def export_assets(target: BuildTarget, assets_path: str, pattern_substrings: list, category=None, build_dir=True):
     assets_path += '/'
-    assets = glob_with_name_match(target_root_path(target, assets_path, src_dir), pattern_substrings, match_dirs=False)
+    assets = glob_with_name_match(target_root_path(target, assets_path, build_dir=build_dir), pattern_substrings, match_dirs=False)
     if assets:
         for full_asset in assets:
             target.exported_assets.append(Asset(assets_path, full_asset, category))

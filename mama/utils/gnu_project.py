@@ -105,8 +105,8 @@ class GnuProject:
 
 
     def should_build(self):
-        """ Returns True if any of the built files are missing """
-        if not self.should_deploy():
+        """ Returns True if any deployed files or any built files are missing """
+        if self.has_deployables() and not self.should_deploy():
             return False
         for p in self.build_products:
             if not os.path.exists(self.get_built_file(p)):
@@ -118,6 +118,14 @@ class GnuProject:
         """ Returns True if any of the deployed files are missing """
         for f in self.build_products:
             if f.deploy_path and not os.path.exists(f.deploy_path):
+                return True
+        return False
+
+
+    def has_deployables(self):
+        """ Returns True if any of the build products have a deploy path """
+        for f in self.build_products:
+            if f.deploy_path:
                 return True
         return False
 

@@ -417,7 +417,7 @@ class BuildTarget:
             self.export_include('installed/MyLib/include', build_dir=True)
         ```
         """
-        return package.export_include(self, include_path, build_dir)
+        return package.export_include(self, include_path, build_dir=build_dir)
 
 
     def export_includes(self, include_paths=[''], build_dir=False):
@@ -432,10 +432,10 @@ class BuildTarget:
         self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
         ```
         """
-        return package.export_includes(self, include_paths, build_dir)
+        return package.export_includes(self, include_paths, build_dir=build_dir)
 
 
-    def export_lib(self, relative_path, src_dir=False):
+    def export_lib(self, relative_path, src_dir=False, build_dir=True):
         """
         CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
         
@@ -447,10 +447,12 @@ class BuildTarget:
         self.export_lib('lib/mylib.a', src_dir=True)  # from project source dir
         ```
         """
-        return package.export_lib(self, relative_path, src_dir)
+        if src_dir and build_dir:
+            build_dir = False
+        return package.export_lib(self, relative_path, build_dir=build_dir)
 
 
-    def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, order=None):
+    def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, build_dir=True, order=None):
         """
         CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
         
@@ -471,10 +473,12 @@ class BuildTarget:
         -->  [..others.., libopencv_xphoto.a, libopencv_calib3d.a, libopencv_flann.a, libopencv_core.a]
         ```
         """
-        return package.export_libs(self, path, pattern_substrings, src_dir, order)
+        if src_dir and build_dir:
+            build_dir = False
+        return package.export_libs(self, path, pattern_substrings, build_dir, order)
 
 
-    def export_asset(self, asset, category=None, src_dir=True):
+    def export_asset(self, asset, category=None, src_dir=True, build_dir=False):
         """
         Exports a single asset file from this target
         This can be later used when creating a deployment
@@ -490,10 +494,12 @@ class BuildTarget:
             --> {deploy}/dotnet/NanoMesh.cs
         ```
         """
-        return package.export_asset(self, asset, category, src_dir)
+        if not src_dir and not build_dir:
+            build_dir = True
+        return package.export_asset(self, asset, category, build_dir=build_dir)
 
 
-    def export_assets(self, assets_path: str, pattern_substrings = [], category=None, src_dir=True):
+    def export_assets(self, assets_path: str, pattern_substrings = [], category=None, src_dir=True, build_dir=False):
         """
         Performs a GLOB recurse, using specific pattern substrings.
         This can be later used when creating a deployment
@@ -509,7 +515,9 @@ class BuildTarget:
             --> {deploy}/dotnet/NanoMesh.cs
         ```
         """
-        return package.export_assets(self, assets_path, pattern_substrings, category, src_dir)
+        if not src_dir and not build_dir:
+            build_dir = True
+        return package.export_assets(self, assets_path, pattern_substrings, category, build_dir=build_dir)
 
 
     def export_syslib(self, name: str, apt='', required=True):
@@ -1206,7 +1214,8 @@ class BuildTarget:
         """
         if self.config.list:
             return # don't deploy during listing
-        self.papa_path = package.target_root_path(self, package_path, src_dir)
+        build_dir = not src_dir
+        self.papa_path = package.target_root_path(self, package_path, build_dir=build_dir)
         papa_deploy_to(self, self.papa_path, \
             r_includes=r_includes, r_dylibs=r_dylibs, \
             r_syslibs=r_syslibs, r_assets=r_assets)
