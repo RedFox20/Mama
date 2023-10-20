@@ -368,6 +368,10 @@ class BuildDependency:
         if conf.update and conf.target == target.name:
             return build('update target='+conf.target)
 
+        # if we call sub-dependency `build this_target`
+        if not self.is_root and conf.build and conf.target == target.name:
+            return build('build target='+conf.target)
+
         # if the project has been built at least once or downloaded from artifactory package
         # then there will be a list of build products
         # if any of those are missing, then this needs to be rebuilt to re-acquire them
