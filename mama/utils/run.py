@@ -64,19 +64,19 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     return cwd, exe, args
 
 
-def run_in_working_dir(target: BuildTarget, working_dir: str, command: str, exit_on_fail=True):
+def run_in_working_dir(target: BuildTarget, working_dir: str, command: str, exit_on_fail=True, env=None):
     cwd, exe, args = get_cwd_exe_args(target, command, cwd=working_dir)
-    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail)
+    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail, env=env)
 
 
-def run_in_project_dir(target: BuildTarget, command: str, src_dir=False, exit_on_fail=True):
+def run_in_project_dir(target: BuildTarget, command: str, src_dir=False, exit_on_fail=True, env=None):
     cwd = target.source_dir() if src_dir else target.build_dir()
     cwd, exe, args = get_cwd_exe_args(target, command, cwd=cwd)
-    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail)
+    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail, env=env)
 
 
-def run_in_command_dir(target: BuildTarget, command: str, src_dir=False, exit_on_fail=True):
+def run_in_command_dir(target: BuildTarget, command: str, src_dir=False, exit_on_fail=True, env=None):
     root_dir = target.source_dir() if src_dir else target.build_dir()
     cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
-    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail)
+    execute_echo(cwd=cwd, cmd=f'{exe} {args}', exit_on_fail=exit_on_fail, env=env)
 

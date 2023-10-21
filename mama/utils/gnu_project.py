@@ -73,6 +73,8 @@ class GnuProject:
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
+        # extra environment variables to set when running the project
+        self.extra_env = {}
 
 
     def source_dir(self, subpath=''):
@@ -93,15 +95,15 @@ class GnuProject:
         self.build_products.append(product)
 
 
-    def get_built_file(self, product:BuildProduct):
-        src = product.built_path
-        if '{{installed}}' in src:
-            src = src.replace('{{installed}}', self.install_dir())
-        if '{{source}}' in src:
-            src = src.replace('{{source}}', self.source_dir())
-        if '{{build}}' in src:
-            src = src.replace('{{build}}', self.target.build_dir())
-        return src
+    def get_parsed_path(self, path:str):
+        """ Parses the path with the project variables: {{installed}}, {{source}}, {{build}} """
+        if '{{installed}}' in path:
+            path = path.replace('{{installed}}', self.install_dir())
+        if '{{source}}' in path:
+            path = path.replace('{{source}}', self.source_dir())
+        if '{{build}}' in path:
+            path = path.replace('{{build}}', self.target.build_dir())
+        return path
 
 
     def should_build(self):
@@ -109,7 +111,7 @@ class GnuProject:
         if self.has_deployables() and not self.should_deploy():
             return False
         for p in self.build_products:
-            if not os.path.exists(self.get_built_file(p)):
+            if not os.path.exists(self.get_parsed_path(p.built_path)):
                 return True
         return False
 
@@ -135,7 +137,9 @@ class GnuProject:
         if force or self.should_deploy():
             for p in self.build_products:
                 if p.deploy_path:
-                    self.deploy(self.get_built_file(p), p.deploy_path, strip=p.strip)
+                    self.deploy(self.get_parsed_path(p.built_path), p.deploy_path, strip=p.strip)
+            return True
+        return False
 
 
     def get_makefile(self):
@@ -213,7 +217,12 @@ class GnuProject:
 
     def run(self, command):
         """ Runs a command in the project directory, eg 'make specialsetup' """
-        self.target.run_program(self.source_dir(), command)
+        env = None
+        if self.extra_env: # copy env and add extra env vars
+            env = os.environ.copy()
+            for k, v in self.extra_env.items():
+                env[k] = v
+        self.target.run_program(self.source_dir(), command, env=env)
 
 
     def configure(self, options='', autogen_opts='', prefix=''):
@@ -325,7 +334,7 @@ class GnuProject:
             os.remove(dst_file)
             os.symlink(link, dst_file)
         else:
-            mama.util.copy_file(src_file, dst_file)
+            mama.util.copy_if_needed(src_file, dst_file)
 
 
     def deploy(self, src_path:str, dest_path=None, strip=False):

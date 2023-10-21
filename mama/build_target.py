@@ -947,7 +947,7 @@ class BuildTarget:
         run_in_project_dir(self, command, src_dir, exit_on_fail)
 
 
-    def run_program(self, working_dir: str, command: str, exit_on_fail=True):
+    def run_program(self, working_dir: str, command: str, exit_on_fail=True, env=None):
         """
         Run any program in any directory. Can be used for custom tools.
         ```
@@ -955,7 +955,7 @@ class BuildTarget:
                              self.source_dir('bin/DbTool'))
         ```
         """
-        run_in_working_dir(self, working_dir, command, exit_on_fail=exit_on_fail)
+        run_in_working_dir(self, working_dir, command, exit_on_fail=exit_on_fail, env=env)
 
 
     def run_with_gdb(self, command: str, args: str, src_dir=True, gdb_by_default=True):

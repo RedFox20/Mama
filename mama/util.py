@@ -409,6 +409,8 @@ def copy_dir(src_dir: str, out_dir: str, filter: list = None) -> bool:
     """
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
     copied = False
     root = os.path.dirname(src_dir)
     for fulldir, _, files in os.walk(src_dir):

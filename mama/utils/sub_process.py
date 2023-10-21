@@ -190,7 +190,7 @@ class SubProcess:
         SubProcess.run('tool', 'cmake xyz', io_func=lambda line: print(line))
         ```
         """
-        p = SubProcess(cmd, cwd, env, io_func=io_func)
+        p = SubProcess(cmd, cwd, env=env, io_func=io_func)
         try:
             while p.try_wait() is None:
                 p.read_outputs(max_blocks=1)
@@ -238,17 +238,18 @@ def execute_piped(command, cwd=None, timeout=None, throw=True):
             return None
 
 
-def execute_echo(cwd, cmd, exit_on_fail=False):
+def execute_echo(cwd, cmd, exit_on_fail=False, env=None):
     """
     Wrapper around SubProcess.run(), by default throws if exit_status != 0
     - cwd: working dir for the subprocess
     - cmd: command string
     - exit_on_fail: if True, exits the application with exit_status
+    - env: overrrides the environment for the subprocess, default is os.environ
     """
     exit_status = -1
     throw_on_fail = not exit_on_fail
     try:
-        exit_status = SubProcess.run(cmd, cwd, io_func=None)
+        exit_status = SubProcess.run(cmd, cwd, env=env, io_func=None)
     except:
         error(f'SubProcess exited cwd={cwd} cmd={cmd}')
         if throw_on_fail:
@@ -260,12 +261,13 @@ def execute_echo(cwd, cmd, exit_on_fail=False):
             exit(exit_status)
 
 
-def execute_piped_echo(cwd, cmd, echo=True):
+def execute_piped_echo(cwd, cmd, echo=True, env=None):
     """
     Wrapper around SubProcess.run(), returns status code with piped output (status, output).
     - cwd: working dir for the subprocess
     - cmd: command string
     - echo: if True, also prints the output to console
+    - env: overrrides the environment for the subprocess, default is os.environ
     - returns: (exit_status, output_string)
     """
     try:
@@ -276,7 +278,7 @@ def execute_piped_echo(cwd, cmd, echo=True):
             if echo: print(line)
             output += line
             output += '\n' # newline is not included
-        exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
+        exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
         return (exit_status, output)
     except Exception as e:
         return (-1, f'{output}{e}')
