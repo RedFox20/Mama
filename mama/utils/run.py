@@ -30,6 +30,8 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         cwd = os.path.join(root_dir, os.path.dirname(program))
         if program.startswith('/'):
             exe = program # already absolute
+        elif program.startswith('./'):
+            exe = os.path.join(root_dir, program[2:]) # turn relative to absolute
         else:
             exe = shutil.which(program) # is it a common executable?
             if not exe:
@@ -42,6 +44,8 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         # exe: /path/to/project/bin/app.exe
         if program.startswith('/'):
             exe = program # already absolute
+        elif program.startswith('./'):
+            exe = os.path.join(cwd, program[2:]) # turn relative to absolute
         else:
             exe = shutil.which(program) # is it a common executable?
             if not exe:
