@@ -13,15 +13,18 @@ if TYPE_CHECKING:
 
 class BuildProduct:
     """ Represents the build product of a project that should be deployed """
-    def __init__(self, built_path:str, deploy_path:str=None, strip=True):
+    def __init__(self, built_path:str, deploy_path:str=None, strip=True, is_dir=False):
         """
             - built_path: where the built file exists.
                           Supported project variables {{installed}}, {{source}}, {{build}}
             - deploy_path where the file should be deployed, can be None if no deploy needed
+            - strip: whether to strip the binary when deploying
+            - is_dir: whether the built_path is a directory
         """
         self.built_path = built_path
         self.deploy_path = deploy_path
         self.strip = strip
+        self.is_dir = is_dir
 
 ######################################################################################
 
@@ -137,7 +140,10 @@ class GnuProject:
         if force or self.should_deploy():
             for p in self.build_products:
                 if p.deploy_path:
-                    self.deploy(self.get_parsed_path(p.built_path), p.deploy_path, strip=p.strip)
+                    if p.is_dir:
+                        self.deploy_dir(p.built_path, p.deploy_path, strip=p.strip)
+                    else:
+                        self.deploy(p.built_path, p.deploy_path, strip=p.strip)
             return True
         return False
 
@@ -344,9 +350,9 @@ class GnuProject:
         """
         if not src_path:
             raise RuntimeError('src_path must be specified')
-        if not dest_path:
-            dest_path = src_path
-        if strip and os.path.isfile(src_path):
+        src_path = self.get_parsed_path(src_path)
+        dest_path = self.get_parsed_path(dest_path) if dest_path else src_path
+        if strip and os.path.isfile(src_path) and not src_path.endswith('.a'):
             self.strip(src_path, dest_path)
         else:
             self.copy_file_or_link(src_path, dest_path)
@@ -357,7 +363,12 @@ class GnuProject:
 
     def deploy_dir(self, src_dir, dest_dir, strip=False):
         """ Deploys all built products from src_dir to dest_dir and optionally strips them """
+        src_dir = self.get_parsed_path(src_dir)
+        if not os.path.exists(src_dir):
+            raise Exception(f'Failed to deploy from {src_dir}, directory does not exist')
+        dest_dir = self.get_parsed_path(dest_dir)
         root = os.path.dirname(src_dir)
+        count = 0
         for fulldir, _, files in os.walk(src_dir):
             for file in files:
                 reldir = fulldir[len(root):].lstrip('\\/')
@@ -372,7 +383,11 @@ class GnuProject:
                     self.strip(src_file, dest_path=dst_file)
                 else:
                     self.copy_file_or_link(src_file, dst_file)
-        console(f'>>> Deployed {src_dir} to {dest_dir}', color='green')
+                count += 1
+        if count > 0:
+            console(f'>>> Deployed {src_dir} to {dest_dir}', color='green')
+        else:
+            console(f'>>> No files to deploy from {src_dir}', color='yellow')
 
 
 ######################################################################################

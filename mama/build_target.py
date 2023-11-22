@@ -262,19 +262,32 @@ class BuildTarget:
         raise KeyError(f"BuildTarget {self.name} has no child dependency named '{name}'")
 
 
-    def find_target(self, name):
+    def find_target(self, name, recursive=True):
         """
         Finds a child BuildTarget by name.
         ```
             zlib = self.find_target('zlib')
         ```
         """
+        found = self._find_target(name, recursive=recursive)
+        if not found:
+            raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
+        return found
+
+
+    def _find_target(self, name, recursive):
         if self.name == name:
             return self
-        for dep in self.children():
+        children = self.children()
+        for dep in children:
             if dep.name == name:
                 return dep.target
-        raise KeyError(f"BuildTarget {self.name} has no child target named '{name}'")
+        if recursive: # now search the children's children
+            for dep in children:
+                target = dep.target._find_target(name, recursive=True)
+                if target:
+                    return target
+        return None
 
 
     ## TODO: Move this into `package.py`
@@ -1425,6 +1438,8 @@ class BuildTarget:
             console(f'    {what}  {path[len(self.config.workspaces_root) + 1:]}{exists()}')
         elif not abs_path and path.startswith(self.source_dir()):
             console(f'    {what}  {path[len(self.source_dir()) + 1:]}{exists()}')
+        elif not abs_path and path.startswith(self.build_dir()):
+            console(f'    {what}  {path[len(self.build_dir()) + 1:]}{exists()}')
         else:
             ex = exists() if check_exists else ''
             console(f'    {what}  {path}{ex}')
@@ -1441,7 +1456,7 @@ class BuildTarget:
         for library in self.exported_libs:     self._print_ws_path('[L]', library, abs_paths)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, abs_paths, check_exists=False)
         if self.config.deploy or self.config.upload:
-            for asset in self.exported_assets: self._print_ws_path('[A]', str(asset), abs_paths, check_exists=False)
+            for asset in self.exported_assets: self._print_ws_path('[A]', asset.srcpath, abs_paths, check_exists=False)
         elif self.exported_assets:
             assets = 'assets' if len(self.exported_assets) > 1 else 'asset'
             console(f'    [A]  ({len(self.exported_assets)} {assets})')

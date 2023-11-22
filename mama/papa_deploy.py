@@ -119,9 +119,14 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     includes = _gather_includes(target, r_includes)
     _append_includes(target, package_full_path, detail_echo, descr, includes)
 
+    build_dir = target.build_dir()
+    source_dir = target.source_dir()
+
     libs = _gather_libs(target, r_dylibs)
     for libtarget, lib in libs:
-        relpath = package.get_lib_basename(lib) # TODO: how to get a proper relpath??
+        if   lib.startswith(build_dir):  relpath = os.path.relpath(lib, build_dir)
+        elif lib.startswith(source_dir): relpath = os.path.relpath(lib, source_dir)
+        else: relpath = lib
         descr.append(f'L {relpath}')
         #outpath = os.path.join(package_full_path, relpath)
         outpath = package_full_path

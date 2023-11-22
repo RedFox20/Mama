@@ -37,7 +37,7 @@ def get_lib_basename(lib: str|tuple):
         return os.path.basename(lib)
 
 
-def get_unique_basenames(items: list):
+def get_unique_libnames(items: list):
     unique = dict()
     for item in items:
         basename = get_lib_basename(item)
@@ -47,8 +47,8 @@ def get_unique_basenames(items: list):
 
 def export_include(target: BuildTarget, include_path: str, build_dir: bool):
     include_path = target_root_path(target, include_path, build_dir=build_dir)
-    #console(f'export_include={include_path}')
     if os.path.exists(include_path):
+        #console(f'export_include={include_path}')
         if not include_path in target.exported_includes:
             target.exported_includes.append(include_path)
         return True
@@ -66,7 +66,7 @@ def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):
     path = target_root_path(target, relative_path, build_dir=build_dir)
     if os.path.exists(path):
         target.exported_libs.append(path)
-        target.exported_libs = get_unique_basenames(target.exported_libs)
+        target.exported_libs = get_unique_libnames(target.exported_libs)
     else:
         console(f'export_lib failed to find: {path}')
 
@@ -81,8 +81,8 @@ def set_export_libs_and_products(target: BuildTarget, libs_and_deps: List[str]):
     for lib in libs_and_deps:
         if os.path.exists(lib) and is_a_library(lib):
             only_libs.append(lib)
-    target.exported_libs = get_unique_basenames(only_libs)
-    target.build_products = get_unique_basenames(libs_and_deps)
+    target.exported_libs = get_unique_libnames(only_libs)
+    target.build_products = get_unique_libnames(libs_and_deps)
 
 
 def cleanup_libs_list(libs: List[str]):
@@ -123,7 +123,7 @@ def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_
             return lib_index(lib)
         libs.sort(key=sort_key)
     target.exported_libs += libs
-    target.exported_libs = get_unique_basenames(target.exported_libs)
+    target.exported_libs = get_unique_libnames(target.exported_libs)
     return len(target.exported_libs) > 0
 
 
@@ -180,13 +180,13 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
         if lib:
             #console(f'Exporting syslib: {name}:{lib}')
             target.exported_syslibs.append(lib)
-            target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
+            target.exported_syslibs = get_unique_libnames(target.exported_syslibs)
             return True
     except IOError:
         if target.config.clean:
             # just export it. expect system linker to find it.
             target.exported_syslibs.append(name)
-            target.exported_syslibs = get_unique_basenames(target.exported_syslibs)
+            target.exported_syslibs = get_unique_libnames(target.exported_syslibs)
             return True
         else:
             raise
