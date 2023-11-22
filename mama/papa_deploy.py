@@ -4,7 +4,7 @@ import os, shutil
 
 from .build_dependency import BuildDependency
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .util import get_file_size_str, normalized_path, write_text_to, console, copy_if_needed
+from .util import get_file_size_str, normalized_path, normalized_join, write_text_to, console, copy_if_needed
 import mama.package as package
 
 if TYPE_CHECKING:
@@ -128,8 +128,9 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         elif lib.startswith(source_dir): relpath = os.path.relpath(lib, source_dir)
         else: relpath = lib
         descr.append(f'L {relpath}')
-        #outpath = os.path.join(package_full_path, relpath)
-        outpath = package_full_path
+        outpath = normalized_join(package_full_path, relpath)
+        os.makedirs(os.path.dirname(outpath), exist_ok=True)
+        #outpath = package_full_path
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
         if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
         copy_if_needed(lib, outpath)
@@ -144,7 +145,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     for asstarget, asset in assets:
         descr.append(f'A {asset.outpath}')
         if detail_echo: console(f'    A ({asstarget.name+")": <16}  {asset.outpath}')
-        outpath = os.path.join(package_full_path, asset.outpath)
+        outpath = normalized_join(package_full_path, asset.outpath)
 
         folder = os.path.dirname(outpath)
         if not os.path.exists(folder):

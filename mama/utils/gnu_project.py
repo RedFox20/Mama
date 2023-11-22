@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 class BuildProduct:
     """ Represents the build product of a project that should be deployed """
-    def __init__(self, built_path:str, deploy_path:str=None, strip=True, is_dir=False):
+    def __init__(self, built_path:str, deploy_path:str=None, strip=None, is_dir=False):
         """
             - built_path: where the built file exists.
                           Supported project variables {{installed}}, {{source}}, {{build}}
@@ -23,7 +23,9 @@ class BuildProduct:
         """
         self.built_path = built_path
         self.deploy_path = deploy_path
-        self.strip = strip
+        # if strip option is specified, then use it,
+        # otherwise default to strip=True for files and strip=False for dirs
+        self.strip = strip if strip != None else not is_dir
         self.is_dir = is_dir
 
 ######################################################################################
@@ -343,6 +345,13 @@ class GnuProject:
             mama.util.copy_if_needed(src_file, dst_file)
 
 
+    def can_strip(self, filepath):
+        if not os.path.isfile(filepath):
+            return False
+        ext = os.path.splitext(filepath)[1]
+        return ext == None or ext == ''
+
+
     def deploy(self, src_path:str, dest_path=None, strip=False):
         """ 
         Deploys the src_path to dest_path, 
@@ -350,9 +359,14 @@ class GnuProject:
         """
         if not src_path:
             raise RuntimeError('src_path must be specified')
+
         src_path = self.get_parsed_path(src_path)
         dest_path = self.get_parsed_path(dest_path) if dest_path else src_path
-        if strip and os.path.isfile(src_path) and not src_path.endswith('.a'):
+        dest_dir = os.path.dirname(dest_path)
+        if not os.path.exists(dest_dir):
+            os.makedirs(dest_dir, exist_ok=True)
+
+        if strip and self.can_strip(src_path):
             self.strip(src_path, dest_path)
         else:
             self.copy_file_or_link(src_path, dest_path)
@@ -366,6 +380,7 @@ class GnuProject:
         src_dir = self.get_parsed_path(src_dir)
         if not os.path.exists(src_dir):
             raise Exception(f'Failed to deploy from {src_dir}, directory does not exist')
+
         dest_dir = self.get_parsed_path(dest_dir)
         root = os.path.dirname(src_dir)
         count = 0
@@ -379,11 +394,12 @@ class GnuProject:
                 os.makedirs(dst_folder, exist_ok=True)
                 src_file = os.path.join(fulldir, file)
                 dst_file = os.path.join(dst_folder, file)
-                if strip and os.path.isfile(src_file):
+                if strip and self.can_strip(src_file):
                     self.strip(src_file, dest_path=dst_file)
                 else:
                     self.copy_file_or_link(src_file, dst_file)
                 count += 1
+
         if count > 0:
             console(f'>>> Deployed {src_dir} to {dest_dir}', color='green')
         else:
