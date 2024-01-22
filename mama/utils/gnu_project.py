@@ -214,13 +214,14 @@ class GnuProject:
     def configure_env(self):
         # GNU projects need to be configured with the CC, CXX and AR environment variables set
         cc_prefix = self.target.get_cc_prefix()
-        os.environ['CC'] = cc_prefix + 'gcc'
-        os.environ['CXX'] = cc_prefix + 'g++'
-        os.environ['AR'] = cc_prefix + 'ar'
-        os.environ['LD'] = cc_prefix + 'ld'
-        os.environ['READELF'] = cc_prefix + 'readelf'
-        os.environ['STRIP'] = cc_prefix + 'strip'
-        os.environ['RANLIB'] = cc_prefix + 'ranlib'
+        if cc_prefix:
+            os.environ['CC'] = cc_prefix + 'gcc'
+            os.environ['CXX'] = cc_prefix + 'g++'
+            os.environ['AR'] = cc_prefix + 'ar'
+            os.environ['LD'] = cc_prefix + 'ld'
+            os.environ['READELF'] = cc_prefix + 'readelf'
+            os.environ['STRIP'] = cc_prefix + 'strip'
+            os.environ['RANLIB'] = cc_prefix + 'ranlib'
 
 
     def run(self, command):
@@ -328,7 +329,8 @@ class GnuProject:
 
 
     def strip(self, src_path, dest_path=None):
-        striptool = self.target.get_cc_prefix() + 'strip'
+        prefix = self.target.get_cc_prefix()
+        striptool = prefix + 'strip' if prefix else 'strip'
         out = f'-o {dest_path}' if dest_path else ''
         if os.system(f'{striptool} {src_path} {out}') != 0:
             raise Exception(f'Failed to strip {src_path}')

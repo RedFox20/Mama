@@ -71,7 +71,7 @@ class BuildTarget:
         self.cmake_cflags     = dict()
         self.cmake_ldflags    = dict()
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
-        self.cmake_lists_path = 'CMakeLists.txt' # relative to source_dir
+        self.cmake_lists_path = 'CMakeLists.txt' # can be relative to src_dir (default), or absolute
         self.enable_exceptions = True
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
@@ -944,6 +944,8 @@ class BuildTarget:
         filename = os.path.basename(cc)
         if filename.endswith('gcc'):
             filename = filename[:-3]
+        else:
+            return None # there is no prefix it's something like /usr/bin/gcc-11
         return os.path.join(os.path.dirname(cc), filename)
 
 

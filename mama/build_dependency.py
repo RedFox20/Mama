@@ -472,7 +472,9 @@ class BuildDependency:
 
 
     def cmakelists_path(self):
-        cmake_lists_path = self.target.cmake_lists_path if self.target else 'CMakeLists.txt'
+        cmake_lists_path = self.target.cmake_lists_path
+        if cmake_lists_path.startswith('/'):
+            return cmake_lists_path # absolute path
         return normalized_join(self.src_dir, cmake_lists_path)
 
 
