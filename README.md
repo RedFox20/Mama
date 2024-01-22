@@ -245,7 +245,7 @@ It will prompt for Username and Password, unless you set up ~/.pypirc file:
 [distutils]
 index-servers = pypi
 [pypi]
-username=<your-mama-pypi-username>
-password=<your-mama-pypi-password>
+username=__token__
+password=<pypi-api-token>
 ```
 Quick build & upload using Python 3.9: `./deploy.sh`
