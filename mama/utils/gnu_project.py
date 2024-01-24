@@ -212,20 +212,16 @@ class GnuProject:
 
 
     def configure_env(self):
-        if self.target.oclea:
-            self.target.oclea.get_gnu_build_env(self.extra_env)
-        else:
-            # GNU projects need to be configured with the CC, CXX and AR environment variables set
-            cc_prefix = self.target.get_cc_prefix()
-            if cc_prefix:
-                os.environ['CC'] = cc_prefix + 'gcc'
-                os.environ['CXX'] = cc_prefix + 'g++'
-                os.environ['AR'] = cc_prefix + 'ar'
-                os.environ['LD'] = cc_prefix + 'ld'
-                os.environ['READELF'] = cc_prefix + 'readelf'
-                os.environ['STRIP'] = cc_prefix + 'strip'
-                os.environ['RANLIB'] = cc_prefix + 'ranlib'
-
+        # GNU projects need to be configured with the CC, CXX and AR environment variables set
+        cc_prefix = self.target.get_cc_prefix()
+        if cc_prefix:
+            os.environ['CC'] = cc_prefix + 'gcc'
+            os.environ['CXX'] = cc_prefix + 'g++'
+            os.environ['AR'] = cc_prefix + 'ar'
+            os.environ['LD'] = cc_prefix + 'ld'
+            os.environ['READELF'] = cc_prefix + 'readelf'
+            os.environ['STRIP'] = cc_prefix + 'strip'
+            os.environ['RANLIB'] = cc_prefix + 'ranlib'
 
 
     def run(self, command):
@@ -263,6 +259,9 @@ class GnuProject:
                 if os.path.exists(guess_machine):
                     os.chmod(guess_machine, 0o755) # make sure it's executable
                     args += f' --build={proc.execute_piped(guess_machine)}'
+            if self.target.oclea:
+                args += f' --with-sysroot={self.target.oclea.sysroot()}' # for Oclea, use the sysroot
+
             configure = f'./configure {args} {prefix}'
 
         self.run(f'{configure} {options}')
