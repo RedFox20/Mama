@@ -33,13 +33,6 @@ class Oclea:
         return self.sysroot_path
 
 
-    def syslibs(self):
-        """ {toolchain_path}/aarch64-oclea-linux/lib
-            {toolchain_path}/aarch64-oclea-linux/usr/lib """
-        if not self.compilers: self.init_default()
-        return [ f'{self.sysroot_path}/lib', f'{self.sysroot_path}/usr/lib' ]
-
-
     # forced includes that should be added to compiler flags as -I paths
     def includes(self):
         """ [ '{toolchain_path}/aarch64-oclea-linux/usr/include' ] """
@@ -127,3 +120,19 @@ Define env OCLEA_HOME with path to Oclea tools.''')
         return opt
 
 
+    def get_gnu_build_env(self, environ: dict = {}):
+        ldflags  = f'-L{self.sysroot()}/lib'
+        ldflags += f' -L{self.sysroot()}/usr/lib'
+        ldflags += f'-L{self.sdk()}/lib'
+        ldflags += f'-L{self.sdk()}/usr/lib'
+        environ['LDFLAGS'] = ldflags
+
+        cc_prefix = f'{self.bin()}/aarch64-oclea-linux-'
+        environ['CC'] = cc_prefix + 'gcc'
+        environ['CXX'] = cc_prefix + 'g++'
+        environ['AR'] = cc_prefix + 'ar'
+        environ['LD'] = cc_prefix + 'ld'
+        environ['READELF'] = cc_prefix + 'readelf'
+        environ['STRIP'] = cc_prefix + 'strip'
+        environ['RANLIB'] = cc_prefix + 'ranlib'
+        return environ

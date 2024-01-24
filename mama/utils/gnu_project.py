@@ -212,21 +212,20 @@ class GnuProject:
 
 
     def configure_env(self):
-        # GNU projects need to be configured with the CC, CXX and AR environment variables set
-        cc_prefix = self.target.get_cc_prefix()
-        if cc_prefix:
-            os.environ['CC'] = cc_prefix + 'gcc'
-            os.environ['CXX'] = cc_prefix + 'g++'
-            os.environ['AR'] = cc_prefix + 'ar'
-            os.environ['LD'] = cc_prefix + 'ld'
-            os.environ['READELF'] = cc_prefix + 'readelf'
-            os.environ['STRIP'] = cc_prefix + 'strip'
-            os.environ['RANLIB'] = cc_prefix + 'ranlib'
         if self.target.oclea:
-            # f' --with-sysroot="{self.target.oclea.sysroot()}"'
-            ldflags = ''
-            for ldpath in self.target.oclea.syslibs(): ldflags += f'-L{ldpath} '
-            os.environ['LDFLAGS'] = ldflags
+            self.target.oclea.get_gnu_build_env(self.extra_env)
+        else:
+            # GNU projects need to be configured with the CC, CXX and AR environment variables set
+            cc_prefix = self.target.get_cc_prefix()
+            if cc_prefix:
+                os.environ['CC'] = cc_prefix + 'gcc'
+                os.environ['CXX'] = cc_prefix + 'g++'
+                os.environ['AR'] = cc_prefix + 'ar'
+                os.environ['LD'] = cc_prefix + 'ld'
+                os.environ['READELF'] = cc_prefix + 'readelf'
+                os.environ['STRIP'] = cc_prefix + 'strip'
+                os.environ['RANLIB'] = cc_prefix + 'ranlib'
+
 
 
     def run(self, command):
