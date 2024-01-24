@@ -222,6 +222,11 @@ class GnuProject:
             os.environ['READELF'] = cc_prefix + 'readelf'
             os.environ['STRIP'] = cc_prefix + 'strip'
             os.environ['RANLIB'] = cc_prefix + 'ranlib'
+        if self.target.oclea:
+            # f' --with-sysroot="{self.target.oclea.sysroot()}"'
+            ldflags = ''
+            for ldpath in self.target.oclea.syslibs(): ldflags += f'-L{ldpath} '
+            os.environ['LDFLAGS'] = ldflags
 
 
     def run(self, command):
@@ -259,13 +264,6 @@ class GnuProject:
                 if os.path.exists(guess_machine):
                     os.chmod(guess_machine, 0o755) # make sure it's executable
                     args += f' --build={proc.execute_piped(guess_machine)}'
-            if self.target.oclea:
-                args += f' --with-sysroot="{self.target.oclea.sysroot()}"'
-                ldflags = ''
-                for ldpath in self.target.oclea.syslibs():
-                    ldflags += f'-L{ldpath} '
-                args += f' --with-ldflags="{ldflags}"'
-
             configure = f'./configure {args} {prefix}'
 
         self.run(f'{configure} {options}')

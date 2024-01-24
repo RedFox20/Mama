@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mama"
-version = "0.8.39"
+version = "0.8.40"
 description = "A modular C++ build tool even your mama can use"
 license = { text = "MIT" }
 authors = [
