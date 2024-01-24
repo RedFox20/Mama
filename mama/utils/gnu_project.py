@@ -75,6 +75,8 @@ class GnuProject:
         self.host = ''
         if self.target.config.mips:
             self.host = 'mipsel-linux-gnu'
+        elif self.target.config.oclea:
+            self.host = 'aarch64-oclea-linux'
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
