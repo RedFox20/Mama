@@ -261,10 +261,10 @@ class GnuProject:
                     args += f' --build={proc.execute_piped(guess_machine)}'
             if self.target.oclea:
                 args += f' --with-sysroot="{self.target.oclea.sysroot()}"'
-                # ldflags = ''
-                # for ldpath in self.target.oclea.syslibs():
-                #     ldflags += f'-L{ldpath} '
-                # args += f' --with-ldflags="{ldflags}"'
+                ldflags = ''
+                for ldpath in self.target.oclea.syslibs():
+                    ldflags += f'-L{ldpath} '
+                args += f' --with-ldflags="{ldflags}"'
 
             configure = f'./configure {args} {prefix}'
 
