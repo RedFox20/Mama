@@ -126,9 +126,10 @@ Define env OCLEA_HOME with path to Oclea tools.''')
     def get_gnu_build_env(self, environ: dict = {}):
         sysroot = f'--sysroot={self.sysroot()}'
         environ['LDFLAGS'] = sysroot
-        #stdinc = f'{self.sysroot()}/usr/include'
-        environ['CFLAGS'] = sysroot
-        environ['CXXFLAGS'] = sysroot
+
+        stdinc = f'{self.sysroot()}/usr/include'
+        environ['CFLAGS'] = f'{sysroot} -I{stdinc}'
+        environ['CXXFLAGS'] = f'{sysroot} -I{stdinc}'
 
         cc_prefix = f'{self.bin()}aarch64-oclea-linux-'
         environ['CC'] = cc_prefix + 'gcc'
