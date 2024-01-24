@@ -121,3 +121,23 @@ Define env OCLEA_HOME with path to Oclea tools.''')
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
         ]
         return opt
+
+
+    def get_gnu_build_env(self, environ: dict = {}):
+        ldflags = f'--sysroot={self.sysroot()}'
+        # ldflags  = f'-L{self.sysroot()}/lib'
+        # ldflags += f' -L{self.sysroot()}/usr/lib'
+        # ldflags += f' -L{self.sysroot()}/usr/lib/aarch64-oclea-linux/{self.version}'
+        # ldflags += f' -L{self.sdk()}/lib'
+        # ldflags += f' -L{self.sdk()}/usr/lib'
+        environ['LDFLAGS'] = ldflags
+
+        cc_prefix = f'{self.bin()}aarch64-oclea-linux-'
+        environ['CC'] = cc_prefix + 'gcc'
+        environ['CXX'] = cc_prefix + 'g++'
+        environ['AR'] = cc_prefix + 'ar'
+        environ['LD'] = cc_prefix + 'ld'
+        environ['READELF'] = cc_prefix + 'readelf'
+        environ['STRIP'] = cc_prefix + 'strip'
+        environ['RANLIB'] = cc_prefix + 'ranlib'
+        return environ
