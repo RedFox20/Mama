@@ -33,6 +33,13 @@ class Oclea:
         return self.sysroot_path
 
 
+    def syslibs(self):
+        """ {toolchain_path}/aarch64-oclea-linux/lib
+            {toolchain_path}/aarch64-oclea-linux/usr/lib """
+        if not self.compilers: self.init_default()
+        return [ f'{self.sysroot_path}/lib', f'{self.sysroot_path}/usr/lib' ]
+
+
     # forced includes that should be added to compiler flags as -I paths
     def includes(self):
         """ [ '{toolchain_path}/aarch64-oclea-linux/usr/include' ] """
