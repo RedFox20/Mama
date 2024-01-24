@@ -443,7 +443,7 @@ class BuildConfig:
             for suffix in suffixes:
                 cc_path = root + compiler + suffix
                 if os.path.exists(cc_path):
-                    version = self._get_gcc_clang_fullversion(cc_path, dumpfullversion) # eg 9.4.0
+                    version = self.get_gcc_clang_fullversion(cc_path, dumpfullversion) # eg 9.4.0
                     if self.verbose: console(f'Compiler {cc_path} version: {version}')
                     candidates.append((root, suffix, version))
         if not candidates:
@@ -483,20 +483,20 @@ class BuildConfig:
         if self.android:
             self.cc_path  = self.android.cc_path()
             self.cxx_path = self.android.cxx_path()
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
         elif self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.oclea:
             self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
             self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.mips:
             self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
             self.cxx_path = f'{self.mips.compiler_prefix()}g++'
-            self.cxx_version = self._get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.clang:
             suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
             self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, dumpfullversion=False)
@@ -516,7 +516,7 @@ class BuildConfig:
         raise EnvironmentError('No preferred compiler for this platform!')
 
 
-    def _get_gcc_clang_fullversion(self, cc_path, dumpfullversion):
+    def get_gcc_clang_fullversion(self, cc_path, dumpfullversion):
         if dumpfullversion:
             version = execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
             if version.count('.') >= 1:

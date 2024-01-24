@@ -13,6 +13,7 @@ class Oclea:
         self.sysroot_path = ''  ## Path to Oclea system libs root
         self.sdk_path  = ''  ## Root path to oclea sdk
         self.include_paths = []  ## Path to additional Oclea include dirs
+        self.version = '' ## GCC Version
 
 
     def bin(self):
@@ -74,6 +75,8 @@ class Oclea:
                 self.sysroot_path = sys_path
                 self.compilers = f'{sdk_path}/usr/bin/aarch64-oclea-linux/'
                 self.include_paths = [ f'{sdk_path}/usr/include' ]
+                cc = f'{self.compilers}aarch64-oclea-linux-gcc'
+                self.version = self.config.get_gcc_clang_fullversion(cc, dumpfullversion=True)
                 if self.config.print:
                     console(f'Found Oclea TOOLS: {self.compilers}')
                     console(f'      Oclea SDK path: {self.sdk_path}')
@@ -123,8 +126,9 @@ Define env OCLEA_HOME with path to Oclea tools.''')
     def get_gnu_build_env(self, environ: dict = {}):
         ldflags  = f'-L{self.sysroot()}/lib'
         ldflags += f' -L{self.sysroot()}/usr/lib'
-        ldflags += f'-L{self.sdk()}/lib'
-        ldflags += f'-L{self.sdk()}/usr/lib'
+        ldflags += f' -L{self.sysroot()}/usr/lib/aarch64-oclea-linux/{self.version}'
+        ldflags += f' -L{self.sdk()}/lib'
+        ldflags += f' -L{self.sdk()}/usr/lib'
         environ['LDFLAGS'] = ldflags
 
         cc_prefix = f'{self.bin()}/aarch64-oclea-linux-'
