@@ -124,14 +124,15 @@ Define env OCLEA_HOME with path to Oclea tools.''')
 
 
     def get_gnu_build_env(self, environ: dict = {}):
-        ldflags  = f'-L{self.sysroot()}/lib'
-        ldflags += f' -L{self.sysroot()}/usr/lib'
-        ldflags += f' -L{self.sysroot()}/usr/lib/aarch64-oclea-linux/{self.version}'
-        ldflags += f' -L{self.sdk()}/lib'
-        ldflags += f' -L{self.sdk()}/usr/lib'
-        environ['LDFLAGS'] = ldflags
+        # ldflags  = f'-L{self.sysroot()}/lib'
+        # ldflags += f' -L{self.sysroot()}/usr/lib'
+        # ldflags += f' -L{self.sysroot()}/usr/lib/aarch64-oclea-linux/{self.version}'
+        # ldflags += f' -L{self.sdk()}/lib'
+        # ldflags += f' -L{self.sdk()}/usr/lib'
+        # environ['LDFLAGS'] = ldflags
+        environ['SYSROOT'] = self.sysroot()
 
-        cc_prefix = f'{self.bin()}/aarch64-oclea-linux-'
+        cc_prefix = f'{self.bin()}aarch64-oclea-linux-'
         environ['CC'] = cc_prefix + 'gcc'
         environ['CXX'] = cc_prefix + 'g++'
         environ['AR'] = cc_prefix + 'ar'
