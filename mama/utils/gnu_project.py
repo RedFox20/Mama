@@ -260,7 +260,10 @@ class GnuProject:
                     os.chmod(guess_machine, 0o755) # make sure it's executable
                     args += f' --build={proc.execute_piped(guess_machine)}'
             if self.target.oclea:
-                args += f' LDFLAGS="{" ".join("-L"+self.target.oclea.syslibs())}"'
+                ldflags = ''
+                for ldpath in self.target.oclea.syslibs():
+                    ldflags += f'-L{ldpath} '
+                args += f' LDFLAGS="{ldflags}"'
 
             configure = f'./configure {args} {prefix}'
 
