@@ -1255,7 +1255,7 @@ class BuildTarget:
     def start(self, args):
         """
         Start a custom process through mama
-        `mama start=arg`
+        `mama target start=arg`
         ```
         def start(self, args):
             if 'dbtool' in args:
@@ -1425,10 +1425,12 @@ class BuildTarget:
             if self.config.print: console(f'  - Testing {self.name} {test_args}')
             self.test(test_args)
 
-        if self.dep.is_root and self.config.start:
-            start_args = self.config.start.lstrip()
-            if self.config.print: console(f'  - Starting {self.name} {start_args}')
-            self.start(start_args)
+        if self.config.start:
+            # start only if it's the current target or root target
+            if self.is_current_target() or (self.dep.is_root and self.config.no_specific_target()):
+                start_args = self.config.start.lstrip()
+                if self.config.print: console(f'  - Starting {self.name} {start_args}')
+                self.start(start_args)
 
 
     def _print_ws_path(self, what, path, abs_path, check_exists=True):
