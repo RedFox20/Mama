@@ -8,7 +8,7 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps
+from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps, get_deps_that_depend_on_target
 from .init_project import mama_init_project
 
 def print_title():
@@ -27,6 +27,7 @@ def print_usage():
     console('    rebuild    - clean, update and build main project or specific target')
     console('    reclone    - wipe specific target dependency and clone it again')
     console('    wipe       - alias of reclone')
+    console('    dirty      - mark a target for rebuild even if it was up to date')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
     console('    art        - always fetch pkgs from artifactory, failure will throw an error')
@@ -145,6 +146,17 @@ def print_package_exports(dep: BuildDependency):
     target.print_exports(abs_paths=True)
 
 
+def mama_dirty(root: BuildDependency, dep: BuildDependency):
+    """ Marks `dep` as dirty and also marks all projects that depend on `dep` as dirty """
+    dirty_chain = get_deps_that_depend_on_target(root, dep)
+    if root.config.print:
+        used_by = ", ".join([d.name for d in dirty_chain]) if dirty_chain else 'none'
+        console(f'    Target {dep.name} used by: {used_by}')
+    dep.dirty()
+    for d in dirty_chain:
+        d.dirty()
+
+
 def main():
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
@@ -210,8 +222,8 @@ def main():
         mama_init_project(dep)
         return
 
-    flat_deps = get_flat_deps(root)
-    flat_deps_reverse = list(reversed(flat_deps))
+    flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
+    flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]
@@ -223,6 +235,14 @@ def main():
             dep = find_dependency(root, config.target)
             console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
             print_package_exports(dep)
+        return
+
+    if config.dirty:
+        dep = find_dependency(root, config.target)
+        if not dep:
+            console(f'dirty command failed: target {config.target} not found')
+            exit(-1)
+        mama_dirty(root, dep)
         return
 
     # initialize platform compiler config

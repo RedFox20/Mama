@@ -34,6 +34,7 @@ class BuildConfig:
         # if `noart` is specified, then artifactory is temporarily ignored
         self.disable_artifactory = False
         self.reclone   = False
+        self.dirty     = False # marks a target for rebuild on next build even if it's up to date
         self.mama_init = False
         self.print     = True
         self.verbose   = False
@@ -125,6 +126,7 @@ class BuildConfig:
                 console('WARNING: Argument `reclone` is deprecated, use `wipe` instead.')
                 self.reclone = True
             elif arg == 'wipe':      self.reclone = True
+            elif arg == 'dirty':     self.dirty = True
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
             elif arg == 'verbose':   self.verbose = True

@@ -576,3 +576,27 @@ class BuildDependency:
         self.target.clean() # Customization point
         shutil.rmtree(self.build_dir, ignore_errors=True)
 
+
+    def dirty(self):
+        """ Marks this dependency as dirty in the mamafile_tag """
+        if self.config.print: console(f'  - Target {self.name: <16} Dirty')
+
+        if self.target.build_products:
+            # make sure we don't have a valid build product to link to
+            depfile = self.target.build_products[0]
+            if os.path.exists(depfile):
+                os.remove(depfile)
+                if self.config.verbose: console(f'    dirty: removed {depfile}')
+
+        if self.build_dir_exists():
+            # mamafile tag is used to check if mamafile.py has changed
+            mamafile_tag = normalized_join(self.build_dir, 'mamafile_tag')
+            if os.path.exists(mamafile_tag):
+                os.remove(mamafile_tag)
+                if self.config.verbose: console('    dirty: removed mamafile_tag')
+
+            # this is needed for artifactory packages
+            papafile = self.papa_package_file()
+            if os.path.exists(papafile):
+                os.remove(papafile)
+                if self.config.verbose: console('    dirty: removed papa.txt')

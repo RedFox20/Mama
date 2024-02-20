@@ -69,6 +69,37 @@ def get_flat_deps(root: BuildDependency):
     return [root] + _get_flattened_deps(root)
 
 
+def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency, deps = []) -> List[BuildDependency]:
+    discovered_new = False
+    """ Gets all dependencies that depend on the target """
+    def depth_first_search_for_target(dep: BuildDependency):
+        nonlocal discovered_new, target, deps
+        depends = False
+        for child in dep.get_children():
+            if child in deps:
+                continue
+            if child == target:
+                depends = True
+            if depth_first_search_for_target(child):
+                deps.append(child)
+                depends = True
+                discovered_new = True
+        return depends
+    if depth_first_search_for_target(root) and root not in deps:
+        deps.append(root)
+        discovered_new = True
+
+    # now that we have the initial deps,
+    # we need to further expand it to include second level dependencies
+    while discovered_new:
+        discovered_new = False
+        for d in deps:
+            depth_first_search_for_target(d)
+            if discovered_new:
+                break # restart the outer loop
+    return deps
+
+
 def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
     if not root.get_children():
         return ''
