@@ -87,6 +87,7 @@ class BuildTarget:
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
+        self.papa_path = None # recorded path for previous papa deployment
         self.os_windows = System.windows
         self.os_linux   = System.linux
         self.os_macos   = System.macos
