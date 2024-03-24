@@ -1,5 +1,5 @@
 import os, stat, shutil, zipfile
-from typing import List, Tuple
+from typing import List
 import time, ssl, pathlib, random
 from .utils.system import System, console
 from .utils.sub_process import execute
@@ -334,7 +334,7 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                         os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
             if did_extract:
                 num_unzipped += 1
-                #print_debug(zipmember)
+                print_debug(zipmember)
 
     return num_unzipped
 

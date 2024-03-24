@@ -1,14 +1,21 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os, shutil
+import os
 
-from .build_dependency import BuildDependency
-from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .util import get_file_size_str, normalized_path, normalized_join, write_text_to, console, copy_if_needed
+from .types.git import Git
+from .types.local_source import LocalSource
+from .types.artifactory_pkg import ArtifactoryPkg
+from .types.dep_source import DepSource
+from .types.asset import Asset
+
+from .util import normalized_path, normalized_join, read_lines_from \
+                , write_text_to, console, copy_if_needed
+
 import mama.package as package
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
+    from .build_dependency import BuildDependency
 
 
 def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
@@ -87,8 +94,10 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
             descr.append(f'I include/{relpath}')
 
-        if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
-        copy_if_needed(src_path, dst_dir, includes_filter)
+        src_dir = os.path.dirname(src_path)
+        if src_dir != dst_dir:
+            if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
+            copy_if_needed(src_path, dst_dir, includes_filter)
 
     relincludes = []  # TODO: what was the point of this again?
     for inctarget, abs_include in includes:
@@ -132,8 +141,9 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         os.makedirs(os.path.dirname(outpath), exist_ok=True)
         #outpath = package_full_path
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
-        if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
-        copy_if_needed(lib, outpath)
+        if lib != outpath:
+            if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
+            copy_if_needed(lib, outpath)
 
     syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:
@@ -146,11 +156,11 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         descr.append(f'A {asset.outpath}')
         if detail_echo: console(f'    A ({asstarget.name+")": <16}  {asset.outpath}')
         outpath = normalized_join(package_full_path, asset.outpath)
-
-        folder = os.path.dirname(outpath)
-        if not os.path.exists(folder):
-            os.makedirs(folder, exist_ok=True)
-        copy_if_needed(asset.srcpath, outpath)
+        if asset.srcpath != outpath:
+            folder = os.path.dirname(outpath)
+            if not os.path.exists(folder):
+                os.makedirs(folder, exist_ok=True)
+            copy_if_needed(asset.srcpath, outpath)
 
     write_text_to(os.path.join(package_full_path, 'papa.txt'), '\n'.join(descr))
 
@@ -159,30 +169,38 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 
 
-def papa_upload_to(target:BuildTarget, package_full_path:str):
-    """
-    - target: Target which was configured and packaged
-    - package_full_path: Full path to deployed PAPA package
-    """
-    config = target.config
-    dst_dir = target.build_dir()
-    archive_name = artifactory_archive_name(target)
-    if not archive_name:
-        raise Exception(f'Could not get archive name for target: {target.name}')
+def make_dep_source(s:str) -> DepSource:
+    if s.startswith('git '): return Git.from_papa_string(s[4:])
+    if s.startswith('pkg '): return ArtifactoryPkg.from_papa_string(s[4:])
+    if s.startswith('src '): return LocalSource.from_papa_string(s[4:])
+    raise RuntimeError(f'Unrecognized dependency source: {s}')
 
-    if config.verbose:
-        console(f'    archiving {package_full_path}\n {"":10}-> {dst_dir}/{archive_name}.zip')
 
-    archive = shutil.make_archive(archive_name, 'zip', package_full_path, '.', verbose=True)
-    archive_path = dst_dir + '/' + os.path.basename(archive)
-    if os.path.exists(archive_path):
-        os.remove(archive_path)
-    shutil.move(archive, archive_path)
+class PapaFileInfo:
+    def __init__(self, papa_file:str):
+        if not os.path.exists(papa_file):
+            raise FileNotFoundError(f'Package file not found: {papa_file}')
+        self.papa_file = papa_file
+        self.papa_dir = os.path.dirname(papa_file)
 
-    if config.print:
-        size = os.path.getsize(archive_path)
-        console(f'  - PAPA Upload {archive_name}  {get_file_size_str(size)}')
+        self.project_name = None
+        self.dependencies = []
+        self.includes = []
+        self.libs = []
+        self.syslibs = []
+        self.assets = []
 
-    if artifactory_upload_ftp(target, archive_path):
-        if config.verbose:
-            console(f'  PAPA Uploaded {os.path.basename(archive)}')
+        def append_to(to:list, line):
+            to.append(normalized_join(self.papa_dir, line[2:].strip()))
+
+        for line in read_lines_from(self.papa_file):
+            if   line.startswith('P '): self.project_name = line[2:].strip()
+            elif line.startswith('D '): self.dependencies.append(make_dep_source(line[2:].strip()))
+            elif line.startswith('I '): append_to(self.includes, line)
+            elif line.startswith('L '): append_to(self.libs, line)
+            elif line.startswith('S '): append_to(self.syslibs, line)
+            elif line.startswith('A '):
+                relpath = line[2:].strip()
+                fullpath = normalized_join(self.papa_dir, relpath)
+                self.assets.append(Asset(relpath, fullpath, None))
+

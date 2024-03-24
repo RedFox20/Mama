@@ -13,7 +13,8 @@ from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
 from .utils.gnu_project import GnuProject
-from .papa_deploy import papa_deploy_to, papa_upload_to
+from .papa_deploy import papa_deploy_to
+from .papa_upload import papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
 import mama.cmake_configure as cmake
@@ -1414,9 +1415,6 @@ class BuildTarget:
         self.deploy() # user customization
 
         if self.config.upload:
-            if not self.papa_path:
-                raise RuntimeError(f'BuildTarget {self.name} was not deployed! '\
-                                    'Add self.papa_deploy() to mamafile deploy()!')
             papa_upload_to(self, self.papa_path)
 
 

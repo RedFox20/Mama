@@ -392,8 +392,8 @@ class GnuProject:
         root = os.path.dirname(src_dir)
         count = 0
         for fulldir, _, files in os.walk(src_dir):
+            reldir = fulldir[len(root):].lstrip('\\/')
             for file in files:
-                reldir = fulldir[len(root):].lstrip('\\/')
                 if reldir:
                     dst_folder = os.path.join(dest_dir, reldir)
                 else:

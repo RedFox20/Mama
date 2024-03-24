@@ -10,7 +10,8 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error
 import mama.package as package
-from .util import download_file, normalized_join, read_lines_from, try_unzip
+from .util import download_file, normalized_join, try_unzip
+from .papa_deploy import PapaFileInfo
 
 
 if TYPE_CHECKING:
@@ -192,13 +193,6 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
     return False
 
 
-def make_dep_source(s:str) -> DepSource:
-    if s.startswith('git '): return Git.from_papa_string(s[4:])
-    if s.startswith('pkg '): return ArtifactoryPkg.from_papa_string(s[4:])
-    if s.startswith('src '): return LocalSource.from_papa_string(s[4:])
-    raise RuntimeError(f'Unrecognized dependency source: {s}')
-
-
 def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -> Tuple[bool, list]:
     """
     Reconfigures `target` from {deployment_path}/papa.txt.
@@ -211,47 +205,27 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
 
     if target.config.verbose:
         if num_files_copied != 0:
-            console(f'    {target.name}  Artifactory Load ({num_files_copied} files were copied)', color=Color.YELLOW)
+            console(f'    {target.name}  Artifactory Load ({num_files_copied} files were copied)', color=Color.RED)
         else:
             console(f'    {target.name}  Artifactory Load (no files modified)', color=Color.GREEN)
 
-    project_name = None
-    dependencies: list = []
-    includes: List[str] = []
-    libs: List[str] = []
-    syslibs: List[str] = []
-    assets: List[Asset] = []
-
-    def append_to(to:list, line):
-        to.append(normalized_join(deploy_path, line[2:].strip()))
-
-    for line in read_lines_from(papa_list):
-        if   line.startswith('P '): project_name = line[2:].strip()
-        elif line.startswith('D '): dependencies.append(make_dep_source(line[2:].strip()))
-        elif line.startswith('I '): append_to(includes, line)
-        elif line.startswith('L '): append_to(libs, line)
-        elif line.startswith('S '): append_to(syslibs, line)
-        elif line.startswith('A '):
-            relpath = line[2:].strip()
-            fullpath = normalized_join(deploy_path, relpath)
-            assets.append(Asset(relpath, fullpath, None))
-
-    if project_name != target.name:
-        error(f'    {target.name}  Artifactory Load failed because {papa_list} ProjectName={project_name} mismatches!')
+    papa = PapaFileInfo(papa_list)
+    if papa.project_name != target.name:
+        error(f'    {target.name}  Artifactory Load failed because {papa_list} ProjectName={papa.project_name} mismatches!')
         return (False, None)
 
     target.dep.from_artifactory = True
-    target.exported_includes = includes # include folders to export from this target
-    target.exported_assets = assets # exported asset files
-    package.set_export_libs_and_products(target, libs)
-    package.reload_syslibs(target, syslibs) # set exported system libraries
+    target.exported_includes = papa.includes # include folders to export from this target
+    target.exported_assets = papa.assets # exported asset files
+    package.set_export_libs_and_products(target, papa.libs)
+    package.reload_syslibs(target, papa.syslibs) # set exported system libraries
 
     # for git repos, save the used commit hash status, so that next time the fetch is faster
     if target.dep.dep_source.is_git:
         git: Git = target.dep.dep_source
         git.save_status(target.dep)
 
-    return (True, dependencies)
+    return (True, papa.dependencies)
 
 
 def _fetch_package(target:BuildTarget, url, archive, cache_dir):
