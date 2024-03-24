@@ -314,6 +314,9 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                     os.makedirs(dst_path, exist_ok=True)
                     did_extract = True
             elif has_file_changed(zipmember, dst_path):  # only extract if file appears to be modified
+                base_dir = os.path.dirname(dst_path)
+                if not os.path.isdir(base_dir):
+                    os.makedirs(base_dir)
                 if is_symlink:
                     did_extract = make_symlink(zipmember, dst_path, is_directory=False)
                 else:
