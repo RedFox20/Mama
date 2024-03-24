@@ -8,6 +8,7 @@ from .papa_deploy import PapaFileInfo
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
+    from .types.asset import Asset
 
 
 def _append_files_recursive(zip: zipfile.ZipFile, full_path:str):
@@ -60,7 +61,7 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
             zip.write(lib, os.path.basename(lib))
         for asset in papa.assets:
             if config.verbose: console(f'      adding {asset}')
-            zip.write(asset, os.path.basename(asset))
+            zip.write(asset.srcpath, os.path.basename(asset.outpath))
 
     # move the intermediate archive to the final location
     if os.path.exists(archive_path):

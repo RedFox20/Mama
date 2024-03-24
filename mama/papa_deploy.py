@@ -188,7 +188,7 @@ class PapaFileInfo:
         self.includes = []
         self.libs = []
         self.syslibs = []
-        self.assets = []
+        self.assets: List[Asset] = []
 
         def append_to(to:list, line):
             to.append(normalized_join(self.papa_dir, line[2:].strip()))

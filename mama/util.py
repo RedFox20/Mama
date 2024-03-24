@@ -334,7 +334,7 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                         os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
             if did_extract:
                 num_unzipped += 1
-                print_debug(zipmember)
+                #print_debug(zipmember)
 
     return num_unzipped
 
