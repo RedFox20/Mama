@@ -53,6 +53,7 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     # create a zip archive with papa.includes, papa.libs and papa.assets
     temp_archive = archive_path + '.tmp'
     with zipfile.ZipFile(temp_archive, 'w') as zip:
+        zip.write(papa_file, 'papa.txt') # always add the main manifest file
         for include in papa.includes:
             if config.verbose: console(f'      adding {include}')
             _append_files_recursive(zip, include)

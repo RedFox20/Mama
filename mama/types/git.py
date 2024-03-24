@@ -5,7 +5,7 @@ import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
 from ..utils.sub_process import SubProcess, execute, execute_piped
-from ..util import is_dir_empty, write_text_to, read_lines_from, path_join
+from ..util import is_dir_empty, write_text_to, save_file_if_contents_changed, read_lines_from, path_join
 
 
 if TYPE_CHECKING:
@@ -136,9 +136,9 @@ class Git(DepSource):
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
         status = f"{self.url}\n{self.tag}\n{self.branch}\n{commit}\n"
-        if dep.config.verbose:
-            console(f'    {self.name}  write git status commit={commit}')
-        write_text_to(self.git_status_file(dep), status)
+        if save_file_if_contents_changed(self.git_status_file(dep), status):
+            if dep.config.verbose:
+                console(f'    {self.name}  write git status commit={commit}')
 
 
     def read_stored_status(self, dep: BuildDependency):

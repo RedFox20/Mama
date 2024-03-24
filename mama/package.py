@@ -7,6 +7,7 @@ from .types.asset import Asset
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
+    from .build_config import BuildConfig
 
 def is_a_static_library(lib: str):
     return lib.endswith('.a') or lib.endswith('.lib')
@@ -95,11 +96,34 @@ def cleanup_libs_list(libs: List[str]):
     return cleaned
 
 
+# NOTE: clean_intermediate_files is a suggestion !
 def clean_intermediate_files(target: BuildTarget):
+    # never clean root or always_build targets
+    if target.dep.always_build or target.dep.is_root:
+        return
+
+    config: BuildConfig = target.config
+    should_clean = False
+
+    if target.clean_intermediate_files:
+        if config.verbose: console('  clean_intermediate [target.clean_intermediate_files]', color='yellow')
+        should_clean = True
+    # always clean the intermediate files if we just did an upload operation
+    elif config.upload:
+        if config.verbose: console('  clean_intermediate [config.upload]', color='yellow')
+        should_clean = True
+    # do automatic cleaning if we did not do a targeted build -- this was an automatic build from source
+    elif (config.build or config.rebuild or config.update) and config.no_specific_target():
+        if config.verbose: console('  clean_intermediate [dependency build cleanup]', color='yellow')
+        should_clean = True
+
+    if not should_clean:
+        return
+
     files_to_clean = glob_with_extensions(target.build_dir(), ['.obj', '.o'])
     if files_to_clean:
         if target.config.print:
-            print(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
+            console(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}', color='yellow')
         for file in files_to_clean:
             if os.path.isfile(file):
                 os.remove(file)

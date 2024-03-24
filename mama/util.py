@@ -59,10 +59,11 @@ def has_contents_changed(filename: str, new_contents: str):
     return read_text_from(filename) != new_contents
 
 
-def save_file_if_contents_changed(filename: str, new_contents: str):
+def save_file_if_contents_changed(filename: str, new_contents: str) -> bool:
     if not has_contents_changed(filename, new_contents):
-        return
+        return False
     write_text_to(filename, new_contents)
+    return True
 
 
 def path_join(first: str, second: str) -> str:

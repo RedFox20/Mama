@@ -142,10 +142,15 @@ class BuildDependency:
     def _update_dep_name_and_dirs(self, name):
         self.name = name
         dep_name = name
-        if self.dep_source.is_git:
-            git:Git = self.dep_source
-            if git.branch: dep_name = f'{self.name}-{git.branch}'
-            elif git.tag: dep_name = f'{self.name}-{git.tag}'
+        # TODO: using branch or tag in the dep name complicates the whole package system
+        #       while only adding marginal value.
+        # if self.dep_source.is_git:
+        #     git:Git = self.dep_source
+        #     if git.branch:
+        #         branch_name = git.branch.replace('/', '-') # BUGFIX: branches with slashes
+        #         dep_name = f'{self.name}-{branch_name}'
+        #     elif git.tag:
+        #         dep_name = f'{self.name}-{git.tag}'
         self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
         self.build_dir = normalized_join(self.dep_dir, self.config.platform_build_dir_name())
 

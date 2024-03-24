@@ -19,17 +19,18 @@ def update_modification_tag(config, file, tagfile):
     if not os.path.exists(file):
         return False
 
-    filetime = os.path.getmtime(file)
+    # get the modification time in seconds
+    filetime_str = str(int(os.path.getmtime(file)))
+
     if not os.path.exists(tagfile):
         os.makedirs(os.path.dirname(tagfile), exist_ok=True)
         if config.verbose: console(f'Update tagfile: {tagfile}')
-        write_text_to(tagfile, str(filetime))
+        write_text_to(tagfile, filetime_str)
         return True
 
-    tagtime = float(read_text_from(tagfile))
-    if filetime != tagtime:
+    if filetime_str != read_text_from(tagfile):
         if config.verbose: console(f'Update tagfile: {tagfile}')
-        write_text_to(tagfile, str(filetime))
+        write_text_to(tagfile, filetime_str)
         return True
 
     if config.verbose: console(f'No Changes {file}')

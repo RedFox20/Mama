@@ -79,7 +79,7 @@ class BuildTarget:
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
-        self.clean_intermediate_files = True # delete .o and .obj files after build success if not root or always_build
+        self.clean_intermediate_files = False # force delete .o and .obj files after build success
         self.gcc_clang_visibility_hidden = True # -fvisibility=hidden
         self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
@@ -1377,11 +1377,7 @@ class BuildTarget:
                     self.build() # user build customization
 
                 self.dep.successful_build()
-
-                # NOTE: clean_intermediate_files is a suggestion !
-                # for `always_build` and `root` we don't want to clean the files
-                if fetched or \
-                    (self.clean_intermediate_files and not (self.dep.always_build or self.dep.is_root)):
+                if not fetched:
                     package.clean_intermediate_files(self)
 
         # skip package() if we already fetched it as a package from artifactory()
