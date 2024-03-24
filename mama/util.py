@@ -277,49 +277,66 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
             return True # does not exist
         return False
 
+    # creates a symlink only if necessary
     def make_symlink(zipmember: zipfile.ZipInfo, symlink_location, is_directory):
         target = zip.read(zipmember, pwd=pwd).decode('utf-8')
-        if os.path.lexists(symlink_location):
-            os.remove(symlink_location)
-        os.symlink(target, symlink_location, target_is_directory=is_directory)
+        # link does not exist, recreate it
+        if not os.path.islink(symlink_location):
+            if os.path.exists(symlink_location):
+                os.remove(symlink_location)
+            os.symlink(target, symlink_location, target_is_directory=is_directory)
+            return True
+        else:
+            # only create if the link is different
+            if os.readlink(symlink_location) != target:
+                os.symlink(target, symlink_location, target_is_directory=is_directory)
+                return True
+        return False
 
-    unzipped_files: List[Tuple[zipfile.ZipFile, str]] = []
+    def print_debug(zipmember: zipfile.ZipInfo):
+        what = 'DIR' if zipmember.is_dir() else 'FILE'
+        what = what + ' LINK' if is_symlink else what
+        print(f'{what} {zipmember.filename} S_IMODE={stat.S_IMODE(mode):0o} S_IFMT={stat.S_IFMT(mode):0o}')
+
+    num_unzipped = 0
 
     with zipfile.ZipFile(local_zip, "r") as zip:
         for zipmember in zip.infolist():
             dst_path = os.path.normpath(os.path.join(extract_dir, zipmember.filename))
             mode = zipmember.external_attr >> 16
             is_symlink = stat.S_ISLNK(mode)
-            #what = 'DIR' if zipmember.is_dir() else 'FILE'
-            #what = what + ' LINK' if is_symlink else what
-            #print(f'{what} {zipmember.filename} S_IMODE={stat.S_IMODE(mode):0o} S_IFMT={stat.S_IFMT(mode):0o}')
+            did_extract = False
             if zipmember.is_dir():  # make dirs if needed
                 if is_symlink:
-                    make_symlink(zipmember, dst_path, is_directory=True)
-                else:
+                    did_extract = make_symlink(zipmember, dst_path, is_directory=True)
+                elif not os.path.isdir(dst_path):
                     os.makedirs(dst_path, exist_ok=True)
+                    did_extract = True
             elif has_file_changed(zipmember, dst_path):  # only extract if file appears to be modified
-                unzipped_files.append((zipmember, dst_path))
                 if is_symlink:
-                    make_symlink(zipmember, dst_path, is_directory=False)
+                    did_extract = make_symlink(zipmember, dst_path, is_directory=False)
                 else:
                     with zip.open(zipmember, pwd=pwd) as src, open(dst_path, "wb") as dst:
                         shutil.copyfileobj(src, dst)
-        for zipmember, dst_path in unzipped_files:
-            # set the correct permissions for files and folders
-            perm = stat.S_IMODE(zipmember.external_attr >> 16)
-            os.chmod(dst_path, perm)
-            # always set the modification date from the zipmember timestamp,
-            # this way we can avoid unnecessarily modifying files and causing full rebuilds
-            time = get_zipinfo_datetime(zipmember)
-            #print(f'    | {dst_path} {time}')
-            mtime = time.timestamp()
-            if System.windows:
-                os.utime(dst_path, times=(mtime, mtime))
-            else:
-                os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
+                        did_extract = True
+                if did_extract:
+                    # set the correct permissions for files and folders
+                    perm = stat.S_IMODE(zipmember.external_attr >> 16)
+                    os.chmod(dst_path, perm)
+                    # always set the modification date from the zipmember timestamp,
+                    # this way we can avoid unnecessarily modifying files and causing full rebuilds
+                    time = get_zipinfo_datetime(zipmember)
+                    #print(f'    | {dst_path} {time}')
+                    mtime = time.timestamp()
+                    if System.windows:
+                        os.utime(dst_path, times=(mtime, mtime))
+                    else:
+                        os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
+            if did_extract:
+                num_unzipped += 1
+                #print_debug(zipmember)
 
-    return len(unzipped_files)
+    return num_unzipped
 
 
 def try_unzip(local_file:str, extract_dir:str) -> bool:
