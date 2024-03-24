@@ -8,7 +8,6 @@ from .papa_deploy import PapaFileInfo
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
-    from .types.asset import Asset
 
 
 def _append_files_recursive(zip: zipfile.ZipFile, full_path:str):
@@ -17,6 +16,8 @@ def _append_files_recursive(zip: zipfile.ZipFile, full_path:str):
         root = os.path.dirname(full_path)
         for full_dir, _, files in os.walk(full_path):
             rel_dir = full_dir[len(root):].lstrip('\\/')
+            # write the directory into the zip as well
+            zip.write(full_dir, rel_dir)
             for file in files:
                 src_file = full_dir + '/' + file
                 rel_file = rel_dir + '/' + file
