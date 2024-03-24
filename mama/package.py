@@ -56,10 +56,13 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool):
     return False
 
 
-def export_includes(target: BuildTarget, include_paths: list, build_dir: bool):
+def export_includes(target: BuildTarget, include_paths, build_dir: bool):
     added = False
-    for include_path in include_paths:
-        added |= target.export_include(include_path, build_dir)
+    if isinstance(include_paths, str):
+        return target.export_include(include_paths, build_dir)
+    elif isinstance(include_paths, list):
+        for include_path in include_paths:
+            added |= target.export_include(include_path, build_dir)
     return added
 
 

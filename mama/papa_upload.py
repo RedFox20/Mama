@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .build_target import BuildTarget
 
 
-def _append_files_recursive(zip: zipfile.ZipFile, full_path:str):
+def _append_files_recursive(zip: zipfile.ZipFile, rel_path:str, full_path:str):
     # add each file recursively
     if os.path.isdir(full_path):
         root = os.path.dirname(full_path)
@@ -40,12 +40,11 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
                             'Add self.papa_deploy() to mamafile deploy()!')
 
     config = target.config
-    dst_dir = target.build_dir()
     archive_name = artifactory_archive_name(target)
     if not archive_name:
         raise Exception(f'Could not get archive name for target: {target.name}')
 
-    archive_path = dst_dir + '/' + archive_name + '.zip'
+    archive_path = target.build_dir(archive_name + '.zip')
     if config.verbose:
         console(f'    archiving {papa_file}\n {"":10}-> {archive_path}')
 
@@ -56,16 +55,22 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     with zipfile.ZipFile(temp_archive, 'w',
                          compression=zipfile.ZIP_DEFLATED,
                          compresslevel=8) as zip:
+        if config.verbose: console(f'      root {package_full_path}')
         zip.write(papa_file, 'papa.txt') # always add the main manifest file
         for include in papa.includes:
-            if config.verbose: console(f'      adding {include}')
-            _append_files_recursive(zip, include)
+            rel_path = os.path.relpath(include, package_full_path)
+            if config.verbose: console(f'      adding {rel_path} {include}')
+            _append_files_recursive(zip, rel_path, include)
         for lib in papa.libs:
-            if config.verbose: console(f'      adding {lib}')
-            zip.write(lib, os.path.basename(lib))
+            rel_path = os.path.relpath(lib, package_full_path)
+            if config.verbose: console(f'      adding {rel_path} {lib}')
+            if rel_path.startswith('..'):
+                raise Exception(f'lib path {lib} is outside of the package path {package_full_path}')
+            zip.write(lib, rel_path)
         for asset in papa.assets:
-            if config.verbose: console(f'      adding {asset}')
-            zip.write(asset.srcpath, os.path.basename(asset.outpath))
+            rel_path = asset.outpath
+            if config.verbose: console(f'      adding {rel_path} {asset}')
+            zip.write(asset.srcpath, asset.outpath)
 
     # move the intermediate archive to the final location
     if os.path.exists(archive_path):
