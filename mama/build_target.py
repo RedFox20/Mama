@@ -199,7 +199,7 @@ class BuildTarget:
         return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
-    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, args=[]) -> BuildDependency:
+    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, shallow=True, args=[]) -> BuildDependency:
         """
         Add a remote GIT dependency.
         The dependency will be cloned and updated according to mamabuild.
@@ -220,7 +220,7 @@ class BuildTarget:
         """
         if self.dep.from_artifactory: # already loaded from artifactory?
             return self.get_dependency(name)
-        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, args))
+        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, shallow, args))
 
 
     def add_artifactory_pkg(self, name, version='latest', fullname=None) -> BuildDependency:

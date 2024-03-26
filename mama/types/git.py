@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
-from ..utils.sub_process import SubProcess, execute, execute_piped
-from ..util import is_dir_empty, write_text_to, save_file_if_contents_changed, read_lines_from, path_join
+from ..utils.sub_process import SubProcess, execute, execute_piped, execute_piped_echo
+from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join
 
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ class Git(DepSource):
     """
     For BuildDependency whose source is from a Git repository
     """
-    def __init__(self, name:str, url:str, branch:str, tag:str, mamafile:str, args:list):
+    def __init__(self, name:str, url:str, branch:str, tag:str, mamafile:str, shallow:bool, args:list):
         super(Git, self).__init__(name)
         if not url: raise RuntimeError("Git url must not be empty!")
         self.is_git = True
@@ -25,6 +25,7 @@ class Git(DepSource):
         self.branch = branch
         self.tag = tag
         self.mamafile = mamafile
+        self.shallow = shallow
         self.args = args
 
         self.from_source = False  # if True, this must be built from source, not from artifactory
@@ -50,7 +51,8 @@ class Git(DepSource):
         p = s.split(',')
         name, url, branch, tag, mamafile = p[0:5]
         args = p[5:]
-        return Git(name, url, branch, tag, mamafile, args)
+        shallow = True # shallow is the default
+        return Git(name, url, branch, tag, mamafile, shallow, args)
 
 
     def get_papa_string(self):
@@ -59,11 +61,11 @@ class Git(DepSource):
         return 'git ' + fields
 
 
-    def run_git(self, dep: BuildDependency, git_command):
+    def run_git(self, dep: BuildDependency, git_command, throw=True):
         cmd = f"cd {dep.src_dir} && git {git_command}"
         if dep.config.verbose:
-            console(f'  {dep.name: <16} git {git_command}')
-        execute(cmd)
+            console(f'  {dep.name: <16} git {git_command}', color=Color.YELLOW)
+        return execute(cmd, throw=throw)
 
 
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
@@ -204,42 +206,47 @@ class Git(DepSource):
             shutil.rmtree(dep.dep_dir)
 
 
-    def clone_with_filtered_progress(self, cmd, dep: BuildDependency):
+    def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
         output = ''
+        current_percent = -1
+        def print_output(p:SubProcess, line:str):
+            nonlocal output, current_percent
+            if 'remote: Counting objects:' in line or \
+                'remote: Compressing objects:' in line or \
+                'Receiving objects:' in line or \
+                'Resolving deltas:' in line or \
+                'Updating files:' in line:
+                if dep.config.print:
+                    parts = line.split('%')[0].split(':')
+                    percent = int(parts[len(parts)-1].strip())
+                    if current_percent != percent:
+                        current_percent = percent
+                        status = 'status             '
+                        if 'remote: Counting objects:' in line:      status = 'counting objects   '
+                        elif 'remote: Compressing objects:' in line: status = 'compressing objects'
+                        elif 'Receiving objects:' in line:           status = 'receiving objects  '
+                        elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
+                        elif 'Updating files:' in line:              status = 'updating files     '
+                        console(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
+            elif 'Cloning into ' in line:
+                pass
+            elif 'Are you sure you want to continue connecting' in line:
+                # TODO: maybe auto-add the key before running clone?
+                # if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
+                console(line)
+                p.write('yes\n') # get us unstuck
+            elif line:
+                output += line
+                output += '\n'
+                if dep.config.verbose:
+                    console(line)
+
+        # run the command, working dir not needed since it should be a full path in the clone_args
+        cmd = f'git clone {clone_args} {clone_to_dir}'
         if dep.config.verbose:
-            console(cmd, color=Color.YELLOW)
-            result = execute(cmd, throw=False)
-        else:
-            current_percent = -1
-            def print_output(line:str):
-                nonlocal output, current_percent
-                if 'remote: Counting objects:' in line or \
-                    'remote: Compressing objects:' in line or \
-                    'Receiving objects:' in line or \
-                    'Resolving deltas:' in line or \
-                    'Updating files:' in line:
-                    if dep.config.print:
-                        parts = line.split('%')[0].split(':')
-                        percent = int(parts[len(parts)-1].strip())
-                        if current_percent != percent:
-                            current_percent = percent
-                            status = 'status             '
-                            if 'remote: Counting objects:' in line:      status = 'counting objects   '
-                            elif 'remote: Compressing objects:' in line: status = 'compressing objects'
-                            elif 'Receiving objects:' in line:           status = 'receiving objects  '
-                            elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
-                            elif 'Updating files:' in line:              status = 'updating files     '
-                            print(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
-                elif 'Cloning into ' in line:
-                    pass
-                elif 'Are you sure you want to continue connecting' in line:
-                    # TODO: maybe auto-add the key before running clone?
-                    # if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
-                    print(line)
-                elif line:
-                    output += line
-                    output += '\n'
-            result = SubProcess.run(cmd, io_func=print_output)
+            console(f'  {dep.name: <16} {cmd}')
+        result = SubProcess.run(cmd, io_func=print_output)
+
         # handle the result:
         if dep.config.print:
             if result == 0:
@@ -254,22 +261,49 @@ class Git(DepSource):
 
 
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
+        # by default we create a shallow clone, unless unshallow is specified in config or this dep
+        unshallow = dep.config.unshallow or (not self.shallow)
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             branch = self.branch_or_tag()
             if branch: branch = f" --branch {self.branch_or_tag()}"
-            cmd = f"git clone --recurse-submodules --depth 1 {branch} {self.url} {dep.src_dir}"
-            self.clone_with_filtered_progress(cmd, dep)
+            depth = '' if unshallow else '--depth 1'
+            clone_args = f"--recurse-submodules {depth} {branch} {self.url}"
+            self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
             self.checkout_current_branch(dep)
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
+            if unshallow:
+                self.unshallow(dep)
             self.checkout_current_branch(dep)
-            execute("git submodule update --init --recursive")
+            self.run_git(dep, 'submodule update --init --recursive')
             if not self.tag: # pull if not a tag
                 self.run_git(dep, "reset --hard -q")
                 self.run_git(dep, "pull")
+
+
+    def unshallow(self, dep: BuildDependency):
+        # Detecting shallowness can be quite tricky, since the repository can be in multiple different states
+        # Detecting the easy cases first:
+        #   git rev-parse --is-shallow-repository --> .git/shallow exists
+        is_shallow = os.path.exists(f'{dep.src_dir}/.git/shallow')
+        if not is_shallow:
+            _, output = execute_piped_echo(dep.src_dir, 'git config remote.origin.fetch', echo=False)
+            if dep.config.verbose:
+                console(f'  {dep.name: <16} remote.origin.fetch: {output.strip()}', color=Color.YELLOW)
+            if not output or not output.startswith('+refs/heads/*'):
+                is_shallow = True # likely a shallow clone
+
+        if is_shallow:
+            if dep.config.print:
+                console(f'  - Unshallowing {dep.name}', color=Color.YELLOW)
+            self.run_git(dep, 'config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"')
+            self.run_git(dep, 'remote update')
+            # this last step is allowed to fail, just in case it was 
+            # semi-shallow (history was complete, but remote refs were shallow)
+            self.run_git(dep, 'fetch --unshallow', throw=False)
 
 
     def dependency_checkout(self, dep: BuildDependency):
@@ -293,6 +327,8 @@ class Git(DepSource):
         if should_wipe or (is_target and config.reclone):
             self.reclone_wipe(dep)
             wiped = True
+        elif dep.config.unshallow and is_target: # unshallow was specified, we should at least pull
+            pass # fallthrough to clone_or_pull
         else:
             # don't pull if no changes to git status
             # or if we're current target of a non-update build

@@ -19,7 +19,7 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
         if target.config.print: console('Deleting CMakeCache.txt')
         os.remove(target.build_dir('CMakeCache.txt'))
 
-    def handle_output(line:str):
+    def handle_output(p:SubProcess, line:str):
         nonlocal rerun, delete_cmakecache
         print(line) # newline is not included
         if line.startswith('CMake Error: The source'):

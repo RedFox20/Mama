@@ -129,7 +129,7 @@ class SubProcess:
             else: # last token:
                 line = text[start:]
                 start = end
-            self.io_func(line)
+            self.io_func(self, line)
 
 
     def read_output(self) -> bool:
@@ -174,6 +174,13 @@ class SubProcess:
                 break # we've read enough
         return num_reads > 0
 
+    def write(self, text: str):
+        """ Writes the text to the process stdin """
+        if System.windows:
+            if self.process.stdin and not self.process.stdin.closed:
+                self.process.stdin.write(text)
+        elif self.parent_fd:
+            os.write(self.parent_fd, text.encode())
 
     @staticmethod
     def run(cmd, cwd=None, env=None, io_func=None):
@@ -182,12 +189,12 @@ class SubProcess:
         - cmd: full command string
         - cwd: working dir for the subprocess
         - env: execution environment, or None for default env
-        - io_func: if set, this callback will receive each line from output
+        - io_func: if set, this callback will receive SubProcess p reference and each line from output
                    if None, then output is echoed as normal to stdout/stderr
 
         ```
         SubProcess.run('tool', 'cmake xyz', env)
-        SubProcess.run('tool', 'cmake xyz', io_func=lambda line: print(line))
+        SubProcess.run('tool', 'cmake xyz', io_func=lambda p, line: print(line))
         ```
         """
         p = SubProcess(cmd, cwd, env=env, io_func=io_func)
@@ -273,7 +280,7 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None):
     try:
         exit_status = -1
         output = ''
-        def handle_output(line:str):
+        def handle_output(p:SubProcess, line:str):
             nonlocal output
             if echo: print(line)
             output += line

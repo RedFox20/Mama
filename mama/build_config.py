@@ -35,6 +35,7 @@ class BuildConfig:
         self.disable_artifactory = False
         self.reclone   = False
         self.dirty     = False # marks a target for rebuild on next build even if it's up to date
+        self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
         self.mama_init = False
         self.print     = True
         self.verbose   = False
@@ -127,6 +128,7 @@ class BuildConfig:
                 self.reclone = True
             elif arg == 'wipe':      self.reclone = True
             elif arg == 'dirty':     self.dirty = True
+            elif arg == 'unshallow': self.unshallow = True
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
             elif arg == 'verbose':   self.verbose = True
