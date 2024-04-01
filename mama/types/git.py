@@ -218,7 +218,11 @@ class Git(DepSource):
                 'Updating files:' in line:
                 if dep.config.print:
                     parts = line.split('%')[0].split(':')
-                    percent = int(parts[len(parts)-1].strip())
+                    if not parts:
+                        console(line)
+                        return
+                    percent_string = parts[len(parts)-1].strip()
+                    percent = int(percent_string) if percent_string else 0
                     if current_percent != percent:
                         current_percent = percent
                         status = 'status             '
@@ -229,7 +233,7 @@ class Git(DepSource):
                         elif 'Updating files:' in line:              status = 'updating files     '
                         console(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
             elif 'Cloning into ' in line:
-                pass
+                return
             elif 'Are you sure you want to continue connecting' in line:
                 # TODO: maybe auto-add the key before running clone?
                 # if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
