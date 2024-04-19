@@ -65,6 +65,9 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
 
     cwd = normalized_path(cwd)
     exe = normalized_path(exe)
+    if ' ' in exe:
+        exe = '"' + exe + '"'
+    #print(f'CWD={cwd} EXE={exe} ARGS={args}')
     return cwd, exe, args
 
 
