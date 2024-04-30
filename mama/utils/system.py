@@ -1,4 +1,4 @@
-import sys, subprocess
+import sys, subprocess, platform
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -7,6 +7,7 @@ is_macos   = sys.platform == 'darwin'
 if not (is_windows or is_linux or is_macos):
     raise RuntimeError(f'MamaBuild unsupported platform {sys.platform}')
 
+is_aarch64 = platform.machine() == 'aarch64'
 
 def _is_system_64_bit():
     if sys.platform == 'win32':
