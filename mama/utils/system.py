@@ -7,26 +7,18 @@ is_macos   = sys.platform == 'darwin'
 if not (is_windows or is_linux or is_macos):
     raise RuntimeError(f'MamaBuild unsupported platform {sys.platform}')
 
-is_aarch64 = platform.machine() == 'aarch64'
-
-def _is_system_64_bit():
-    if sys.platform == 'win32':
-        output = subprocess.check_output(['wmic', 'os', 'get', 'OSArchitecture'])
-        if '64-bit' in str(output):
-            return True
-    else:
-        output = subprocess.check_output(['uname', '-m'])
-        if 'x86_64' in str(output):
-            return True
-    return False
-is_64 = _is_system_64_bit()
-
+machine = platform.machine()
+is_aarch64 = machine == 'aarch64'
+is_x86_64 = machine == 'x86_64'
+is_x86 = machine == 'x86'
 
 class System:
     windows = is_windows
     linux   = is_linux
     macos   = is_macos
-    is_64bit = is_64
+    aarch64 = is_aarch64
+    x86_64  = is_x86_64
+    x86     = is_x86
 
 
 class Color:

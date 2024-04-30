@@ -345,6 +345,9 @@ elseif(UNIX)
     elseif(MAMA_CMAKE_ARCH MATCHES "(X86)|(x86)|(i386)|(i686)")
         set(MAMA_ARCH_X86 TRUE)
         {get_build_dir_defines(c.build_dir_linux32())}
+    elseif(MAMA_CMAKE_ARCH MATCHES "(aarch64)|(AARCH64)|(arm64)|(ARM64)")
+        set(MAMA_ARCH_ARM64 TRUE)
+        {get_build_dir_defines(c.build_dir_linuxarm64())}
     else()
         message(FATAL_ERROR "MAMA: Unrecognized Linux architecture '${{MAMA_CMAKE_ARCH}}'")
     endif()

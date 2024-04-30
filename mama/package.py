@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
-from .utils.system import console, is_aarch64
+from .utils.system import console, System
 from .util import normalized_path, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
@@ -180,7 +180,7 @@ def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
         return name # '-framework Foundation'
     elif target.linux:
-        compiler_dir = 'aarch64-linux-gnu' if is_aarch64 else 'x86_64-linux-gnu'
+        compiler_dir = 'aarch64-linux-gnu' if System.aarch64 else 'x86_64-linux-gnu'
         for candidate in [
             lambda: f'/usr/lib/{compiler_dir}/{name}',
             lambda: f'/usr/lib/{compiler_dir}/lib{name}.so',

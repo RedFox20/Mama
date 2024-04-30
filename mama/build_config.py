@@ -261,13 +261,15 @@ class BuildConfig:
             elif self.raspi:      self.set_arch('arm')
             elif self.oclea:      self.set_arch('arm64')
             elif self.mips:       self.set_arch(self.mips.mips_arch)
-            elif System.is_64bit: self.set_arch('x64')
-            else:                 self.set_arch('x86')
+            else:
+                if System.aarch64:  self.set_arch('arm64')
+                elif System.x86_64: self.set_arch('x64')
+                else:               self.set_arch('x86')
 
         # Arch itself is validated in set_arch(), 
         # however we need to validate if arch is allowed on platform
         if self.arch:
-            if self.linux and 'arm' in self.arch:
+            if self.linux and self.arch == 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
             if self.raspi and self.arch != 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
@@ -347,6 +349,7 @@ class BuildConfig:
     def build_dir_winarm32(self): return 'winarm32'
     def build_dir_linux64(self): return 'linux'
     def build_dir_linux32(self): return 'linux32'
+    def build_dir_linuxarm64(self): return 'linuxarm' # arm64
     def build_dir_macosarm64(self): return 'macosarm' # arm64
     def build_dir_macos64(self): return 'macos' # x64
     def build_dir_ios(self): return 'ios' # arm64
@@ -372,6 +375,7 @@ class BuildConfig:
             return self.build_dir_winarm64()
         if self.linux:
             if self.is_target_arch_x64(): return self.build_dir_linux64()
+            if self.is_target_arch_arm64(): return self.build_dir_linuxarm64()
             return self.build_dir_linux32()
         if self.macos: # Apple dropped 32-bit support
             # and new default should be arm64 starting from M1 series chips
@@ -681,10 +685,9 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def get_gcc_linux_march(self):
-        if self.is_target_arch_x64():
-            return 'native' if System.is_64bit else 'x86-64'
-        if self.is_target_arch_x86():
-            return 'pentium4' if System.is_64bit else 'native'
+        if self.is_target_arch_arm64(): return 'native' if System.aarch64 else 'armv8-a'
+        if self.is_target_arch_x64(): return 'native' if System.x86_64 else 'x86-64'
+        if self.is_target_arch_x86(): return 'native' if System.x86 else 'pentium4'
         raise RuntimeError(f'Unsupported arch: {self.arch}')
 
 
