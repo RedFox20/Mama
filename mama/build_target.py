@@ -690,6 +690,18 @@ class BuildTarget:
             else:                        self.cmake_opts.append(option)
 
 
+    def enable_from_env(self, name, enabled='ON', force=False):
+        """
+        Adds a CMake option if the environment variable `name` is set.
+        ```
+            self.enable_from_env('BUILD_TESTS')
+        ```
+        """
+        env = os.getenv(name)
+        if force or (env and (env == '1' or env == 'ON' or env == 'TRUE')):
+            self.add_cmake_options(f'{name}={enabled}')
+
+
     def add_platform_options(self, windows=None, linux=None, macos=None, ios=None, android=None):
         """
         Selectively applies CMake options depending on configuration platform.
