@@ -9,8 +9,8 @@ if not (is_windows or is_linux or is_macos):
 
 machine = platform.machine()
 is_aarch64 = machine == 'aarch64'
-is_x86_64 = machine == 'x86_64'
-is_x86 = machine == 'x86'
+is_x86_64 = machine == 'x86_64' or machine == 'AMD64'
+is_x86 = machine == 'x86' or machine == 'i386'
 
 class System:
     windows = is_windows

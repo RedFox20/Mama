@@ -266,7 +266,7 @@ class BuildConfig:
                 elif System.x86_64: self.set_arch('x64')
                 else:               self.set_arch('x86')
 
-        # Arch itself is validated in set_arch(), 
+        # Arch itself is validated in set_arch(),
         # however we need to validate if arch is allowed on platform
         if self.arch:
             if self.linux and self.arch == 'arm':
