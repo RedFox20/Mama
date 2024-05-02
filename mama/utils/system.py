@@ -8,7 +8,7 @@ if not (is_windows or is_linux or is_macos):
     raise RuntimeError(f'MamaBuild unsupported platform {sys.platform}')
 
 machine = platform.machine()
-is_aarch64 = machine == 'aarch64'
+is_aarch64 = machine == 'aarch64' or machine == 'arm64'
 is_x86_64 = machine == 'x86_64' or machine == 'AMD64'
 is_x86 = machine == 'x86' or machine == 'i386'
 
