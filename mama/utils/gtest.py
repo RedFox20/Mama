@@ -13,7 +13,11 @@ def run_gtest(target: BuildTarget, executable: str, args='', src_dir=False, gdb=
     # https://github.com/google/googletest/blob/main/googletest/src/gtest.cc#L238
     params = f' --gtest_output="xml:{target.source_dir("test/report.xml")}"'
     if args:
-        params += f' --gtest_filter="*{args}*"'
+        for arg in args.split(' '):
+            if arg.startswith('--gtest_'):
+                params += f' {arg}'
+            else:
+                params += f' --gtest_filter="*{arg}*"'
 
     if gdb:
         run_gdb(target, f'{executable} {params}', src_dir=src_dir)
