@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
+from .system import console
 from .gdb import filter_gdb_arg, run_gdb
 from .run import run_in_working_dir
 

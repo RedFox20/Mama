@@ -41,6 +41,8 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
         return _rerunnable_cmake_conf(cmd, cwd, False, target, delete_cmakecache=delete_cmakecache)
     if exit_status != 0:
         raise Exception(f'CMake configure error: {error}')
+    target.dep.save_enabled_sanitizers()
+    target.dep.save_enabled_coverage()
 
 
 def run_config(target:BuildTarget):
@@ -136,7 +138,8 @@ def _default_options(target:BuildTarget):
     def add_flag(flag:str, value=''):
         if not flag in cxxflags:  # add flag if not already set
             cxxflags[flag] = value
-    #def add_ldflag(flag:str, value=''): ldflags[flag] = value
+    def add_ldflag(flag:str, value=''):
+        ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''
         sep = ':' if config.windows else '='
@@ -187,10 +190,35 @@ def _default_options(target:BuildTarget):
     if config.flags:
         add_flag(config.flags)
 
+    ld_sanitize = ''
+    ld_coverage = ''
+
+    if config.sanitize:
+        if config.gcc or config.clang:
+            ld_sanitize = f'-fsanitize={config.sanitize}'
+            add_flag('-fsanitize', config.sanitize)
+            add_flag('-fno-omit-frame-pointer')
+            add_flag('-pie')
+            add_flag('-fPIE')
+        elif config.windows: # ASSUMES MSVC
+            ld_sanitize = f'/fsanitize={config.sanitize}'
+
+    if config.coverage:
+        if config.gcc or config.clang:
+            add_flag('--coverage')
+            add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+            ld_coverage='--coverage'
+        elif config.windows: # ASSUMES MSVC
+            option = 'edge' if config.coverage == 'default' else config.coverage
+            add_flag('/fsanitize-coverage', option)
+
     opt = [
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
     ]
+    if config.with_tests:
+        opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
+    
     if config.linux or config.raspi or config.oclea or config.mips:
         opt += _custom_compilers(target)
     
@@ -202,12 +230,16 @@ def _default_options(target:BuildTarget):
         opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
     ldflags_str = get_flags_string(ldflags)
-    if ldflags_str: opt += [
-        f'CMAKE_EXE_LINKER_FLAGS="{ldflags_str}"',
-        f'CMAKE_MODULE_LINKER_FLAGS="{ldflags_str}"',
-        f'CMAKE_SHARED_LINKER_FLAGS="{ldflags_str}"',
-        f'CMAKE_STATIC_LINKER_FLAGS="{ldflags_str}"'
-    ]
+    if ldflags_str:
+        exe_ldflags = ldflags_str
+        if ld_sanitize: exe_ldflags += ' ' + ld_sanitize
+        if ld_coverage: exe_ldflags += ' ' + ld_coverage
+        opt += [
+            f'CMAKE_EXE_LINKER_FLAGS="{exe_ldflags}"',
+            f'CMAKE_MODULE_LINKER_FLAGS="{exe_ldflags}"',
+            f'CMAKE_SHARED_LINKER_FLAGS="{exe_ldflags}"',
+            f'CMAKE_STATIC_LINKER_FLAGS="{ldflags_str}"'
+        ]
 
     make = _make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')

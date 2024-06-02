@@ -60,6 +60,11 @@ def print_usage():
     console('    jobs=N     - Max number of parallel compilations. (default=system.core.count)')
     console('    target=P   - Name of the target')
     console('    all        - Short for target=all')
+    console('    with_tests - Forces CMake option -DENABLE_TESTS=ON and -DBUILD_TESTS=ON')
+    console('    sanitize=  - enables -fsanitize= for gcc/clang builds [address|leak|thread|undefined]')
+    console('    asan|lsan|tsan|ubsan - shorthands for sanitize=address|leak|thread|undefined respectively')
+    console('    coverage   - Builds the project with GCC --coverage option')
+    console('    coverage-report[=src_root] - Generates coverage report using gcovr')
     console('    silent     - Greatly reduces verbosity')
     console('    verbose    - Greatly increases verbosity for build dependencies and cmake')
     console('  examples:')
@@ -83,6 +88,8 @@ def print_usage():
     console('    mama test="arg1 arg2"          Run tests on main project with multiple arguments.')
     console('    mama test dep1                 Run tests on target dependency project.')
     console('    mama start=dbtool              Call main project mamafile start() with args [`dbtool`].')
+    console('    mama rebuild all tsan lsan     Rebuild all targets with thread and leak sanitizers enabled.')
+    console('    mama rebuild all sanitize=leak,undefined Rebuild all targets with leak and undefined sanitizers enabled.')
     console('  environment:')
     console('    setenv("NINJA")                  Path to NINJA build executable')
     console('    setenv("ANDROID_HOME")           Path to Android SDK if auto-detect fails')
@@ -157,6 +164,16 @@ def mama_dirty(root: BuildDependency, dep: BuildDependency):
         d.dirty()
 
 
+def run_coverage_report(target: BuildTarget):
+    if target.config.windows:
+        console('Coverage report not supported yet on Windows')
+        return
+    root = target.source_dir(target.config.coverage_report)
+    target.config.verbose = True # enable verbose mode before running the command
+    cmd = f'gcovr --sort-percentage --root {root} {target.build_dir()}'
+    target.run(cmd, src_dir=True)
+
+
 def main():
     if sys.version_info < (3, 6):
         console('FATAL ERROR: MamaBuild requires Python 3.6')
@@ -213,9 +230,14 @@ def main():
     load_dependency_chain(root)
     check_config_target(config, root)
 
+    # get the main target dependency
+    if config.target:
+        dep = find_dependency(root, config.target)
+    else:
+        dep = root
+
     # target init
     if config.mama_init and config.target:
-        dep = find_dependency(root, config.target)
         if not dep:
             console(f'init command failed: target {config.target} not found')
             exit(-1)
@@ -229,16 +251,13 @@ def main():
         flat_deps_names = [d.name for d in flat_deps]
         if config.targets_all() or config.target == None:
             console(f'    ALL Dependency List: {flat_deps_names}', Color.BLUE)
-            for dep in flat_deps:
-                print_package_exports(dep)
+            for d in flat_deps: print_package_exports(d)
         else:
-            dep = find_dependency(root, config.target)
             console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
             print_package_exports(dep)
         return
 
     if config.dirty:
-        dep = find_dependency(root, config.target)
         if not dep:
             console(f'dirty command failed: target {config.target} not found')
             exit(-1)
@@ -257,6 +276,18 @@ def main():
         print_package_exports(root)
 
     execute_task_chain(flat_deps_reverse)
+
+    if config.coverage_report:
+        if not dep:
+            console(f'coverage-report failed: target {config.target} not found')
+            exit(-1)
+        run_coverage_report(dep.target)
+        return
+
+    if dep and config.test and dep.get_enabled_coverage():
+        console('Project was built with coverage, generating coverage report')
+        run_coverage_report(dep.target)
+        return
 
     if config.open:
         open_project(config, root)

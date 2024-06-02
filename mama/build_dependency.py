@@ -7,7 +7,7 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error
 from .artifactory import artifactory_fetch_and_reconfigure
-from .util import normalized_join, normalized_path, write_text_to, read_lines_from
+from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
 
@@ -514,6 +514,39 @@ class BuildDependency:
         """ TRUE if a file relative to build_dir exists """
         return os.path.exists(normalized_join(self.build_dir, filename))
 
+
+    def sanitizer_list_path(self):
+        return normalized_join(self.build_dir, 'enabled_sanitizers')
+
+
+    def get_enabled_sanitizers(self):
+        list_path = self.sanitizer_list_path()
+        if os.path.exists(list_path):
+            return read_text_from(list_path)
+        return ''
+
+
+    def save_enabled_sanitizers(self):
+        if self.target.config.sanitize:
+            write_text_to(self.sanitizer_list_path(), self.target.config.sanitize)
+        else: # otherwise delete the file, which means sanitizer was not used
+            os.remove(self.sanitizer_list_path())
+
+
+    def coverage_enabled_path(self):
+        return normalized_join(self.build_dir, 'enabled_coverage')
+
+
+    def get_enabled_coverage(self):
+        return os.path.exists(self.coverage_enabled_path())
+
+
+    def save_enabled_coverage(self):
+        if self.target.config.coverage:
+            write_text_to(self.coverage_enabled_path(), self.target.config.coverage)
+        else:
+            os.remove(self.coverage_enabled_path())
+    
 
     def path_relative_to_us(self, relpath) -> str:
         """

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
-import os, shlex
-from .system import System, console
+import os
+from .system import console, Color
 from .run import get_cwd_exe_args
 from .sub_process import execute_echo
 
@@ -16,6 +16,13 @@ def filter_gdb_arg(args: str, default_gdb=False) -> Tuple[str, bool]:
     if 'gdb ' in args: return args.replace('gdb ', ''), True
     return args, default_gdb
 
+def _is_running_leak_sanitizer(target: BuildTarget):
+    if target.config.sanitize:
+        sanitizers = target.config.sanitize
+    else:
+        sanitizers = target.dep.get_enabled_sanitizers()
+    return ('leak' in sanitizers) or ('address' in sanitizers)
+
 
 def run_gdb(target: BuildTarget, command: str, src_dir=True):
     if target.android or target.ios or target.raspi or target.oclea or target.mips:
@@ -29,6 +36,9 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
     cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
 
     if target.windows:
+        debugger = f'{exe} {args}'
+    elif _is_running_leak_sanitizer(target):
+        console('LEAK/ADDRESS sanitizer was enabled - GDB would disable LEAK detection, running without GDB', color=Color.YELLOW)
         debugger = f'{exe} {args}'
     elif target.macos:
         # b: batch, q: quiet, -o r: run

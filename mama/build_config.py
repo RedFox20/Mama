@@ -41,6 +41,10 @@ class BuildConfig:
         self.verbose   = False
         self.test      = ''
         self.start     = ''
+        self.with_tests = False # forces -DENABLE_TESTS=ON
+        self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
+        self.coverage  = None # gcc/clang: gcov | windows: /fsanitize-coverage=edge
+        self.coverage_report = None # runs gcovr to generate coverage report
         # supported platforms
         self.windows = False
         self.linux   = False
@@ -136,6 +140,16 @@ class BuildConfig:
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
             elif arg == 'start':     self.start = ' ' # no start arguments
+            elif arg == 'with_tests': self.with_tests = True
+            elif arg.startswith('sanitize='): self.add_sanitizer_option(arg[9:])
+            elif arg == 'asan':    self.add_sanitizer_option('address')
+            elif arg == 'lsan':    self.add_sanitizer_option('leak')
+            elif arg == 'tsan':    self.add_sanitizer_option('thread')
+            elif arg == 'ubsan':   self.add_sanitizer_option('undefined')
+            elif arg.startswith('coverage='): self.add_coverage_option(arg[9:])
+            elif arg == 'coverage': self.add_coverage_option()
+            elif arg == 'coverage-report': self.coverage_report = '.'
+            elif arg.startswith('coverage-report='): self.coverage_report = arg[16:]
             elif arg == 'windows': self.set_platform(windows=True)
             elif arg == 'linux':   self.set_platform(linux=True)
             elif arg == 'macos':   self.set_platform(macos=True)
@@ -564,6 +578,16 @@ class BuildConfig:
                 if self.verbose: console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
+
+
+    def add_sanitizer_option(self, option):
+        if self.sanitize: self.sanitize += ',' + option
+        else:             self.sanitize = option
+
+
+    def add_coverage_option(self, option='default'):
+        if self.coverage: self.coverage += ',' + option
+        else:             self.coverage = option
 
 
     def append_env_path(self, paths, env):
