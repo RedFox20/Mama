@@ -527,10 +527,11 @@ class BuildDependency:
 
 
     def save_enabled_sanitizers(self):
+        sanitizers_file = self.sanitizer_list_path()
         if self.target.config.sanitize:
-            write_text_to(self.sanitizer_list_path(), self.target.config.sanitize)
-        else: # otherwise delete the file, which means sanitizer was not used
-            os.remove(self.sanitizer_list_path())
+            write_text_to(sanitizers_file, self.target.config.sanitize)
+        elif os.path.exists(sanitizers_file): # otherwise delete the file, which means sanitizer was not used
+            os.remove(sanitizers_file)
 
 
     def coverage_enabled_path(self):
@@ -542,10 +543,11 @@ class BuildDependency:
 
 
     def save_enabled_coverage(self):
+        coverage_file = self.coverage_enabled_path()
         if self.target.config.coverage:
-            write_text_to(self.coverage_enabled_path(), self.target.config.coverage)
-        else:
-            os.remove(self.coverage_enabled_path())
+            write_text_to(coverage_file, self.target.config.coverage)
+        elif os.path.exists(coverage_file):
+            os.remove(coverage_file)
     
 
     def path_relative_to_us(self, relpath) -> str:
