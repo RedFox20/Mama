@@ -195,21 +195,25 @@ def _default_options(target:BuildTarget):
 
     if config.sanitize:
         if config.gcc or config.clang:
+            console(f'Enabling sanitizers: {config.sanitize}')
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
             add_flag('-fno-omit-frame-pointer')
             add_flag('-pie')
             add_flag('-fPIE')
         elif config.windows: # ASSUMES MSVC
+            console(f'Enabling sanitizers: {config.sanitize}')
             ld_sanitize = f'/fsanitize={config.sanitize}'
 
     if config.coverage:
         if config.gcc or config.clang:
+            console(f'Enabling coverage: (gcov+gcovr)')
             add_flag('--coverage')
             add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
             ld_coverage='--coverage'
         elif config.windows: # ASSUMES MSVC
             option = 'edge' if config.coverage == 'default' else config.coverage
+            console(f'Enabling coverage: /fsanitize-coverage={option}')
             add_flag('/fsanitize-coverage', option)
 
     opt = [
