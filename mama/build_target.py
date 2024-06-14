@@ -1326,11 +1326,11 @@ class BuildTarget:
         if not self.config.test:
             return False
         # `mama test` --> only test root target
-        if not self.config.target and self.dep.is_root:
+        if self.config.no_target() and self.dep.is_root:
             return True
         # `mama test ReCpp` --> only test current target
         # `mama test all` --> current target matches all
-        return self.config.target and self.dep.is_current_target()
+        return self.config.has_target() and self.dep.is_current_target()
 
 
     def is_current_target(self):
@@ -1414,7 +1414,7 @@ class BuildTarget:
         if not self.config.deploy and not self.config.upload:
             return
 
-        no_targets = not self.config.target and self.dep.is_root # only root target
+        no_targets = self.config.no_target() and self.dep.is_root # only root target
         for_all = self.config.targets_all() # all targets
         one_target = not for_all and self.is_current_target() # only one target
         if not (for_all or no_targets or one_target):

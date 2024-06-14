@@ -220,7 +220,7 @@ def _default_options(target:BuildTarget):
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
     ]
-    if config.with_tests:
+    if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
     
     if config.linux or config.raspi or config.oclea or config.mips:

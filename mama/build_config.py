@@ -911,15 +911,26 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return 'lib' if self.windows else 'a'
 
 
+    def has_target(self) -> bool:
+        """ A target was specified from cmdline, eg 'all' or 'mypackage' """
+        return self.target is not None and len(self.target) > 0
+    
+    def no_target(self) -> bool:
+        """ No target specified from cmdline """
+        return self.target is None or len(self.target) == 0
+
     def targets_all(self) -> bool:
+        """ Target specified from cmdline was 'all' """
         return self.target == 'all'
 
 
     def target_matches(self, target_name: str) -> bool:
+        """ True if target_name matches the target specified from cmdline """
         return self.targets_all() \
             or (self.target and self.target.lower() == target_name.lower())
 
 
     def no_specific_target(self) -> bool:
-        return (not self.target) or self.targets_all()
+        """ True if no target or 'all' was specified from cmdline """
+        return self.no_target() or self.targets_all()
 

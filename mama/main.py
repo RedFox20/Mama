@@ -98,7 +98,7 @@ def print_usage():
 
 
 def open_project(config: BuildConfig, root_dependency: BuildDependency):
-    name = config.target if config.target and config.target != 'all' else config.open
+    name = config.target if config.has_target() and not config.targets_all() else config.open
     found = root_dependency if name == 'root' else find_dependency(root_dependency, name)
     if not found:
         raise KeyError(f'No project named {name}')
@@ -130,14 +130,14 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
 
 def set_target_from_unused_args(config: BuildConfig):
     for arg in config.unused_args:
-        if config.target:
+        if config.has_target():
             console(f"ERROR: Deduced Target='{arg}' from unused argument, but target is already set to '{config.target}'")
             exit(-1)
         else:
             config.target = arg
 
 def check_config_target(config: BuildConfig, root: BuildDependency):
-    if config.target and config.target != 'all':
+    if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
         if dep is None:
             console(f"ERROR: specified target='{config.target}' not found!")
@@ -200,7 +200,7 @@ def main():
         set_target_from_unused_args(config)
 
     # root init
-    if config.mama_init and not config.target:
+    if config.mama_init and config.no_target():
         mama_init_project(root)
         return
 
@@ -214,7 +214,7 @@ def main():
         exit(-1)
 
     if config.update:
-        if not config.target:
+        if config.no_target():
             config.target = 'all'
             if config.print: console(f'Updating all targets')
         else:
@@ -224,20 +224,20 @@ def main():
         config.build = True
         config.clean = True
 
-    if config.clean and not config.target:
+    if config.clean and config.no_target():
         root.clean()
 
     load_dependency_chain(root)
     check_config_target(config, root)
 
     # get the main target dependency
-    if config.target:
+    if config.has_target():
         dep = find_dependency(root, config.target)
     else:
         dep = root
 
     # target init
-    if config.mama_init and config.target:
+    if config.mama_init and config.has_target():
         if not dep:
             console(f'init command failed: target {config.target} not found')
             exit(-1)
@@ -249,7 +249,7 @@ def main():
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]
-        if config.targets_all() or config.target == None:
+        if config.no_specific_target():
             console(f'    ALL Dependency List: {flat_deps_names}', Color.BLUE)
             for d in flat_deps: print_package_exports(d)
         else:
