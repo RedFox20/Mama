@@ -26,7 +26,7 @@ def _get_exported_libs(target):
         allowed = ['.a', '.dylib', '.bundle']
     elif target.ios:
         allowed = ['.a', '.dylib', '.framework']
-    elif target.raspi or target.oclea or target.mips:
+    elif target.raspi or target.oclea or target.imx8mp or target.mips:
         allowed = ['.a', '.so']
 
     #print(f'{target.name: <16} exported: {target.exported_libs}')
@@ -333,6 +333,10 @@ elseif(OCLEA)
         set(MAMA_ARCH_ARM64 TRUE)
         add_compile_definitions(OCLEA=1)
         {get_build_dir_defines(c.build_dir_oclea64())}
+elseif(IMX8MP)
+        set(MAMA_ARCH_ARM64 TRUE)
+        add_compile_definitions(IMX8MP=1)
+        {get_build_dir_defines(c.build_dir_imx8mp())}        
 elseif(MIPS)
         set(MAMA_ARCH_MIPS TRUE)
         add_compile_definitions(MIPS=1)

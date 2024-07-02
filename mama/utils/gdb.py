@@ -18,8 +18,8 @@ def filter_gdb_arg(args: str, default_gdb=False) -> Tuple[str, bool]:
 
 
 def run_gdb(target: BuildTarget, command: str, src_dir=True):
-    if target.android or target.ios or target.raspi or target.oclea or target.mips:
-        console('Cannot run tests for Android, iOS, Raspi, Oclea, MIPS builds.')
+    if target.android or target.ios or target.raspi or target.oclea or target.imx8mp or target.mips:
+        console('Cannot run tests for Android, iOS, Raspi, Oclea, Imx8mp, MIPS builds.')
         return # nothing to run
 
     root_dir = target.source_dir() if src_dir else target.build_dir()

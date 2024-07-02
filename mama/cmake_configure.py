@@ -103,6 +103,7 @@ def _generator(target:BuildTarget):
     if config.linux:              return '-G "Unix Makefiles"'
     if config.raspi:              return '-G "Unix Makefiles"'
     if config.oclea:              return '-G "Unix Makefiles"'
+    if config.imx8mp:             return '-G "Unix Makefiles"'
     if config.mips:               return '-G "Unix Makefiles"'
     if config.ios:                return '-G "Xcode"'
     if config.macos:              return '-G "Xcode"'
@@ -181,6 +182,8 @@ def _default_options(target:BuildTarget):
             add_flag(f'-I {path}')
     elif config.oclea:
         config.oclea.get_cxx_flags(add_flag)
+    elif config.imx8mp:
+        config.imx8mp.get_cxx_flags(add_flag)
     elif config.mips:
         config.mips.get_cxx_flags(add_flag)
 
@@ -191,7 +194,7 @@ def _default_options(target:BuildTarget):
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
     ]
-    if config.linux or config.raspi or config.oclea or config.mips:
+    if config.linux or config.raspi or config.oclea or config.imx8mp or config.mips:
         opt += _custom_compilers(target)
     
     if target.enable_fortran_build and config.fortran:
@@ -233,6 +236,8 @@ def _default_options(target:BuildTarget):
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     elif config.oclea:
         opt += config.oclea.get_cmake_build_opts()
+    elif config.imx8mp:
+        opt += config.imx8mp.get_cmake_build_opts()        
     elif config.mips:
         opt += config.mips.get_cmake_build_opts()
     elif config.macos:

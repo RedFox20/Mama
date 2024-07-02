@@ -3,6 +3,7 @@ from typing import List
 from mama.platforms.oclea import Oclea
 from mama.platforms.mips import Mips
 from mama.platforms.android import Android
+from mama.platforms.imx8mp import Imx8mp
 import mama.util as util
 from .utils.system import System, console
 from .utils.sub_process import execute, execute_piped
@@ -50,6 +51,7 @@ class BuildConfig:
         self.raspi   = False
         self.oclea : Oclea = None
         self.mips : Mips = None
+        self.imx8mp : Imx8mp = None
         # compilers
         self.clang = True # prefer clang on linux
         self.gcc   = False
@@ -144,6 +146,7 @@ class BuildConfig:
             elif arg == 'raspi':   self.set_platform(raspi=True)
             elif arg == 'oclea':   self.set_platform(oclea=True)
             elif arg == 'mips':    self.set_platform(mips=True)
+            elif arg == 'imx8mp':  self.set_platform(imx8mp=True)
             elif arg == 'x86':     self.set_arch('x86')
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
@@ -211,9 +214,10 @@ class BuildConfig:
 
     def set_platform(self, windows=False, linux=False, macos=False, \
                            ios=False, android=False, raspi=False, \
-                           oclea=False, mips=False):
+                           oclea=False, mips=False, imx8mp=False):
         """ Ensures only a single platform is set """
-        platforms = [False]*8
+
+        platforms = [False]*9
         if windows: platforms[0] = True
         elif linux:  platforms[1] = True
         elif macos:  platforms[2] = True
@@ -222,6 +226,7 @@ class BuildConfig:
         elif raspi: platforms[5] = True
         elif oclea: platforms[6] = True
         elif mips: platforms[7] = True
+        elif imx8mp: platforms[8] = True
 
         def get_new_value(old_value, enable, type=None):
             if old_value and not enable:
@@ -237,13 +242,14 @@ class BuildConfig:
         self.raspi   = get_new_value(self.raspi,   platforms[5])
         self.oclea   = get_new_value(self.oclea,   platforms[6], Oclea)
         self.mips    = get_new_value(self.mips,    platforms[7], Mips)
+        self.imx8mp    = get_new_value(self.imx8mp,    platforms[8], Imx8mp)
         return True
 
 
     def is_platform_set(self):
         return self.windows or self.linux or self.macos \
             or self.ios or self.android or self.raspi \
-            or self.oclea or self.mips
+            or self.oclea or self.mips or self.imx8mp
 
 
     def check_platform(self):
@@ -260,6 +266,7 @@ class BuildConfig:
             elif self.android:    self.set_arch('arm64')
             elif self.raspi:      self.set_arch('arm')
             elif self.oclea:      self.set_arch('arm64')
+            elif self.imx8mp:      self.set_arch('arm64')
             elif self.mips:       self.set_arch(self.mips.mips_arch)
             else:
                 if System.aarch64:  self.set_arch('arm64')
@@ -300,6 +307,9 @@ class BuildConfig:
         elif self.oclea:
             # TODO: OCLEA version
             self.distro = (self.name(), 0, 0)
+        elif self.imx8mp:
+            # TODO: IMX8MP version
+            self.distro = (self.name(), 0, 0)            
         elif self.mips:
             # TODO: MIPS version
             self.distro = (self.name(), self.mips.toolchain_major, self.mips.toolchain_minor)
@@ -336,6 +346,7 @@ class BuildConfig:
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
         if self.oclea:   return 'oclea'
+        if self.imx8mp:   return 'imx8mp'
         if self.mips:    return self.mips.name
         return 'build'
 
@@ -358,6 +369,7 @@ class BuildConfig:
     def build_dir_raspi32(self): return 'raspi'
     def build_dir_oclea64(self): return 'oclea'
     def build_dir_mips(self): return 'mips'
+    def build_dir_imx8mp(self): return 'imx8mp'
     def build_dir_default(self): return 'build'
 
 
@@ -388,6 +400,7 @@ class BuildConfig:
             return self.build_dir_android32()
         if self.raspi: return self.build_dir_raspi32()  # Only 32-bit raspi
         if self.oclea: return self.build_dir_oclea64()  # Only 64-bit oclea aarch64 (arm64)
+        if self.imx8mp: return self.build_dir_imx8mp()  # Only 64-bit oclea aarch64 (arm64)
         if self.mips: return self.build_dir_mips()
 
         return self.build_dir_default()
@@ -501,6 +514,10 @@ class BuildConfig:
             self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
             self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+        elif self.imx8mp:
+            self.cc_path  = f'{self.imx8mp.bin()}aarch64-poky-linux-gcc'
+            self.cxx_path = f'{self.imx8mp.bin()}aarch64-poky-linux-g++'
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)            
         elif self.mips:
             self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
             self.cxx_path = f'{self.mips.compiler_prefix()}g++'
@@ -542,7 +559,7 @@ class BuildConfig:
             return self.macos_version
         elif self.ios:
             return self.ios_version
-        elif self.linux or self.raspi or self.oclea or self.mips or self.android:
+        elif self.linux or self.raspi or self.oclea or self.imx8mp or self.mips or self.android:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
             major_version, minor_version = version_parts[0], version_parts[1]
@@ -626,6 +643,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         """
         self.oclea.init_toolchain(toolchain_dir, toolchain_file)
 
+    def set_imx8mp_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        self.imx8mp.init_toolchain(toolchain_dir, toolchain_file)
 
     def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):
         """
