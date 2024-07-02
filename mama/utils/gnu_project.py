@@ -79,6 +79,8 @@ class GnuProject:
             self.host = 'aarch64-oclea-linux'
         elif self.target.config.xilinx:
             self.host = 'aarch64-xilinx-linux'
+        elif self.target.config.imx8mp:
+            self.host = 'aarch64-poky-linux'
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
@@ -216,10 +218,8 @@ class GnuProject:
 
 
     def configure_env(self):
-        if self.target.oclea:
+        if self.target.oclea or self.target.xilinx or self.target.imx8mp:
             self.target.oclea.get_gnu_build_env(self.extra_env)
-        elif self.target.xilinx:
-            self.target.xilinx.get_gnu_build_env(self.extra_env)
         else:
             # GNU projects need to be configured with the CC, CXX and AR environment variables set
             cc_prefix = self.target.get_cc_prefix()

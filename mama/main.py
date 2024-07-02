@@ -273,6 +273,7 @@ def main():
     if config.android: config.android.android_home()
     if config.raspi:   config.raspi_bin()
     if config.oclea:   config.oclea.init_default()
+    if config.imx8mp:  config.imx8mp.init_default()
     if config.mips:    config.mips.init_default()
     if config.xilinx:  config.xilinx.init_default()
 
