@@ -177,9 +177,11 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
 
     def get_cmake_build_opts(self, target: BuildTarget) -> list:
+        arch = 'ARM64' if self.config.is_target_arch_arm64() else 'arm'
         opts = [
             'CMAKE_SYSTEM_NAME=Android',
             f'ANDROID_ABI={self.android_abi()}',
+            f'ANDROID_ARCH={arch}',
             'ANDROID_ARM_NEON=TRUE',
             f'ANDROID_NDK="{self.android_ndk()}"',
             f'ANDROID_STL={self.android_ndk_stl}',
