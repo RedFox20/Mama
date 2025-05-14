@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mama"
 version = "0.9.13"
 description = "A modular C++ build tool even your mama can use"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name="Jorma Rebane", email="jorma.rebane@gmail.com" },
 ]
@@ -31,7 +31,6 @@ classifiers = [
     "Topic :: Software Development :: Build Tools",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.6",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
 
