@@ -52,40 +52,59 @@ class Oclea:
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        if toolchain_file and not os.path.exists(toolchain_file):
-            raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
-        if toolchain_dir and not os.path.exists(toolchain_dir):
-            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
         if not System.linux:
             raise RuntimeError('Oclea only supported on Linux')
 
         self.toolchain_file = toolchain_file
         paths = []
         if toolchain_dir: paths += [ toolchain_dir ]
-        paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain' ]
+        paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain', '/opt/oclea/1.0' ]
         self.append_env_path(paths, 'OCLEA_HOME')
         self.append_env_path(paths, 'OCLEA_SDK')
-        if System.linux: paths += ['/usr/bin/oclea', '/usr/local/bin/oclea']
+        if System.linux: paths += ['/usr/bin/oclea', 
+                                   '/usr/local/bin/oclea', 
+                                   '/opt/oclea/1.0']
+        
         compiler = 'usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc'
         for oclea_path in paths:
-            sdk_path = os.path.abspath(f'{oclea_path}/x86_64-ocleasdk-linux')
-            sys_path = os.path.abspath(f'{oclea_path}/aarch64-oclea-linux')
-            if os.path.exists(f'{sdk_path}/{compiler}') and os.path.exists(sys_path):
-                self.sdk_path = sdk_path
-                self.sysroot_path = sys_path
-                self.compilers = f'{sdk_path}/usr/bin/aarch64-oclea-linux/'
-                self.include_paths = [ f'{sdk_path}/usr/include' ]
+            # Check for legacy structure
+            sdk_path_legacy = os.path.abspath(f'{oclea_path}/x86_64-ocleasdk-linux')
+            sys_path_legacy = os.path.abspath(f'{oclea_path}/aarch64-oclea-linux')
+            
+            # Check for Yocto structure
+            sdk_path_yocto = os.path.abspath(f'{oclea_path}/sysroots/x86_64-ocleasdk-linux')
+            sys_path_yocto = os.path.abspath(f'{oclea_path}/sysroots/cortexa53-oclea-linux')
+            
+            if os.path.exists(f'{sdk_path_legacy}/{compiler}') and os.path.exists(sys_path_legacy):
+                self.sdk_path = sdk_path_legacy
+                self.sysroot_path = sys_path_legacy
+            elif os.path.exists(f'{sdk_path_yocto}/{compiler}') and os.path.exists(sys_path_yocto):
+                self.sdk_path = sdk_path_yocto
+                self.sysroot_path = sys_path_yocto
+                oclea_root = os.path.dirname(os.path.dirname(self.sdk_path))
+                self.toolchain_file = f'{oclea_root}/aarch64_oclea_toolchain.cmake'
+                self.toolchain_dir = oclea_root
+            if self.sdk_path and self.sysroot_path:
+                self.compilers = f'{self.sdk_path}/usr/bin/aarch64-oclea-linux/'
+                self.include_paths = [ f'{self.sdk_path}/usr/include' ]
                 cc = f'{self.compilers}aarch64-oclea-linux-gcc'
                 self.version = self.config.get_gcc_clang_fullversion(cc, dumpfullversion=True)
-                if self.config.print:
-                    console(f'Found Oclea TOOLS: {self.compilers}')
-                    console(f'      Oclea SDK path: {self.sdk_path}')
-                    console(f'      Oclea sys path: {self.sysroot_path}')
                 return # success
-        raise EnvironmentError(f'''No Oclea toolchain compilers detected! 
-Default search paths: {paths} 
-Define env OCLEA_HOME with path to Oclea tools.''')
-
+            
+        if toolchain_file and not os.path.exists(toolchain_file):
+            raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
+        if toolchain_dir and not os.path.exists(toolchain_dir):
+            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
+        
+        if os.path.exists(self.compilers):
+            if self.config.print:
+                console(f'Found Oclea TOOLS: {self.compilers}')
+                console(f'      Oclea SDK path: {self.sdk_path}')
+                console(f'      Oclea sys path: {self.sysroot_path}')
+        else:
+            raise EnvironmentError(f'''No Oclea toolchain compilers detected! 
+    Default search paths: {paths} 
+    Define env OCLEA_HOME with path to Oclea tools.''')
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
         add_flag('-march', 'armv8-a')
