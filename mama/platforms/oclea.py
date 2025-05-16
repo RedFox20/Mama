@@ -8,6 +8,7 @@ class Oclea:
         ## Oclea CV25/CVXX
         self.config = config
         self.toolchain_file = None  ## for Docker based build, this is the aarch64_toolchain.cmake
+        self.toolchain_dir = None
         self.compilers = ''  ## Oclea g++, gcc and ld
         self.sdk_path = ''  ## Path to Oclea SDK libs root
         self.sysroot_path = ''  ## Path to Oclea system libs root
@@ -55,7 +56,6 @@ class Oclea:
         if not System.linux:
             raise RuntimeError('Oclea only supported on Linux')
 
-        self.toolchain_file = toolchain_file
         paths = []
         if toolchain_dir: paths += [ toolchain_dir ]
         paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain', '/opt/oclea/1.0' ]
@@ -78,6 +78,8 @@ class Oclea:
             if os.path.exists(f'{sdk_path_legacy}/{compiler}') and os.path.exists(sys_path_legacy):
                 self.sdk_path = sdk_path_legacy
                 self.sysroot_path = sys_path_legacy
+                self.toolchain_file = toolchain_file
+                self.toolchain_dir = toolchain_dir
             elif os.path.exists(f'{sdk_path_yocto}/{compiler}') and os.path.exists(sys_path_yocto):
                 self.sdk_path = sdk_path_yocto
                 self.sysroot_path = sys_path_yocto
@@ -91,10 +93,10 @@ class Oclea:
                 self.version = self.config.get_gcc_clang_fullversion(cc, dumpfullversion=True)
                 return # success
             
-        if toolchain_file and not os.path.exists(toolchain_file):
-            raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
-        if toolchain_dir and not os.path.exists(toolchain_dir):
-            raise FileNotFoundError(f'Toolchain directory not found: {toolchain_dir}')
+        if self.toolchain_file and not os.path.exists(self.toolchain_file):
+            raise FileNotFoundError(f'Toolchain file not found: {self.toolchain_file}')
+        if self.toolchain_dir and not os.path.exists(self.toolchain_dir):
+            raise FileNotFoundError(f'Toolchain directory not found: {self.toolchain_dir}')
         
         if os.path.exists(self.compilers):
             if self.config.print:
