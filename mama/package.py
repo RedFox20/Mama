@@ -39,11 +39,14 @@ def get_lib_basename(lib: str|tuple):
 
 
 def get_unique_libnames(items: list):
-    unique = dict()
+    added = set() # to track already added items
+    unique = list() # it must be a list to preserve order of items
     for item in items:
         basename = get_lib_basename(item)
-        unique[basename] = item
-    return list(unique.values())
+        if not basename in added:
+            added.add(basename)
+            unique.append(item)
+    return unique
 
 
 def export_include(target: BuildTarget, include_path: str, build_dir: bool):
@@ -141,6 +144,10 @@ def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_
     root_deploy = root_path + '/deploy/'
     libs = [l for l in libs if not l.startswith(root_deploy)]
 
+    target.exported_libs += libs
+    target.exported_libs = get_unique_libnames(target.exported_libs)
+
+    # ordering needs to be applied for ALL exported libs, incase they were added in multiple steps
     if order:
         def lib_index(lib):
             for i in range(len(order)):
@@ -148,9 +155,8 @@ def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_
             return len(order)  # if this lib name does not match, put it at the end of the list
         def sort_key(lib):
             return lib_index(lib)
-        libs.sort(key=sort_key)
-    target.exported_libs += libs
-    target.exported_libs = get_unique_libnames(target.exported_libs)
+        target.exported_libs.sort(key=sort_key)
+
     return len(target.exported_libs) > 0
 
 

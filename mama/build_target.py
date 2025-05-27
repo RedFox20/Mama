@@ -490,7 +490,7 @@ class BuildTarget:
         """
         if src_dir and build_dir:
             build_dir = False
-        return package.export_libs(self, path, pattern_substrings, build_dir, order)
+        return package.export_libs(self, path, pattern_substrings, build_dir=build_dir, order=order)
 
 
     def export_asset(self, asset, category=None, src_dir=True, build_dir=False):
