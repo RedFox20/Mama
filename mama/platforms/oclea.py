@@ -59,7 +59,7 @@ class Oclea:
         paths = []
         if toolchain_dir: paths += [ toolchain_dir ]
         # this is the primary search path for Linux cross-builds:
-        if System.linux: paths += '/opt/oclea/1.0'
+        if System.linux: paths += [ '/opt/oclea/1.0' ]
         # these are generic ones:
         paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain' ]
         self.append_env_path(paths, 'OCLEA_HOME')
