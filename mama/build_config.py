@@ -646,7 +646,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         Sets the toolchain dir where these subdirs exist:
             aarch64-oclea-linux/
             x86_64-ocleasdk-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_file`
+        And optionally also sets the CMake toolchain file via `toolchain_file`.
+        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
         """
         self.oclea.init_toolchain(toolchain_dir, toolchain_file)
 
