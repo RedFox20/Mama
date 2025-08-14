@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mama"
-version = "0.9.18"
+dynamic = ["version"]
 description = "A modular C++ build tool even your mama can use"
 license = "MIT"
 authors = [
@@ -40,6 +40,9 @@ classifiers = [
 
 [project.scripts]
 mama = "mama.main:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "mama._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

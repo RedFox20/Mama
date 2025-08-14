@@ -10,6 +10,7 @@ from .build_target import BuildTarget
 from .build_dependency import BuildDependency
 from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps, get_deps_that_depend_on_target
 from .init_project import mama_init_project
+from ._version import __version__
 
 def print_title():
     console(f'========= Mama Build Tool ==========')
@@ -37,6 +38,7 @@ def print_usage():
     console('    add        - add new dependency')
     console('    new        - create new mama build file')
     console('    open=<tgt> - open a project file')
+    console('    version    - shows this package version and exits')
     console('    help       - shows this help list')
     console('  install utils:')
     console('    install-clang6  - configures and installs clang6 for linux')
@@ -183,6 +185,9 @@ def main():
         print_title()
         print_usage()
         exit(-1)
+    if 'version' in sys.argv:
+        console(f'MamaBuild version {__version__}')
+        exit(0)
 
     config = BuildConfig(sys.argv[1:])
     if config.print:
