@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
 from typing import Callable
-from mama.utils.system import System, console, get_colored_text
+from mama.utils.system import System, console, Color, get_colored_text
 
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ class Oclea:
             self.toolchain_file = toolchain_file
             return True
         else:
-            console(f'No toolchain file found at: {toolchain_file}', color='red')
+            console(f'No toolchain file found at: {toolchain_file}', color=Color.RED)
             return False
 
 
@@ -153,7 +153,7 @@ class Oclea:
             ]
         cc_prefix = f'{self.bin()}aarch64-oclea-linux-'
         if self.config.print:
-            console(f'Toolchain not specified, using Oclea compilers from: {self.bin()}', color='yellow')
+            console(f'Toolchain not specified, using Oclea compilers from: {self.bin()}', color=Color.YELLOW)
 
         # NOTE: CMAKE_C_COMPILER and CMAKE_CXX_COMPILER is already configured
         #       by get_preferred_compiler_paths()

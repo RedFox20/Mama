@@ -4,7 +4,7 @@ from mama.platforms.oclea import Oclea
 from mama.platforms.mips import Mips
 from mama.platforms.android import Android
 import mama.util as util
-from .utils.system import System, console
+from .utils.system import System, console, Color
 from .utils.sub_process import execute, execute_piped
 
 if System.linux:
@@ -324,7 +324,7 @@ class BuildConfig:
                 minor = int(dist['version_parts']['minor'])
                 self.distro = (dist['id'], major, minor)
             except Exception as err:
-                console(f'Failed to parse linux distro; falling back to Ubuntu 16.04 LTS: {err}', color='red')
+                console(f'Failed to parse linux distro; falling back to Ubuntu 16.04 LTS: {err}', color=Color.RED)
                 self.distro = ('ubuntu', 16, 4)
         else:
             self.distro = (platform.system().lower(), int(platform.release()), 0)
@@ -498,7 +498,7 @@ class BuildConfig:
         if self.cc_path and self.cxx_path and self.cxx_version:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
-        # no preferred cc path for MSVC and Android
+        # no preferred cc path for MSVC
         if self.windows:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
@@ -520,13 +520,13 @@ class BuildConfig:
             self.cxx_path = f'{self.mips.compiler_prefix()}g++'
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.clang:
-            suffixes = ['-12','-11','-10','-9','-8','-7','-6','']
+            suffixes = ['-20','-19','-18','-17','-16','-15','-14','-13','-12','-11','-10','-9','-8','-7','-6','']
             self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, dumpfullversion=False)
             self.cc_path = f'{self.clang_path}clang{suffix}'
             self.cxx_path = f'{self.clang_path}clang++{suffix}'
             self.cxx_version = ver
         elif self.gcc:
-            suffixes = ['-11','-10','-9','-8','-7','-6','']
+            suffixes = ['-15','-14','-13','-12','-11','-10','-9','-8','-7','-6','']
             self.gcc_path, suffix, ver = self.find_compiler_root(self.gcc_path, 'g++', suffixes, dumpfullversion=True)
             self.cc_path = f'{self.gcc_path}gcc{suffix}'
             self.cxx_path = f'{self.gcc_path}g++{suffix}'

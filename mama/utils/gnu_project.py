@@ -4,7 +4,7 @@ import os
 import shlex
 import mama.util
 import mama.utils.sub_process as proc
-from mama.utils.system import console
+from mama.utils.system import console, Color
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget
@@ -182,7 +182,7 @@ class GnuProject:
 
         build_root = self.target.build_dir()
         if self.git:
-            console(f'>>> Cloning {source} from {self.git}', color='green')
+            console(f'>>> Cloning {source} from {self.git}', color=Color.GREEN)
             if os.system(f'git clone {self.git} {source}') != 0:
                 raise Exception(f'Failed to clone {self.git} to {source}')
         else:
@@ -192,7 +192,7 @@ class GnuProject:
             except Exception as e:
                 raise Exception(f'Failed to download {url}: {e}')
 
-            console(f'>>> Extracting to {source}', color='green')
+            console(f'>>> Extracting to {source}', color=Color.GREEN)
             os.makedirs(source, exist_ok=True)
             if local_file.endswith('.tar.xz') \
                 or local_file.endswith('.tar.gz') \
@@ -202,7 +202,7 @@ class GnuProject:
             elif local_file.endswith('.zip'):
                 mama.util.unzip(local_file, source)
             else:
-                console(f'>>> ERROR: Unknown archive type: {local_file}', color='red')
+                console(f'>>> ERROR: Unknown archive type: {local_file}', color=Color.RED)
 
         # final check if the configure file exists
         if autogen_file:
@@ -245,7 +245,7 @@ class GnuProject:
         Only configures the project for building by generating the Makefile
             - options: additional options to pass to the configure script
         """
-        console(f'>>> Configuring {self.name}', color='green')
+        console(f'>>> Configuring {self.name}', color=Color.GREEN)
         self.configure_env()
 
         if self.autogen:
@@ -268,7 +268,7 @@ class GnuProject:
             configure = f'./configure {args} {prefix}'
 
         self.run(f'{configure} {options}')
-        console(f'>>> Configured {self.name}', color='green')
+        console(f'>>> Configured {self.name}', color=Color.GREEN)
 
 
     def _get_make_opts(self, opts, multithreaded=False):
@@ -287,20 +287,20 @@ class GnuProject:
             - multithreaded: if true, will use the -j option to build with multiple threads
         """
         make_opts = self._get_make_opts(opts, multithreaded)
-        console(f'>>> Make {self.name} {make_opts}', color='green')
+        console(f'>>> Make {self.name} {make_opts}', color=Color.GREEN)
         self.configure_env()
         self.run(f'make {make_opts}')
-        console(f'>>> Made {self.name} {make_opts}', color='green')
+        console(f'>>> Made {self.name} {make_opts}', color=Color.GREEN)
 
 
     def install(self, no_prefix=False):
         """ Only installs the project """
-        console(f'>>> Installing {self.name}', color='green')
+        console(f'>>> Installing {self.name}', color=Color.GREEN)
         self.configure_env()
         prefix = '' if no_prefix else f'PREFIX={self.install_dir()}'
         all_opts = self._get_make_opts(prefix, multithreaded=False)
         self.run(f'make {all_opts} install')
-        console(f'>>> Installed {self.name}', color='green')
+        console(f'>>> Installed {self.name}', color=Color.GREEN)
         return self.install_dir()
 
 
@@ -314,7 +314,7 @@ class GnuProject:
         project_dir = self.source_dir()
         autoconf_makefile = f'{project_dir}/Makefile' if self.configure_command == 'configure' else None
         try:
-            console(f'>>>>>> BUILD {self.name} <<<<<<', color='green')
+            console(f'>>>>>> BUILD {self.name} <<<<<<', color=Color.GREEN)
             self.checkout_code()
 
             if not autoconf_makefile: # if not autoconf then always run the configure step
@@ -326,7 +326,7 @@ class GnuProject:
             if install:
                 self.install()
         except:
-            console(f'>>> ERROR: Failed to build {self.name}', color='red')
+            console(f'>>> ERROR: Failed to build {self.name}', color=Color.RED)
             # with autoconf projects, delete the makefile so that it will be regenerated
             #if autoconf_makefile and os.path.exists(autoconf_makefile):
             #    os.remove(autoconf_makefile)
@@ -345,7 +345,7 @@ class GnuProject:
         """ Copies a file or symlink preserving their attributes and relative symlinks """
         if os.path.islink(src_file):
             link = os.readlink(src_file)
-            #console(f'link: {dst_file} -> {link}', color='yellow')
+            #console(f'link: {dst_file} -> {link}', color=Color.YELLOW)
             os.remove(dst_file)
             os.symlink(link, dst_file)
         else:
@@ -379,7 +379,7 @@ class GnuProject:
             self.copy_file_or_link(src_path, dest_path)
         if not os.path.exists(dest_path):
             raise Exception(f'Failed to deploy {src_path} to {dest_path}')
-        console(f'>>> Deployed {src_path} to {dest_path}', color='green')
+        console(f'>>> Deployed {src_path} to {dest_path}', color=Color.GREEN)
 
 
     def deploy_dir(self, src_dir, dest_dir, strip=False):
@@ -408,9 +408,9 @@ class GnuProject:
                 count += 1
 
         if count > 0:
-            console(f'>>> Deployed {src_dir} to {dest_dir}', color='green')
+            console(f'>>> Deployed {src_dir} to {dest_dir}', color=Color.GREEN)
         else:
-            console(f'>>> No files to deploy from {src_dir}', color='yellow')
+            console(f'>>> No files to deploy from {src_dir}', color=Color.YELLOW)
 
 
 ######################################################################################

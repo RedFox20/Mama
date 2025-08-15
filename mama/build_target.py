@@ -8,7 +8,7 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console
+from .utils.system import System, console, Color
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -1310,7 +1310,7 @@ class BuildTarget:
             e_config = util.get_time_str(config_stop - config_start)
             e_build = util.get_time_str(build_stop - build_start)
             e_total = util.get_time_str(build_stop - config_start)
-            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config} build {e_build} total {e_total}", color='green')
+            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config} build {e_build} total {e_total}", color=Color.GREEN)
 
 
     def is_test_target(self):

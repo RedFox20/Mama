@@ -45,27 +45,46 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     target.dep.save_enabled_coverage()
 
 
+def _set_compiler_paths(target:BuildTarget, opt:list[str]):
+    """
+    Configures compilers for CMake, this needs to be done every time to prevent Ninja
+    or other backends incorrectly picking wrong compilers.
+    """
+    cc, cxx, ver = target.config.get_preferred_compiler_paths()
+    if cc:
+        opt.append(f'CMAKE_C_COMPILER={cc}')
+        if 'CC' in os.environ:
+            del os.environ['CC']  # remove CC env var to avoid conflicts, since CMake prioritizes this option
+        if target.enable_cxx_build:
+            opt.append(f'CMAKE_CXX_COMPILER={cxx}')
+            if 'CXX' in os.environ:
+                del os.environ['CXX']  # remove CXX env var to avoid conflicts, since CMake prioritizes this option
+    elif 'CC' in os.environ or 'CXX' in os.environ:
+        console('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set', color=Color.YELLOW)
+
+
+def _opts_to_defines(opts:list[str]) -> str:
+    opts_defines = ''
+    for opt in opts: opts_defines += '-D'+opt+' '
+    return opts_defines
+
+
 def run_config(target:BuildTarget):
     if not target.config.update and os.path.exists(target.build_dir('CMakeCache.txt')):
         if target.config.verbose:
             console('Not running CMake configure because CMakeCache.txt exists and `update` was not specified')
         return
 
-    def get_flags():
-        flags = ''
-        options = target.cmake_opts + _default_options(target) + target.get_product_defines()
-        for opt in options: flags += '-D'+opt+' '
-        return flags
-
     type_flags = f'-DCMAKE_BUILD_TYPE={target.cmake_build_type}'
-    cmake_flags = get_flags()
+    options = target.cmake_opts + _default_options(target) + target.get_product_defines()
+    cmake_defines = _opts_to_defines(options)
     generator = _generator(target)
     src_dir = os.path.dirname(target.dep.cmakelists_path())
     src_dir = src_dir if src_dir else target.source_dir()
     install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
-    cmd = f'cmake {generator} {type_flags} {cmake_flags} {install_prefix} "{src_dir}"'
+    cmd = f'cmake {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
     _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
@@ -79,6 +98,8 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)
+    opt = []
+    _set_compiler_paths(target, opt) # only running this to clean the env vars
     cmd = f'cmake --build {build_dir} {flags} {extraflags}'
     if target.config.verbose:
         console(cmd, color=Color.GREEN)
@@ -117,16 +138,6 @@ def _make_program(target:BuildTarget):
     if target.enable_unix_make: return ''
     if target.enable_ninja_build: return config.ninja_path
     return ''
-
-
-def _custom_compilers(target:BuildTarget):
-    compilers = []
-    cc, cxx, ver = target.config.get_preferred_compiler_paths()
-    if cc:
-        compilers.append(f'CMAKE_C_COMPILER={cc}')
-        if target.enable_cxx_build:
-            compilers.append(f'CMAKE_CXX_COMPILER={cxx}')
-    return compilers
 
 
 def _default_options(target:BuildTarget):
@@ -223,8 +234,7 @@ def _default_options(target:BuildTarget):
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
     
-    if config.linux or config.raspi or config.oclea or config.mips:
-        opt += _custom_compilers(target)
+    _set_compiler_paths(target, opt)
     
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
