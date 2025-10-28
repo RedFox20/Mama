@@ -295,6 +295,8 @@ class BuildConfig:
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
             if self.oclea and self.arch != 'arm64':
                 raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
+            if self.xilinx and self.arch != 'arm64':
+                raise RuntimeError(f'Unsupported arch={self.arch} on Xilinx platform! Supported=arm64')
             if self.mips and self.arch not in self.mips.supported_arches:
                 raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
 
@@ -319,6 +321,9 @@ class BuildConfig:
             self.distro = (self.name(), 0, 0)
         elif self.oclea:
             # TODO: OCLEA version
+            self.distro = (self.name(), 0, 0)
+        elif self.xilinx:
+            # TODO: XILINX version
             self.distro = (self.name(), 0, 0)
         elif self.mips:
             # TODO: MIPS version
@@ -569,7 +574,7 @@ class BuildConfig:
             return self.macos_version
         elif self.ios:
             return self.ios_version
-        elif self.linux or self.raspi or self.oclea or self.mips or self.android:
+        elif self.linux or self.raspi or self.oclea or self.xilinx or self.mips or self.android:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
             major_version, minor_version = version_parts[0], version_parts[1]

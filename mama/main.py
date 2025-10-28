@@ -274,6 +274,7 @@ def main():
     if config.raspi:   config.raspi_bin()
     if config.oclea:   config.oclea.init_default()
     if config.mips:    config.mips.init_default()
+    if config.xilinx:  config.xilinx.init_default()
 
     if config.verbose:
         chain = ' -> '.join([d.name for d in flat_deps_reverse])

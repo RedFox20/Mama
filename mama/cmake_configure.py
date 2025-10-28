@@ -126,6 +126,7 @@ def _generator(target:BuildTarget):
     if config.linux:              return '-G "Unix Makefiles"'
     if config.raspi:              return '-G "Unix Makefiles"'
     if config.oclea:              return '-G "Unix Makefiles"'
+    if config.xilinx:             return '-G "Unix Makefiles"'
     if config.mips:               return '-G "Unix Makefiles"'
     if config.ios:                return '-G "Xcode"'
     if config.macos:              return '-G "Xcode"'
@@ -195,6 +196,8 @@ def _default_options(target:BuildTarget):
             add_flag(f'-I {path}')
     elif config.oclea:
         config.oclea.get_cxx_flags(add_flag)
+    elif config.xilinx:
+        config.xilinx.get_cxx_flags(add_flag)
     elif config.mips:
         config.mips.get_cxx_flags(add_flag)
 

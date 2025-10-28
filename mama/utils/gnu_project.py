@@ -77,6 +77,8 @@ class GnuProject:
             self.host = 'mipsel-linux-gnu'
         elif self.target.config.oclea:
             self.host = 'aarch64-oclea-linux'
+        elif self.target.config.xilinx:
+            self.host = 'aarch64-xilinx-linux'
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
@@ -216,6 +218,8 @@ class GnuProject:
     def configure_env(self):
         if self.target.oclea:
             self.target.oclea.get_gnu_build_env(self.extra_env)
+        elif self.target.xilinx:
+            self.target.xilinx.get_gnu_build_env(self.extra_env)
         else:
             # GNU projects need to be configured with the CC, CXX and AR environment variables set
             cc_prefix = self.target.get_cc_prefix()
