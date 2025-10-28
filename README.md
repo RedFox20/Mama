@@ -23,7 +23,7 @@ Custom build systems are also supported. For additional documentation explore: [
 
 ## Who is this FOR?
 Anyone who develops cross-platform C++ libraries or applications which
-target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, MIPS].
+target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, Xilinx, MIPS].
 And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
@@ -39,6 +39,7 @@ Your builds will not rely on hard to setup system packages, all you need to do i
 - Raspberry (32-bit armv7) via env RASPI_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain()
 - MIPS (mips mipsel, mips64, mips64el) via config.set_mips_toolchain()
+- Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
 
 ## Who is this NOT for?
 Single platform projects with platform specific build configuration and system wide dependency management

@@ -107,6 +107,7 @@ class BuildTarget:
         self.android = self.config.android
         self.raspi   = self.config.raspi
         self.oclea   = self.config.oclea
+        self.xilinx  = self.config.xilinx
         self.mips    = self.config.mips
 
 
@@ -751,7 +752,7 @@ class BuildTarget:
 
     def enable_cxx20(self):
         """Enable C++20 standard"""
-        if self.mips or self.raspi or self.oclea:
+        if self.mips or self.raspi or self.oclea or self.xilinx:
             self._set_cxx_std('c++2a') # older toolchains typically need c++2a
         else:
             self._set_cxx_std('c++20')
