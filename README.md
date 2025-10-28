@@ -39,6 +39,7 @@ Your builds will not rely on hard to setup system packages, all you need to do i
 - Raspberry (32-bit armv7) via env RASPI_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain()
 - MIPS (mips mipsel, mips64, mips64el) via config.set_mips_toolchain()
+- Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
 
 ## Who is this NOT for?
 Single platform projects with platform specific build configuration and system wide dependency management

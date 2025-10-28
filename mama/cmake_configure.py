@@ -279,6 +279,8 @@ def _default_options(target:BuildTarget):
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
     elif config.oclea:
         opt += config.oclea.get_cmake_build_opts()
+    elif config.xilinx:
+        opt += config.xilinx.get_cmake_build_opts()
     elif config.mips:
         opt += config.mips.get_cmake_build_opts()
     elif config.macos:
