@@ -23,7 +23,7 @@ Custom build systems are also supported. For additional documentation explore: [
 
 ## Who is this FOR?
 Anyone who develops cross-platform C++ libraries or applications which
-target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, MIPS].
+target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, Xilinx, MIPS].
 And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
