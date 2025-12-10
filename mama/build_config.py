@@ -716,7 +716,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         
         paths = []
         vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-        for version in [ '2022' ]: # new 64-bit VS
+        for version in [ '18', '2022' ]: # new 64-bit VS
             for variant in vs_variants:
                 paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\{version}\\{variant}')
         for version in [ '2019', '2017' ]:
@@ -759,6 +759,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         
         path = self.get_visualstudio_path()
         if '\\2022\\' in path: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
+        elif '\\18\\' in path: self._visualstudio_cmake_id = 'Visual Studio 18 2026'
         elif '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
         else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
         
