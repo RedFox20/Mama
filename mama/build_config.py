@@ -165,7 +165,7 @@ class BuildConfig:
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
             elif arg == 'arm64':   self.set_arch('arm64')
-            elif arg == 'aarch64': 
+            elif arg == 'aarch64':
                 console('warning: aarch64 is the same as arm64, setting to arm64')
                 self.set_arch('arm64')
             elif arg == 'clang':
@@ -442,7 +442,7 @@ class BuildConfig:
             if self.print:
                 console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler flag passed.')
         else:
-            if self.print: 
+            if self.print:
                 console(f'Target {target_name} requested Clang but compiler already set to GCC.')
 
 
@@ -461,7 +461,7 @@ class BuildConfig:
 
     ##
     # Enables fortran compiler
-    # @path Optional custom path or command for the Fortran compiler 
+    # @path Optional custom path or command for the Fortran compiler
     #
     def enable_fortran(self, path=''):
         if self.fortran: return
@@ -474,6 +474,12 @@ class BuildConfig:
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
+
+        # Look in PATH in addition to hardcoded paths
+        pathDirs = os.getenv('PATH').split(":")
+        pathDirs = list(map(lambda p: p if p.endswith("/") else p + "/", pathDirs)) # Add slash at end if missing
+        roots += pathDirs
+
         candidates = []
         for root in roots:
             for suffix in suffixes:
@@ -587,11 +593,11 @@ class BuildConfig:
 
     def find_ninja_build(self):
         ninja_executables = [
-            os.getenv('NINJA'), 
+            os.getenv('NINJA'),
             util.find_executable_from_system('ninja'),
             '/Projects/ninja.exe'
         ]
-        for ninja_exe in ninja_executables:        
+        for ninja_exe in ninja_executables:
             if ninja_exe and os.path.isfile(ninja_exe):
                 if self.verbose: console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
@@ -622,7 +628,7 @@ class BuildConfig:
         if not self.raspi_compilers: self.init_raspi_path()
         return self.raspi_system
 
-    
+
     def raspi_includes(self):
         if not self.raspi_compilers: self.init_raspi_path()
         return self.raspi_include_paths
@@ -646,8 +652,8 @@ class BuildConfig:
                 self.raspi_include_paths = [f'{raspi_path}/arm-linux-gnueabihf/lib/include']
                 if self.print: console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
                 return
-        raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected! 
-Default search paths: {paths} 
+        raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected!
+Default search paths: {paths}
 Define env RASPI_HOME with path to Raspberry tools.''')
 
 
@@ -693,7 +699,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         paths = []
         if System.linux:
             paths += [util.find_executable_from_system('gfortran')]
-        
+
         for fortran_path in paths:
             if fortran_path and os.path.exists(fortran_path):
                 if self.verbose: console(f'Found Fortran: {fortran_path}')
@@ -713,7 +719,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             self._visualstudio_path = vspath
             if self.verbose: console(f'Detected VisualStudio: {vspath}')
             return vspath
-        
+
         paths = []
         vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
         for version in [ '18', '2022' ]: # new 64-bit VS
@@ -756,13 +762,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def get_visualstudio_cmake_id(self):
         if self._visualstudio_cmake_id:
             return self._visualstudio_cmake_id
-        
+
         path = self.get_visualstudio_path()
         if '\\2022\\' in path: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
         elif '\\18\\' in path: self._visualstudio_cmake_id = 'Visual Studio 18 2026'
         elif '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
         else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
-        
+
         if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
         return self._visualstudio_cmake_id
 
@@ -770,13 +776,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def get_msbuild_path(self):
         if self._msbuild_path:
             return self._msbuild_path
-        
+
         paths = [ util.find_executable_from_system('msbuild') ]
         if System.windows:
             vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
             paths.append(f"{execute_piped(vswhere)}\\MSBuild\\Current\\Bin\\MSBuild.exe")
             paths.append(f"{execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
-            
+
             vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
             for variant in vs_variants:
                 paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
@@ -945,7 +951,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def has_target(self) -> bool:
         """ A target was specified from cmdline, eg 'all' or 'mypackage' """
         return self.target is not None and len(self.target) > 0
-    
+
     def no_target(self) -> bool:
         """ No target specified from cmdline """
         return self.target is None or len(self.target) == 0
