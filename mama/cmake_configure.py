@@ -84,7 +84,7 @@ def run_config(target:BuildTarget):
     install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
-    cmd = f'cmake {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
+    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
     _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
 
 
@@ -100,7 +100,7 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
     extraflags = _buildsys_flags(target)
     opt = []
     _set_compiler_paths(target, opt) # only running this to clean the env vars
-    cmd = f'cmake --build {build_dir} {flags} {extraflags}'
+    cmd = f'{target.cmake_command} --build {build_dir} {flags} {extraflags}'
     if target.config.verbose:
         console(cmd, color=Color.GREEN)
     status, output = execute_piped_echo(build_dir, cmd, echo=True)

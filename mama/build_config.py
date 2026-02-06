@@ -56,6 +56,8 @@ class BuildConfig:
         self.oclea : Oclea = None
         self.xilinx : Xilinx = None
         self.mips : Mips = None
+        # cmake customization
+        self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
         # compilers
         self.clang = True # prefer clang on linux
         self.gcc   = False
