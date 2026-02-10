@@ -37,11 +37,11 @@ class BuildTarget:
     Customization points:
     ```
     class MyProject(mama.BuildTarget):
-        
+
         workspace = 'build'
 
         def configure(self):
-            self.add_git('ReCpp', 
+            self.add_git('ReCpp',
                          'http://github.com/RedFox20/ReCpp.git')
 
         def configure(self):
@@ -128,9 +128,9 @@ class BuildTarget:
         """
         Returns the current source directory.
         ```
-            self.source_dir()                
+            self.source_dir()
             # --> C:/Projects/ReCpp
-            self.source_dir('lib/ReCpp.lib') 
+            self.source_dir('lib/ReCpp.lib')
             # --> C:/Projects/ReCpp/lib/ReCpp.lib
         ```
         """
@@ -142,7 +142,7 @@ class BuildTarget:
         """
         Returns the current build directory.
         ```
-            self.build_dir()                
+            self.build_dir()
             # --> C:/Projects/ReCpp/build/windows
             self.build_dir('lib/ReCpp.lib')
             # --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
@@ -200,12 +200,12 @@ class BuildTarget:
         return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
-    def add_git(self, name, git_url, git_branch='', git_tag='', mamafile=None, shallow=True, args=[]) -> BuildDependency:
+    def add_git(self, name, git_url, git_branch='', git_tag='', git_commit='', mamafile=None, shallow=True, args=[]) -> BuildDependency:
         """
         Add a remote GIT dependency.
         The dependency will be cloned and updated according to mamabuild.
         Use `mama update` to force update the git repositories.
-    
+
         If the remote GIT repository does not contain a `mamafile.py`, you will have to
         provide your own relative or absolute mamafile path.
 
@@ -215,13 +215,15 @@ class BuildTarget:
         ```
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git')
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git', git_branch='master')
-        self.add_git('opencv', 'https://github.com/opencv/opencv.git', 
+        self.add_git('opencv', 'https://github.com/opencv/opencv.git',
                      git_branch='3.4', mamafile='mama/opencv_cfg.py')
+        self.add_git('mylib', 'https://github.com/user/mylib.git',
+                     git_commit='4acd9052f27a459314651dd485ae8fa79a04d49d')
         ```
         """
         if self.dep.from_artifactory: # already loaded from artifactory?
             return self.get_dependency(name)
-        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, shallow, args))
+        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, shallow, git_commit, args))
 
 
     def add_artifactory_pkg(self, name, version='latest', fullname=None) -> BuildDependency:
@@ -300,7 +302,7 @@ class BuildTarget:
         Name of defines is given via `include_path` and `libs` params.
         `libfilters` does simple string matching; if nothing matches, the first export lib is chosen.
         ```
-        self.inject_products('libpng', 'zlib', 
+        self.inject_products('libpng', 'zlib',
                              'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY',
                              'zlibstatic')
         ```
@@ -325,7 +327,7 @@ class BuildTarget:
         Returns a list of injected defines:
         ```
             defines = self.get_product_defines()
-            # --> [ 'ZLIB_INCLUDE_DIR=path/to/zlib/include', 
+            # --> [ 'ZLIB_INCLUDE_DIR=path/to/zlib/include',
             #       'ZLIB_LIBRARY=path/to/lib/zlib.a', ... ]
         ```
         """
@@ -377,9 +379,9 @@ class BuildTarget:
         Manually add a build dependency to prevent unnecessary rebuilds.
 
         @note Normally the build dependency is detected from the packaged libraries.
-        
+
         if the dependency file does not exist, then the project will be rebuilt
-        
+
         if your project has no build dependencies, it will always be rebuilt, so make sure
         to add_build_dependency or export_lib
         ```
@@ -424,7 +426,7 @@ class BuildTarget:
     def export_include(self, include_path, build_dir=False):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient).
-        
+
         Export include path relative to source directory OR if build_dir=True, then relative to build directory.
         ```
             self.export_include('include')  # MyRepo/include
@@ -439,7 +441,7 @@ class BuildTarget:
     def export_includes(self, include_paths=[''], build_dir=False):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
-        
+
         Export include paths relative to source directory
         OR if build_dir=True, then relative to build directory
         Example:
@@ -454,7 +456,7 @@ class BuildTarget:
     def export_lib(self, relative_path, src_dir=False, build_dir=True):
         """
         CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
-        
+
         Export a specific lib relative to build directory
         OR if src_dir=True, then relative to source directory
         Example:
@@ -471,17 +473,17 @@ class BuildTarget:
     def export_libs(self, path = '.', pattern_substrings = ['.lib', '.a'], src_dir=False, build_dir=True, order=None):
         """
         CUSTOM PACKAGE LIBS (if self.default_package() is insufficient)
-        
+
         Export several libs relative to build directory using EXTENSION MATCHING
         OR if src_dir=True, then relative to source directory
-        
+
         Example:
         ```
         self.export_libs()                     # gather any .lib or .a from build dir
         self.export_libs('.', ['.dll', '.so']) # gather any .dll or .so from build dir
         self.export_libs('lib', src_dir=True)  # export everything from project/lib directory
         self.export_libs('external/lib')       # gather specific static libs from build dir
-        
+
         # export the libs in a particular order for Linux linker
         self.export_libs('lib', order=[
             'xphoto', 'calib3d', 'flann', 'core'
@@ -500,7 +502,7 @@ class BuildTarget:
         This can be later used when creating a deployment
 
         category -- (optional) Can be used for grouping the assets and flattening folder structure
-        
+
         Example:
         ```
         self.export_asset('extras/csharp/NanoMesh.cs')
@@ -521,12 +523,12 @@ class BuildTarget:
         This can be later used when creating a deployment
 
         category -- (optional) Can be used for grouping the assets and flattening folder structure
-        
+
         Example:
         ```
         self.export_assets('extras/csharp', ['.cs'])
             --> {deploy}/extras/csharp/NanoMesh.cs
-        
+
         self.export_assets('extras/csharp', ['.cs'], category='dotnet')
             --> {deploy}/dotnet/NanoMesh.cs
         ```
@@ -562,7 +564,7 @@ class BuildTarget:
         ```
             def build(self):
                 self.inject_env()       # prepare platform
-                self.my_custom_build()  # 
+                self.my_custom_build()  #
         ```
         """
         cmake.inject_env(self)
@@ -613,7 +615,7 @@ class BuildTarget:
         for flag in flags:
             if isinstance(flag, list): self.add_c_flags(*flag)
             else: self._add_dict_flag(self.cmake_cflags, flag)
-    
+
 
     def add_cl_flags(self, *flags):
         """
@@ -669,7 +671,7 @@ class BuildTarget:
         Adds linker flags depending on configuration platform.
         Supports many different usages: strings, list of strings, or space separate string.
         ```
-            self.add_platform_ld_flags(windows='/LTCG', 
+            self.add_platform_ld_flags(windows='/LTCG',
                                     ios=['-lobjc', '-rdynamic'],
                                     linux='-rdynamic -s')
         ```
@@ -802,7 +804,7 @@ class BuildTarget:
         Utility for copying files and folders
         ```
             # copies built .so into an android archive
-            self.copy(self.build_dir('libAwesome.so'), 
+            self.copy(self.build_dir('libAwesome.so'),
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
         - filter: can be a string or list of strings to filter files by suffix
@@ -858,7 +860,7 @@ class BuildTarget:
 
         unless_file_exists -- If the specified file exists, then download and unzip steps are skipped.
         ```
-            self.download_and_unzip('http://example.com/archive.zip', 
+            self.download_and_unzip('http://example.com/archive.zip',
                                     'bin', 'bin/unzipped_file.txt')
             # --> 'bin/'  on success
             # --> None    on failure
@@ -981,7 +983,7 @@ class BuildTarget:
         """
         Run any program in any directory. Can be used for custom tools.
         ```
-            self.run_program(self.source_dir('bin'), 
+            self.run_program(self.source_dir('bin'),
                              self.source_dir('bin/DbTool'))
         ```
         """
@@ -1018,7 +1020,7 @@ class BuildTarget:
         The gtest report is written to $src_dir/test/report.xml.
         Arguments
         - executable -- which executable to run
-        - args -- a string of options separated by spaces, 
+        - args -- a string of options separated by spaces,
           'gdb', 'nogdb' or gtest fixture/test partial name
         - src_dir -- [True] If true, then executable is relative to source directory.
         - gdb -- [False] If true, then run with gdb.
@@ -1132,8 +1134,8 @@ class BuildTarget:
             # custom export AGL as include from source folder
             self.export_includes(['AGL'])
             # custom export any .lib or .a from build folder
-            self.export_libs('.', ['.lib', '.a']) 
-            
+            self.export_libs('.', ['.lib', '.a'])
+
             if self.windows:
                 self.export_syslib('opengl32.lib')
 
@@ -1142,7 +1144,7 @@ class BuildTarget:
         ```
         """
         pass
-    
+
 
     def default_package(self):
         """
@@ -1234,7 +1236,7 @@ class BuildTarget:
             MyPackageName/libawesome.so
             MyPackageName/include/...
             MyPackageName/someassets/extra.txt
-        
+
         PAPA descriptor `papa.txt` format:
             P MyPackageName
             I include
@@ -1280,7 +1282,7 @@ class BuildTarget:
         """
         pass
 
-    
+
     ############################################
 
 
@@ -1501,4 +1503,3 @@ class BuildTarget:
 
 
 ######################################################################################
-        

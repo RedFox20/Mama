@@ -38,3 +38,4 @@ dist/
 
 mama/mama.spec
 mama.cmake
+packages/

@@ -15,7 +15,7 @@ Each mama build target exports CMake `${ProjectName}_INCLUDES` and `${ProjectNam
 are gathered in correct linker order inside `MAMA_INCLUDES` and `MAMA_LIBS`. This ensures the least
 amount of friction for developers - everything just works.
 
-There is no central package repository, all packages are pulled and updated from public or 
+There is no central package repository, all packages are pulled and updated from public or
 private git repositories. Package versioning is done through git tags or branches.
 
 Custom build systems are also supported. For additional documentation explore: [build_target.py](mama/build_target.py)
@@ -219,7 +219,7 @@ And then rebuilding with an artifactory package available
 $ mama rebuild googletest
 ========= Mama Build Tool ==========
   - Target googletest         CLEAN  linux
-  - Target googletest         BUILD [cleaned target]  
+  - Target googletest         BUILD [cleaned target]
     Artifactory fetch ftp.myartifactory.com/googletest-linux-x64-release-ebb36f3  770.6KB
     |<==================================================| 100 %
     Artifactory unzip googletest-linux-x64-release-ebb36f3
@@ -233,11 +233,30 @@ $ mama rebuild googletest
 ## For Mama Contributors
 We are open for any improvements and feedback via pull requests.
 
+### Development Setup
 The package `setuptools>=65.0` is required, ensure the version is correct with `pip3 show setuptools`.
 
 You can set up local development with `$ pip3 install -e . --no-cache-dir` but make sure you have latest setuptools (>65.0) and latest pip3 (>22.3). This command will fail with older toolkits.
 
-Uploading a source distributionP:
+### Running Tests
+
+Install pytest and run all tests from the project root:
+
+```bash
+uv venv
+.\.venv\Scripts\activate
+pip install pytest
+pytest
+```
+
+Or to run a specific test:
+
+```bash
+pytest tests/test_git_pinning/
+```
+
+### Publishing
+Uploading a source distribution:
 1. Get dependencies: `pip3 install build twine`
 2. Build sdist: `python -m build`
 3. Upload with twine: `twine upload --skip-existing dist/*`

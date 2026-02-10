@@ -41,6 +41,9 @@ classifiers = [
 [project.scripts]
 mama = "mama.main:main"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools.dynamic]
 version = {attr = "mama._version.__version__"}
 
