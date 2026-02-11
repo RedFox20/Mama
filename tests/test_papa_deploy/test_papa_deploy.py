@@ -1,19 +1,18 @@
-import os
-import sys
+from testutils import init, is_linux, shell_exec, file_exists, is_windows
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from testutils import is_linux, shell_exec, file_exists, is_windows
-
-def test_git_pinning():
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+# Generic test to verify basic build and deploy functions work
+def test_papa_deploy():
+    init(__file__, clean_dirs=['bin', 'packages'])
 
     shell_exec("mama build")
     shell_exec("mama deploy")
 
     if is_windows():
-        assert file_exists(os.path.join('bin', 'ExampleConsumer.exe'))
+        extension = '.exe'
     else:
-        assert file_exists(os.path.join('bin', 'ExampleConsumer'))
+        extension = ''
+
+    assert file_exists(f'bin/ExampleConsumer{extension}'), "Deployed executable not found"
 
     if is_windows():
         platform_name = 'windows'
@@ -22,4 +21,4 @@ def test_git_pinning():
     else:
         raise Exception("Unsupported platform")
 
-    assert file_exists(os.path.join('packages', 'ExampleConsumer', platform_name, 'deploy', 'ExampleConsumer', 'papa.txt'))
+    assert file_exists(f'packages/ExampleConsumer/{platform_name}/deploy/ExampleConsumer/papa.txt'), "Deployed papa.txt not found for dependency"

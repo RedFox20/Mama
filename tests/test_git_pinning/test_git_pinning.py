@@ -1,18 +1,15 @@
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from testutils import shell_exec, file_contains
+from testutils import init, shell_exec, file_contains
 
 def remote_file_contains(dep_name, text):
-    return file_contains(os.path.join('packages', dep_name, dep_name, 'remote.h'), text)
+    return file_contains(f'packages/{dep_name}/{dep_name}/remote.h', text)
 
+# Make sure different git pinning methods work
 def test_git_pinning():
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
+    init(__file__, clean_dirs=['packages'])
     shell_exec("mama clean")
 
-    assert not remote_file_contains('ExampleRemote', 'REMOTE_VERSION')
-    assert remote_file_contains('ExampleRemote2', 'REMOTE_VERSION 2')
-    assert not remote_file_contains('ExampleRemote3', 'REMOTE_VERSION')
-    assert remote_file_contains('ExampleRemote4', 'REMOTE_VERSION 2')
+    # https://github.com/BatteredBunny/MamaExampleRemote repo has different commits that either do or dont have the REMOTE_VERSION line
+    assert not remote_file_contains('ExampleRemote', 'REMOTE_VERSION'), "Tag pinning went wrong"
+    assert remote_file_contains('ExampleRemote2', 'REMOTE_VERSION 2'), "Tag pinning went wrong"
+    assert not remote_file_contains('ExampleRemote3', 'REMOTE_VERSION'), "Commit pinning went wrong"
+    assert remote_file_contains('ExampleRemote4', 'REMOTE_VERSION 2'), "Commit pinning went wrong"

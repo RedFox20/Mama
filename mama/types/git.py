@@ -24,7 +24,7 @@ class Git(DepSource):
         self.url = url
         self.branch = branch
         self.tag = tag
-        self.commit = commit
+        self.commit_pin = commit
         self.mamafile = mamafile
         self.shallow = shallow
         self.args = args
@@ -45,7 +45,7 @@ class Git(DepSource):
         s = f'DepSource Git {self.name} {self.url}'
         tag = self.branch_or_tag()
         if tag: s += ' ' + tag
-        if self.commit: s += ' commit=' + self.commit
+        if self.commit_pin: s += ' commit_pin=' + self.commit_pin
         if self.mamafile: s += ' ' + self.mamafile
         return s
 
@@ -53,21 +53,21 @@ class Git(DepSource):
     def from_papa_string(s: str) -> "Git":
         p = s.split(',')
         name, url, branch, tag, mamafile = p[0:5]
-        commit = ''
+        commit_pin = ''
         args = p[5:]
 
         # New format
         if len(p) > 5 and p[5]:
-            commit = p[5]
+            commit_pin = p[5]
             args = p[6:]
 
         shallow = True # shallow is the default
-        return Git(name, url, branch, tag, mamafile, shallow, commit, args)
+        return Git(name, url, branch, tag, mamafile, shallow, commit_pin, args)
 
 
     def get_papa_string(self):
         fields = DepSource.papa_join(
-            self.name, self.url, self.branch, self.tag, self.mamafile, self.commit, self.args)
+            self.name, self.url, self.branch, self.tag, self.mamafile, self.commit_pin, self.args)
         return 'git ' + fields
 
 
@@ -108,10 +108,10 @@ class Git(DepSource):
             return result
 
         # explicit commit pin?
-        if self.commit:
+        if self.commit_pin:
             if dep.config.verbose:
-                console(f'    {self.name}  using pinned commit hash: {self.commit}')
-            return self.commit
+                console(f'    {self.name}  using pinned commit hash: {self.commit_pin}')
+            return self.commit_pin
 
         # is the tag actually a commit hash?
         if self.tag and all(c in string.hexdigits for c in self.tag):
@@ -153,7 +153,7 @@ class Git(DepSource):
 
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
-        status = f"{self.url}\n{self.tag}\n{self.branch}\n{commit}\n{self.commit}\n"
+        status = f"{self.url}\n{self.tag}\n{self.branch}\n{commit}\n{self.commit_pin}\n"
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:
                 console(f'    {self.name}  write git status commit={commit}')
@@ -190,12 +190,12 @@ class Git(DepSource):
             self.commit_changed = True
             self.commit_pin_changed = True
             return True
-        if not self.commit:
+        if not self.commit_pin:
             self.fetch_origin(dep)
         self.url_changed = self.url != status[0]
         self.tag_changed = self.tag != status[1]
         self.branch_changed = self.branch != status[2]
-        self.commit_pin_changed = self.commit != status[4]
+        self.commit_pin_changed = self.commit_pin != status[4]
         self.commit_changed = self.get_commit_hash(dep, use_cache=False) != status[3]
         #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed or self.commit_pin_changed
@@ -207,15 +207,18 @@ class Git(DepSource):
         return ''
 
 
-    def checkout_current_branch(self, dep: BuildDependency):
-        if self.commit:
-            self.run_git(dep, f"checkout {self.commit}")
-            return
-        branch = self.branch_or_tag()
-        if branch:
-            if self.tag and self.tag_changed:
-                self.run_git(dep, "reset --hard")
-            self.run_git(dep, f"checkout {branch}")
+    def checkout_current_branch_or_commit(self, dep: BuildDependency):
+        if self.commit_pin:
+            self.run_git(dep, f'fetch --depth 1 origin {self.commit_pin}')
+            self.run_git(dep, f'checkout {self.commit_pin}')
+        else:
+            branch = self.branch_or_tag()
+            if branch:
+                if self.tag and self.tag_changed:
+                    self.run_git(dep, "reset --hard")
+                if self.tag:
+                    self.run_git(dep, f"fetch origin tag {self.tag}")
+                self.run_git(dep, f"checkout {branch}")
 
 
     def reclone_wipe(self, dep: BuildDependency):
@@ -287,50 +290,34 @@ class Git(DepSource):
                 raise RuntimeError(f'Target {self.name} clone failed: {cmd}')
 
 
-    def clone_commit_pinned(self, dep: BuildDependency, shallow: bool):
-        # Pinned commit follows a different clone strategy
-        if dep.config.print:
-            console(f'  - Target {dep.name: <16} CLONE commit-pinned {self.commit}', color=Color.BLUE)
-        os.makedirs(dep.src_dir, exist_ok=True)
-        execute(f'git init {dep.src_dir}')
-        execute(f'cd {dep.src_dir} && git remote add origin {self.url}')
-        depth = '--depth 1' if shallow else ''
-        self.run_git(dep, f'fetch {depth} origin {self.commit}')
-        self.run_git(dep, 'reset --hard FETCH_HEAD')
-        self.run_git(dep, 'submodule update --init --recursive')
-        if dep.config.print:
-            console(f'  - Target {dep.name: <16} CLONE SUCCESS', color=Color.BLUE)
-
-
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
         # by default we create a shallow clone, unless unshallow is specified in config or this dep
         unshallow = dep.config.unshallow or (not self.shallow)
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
-            if self.commit:
-                self.clone_commit_pinned(dep, shallow=not unshallow)
+            if self.commit_pin:
+                # pinned commits always use shallow clone
+                clone_args = f"--no-checkout --depth 1 {self.url}"
             else:
                 branch = self.branch_or_tag()
                 if branch: branch = f" --branch {self.branch_or_tag()}"
                 depth = '' if unshallow else '--depth 1'
                 clone_args = f"--recurse-submodules {depth} {branch} {self.url}"
-                self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
-                self.checkout_current_branch(dep)
+
+            self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
+            self.checkout_current_branch_or_commit(dep)
+
+            if self.commit_pin:
+                self.run_git(dep, 'submodule update --init --recursive')
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
-            if self.commit:
-                depth = '--depth 1' if not unshallow else ''
-                self.run_git(dep, f'fetch {depth} origin {self.commit}')
-                self.run_git(dep, 'reset --hard FETCH_HEAD')
-                self.run_git(dep, 'submodule update --init --recursive')
-                return
             if unshallow:
                 self.unshallow(dep)
-            self.checkout_current_branch(dep)
+            self.checkout_current_branch_or_commit(dep)
             self.run_git(dep, 'submodule update --init --recursive')
-            if not self.tag: # pull if not a tag
+            if not self.tag and not self.commit_pin: # pull if not a tag
                 self.run_git(dep, "reset --hard -q")
                 self.run_git(dep, "pull")
 
