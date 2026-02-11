@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 
 def shell_exec(cmd, exit_on_fail=True, echo=True) -> int:
@@ -24,3 +25,12 @@ def is_windows():
 
 def is_linux():
     return os.name == 'posix' and sys.platform != 'darwin'
+
+def onerror(func, path, _):
+    import stat
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWUSR)
+        func(path)
+
+def rmtree(path: str):
+    shutil.rmtree(path, onerror=onerror)
