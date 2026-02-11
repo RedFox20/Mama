@@ -166,7 +166,7 @@ class Git(DepSource):
         tag = lines[1].rstrip()
         branch = lines[2].rstrip()
         commit = lines[3].rstrip()
-        commit_pin = lines[4].rstrip()
+        commit_pin = '' if len(lines) <= 4 else lines[4].rstrip()
         return (url, tag, branch, commit, commit_pin)
 
 
