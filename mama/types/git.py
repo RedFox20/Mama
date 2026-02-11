@@ -52,8 +52,15 @@ class Git(DepSource):
     @staticmethod
     def from_papa_string(s: str) -> "Git":
         p = s.split(',')
-        name, url, branch, tag, mamafile, commit = p[0:6]
-        args = p[6:]
+        name, url, branch, tag, mamafile = p[0:5]
+        commit = ''
+        args = p[5:]
+
+        # New format
+        if len(p) > 5 and p[5]:
+            commit = p[5]
+            args = p[6:]
+
         shallow = True # shallow is the default
         return Git(name, url, branch, tag, mamafile, shallow, commit, args)
 
