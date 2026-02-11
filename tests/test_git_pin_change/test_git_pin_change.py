@@ -1,20 +1,8 @@
 import os
 import sys
 
-def shell_exec(cmd, exit_on_fail=True, echo=True) -> int:
-    if echo: print(f'exec: {cmd}')
-    result = os.system(cmd)
-    if result != 0 and exit_on_fail:
-        print(f'exec failed: code: {result} {cmd}')
-        if result >= 255:
-            result = 1
-        sys.exit(result)
-    return result
-
-def file_contains(filepath, text):
-    with open(filepath, 'r') as f:
-        content = f.read()
-    return text in content
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from testutils import shell_exec, file_contains
 
 def stage(num: str, expects: bool):
     os.environ['GIT_PIN_CHANGE_TEST'] = num
