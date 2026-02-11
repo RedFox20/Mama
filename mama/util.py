@@ -434,7 +434,10 @@ def copy_dir(src_dir: str, out_dir: str, filter: list = None) -> bool:
         os.makedirs(out_dir, exist_ok=True)
     copied = False
     root = os.path.dirname(src_dir)
-    for fulldir, _, files in os.walk(src_dir):
+    norm_out = os.path.normcase(os.path.normpath(out_dir))
+    for fulldir, dirs, files in os.walk(src_dir):
+        # skip the output directory to prevent infinite recursion
+        dirs[:] = [d for d in dirs if os.path.normcase(os.path.normpath(os.path.join(fulldir, d))) != norm_out]
         reldir = fulldir[len(root):].lstrip('\\/')
         if reldir:
             dst_folder = os.path.join(out_dir, reldir)
