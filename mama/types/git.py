@@ -144,7 +144,7 @@ class Git(DepSource):
 
 
     def fetch_origin(self, dep: BuildDependency):
-        self.run_git(dep, f"pull origin {self.branch_or_tag()} -q")
+        self.run_git(dep, f"fetch origin {self.branch_or_tag()} -q")
 
 
     def git_status_file(self, dep: BuildDependency):
@@ -287,6 +287,21 @@ class Git(DepSource):
                 raise RuntimeError(f'Target {self.name} clone failed: {cmd}')
 
 
+    def clone_commit_pinned(self, dep: BuildDependency, shallow: bool):
+        # Pinned commit follows a different clone strategy
+        if dep.config.print:
+            console(f'  - Target {dep.name: <16} CLONE commit-pinned {self.commit}', color=Color.BLUE)
+        os.makedirs(dep.src_dir, exist_ok=True)
+        execute(f'git init {dep.src_dir}')
+        execute(f'cd {dep.src_dir} && git remote add origin {self.url}')
+        depth = '--depth 1' if shallow else ''
+        self.run_git(dep, f'fetch {depth} origin {self.commit}')
+        self.run_git(dep, 'reset --hard FETCH_HEAD')
+        self.run_git(dep, 'submodule update --init --recursive')
+        if dep.config.print:
+            console(f'  - Target {dep.name: <16} CLONE SUCCESS', color=Color.BLUE)
+
+
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
         # by default we create a shallow clone, unless unshallow is specified in config or this dep
         unshallow = dep.config.unshallow or (not self.shallow)
@@ -294,9 +309,7 @@ class Git(DepSource):
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             if self.commit:
-                clone_args = f"--recurse-submodules {self.url}"
-                self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
-                self.checkout_current_branch(dep)
+                self.clone_commit_pinned(dep, shallow=not unshallow)
             else:
                 branch = self.branch_or_tag()
                 if branch: branch = f" --branch {self.branch_or_tag()}"
@@ -307,11 +320,17 @@ class Git(DepSource):
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
+            if self.commit:
+                depth = '--depth 1' if not unshallow else ''
+                self.run_git(dep, f'fetch {depth} origin {self.commit}')
+                self.run_git(dep, 'reset --hard FETCH_HEAD')
+                self.run_git(dep, 'submodule update --init --recursive')
+                return
             if unshallow:
                 self.unshallow(dep)
             self.checkout_current_branch(dep)
             self.run_git(dep, 'submodule update --init --recursive')
-            if not self.tag and not self.commit: # pull if not a tag or commit pin
+            if not self.tag: # pull if not a tag
                 self.run_git(dep, "reset --hard -q")
                 self.run_git(dep, "pull")
 
