@@ -81,6 +81,9 @@ class Git(DepSource):
             console(f'  {dep.name: <16} git show --format=%h -s:   {result}')
         return result
 
+    @staticmethod
+    def is_hex_string(s: str) -> bool:
+        return len(s) > 0 and all(c in string.hexdigits for c in s)
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
         """
@@ -98,7 +101,7 @@ class Git(DepSource):
             return result
 
         # is the tag actually a commit hash?
-        if self.tag and all(c in string.hexdigits for c in self.tag):
+        if Git.is_hex_string(self.tag):
             if dep.config.verbose:
                 console(f'    {self.name}  using tag as the commit hash: {self.tag}')
             return self.tag
@@ -187,11 +190,13 @@ class Git(DepSource):
         return ''
 
 
-    def checkout_current_branch(self, dep: BuildDependency):
+    def checkout_current_branch_or_tag(self, dep: BuildDependency, is_commit_pin=False):
         branch = self.branch_or_tag()
         if branch:
             if self.tag and self.tag_changed:
                 self.run_git(dep, "reset --hard")
+            if is_commit_pin:
+                self.run_git(dep, f"fetch --depth 1 origin {branch}")
             self.run_git(dep, f"checkout {branch}")
 
 
@@ -270,18 +275,20 @@ class Git(DepSource):
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
-            branch = self.branch_or_tag()
-            if branch: branch = f" --branch {self.branch_or_tag()}"
+            br_or_tag = self.branch_or_tag()
+            is_commit_pin = Git.is_hex_string(br_or_tag)
+            checkout_branch = '' if is_commit_pin or len(br_or_tag) == 0 else f' --branch {br_or_tag}'
             depth = '' if unshallow else '--depth 1'
-            clone_args = f"--recurse-submodules {depth} {branch} {self.url}"
+            clone_args = f"--recurse-submodules {depth} {checkout_branch} {self.url}"
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
-            self.checkout_current_branch(dep)
+            self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             if unshallow:
                 self.unshallow(dep)
-            self.checkout_current_branch(dep)
+            is_commit_pin = Git.is_hex_string(self.branch_or_tag())
+            self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
             self.run_git(dep, 'submodule update --init --recursive')
             if not self.tag: # pull if not a tag
                 self.run_git(dep, "reset --hard -q")

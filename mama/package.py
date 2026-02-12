@@ -186,17 +186,24 @@ def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
         return name # '-framework Foundation'
     elif target.linux:
+        roots = [ "/usr/lib" ]
+
+        # They may be located in different places
+        if 'LD_LIBRARY_PATH' in os.environ:
+            roots += os.environ['LD_LIBRARY_PATH'].split(':')
+
         compiler_dir = 'aarch64-linux-gnu' if System.aarch64 else 'x86_64-linux-gnu'
-        for candidate in [
-            lambda: f'/usr/lib/{compiler_dir}/{name}',
-            lambda: f'/usr/lib/{compiler_dir}/lib{name}.so',
-            lambda: f'/usr/lib/{compiler_dir}/lib{name}.so.2',
-            lambda: f'/usr/lib/{compiler_dir}/lib{name}.a',
-            lambda: f'/usr/lib/lib{name}.so',
-            lambda: f'/usr/lib/lib{name}.so.2',
-            lambda: f'/usr/lib/lib{name}.a' ]:
-            if os.path.exists(candidate()):
-                return name # example: we found `libdl.so`, so just return `dl` for the linker
+        for root in roots:
+            for candidate in [
+                lambda: f'{root}/{compiler_dir}/{name}',
+                lambda: f'{root}/{compiler_dir}/lib{name}.so',
+                lambda: f'{root}/{compiler_dir}/lib{name}.so.2',
+                lambda: f'{root}/{compiler_dir}/lib{name}.a',
+                lambda: f'{root}/lib{name}.so',
+                lambda: f'{root}/lib{name}.so.2',
+                lambda: f'{root}/lib{name}.a' ]:
+                if os.path.exists(candidate()):
+                    return name # example: we found `libdl.so`, so just return `dl` for the linker
         if not required: return None
         if apt: raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
         raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')

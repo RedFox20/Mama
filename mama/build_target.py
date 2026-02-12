@@ -73,6 +73,7 @@ class BuildTarget:
         self.cmake_ldflags    = dict()
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
         self.cmake_lists_path = 'CMakeLists.txt' # can be relative to src_dir (default), or absolute
+        self.cmake_command = config.cmake_command # allow override from config, but also from target
         self.enable_exceptions = True
         self.enable_unix_make  = False
         self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
