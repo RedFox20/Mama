@@ -131,7 +131,15 @@ class Git(DepSource):
 
 
     def fetch_origin(self, dep: BuildDependency):
-        self.run_git(dep, f"pull origin {self.branch_or_tag()} -q")
+        branch = self.branch_or_tag()
+        if not Git.is_hex_string(branch):
+            if self.tag:
+                self.run_git(dep, f"fetch origin tag {branch} -q")
+            else:
+                # detached head cant perform this, e.g when switching from tag pin previously
+                result = self.run_git(dep, f"pull origin {branch} -q", throw=False)
+                if result != 0:
+                    self.run_git(dep, f"fetch origin {branch} -q")
 
 
     def git_status_file(self, dep: BuildDependency):
@@ -200,7 +208,15 @@ class Git(DepSource):
                 self.run_git(dep, "reset --hard")
             if is_commit_pin:
                 self.run_git(dep, f"fetch --depth 1 origin {branch}")
-            self.run_git(dep, f"checkout {branch}")
+                self.run_git(dep, f"checkout {branch}")
+            elif self.branch:
+                # hacky fix
+                self.run_git(dep, f"fetch origin +refs/heads/{branch}:refs/remotes/origin/{branch}", throw=False)
+                self.run_git(dep, f"checkout -B {branch} origin/{branch}")
+            else: # tag
+                if self.tag_changed:
+                    self.run_git(dep, f"fetch origin tag {branch}")
+                self.run_git(dep, f"checkout {branch}")
 
 
     def reclone_wipe(self, dep: BuildDependency):
@@ -295,7 +311,11 @@ class Git(DepSource):
             self.run_git(dep, 'submodule update --init --recursive')
             if not self.tag: # pull if not a tag
                 self.run_git(dep, "reset --hard -q")
-                self.run_git(dep, "pull")
+                if self.branch:
+                    self.run_git(dep, f"fetch origin {self.branch} -q", throw=False)
+                    self.run_git(dep, f"reset --hard origin/{self.branch} -q")
+                else:
+                    self.run_git(dep, "pull")
 
 
     def unshallow(self, dep: BuildDependency):
