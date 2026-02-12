@@ -20,3 +20,5 @@ def test_git_pin_change():
     stage(1, True, "Failed to update commit pin to a new commit")
     stage(2, False, "Failed to switch from commit pin to tag pin")
     stage(3, True, "Failed to update between tag pins")
+    stage(4, False, "Failed to switch from tag pin to branch pin")
+    stage(5, True, "Failed to update between branch pins")

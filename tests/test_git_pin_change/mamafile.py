@@ -22,3 +22,7 @@ class test(mama.BuildTarget):
             self.add_git(remote_name, remote_url, git_tag='v1.0.0') # has no REMOTE_VERSION
         elif stage == '3':
             self.add_git(remote_name, remote_url, git_tag='v2.0.0') # has REMOTE_VERSION 2
+        elif stage == '4':
+            self.add_git(remote_name, remote_url, git_branch='old') # Branched from old commit which has no REMOTE_VERSION
+        elif stage == '5':
+            self.add_git(remote_name, remote_url, git_branch='master') # Should go to latest commit which has REMOTE_VERSION 2
