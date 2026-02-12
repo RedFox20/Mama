@@ -137,10 +137,13 @@ class Git(DepSource):
     def git_status_file(self, dep: BuildDependency):
         return path_join(dep.build_dir, 'git_status')
 
+    @staticmethod
+    def format_git_status(url: str, tag: str, branch: str, commit: str):
+        return f"{url}\n{tag}\n{branch}\n{commit}\n"
 
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
-        status = f"{self.url}\n{self.tag}\n{self.branch}\n{commit}\n"
+        status = self.format_git_status(self.url, self.tag, self.branch, commit)
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:
                 console(f'    {self.name}  write git status commit={commit}')

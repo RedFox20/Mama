@@ -1,5 +1,0 @@
-P ExampleConsumer
-D git ExampleRemote,https://github.com/BatteredBunny/MamaExampleRemote.git,,,,
-I include
-I include/test_papa_deploy
-L RelWithDebInfo\ExampleConsumer.lib
