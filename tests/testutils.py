@@ -1,7 +1,10 @@
 import os
 import shutil
+import subprocess
 import sys
 from typing import Iterable
+
+import pytest
 
 def init(caller_file: str = '', clean_dirs: Iterable[str] = []):
     # Needed for mama commands to perform work in the correct directory
@@ -13,13 +16,10 @@ def init(caller_file: str = '', clean_dirs: Iterable[str] = []):
 
 def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
     if echo: print(f'exec: {cmd}')
-    result = os.system(cmd)
-    if result != 0 and exit_on_fail:
-        print(f'exec failed: code: {result} {cmd}')
-        if result >= 255:
-            result = 1
-        sys.exit(result)
-    return result
+    result = subprocess.run(cmd, shell=True)
+    if result.returncode != 0 and exit_on_fail:
+        pytest.fail(f'exec failed: code: {result.returncode} {cmd}')
+    return result.returncode
 
 def file_contains(filepath: str, text: str) -> bool:
     with open(filepath, 'r') as f:
