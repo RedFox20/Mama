@@ -244,9 +244,8 @@ Install pytest and run all tests from the project root:
 
 ```bash
 uv venv
-.\.venv\Scripts\activate
-pip install pytest
-pytest
+uv pip install pytest
+uv run pytest
 ```
 
 Or to run a specific test:

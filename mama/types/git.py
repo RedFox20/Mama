@@ -310,12 +310,12 @@ class Git(DepSource):
             self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
             self.run_git(dep, 'submodule update --init --recursive')
             if not self.tag: # pull if not a tag
-                self.run_git(dep, "reset --hard -q")
                 if self.branch:
                     self.run_git(dep, f"fetch origin {self.branch} -q", throw=False)
                     self.run_git(dep, f"reset --hard origin/{self.branch} -q")
                 else:
-                    self.run_git(dep, "pull")
+                    self.run_git(dep, "fetch -q", throw=False)
+                    self.run_git(dep, "reset --hard @{upstream} -q") # https://git-scm.com/docs/gitrevisions#Documentation/gitrevisions.txt-branchnameupstreamegmasterupstreamu
 
 
     def unshallow(self, dep: BuildDependency):

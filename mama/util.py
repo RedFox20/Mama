@@ -42,7 +42,7 @@ def copy_files(fromFolder: str, toFolder: str, fileNames: List[str]):
 
 def deploy_framework(framework: str, deployFolder: str):
     if not os.path.exists(framework):
-        raise IOError(f'no framework found at: {framework}') 
+        raise IOError(f'no framework found at: {framework}')
     if os.path.exists(deployFolder):
         name = os.path.basename(framework)
         deployPath = os.path.join(deployFolder, name)
@@ -438,6 +438,7 @@ def copy_dir(src_dir: str, out_dir: str, filter: list = None) -> bool:
     for fulldir, dirs, files in os.walk(src_dir):
         # skip the output directory to prevent infinite recursion
         dirs[:] = [d for d in dirs if os.path.normcase(os.path.normpath(os.path.join(fulldir, d))) != norm_out]
+
         reldir = fulldir[len(root):].lstrip('\\/')
         if reldir:
             dst_folder = os.path.join(out_dir, reldir)

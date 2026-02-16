@@ -2,14 +2,17 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Iterable
+from typing import Iterable, Optional
 
 import pytest
 
-def init(caller_file: str = '', clean_dirs: Iterable[str] = []):
+def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
     # Needed for mama commands to perform work in the correct directory
     if caller_file:
         os.chdir(os.path.dirname(os.path.abspath(caller_file)))
+
+    if clean_dirs is None:
+        clean_dirs = ()
 
     for d in clean_dirs:
         rmdir(d)
