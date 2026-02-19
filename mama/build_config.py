@@ -566,11 +566,11 @@ class BuildConfig:
 
     def get_gcc_clang_fullversion(self, cc_path, dumpfullversion):
         if dumpfullversion:
-            version = execute_piped(f'{cc_path} -dumpfullversion').strip() # eg 9.4.0
+            version = execute_piped([cc_path, '-dumpfullversion']).strip() # eg 9.4.0
             if version.count('.') >= 1:
                 return version
         # clang++ doesn't support -dumpfullversion in latest releases -_-
-        return execute_piped(f'{cc_path} -dumpversion').strip()
+        return execute_piped([cc_path, '-dumpversion']).strip()
 
 
     def compiler_version(self):

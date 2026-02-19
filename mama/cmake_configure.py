@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 import os
 from .utils.system import System, console, Color
 from .utils.sub_process import SubProcess, execute_piped_echo
+from mama import util
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -13,7 +14,7 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     rerun = False
     error = ''
     if target.config.verbose: console(cmd)
-    #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build 
+    #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build
 
     if delete_cmakecache:
         if target.config.print: console('Deleting CMakeCache.txt')
@@ -52,11 +53,13 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     """
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
     if cc:
-        opt.append(f'CMAKE_C_COMPILER={cc}')
+        cc_normalized = util.forward_slashes(cc)
+        opt.append(f'CMAKE_C_COMPILER={cc_normalized}')
         if 'CC' in os.environ:
             del os.environ['CC']  # remove CC env var to avoid conflicts, since CMake prioritizes this option
         if target.enable_cxx_build:
-            opt.append(f'CMAKE_CXX_COMPILER={cxx}')
+            cxx_normalized = util.forward_slashes(cxx)
+            opt.append(f'CMAKE_CXX_COMPILER={cxx_normalized}')
             if 'CXX' in os.environ:
                 del os.environ['CXX']  # remove CXX env var to avoid conflicts, since CMake prioritizes this option
     elif 'CC' in os.environ or 'CXX' in os.environ:
@@ -89,7 +92,7 @@ def run_config(target:BuildTarget):
 
 
 def is_rerunnable_error(output:str):
-    """ Checks output string if a rerunnable error occurred. 
+    """ Checks output string if a rerunnable error occurred.
         These are non-fatal errors that disappear with a simple cmake configure. """
     return 'Makefile: No such file or directory' in output
 
@@ -236,9 +239,9 @@ def _default_options(target:BuildTarget):
     ]
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
-    
+
     _set_compiler_paths(target, opt)
-    
+
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 

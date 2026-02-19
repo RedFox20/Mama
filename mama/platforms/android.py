@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import os
 from mama.utils.system import System, console
+from mama import util
 
 if TYPE_CHECKING:
     from ..build_config import BuildConfig
@@ -49,11 +50,19 @@ class Android:
         elif self.config.arch == 'arm': arch = 'armv7a'
         elif self.config.arch == 'x64': arch = 'x86_64'
         elif self.config.arch == 'x86': arch = 'i686'
-        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang'
+        ext = '.cmd' if System.windows else ''
+        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang{ext}'
 
 
     def cxx_path(self):
-        return f'{self.cc_path()}++'
+        platform_ver = self.android_api.replace('-', '')
+        arch = 'aarch64'
+        if self.config.arch == 'arm64': arch = 'aarch64'
+        elif self.config.arch == 'arm': arch = 'armv7a'
+        elif self.config.arch == 'x64': arch = 'x86_64'
+        elif self.config.arch == 'x86': arch = 'i686'
+        ext = '.cmd' if System.windows else ''
+        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang++{ext}'
 
 
     def set_toolchain_path(self, toolchain_file: str):
@@ -74,7 +83,7 @@ class Android:
     def _append_env(paths:list, env: str):
         path = os.getenv(env)
         if path and os.path.exists(path):
-            paths.append(path)
+            paths.append(util.forward_slashes(path))
 
 
     def init_ndk_path(self):
@@ -105,17 +114,22 @@ class Android:
         Android._append_env(sdk_paths, 'ANDROID_SDK_ROOT')
 
         if System.windows:
-            sdk_paths += [f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk']
+            localappdata = util.forward_slashes(os.getenv("LOCALAPPDATA"))
+            if localappdata:
+                sdk_paths += [f'{localappdata}/Android/Sdk']
         elif System.linux:
+            if os.getenv("HOME"):
+                sdk_paths += [os.path.expanduser('~/Android/Sdk')]
+
             sdk_paths += [
-                f'{os.getenv("HOME")}/Android/Sdk',
                 '/usr/bin/android-sdk',
                 '/opt/android-sdk',
                 '/opt/Android',
                 '/Android'
             ]
         elif System.macos:
-            sdk_paths += [f'{os.getenv("HOME")}/Library/Android/sdk']
+            if os.getenv("HOME"):
+                sdk_paths += [os.path.expanduser('~/Library/Android/sdk')]
 
         for sdk_path in sdk_paths:
             # older NDK versions with ndk-bundle subdir
@@ -131,8 +145,8 @@ class Android:
                         self.ndk_version = subdir
                         self._set_ndk_sdk_paths(f'{sdk_path}/ndk/{subdir}', sdk_path)
                         return
-        raise EnvironmentError(f'''Could not detect any Android NDK installations. 
-Default search paths: {ndk_paths+sdk_paths} 
+        raise EnvironmentError(f'''Could not detect any Android NDK installations.
+Default search paths: {ndk_paths+sdk_paths}
 Define env ANDROID_NDK_HOME with path to the preferred NDK installation
 Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
@@ -152,11 +166,13 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
     def _get_make(self):
         if System.windows:
-            return f'{self.android_ndk()}\\prebuilt\\windows-x86_64\\bin\\make.exe' # CodeBlocks - Unix Makefiles
+            target = 'windows-x86_64'
         elif System.macos:
-            return f'{self.android_ndk()}/prebuilt/darwin-x86_64/bin/make' # CodeBlocks - Unix Makefiles
-        return ''
+            target = 'darwin-x86_64'
+        else:
+            return ''
 
+        return os.path.join(self.android_ndk(), 'prebuilt', target, 'bin', 'make') # CodeBlocks - Unix Makefiles
 
     def _get_toolchain_path(self, target: BuildTarget) -> str:
         if target.cmake_ndk_toolchain:
