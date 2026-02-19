@@ -5,7 +5,7 @@
 namespace example
 {
     // ensure C++17 features are used
-    namespace fs = std::experimental::filesystem;
+    namespace fs = std::filesystem;
 
     bool print_file_exists(const std::string& str)
     {

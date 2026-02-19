@@ -81,6 +81,9 @@ class Git(DepSource):
             console(f'  {dep.name: <16} git show --format=%h -s:   {result}')
         return result
 
+    @staticmethod
+    def is_hex_string(s: str) -> bool:
+        return len(s) > 0 and all(c in string.hexdigits for c in s)
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
         """
@@ -98,7 +101,7 @@ class Git(DepSource):
             return result
 
         # is the tag actually a commit hash?
-        if self.tag and all(c in string.hexdigits for c in self.tag):
+        if Git.is_hex_string(self.tag):
             if dep.config.verbose:
                 console(f'    {self.name}  using tag as the commit hash: {self.tag}')
             return self.tag
@@ -128,16 +131,27 @@ class Git(DepSource):
 
 
     def fetch_origin(self, dep: BuildDependency):
-        self.run_git(dep, f"pull origin {self.branch_or_tag()} -q")
+        branch = self.branch_or_tag()
+        if not Git.is_hex_string(branch):
+            if self.tag:
+                self.run_git(dep, f"fetch origin tag {branch} -q")
+            else:
+                # detached head cant perform this, e.g when switching from tag pin previously
+                result = self.run_git(dep, f"pull origin {branch} -q", throw=False)
+                if result != 0:
+                    self.run_git(dep, f"fetch origin {branch} -q")
 
 
     def git_status_file(self, dep: BuildDependency):
         return path_join(dep.build_dir, 'git_status')
 
+    @staticmethod
+    def format_git_status(url: str, tag: str, branch: str, commit: str):
+        return f"{url}\n{tag}\n{branch}\n{commit}\n"
 
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
-        status = f"{self.url}\n{self.tag}\n{self.branch}\n{commit}\n"
+        status = self.format_git_status(self.url, self.tag, self.branch, commit)
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:
                 console(f'    {self.name}  write git status commit={commit}')
@@ -187,12 +201,22 @@ class Git(DepSource):
         return ''
 
 
-    def checkout_current_branch(self, dep: BuildDependency):
+    def checkout_current_branch_or_tag(self, dep: BuildDependency, is_commit_pin=False):
         branch = self.branch_or_tag()
         if branch:
             if self.tag and self.tag_changed:
                 self.run_git(dep, "reset --hard")
-            self.run_git(dep, f"checkout {branch}")
+            if is_commit_pin:
+                self.run_git(dep, f"fetch --depth 1 origin {branch}")
+                self.run_git(dep, f"checkout {branch}")
+            elif self.branch:
+                # hacky fix
+                self.run_git(dep, f"fetch origin +refs/heads/{branch}:refs/remotes/origin/{branch}", throw=False)
+                self.run_git(dep, f"checkout -B {branch} origin/{branch}")
+            else: # tag
+                if self.tag_changed:
+                    self.run_git(dep, f"fetch origin tag {branch}")
+                self.run_git(dep, f"checkout {branch}")
 
 
     def reclone_wipe(self, dep: BuildDependency):
@@ -270,22 +294,28 @@ class Git(DepSource):
         if is_dir_empty(dep.src_dir):
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
-            branch = self.branch_or_tag()
-            if branch: branch = f" --branch {self.branch_or_tag()}"
+            br_or_tag = self.branch_or_tag()
+            is_commit_pin = Git.is_hex_string(br_or_tag)
+            checkout_branch = '' if is_commit_pin or len(br_or_tag) == 0 else f' --branch {br_or_tag}'
             depth = '' if unshallow else '--depth 1'
-            clone_args = f"--recurse-submodules {depth} {branch} {self.url}"
+            clone_args = f"--recurse-submodules {depth} {checkout_branch} {self.url}"
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
-            self.checkout_current_branch(dep)
+            self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             if unshallow:
                 self.unshallow(dep)
-            self.checkout_current_branch(dep)
+            is_commit_pin = Git.is_hex_string(self.branch_or_tag())
+            self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
             self.run_git(dep, 'submodule update --init --recursive')
             if not self.tag: # pull if not a tag
-                self.run_git(dep, "reset --hard -q")
-                self.run_git(dep, "pull")
+                if self.branch:
+                    self.run_git(dep, f"fetch origin {self.branch} -q", throw=False)
+                    self.run_git(dep, f"reset --hard origin/{self.branch} -q")
+                else:
+                    self.run_git(dep, "fetch -q", throw=False)
+                    self.run_git(dep, "reset --hard @{upstream} -q") # https://git-scm.com/docs/gitrevisions#Documentation/gitrevisions.txt-branchnameupstreamegmasterupstreamu
 
 
     def unshallow(self, dep: BuildDependency):
@@ -305,7 +335,7 @@ class Git(DepSource):
                 console(f'  - Unshallowing {dep.name}', color=Color.YELLOW)
             self.run_git(dep, 'config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"')
             self.run_git(dep, 'remote update')
-            # this last step is allowed to fail, just in case it was 
+            # this last step is allowed to fail, just in case it was
             # semi-shallow (history was complete, but remote refs were shallow)
             self.run_git(dep, 'fetch --unshallow', throw=False)
 
