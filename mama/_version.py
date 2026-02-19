@@ -1,2 +1,2 @@
 # this is parsed by pyproject.toml and defines current mamabuild version
-__version__ = "0.9.22"
+__version__ = "0.9.23"
