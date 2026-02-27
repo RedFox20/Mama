@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import os
 from mama.utils.system import System, console
+from mama.cmake_configure import _make_program
 from mama import util
 
 if TYPE_CHECKING:
@@ -221,7 +222,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
             if self.config.print:
                 console(f'Toolchain: {toolchain}')
 
-        make = self._get_make()
+        make = _make_program(target) or self._get_make()
         if make: opts.append(f'CMAKE_MAKE_PROGRAM="{make}"')
         return opts
 
