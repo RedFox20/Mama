@@ -62,8 +62,8 @@ class BuildConfig:
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
         # compilers
-        self.clang = True # prefer clang on linux
-        self.gcc   = False
+        self.clang = False
+        self.gcc   = True # prefer gcc on linux
         self.clang_path = ''
         self.gcc_path = ''
         # can be used to overide C and C++ compiler paths
