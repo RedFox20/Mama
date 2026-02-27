@@ -58,6 +58,7 @@ class BuildConfig:
         self.oclea : Oclea = None
         self.xilinx : Xilinx = None
         self.imx8mp : Imx8mp = None
+        self.yocto_linux = False # whether this is a generic Yocto Linux embedded platform (e.g. Oclea, Xilinx, IMX8MP)
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
         # compilers
@@ -264,6 +265,9 @@ class BuildConfig:
         self.mips    = get_new_value(self.mips,    platforms[7], Mips)
         self.xilinx  = get_new_value(self.xilinx,  platforms[8], Xilinx)
         self.imx8mp  = get_new_value(self.imx8mp,  platforms[9], Imx8mp)
+
+        # convenience alias for detecting embedded Yocto Linux platforms (e.g. Oclea, Xilinx, IMX8MP)
+        self.yocto_linux = self.imx8mp or self.oclea or self.xilinx
         return True
 
 
@@ -698,6 +702,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         self.oclea.init_toolchain(toolchain_dir, toolchain_file)
 
     def set_imx8mp_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """
+        Sets the toolchain dir where these subdirs exist:
+            aarch64-imx8mp-linux/
+            x86_64-imx8mp-sdk-linux/
+        And optionally also sets the CMake toolchain file via `toolchain_file`.
+        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
+        """
         self.imx8mp.init_toolchain(toolchain_dir, toolchain_file)
 
     def set_xilinx_toolchain(self, toolchain_dir=None, toolchain_file=None):

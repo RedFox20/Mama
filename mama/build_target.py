@@ -110,7 +110,8 @@ class BuildTarget:
         self.oclea   = self.config.oclea
         self.xilinx  = self.config.xilinx
         self.mips    = self.config.mips
-        self.imx8mp    = self.config.imx8mp
+        self.imx8mp  = self.config.imx8mp
+        self.yocto_linux = self.config.yocto_linux
 
 
     def _set_args(self, args: List[str]):
