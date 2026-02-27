@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import os
 from mama.utils.system import System, console
+from mama.cmake_configure import _make_program
 from mama import util
 
 if TYPE_CHECKING:
@@ -164,15 +165,19 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
         # add_flag(f'-I"{self.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
 
 
-    def _get_make(self):
+    def _get_make(self, target: BuildTarget = None):
+        if target:
+            make = _make_program(target)
+            if make: return make
+
         if System.windows:
-            target = 'windows-x86_64'
+            platform = 'windows-x86_64'
         elif System.macos:
-            target = 'darwin-x86_64'
+            platform = 'darwin-x86_64'
         else:
             return ''
 
-        return os.path.join(self.android_ndk(), 'prebuilt', target, 'bin', 'make') # CodeBlocks - Unix Makefiles
+        return os.path.join(self.android_ndk(), 'prebuilt', platform, 'bin', 'make') # CodeBlocks - Unix Makefiles
 
     def _get_toolchain_path(self, target: BuildTarget) -> str:
         if target.cmake_ndk_toolchain:
@@ -221,7 +226,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
             if self.config.print:
                 console(f'Toolchain: {toolchain}')
 
-        make = self._get_make()
+        make = self._get_make(target)
         if make: opts.append(f'CMAKE_MAKE_PROGRAM="{make}"')
         return opts
 
