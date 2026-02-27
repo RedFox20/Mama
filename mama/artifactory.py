@@ -166,9 +166,12 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
         print(f'\r    |{"="*50}>| 100 %')
 
 
-def artifact_already_exists(ftp:ftplib.FTP_TLS, file_path:str):
+def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:str):
     items = []
-    ftp.dir(os.path.basename(file_path), items.append)
+    target_path = f'{target.name}/{os.path.basename(file_path)}'
+    ftp.dir(target_path, items.append)
+    if target.config.verbose:
+        console(f'    Checking if artifact "{target_path}" already exists on server:\n    {"\n    ".join(items)}')
     return len(items) > 0 # the file already exists
 
 
@@ -183,8 +186,9 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
             # sanitize url for ftplib
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
-            if config.if_needed and artifact_already_exists(ftp, file_path):
-                if config.verbose: console(f'  - Artifactory Upload skipped: artifact already exists')
+            if config.if_needed and artifact_already_exists(ftp, target, file_path):
+                if config.print:
+                    console(f'  - Artifactory Upload skipped: artifact already exists: {target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
             return True
