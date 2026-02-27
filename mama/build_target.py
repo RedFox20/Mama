@@ -110,6 +110,8 @@ class BuildTarget:
         self.oclea   = self.config.oclea
         self.xilinx  = self.config.xilinx
         self.mips    = self.config.mips
+        self.imx8mp  = self.config.imx8mp
+        self.yocto_linux = self.config.yocto_linux
 
 
     def _set_args(self, args: List[str]):
@@ -757,7 +759,7 @@ class BuildTarget:
 
     def enable_cxx20(self):
         """Enable C++20 standard"""
-        if self.mips or self.raspi or self.oclea or self.xilinx:
+        if self.mips or self.raspi or self.oclea or self.xilinx or self.imx8mp:
             self._set_cxx_std('c++2a') # older toolchains typically need c++2a
         else:
             self._set_cxx_std('c++20')
