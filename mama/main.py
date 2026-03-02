@@ -1,4 +1,4 @@
-#!/usr/bin/python3.6
+#!/usr/bin/python3.12
 import sys, os
 
 from .types.local_source import LocalSource
@@ -109,7 +109,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     found = root_dependency if name == 'root' else find_dependency(root_dependency, name)
     if not found:
         raise KeyError(f'No project named {name}')
-    
+
     if config.windows:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
         if solutions:
@@ -182,8 +182,8 @@ def run_coverage_report(target: BuildTarget):
 
 
 def main():
-    if sys.version_info < (3, 6):
-        console('FATAL ERROR: MamaBuild requires Python 3.6')
+    if sys.version_info < (3, 12):
+        console('FATAL ERROR: MamaBuild requires Python 3.12')
         exit(-1)
 
     if len(sys.argv) == 1 or 'help' in sys.argv:

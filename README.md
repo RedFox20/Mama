@@ -51,7 +51,7 @@ Provides a mechanism to upload pre-built packages to a private artifactory serve
 
 
 ## Setup For Users
-1. Get python 3.6 and PIP
+1. Get python 3.12 and PIP
 2. `$ pip install mama --upgrade`
 3. `$ cd yourproject`
 3. `$ mama init` which creates a `mamafile.py` and patches your CMakeLists.txt

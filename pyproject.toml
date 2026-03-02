@@ -11,9 +11,9 @@ authors = [
     { name="Jorma Rebane", email="jorma.rebane@gmail.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.12"
 keywords=[
-    'mama', 'build', 'mamabuild', 'c', 'c++', 'tool', 'cmake', 
+    'mama', 'build', 'mamabuild', 'c', 'c++', 'tool', 'cmake',
     'simple', 'easy', 'package', 'manager', 'cross-platform'
 ]
 dependencies = [
@@ -30,7 +30,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Build Tools",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent"
 ]
 
