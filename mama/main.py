@@ -1,4 +1,4 @@
-#!/usr/bin/python3.6
+#!/usr/bin/python3.10
 import sys, os
 
 from .types.local_source import LocalSource

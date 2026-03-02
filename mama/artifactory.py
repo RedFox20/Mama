@@ -171,7 +171,8 @@ def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:st
     target_path = f'{target.name}/{os.path.basename(file_path)}'
     ftp.dir(target_path, items.append)
     if target.config.verbose:
-        console(f'    Checking if artifact "{target_path}" already exists on server:\n    {"\n    ".join(items)}')
+        file_list = "\n    ".join(items)
+        console(f'    Checking if artifact "{target_path}" already exists on server:\n    {file_list}')
     return len(items) > 0 # the file already exists
 
 
