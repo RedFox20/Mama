@@ -1,4 +1,4 @@
-import os, concurrent.futures, re
+import os, concurrent.futures
 from typing import List
 
 from mama.build_config import BuildConfig
@@ -16,24 +16,28 @@ def _get_cmake_path_list(paths):
 def _get_exported_libs(target):
     filtered = []
     allowed = []
-    if target.windows:
+    is_linux_like = False
+    if target.android or target.linux or target.raspi or target.mips or target.yocto_linux:
+        is_linux_like = True
+    elif target.windows:
         allowed = ['.lib']
-    elif target.android:
-        allowed = ['.a', '.so']
-    elif target.linux: # TODO: android builds on Linux are impossible with this approach 
-        allowed = ['.a', '.so']
     elif target.macos:
         allowed = ['.a', '.dylib', '.bundle']
     elif target.ios:
         allowed = ['.a', '.dylib', '.framework']
-    elif target.raspi or target.mips or target.oclea or target.xilinx or target.imx8mp:
-        allowed = ['.a', '.so']
 
     #print(f'{target.name: <16} exported: {target.exported_libs}')
     for lib in target.exported_libs:
-        for ext in allowed:
-            if lib.endswith(ext):
+        if not lib: continue
+        if is_linux_like:
+            # for linux-like targets allow .a, .so and versioned .so.1.2.3 files
+            if lib.endswith('.a') or lib.endswith('.so') \
+                or (str.isdigit(lib[-1]) and '.so.' in lib):
                 filtered.append(lib)
+        else:
+            for ext in allowed:
+                if lib.endswith(ext):
+                    filtered.append(lib)
     #print(f'{target.name: <16} filtered: {filtered}')
     return filtered
 
