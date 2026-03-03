@@ -10,14 +10,16 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
 
 def is_a_static_library(lib: str):
+    if not lib: return False
     return lib.endswith('.a') or lib.endswith('.lib')
 
 
 def is_a_dynamic_library(lib: str):
+    if not lib: return False
     return lib.endswith('.dll')    or lib.endswith('.pdb') \
         or lib.endswith('.dylib')  or lib.endswith('.so')  \
         or lib.endswith('.bundle') or lib.endswith('.framework') \
-        or lib.endswith('.aar')
+        or lib.endswith('.aar')    or (str.isdigit(lib[-1]) and '.so.' in lib) # allow versioned .so.1.2.3 files
 
 
 def is_a_library(lib: str):
