@@ -77,7 +77,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     config = target.config
     includes_root = package_full_path + '/include'
     # TODO: should we include .cpp files for easier debugging?
-    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
+    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx', '']
 
     # set the default include
     descr.append(f'I include')
@@ -108,7 +108,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 
 def papa_deploy_to(target:BuildTarget, package_full_path:str,
-                   r_includes:bool, r_dylibs:bool, 
+                   r_includes:bool, r_dylibs:bool,
                    r_syslibs:bool, r_assets:bool):
     config = target.config
     detail_echo = config.print and target.is_current_target() and (not config.test)
