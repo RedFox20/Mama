@@ -22,6 +22,9 @@ class GenericYocto:
         self.sysroot_path = ''  ## Path to system libs root
         self.include_paths = []  ## Path to additional include dirs
         self.version = '' ## GCC Version
+        self.build_dir = 'yocto' ## Generic yocto build dir, overridden by subclass
+        self.host_name = 'aarch64-poky-linux' ## default host name, overridden by subclass
+        self.distro_version = (1,0,0) ## distro version tuple, e.g. (1, 0, 0) for version 1.0.0
 
 
     def bin(self):
@@ -162,6 +165,24 @@ class GenericYocto:
         for path in self.includes():
             add_flag(f'-I {path}')
 
+    def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
+        """ Should be overridden by subclass to add platform-specific cxx flags """
+        self._add_common_cxx_flags(add_flag)
+
+
+    def get_ldflags_with_defaults(self, ldflags: dict):
+        """ Populates ldflags dict with default values if not already set by user configuration. """
+        defaults:dict = {
+             # -Wl,--as-needed is important for embedded builds to avoid unnecessarily linking to libraries that are not actually used,
+             #  which can cause bloated binaries and potential runtime issues on resource-constrained devices
+            '-Wl,--as-needed': ''
+        }
+        # only set default ldflags if not already set by user configuration
+        for k,v in defaults.items():
+            if not k in ldflags:
+                ldflags[k] = v
+        return ldflags
+
 
     def get_cmake_build_opts(self) -> list:
         if self.toolchain_file:
@@ -186,6 +207,7 @@ class GenericYocto:
             'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
             'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
+            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
         ]
         return opt
 

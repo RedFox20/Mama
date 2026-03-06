@@ -5,6 +5,7 @@ from mama.platforms.xilinx import Xilinx
 from mama.platforms.mips import Mips
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
+from mama.platforms.generic_yocto import GenericYocto
 import mama.util as util
 from .utils.system import System, console, Color
 from .utils.sub_process import execute, execute_piped
@@ -58,7 +59,7 @@ class BuildConfig:
         self.oclea : Oclea = None
         self.xilinx : Xilinx = None
         self.imx8mp : Imx8mp = None
-        self.yocto_linux = False # whether this is a generic Yocto Linux embedded platform (e.g. Oclea, Xilinx, IMX8MP)
+        self.yocto_linux : GenericYocto = None # whether this is a generic Yocto Linux embedded platform (e.g. Oclea, Xilinx, IMX8MP)
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
         # compiler preferences
@@ -243,7 +244,7 @@ class BuildConfig:
         elif linux:  platforms[1] = True
         elif macos:  platforms[2] = True
         elif ios:    platforms[3] = True
-        elif android: platforms[4] = True
+        elif android:platforms[4] = True
         elif raspi:  platforms[5] = True
         elif oclea:  platforms[6] = True
         elif mips:   platforms[7] = True
@@ -268,14 +269,16 @@ class BuildConfig:
         self.imx8mp  = get_new_value(self.imx8mp,  platforms[9], Imx8mp)
 
         # convenience alias for detecting embedded Yocto Linux platforms (e.g. Oclea, Xilinx, IMX8MP)
-        self.yocto_linux = self.imx8mp or self.oclea or self.xilinx
+        if self.imx8mp: self.yocto_linux = self.imx8mp
+        if self.oclea:  self.yocto_linux = self.oclea
+        if self.xilinx: self.yocto_linux = self.xilinx
         return True
 
 
     def is_platform_set(self):
         return self.msvc or self.linux or self.macos \
             or self.ios or self.android or self.raspi or self.mips \
-            or self.oclea or self.xilinx or self.imx8mp
+            or self.yocto_linux
 
 
     def check_platform(self):
@@ -294,10 +297,8 @@ class BuildConfig:
             if self.macos:        self.set_arch('arm64')
             elif self.ios:        self.set_arch('arm64')
             elif self.android:    self.set_arch('arm64')
+            elif self.yocto_linux:self.set_arch('arm64')
             elif self.raspi:      self.set_arch('arm')
-            elif self.oclea:      self.set_arch('arm64')
-            elif self.xilinx:     self.set_arch('arm64')
-            elif self.imx8mp:     self.set_arch('arm64')
             elif self.mips:       self.set_arch(self.mips.mips_arch)
             else:
                 if System.aarch64:  self.set_arch('arm64')
@@ -307,18 +308,14 @@ class BuildConfig:
         # Arch itself is validated in set_arch(),
         # however we need to validate if arch is allowed on platform
         if self.arch:
+            if self.yocto_linux and self.arch != 'arm64':
+                raise RuntimeError(f'Unsupported arch={self.arch} on {self.yocto_linux.name} platform! Supported=arm64')
             if self.linux and self.arch == 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
             if self.raspi and self.arch != 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
-            if self.oclea and self.arch != 'arm64':
-                raise RuntimeError(f'Unsupported arch={self.arch} on Oclea platform! Supported=arm64')
-            if self.xilinx and self.arch != 'arm64':
-                raise RuntimeError(f'Unsupported arch={self.arch} on Xilinx platform! Supported=arm64')
             if self.mips and self.arch not in self.mips.supported_arches:
                 raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
-            if self.imx8mp and self.arch != 'arm64':
-                raise RuntimeError(f'Unsupported arch={self.arch} on IMX8MP platform! Supported=arm64')
 
 
     def get_distro_info(self):
@@ -336,17 +333,10 @@ class BuildConfig:
         elif self.android:
             version = self.android.android_api.split('-')[1]
             self.distro = (self.name(), int(version), 0)
+        elif self.yocto_linux:
+            self.distro = self.yocto_linux.distro_version
         elif self.raspi:
             # TODO: RASPI version
-            self.distro = (self.name(), 0, 0)
-        elif self.oclea:
-            # TODO: OCLEA version
-            self.distro = (self.name(), 0, 0)
-        elif self.xilinx:
-            # TODO: XILINX version
-            self.distro = (self.name(), 0, 0)
-        elif self.imx8mp:
-            # TODO: IMX8MP version
             self.distro = (self.name(), 0, 0)
         elif self.mips:
             # TODO: MIPS version
@@ -383,10 +373,8 @@ class BuildConfig:
         if self.ios:     return 'ios'
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
-        if self.oclea:   return 'oclea'
-        if self.xilinx:  return 'xilinx'
-        if self.imx8mp:  return 'imx8mp'
-        if self.mips:    return self.mips.name
+        if self.yocto_linux: return self.yocto_linux.name
+        if self.mips:        return self.mips.name
         return 'build'
 
 
@@ -406,10 +394,10 @@ class BuildConfig:
     def build_dir_android64(self): return 'android'
     def build_dir_android32(self): return 'android32'
     def build_dir_raspi32(self): return 'raspi'
-    def build_dir_oclea64(self): return 'oclea'
-    def build_dir_xilinx64(self): return 'xilinx'
+    def build_dir_oclea64(self): return Oclea.BUILD_DIR
+    def build_dir_xilinx64(self): return Xilinx.BUILD_DIR
+    def build_dir_imx8mp(self): return Imx8mp.BUILD_DIR
     def build_dir_mips(self): return 'mips'
-    def build_dir_imx8mp(self): return 'imx8mp'
     def build_dir_default(self): return 'build'
 
 
@@ -425,6 +413,9 @@ class BuildConfig:
             if self.is_target_arch_x86(): return self.build_dir_win32()
             if self.is_target_arch_armv7(): return self.build_dir_winarm32()
             return self.build_dir_winarm64()
+        if self.yocto_linux:
+            # Only arm64 i.MX8M Plus, Xilinx Zync, Oclea Aarch64...
+            return self.yocto_linux.build_dir
         if self.linux:
             if self.is_target_arch_x64(): return self.build_dir_linux64()
             if self.is_target_arch_arm64(): return self.build_dir_linuxarm64()
@@ -439,9 +430,6 @@ class BuildConfig:
             if self.is_target_arch_arm64(): return self.build_dir_android64()
             return self.build_dir_android32()
         if self.raspi: return self.build_dir_raspi32()  # Only 32-bit raspi
-        if self.oclea: return self.build_dir_oclea64()  # Only 64-bit oclea aarch64 (arm64)
-        if self.xilinx: return self.build_dir_xilinx64()  # Only 64-bit xilinx aarch64 (arm64)
-        if self.imx8mp: return self.build_dir_imx8mp()  # Only 64-bit oclea aarch64 (arm64)
         if self.mips: return self.build_dir_mips()
 
         return self.build_dir_default()
@@ -552,23 +540,15 @@ class BuildConfig:
             self.cc_path  = self.android.cc_path()
             self.cxx_path = self.android.cxx_path()
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
+        elif self.yocto_linux:
+            self.cc_path  = f'{self.yocto_linux.cc_prefix}gcc'
+            self.cxx_path = f'{self.yocto_linux.cc_prefix}g++'
+            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
             self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
             self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
-        elif self.oclea:
-            self.cc_path  = f'{self.oclea.bin()}aarch64-oclea-linux-gcc'
-            self.cxx_path = f'{self.oclea.bin()}aarch64-oclea-linux-g++'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
-        elif self.xilinx:
-            self.cc_path  = f'{self.xilinx.bin()}aarch64-xilinx-linux-gcc'
-            self.cxx_path = f'{self.xilinx.bin()}aarch64-xilinx-linux-g++'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
-        elif self.imx8mp:
-            self.cc_path  = f'{self.imx8mp.bin()}aarch64-poky-linux-gcc'
-            self.cxx_path = f'{self.imx8mp.bin()}aarch64-poky-linux-g++'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)            
         elif self.mips:
             self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
             self.cxx_path = f'{self.mips.compiler_prefix()}g++'
@@ -610,8 +590,7 @@ class BuildConfig:
             return self.macos_version
         elif self.ios:
             return self.ios_version
-        elif self.linux or self.raspi or self.mips or self.android or \
-            self.oclea or self.xilinx or self.imx8mp:
+        elif self.linux or self.raspi or self.mips or self.android or self.yocto_linux:
             cc, _, version = self.get_preferred_compiler_paths()
             version_parts = version.split('.')
             major_version, minor_version = version_parts[0], version_parts[1]
@@ -696,6 +675,18 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         self.android.set_toolchain_path(toolchain_file)
 
 
+    def set_yocto_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """
+        For i.MX8M Plus, Xilinx, Oclea and other Yocto Linux based platforms.
+        Sets the toolchain dir where these subdirs exist:
+            aarch64-poky-linux/
+            x86_64-pokysdk-linux/
+        And optionally also sets the CMake toolchain file via `toolchain_file`.
+        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
+        """
+        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
+
+
     def set_oclea_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """
         Sets the toolchain dir where these subdirs exist:
@@ -704,7 +695,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         And optionally also sets the CMake toolchain file via `toolchain_file`.
         The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
         """
-        self.oclea.init_toolchain(toolchain_dir, toolchain_file)
+        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
+
 
     def set_imx8mp_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """
@@ -714,7 +706,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         And optionally also sets the CMake toolchain file via `toolchain_file`.
         The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
         """
-        self.imx8mp.init_toolchain(toolchain_dir, toolchain_file)
+        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
+
 
     def set_xilinx_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """
@@ -724,7 +717,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         And optionally also sets the CMake toolchain file via `toolchain_file`.
         The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
         """
-        self.xilinx.init_toolchain(toolchain_dir, toolchain_file)
+        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
 
 
     def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):

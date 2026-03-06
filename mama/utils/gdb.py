@@ -25,8 +25,7 @@ def _is_running_leak_sanitizer(target: BuildTarget):
 
 
 def run_gdb(target: BuildTarget, command: str, src_dir=True):
-    if target.android or target.ios or target.raspi or target.mips or \
-        target.oclea or target.xilinx or target.imx8mp:
+    if target.android or target.ios or target.raspi or target.mips or target.yocto_linux:
         console('Cannot run tests for Android, iOS, Raspi, MIPS, Oclea, Xilinx, IMX8MP builds.')
         return # nothing to run
 

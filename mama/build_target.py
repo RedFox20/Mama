@@ -770,7 +770,7 @@ class BuildTarget:
 
     def enable_cxx20(self):
         """Enable C++20 standard"""
-        if self.mips or self.raspi or self.oclea or self.xilinx or self.imx8mp:
+        if self.mips or self.raspi or self.yocto_linux:
             self._set_cxx_std('c++2a') # older toolchains typically need c++2a
         else:
             self._set_cxx_std('c++20')

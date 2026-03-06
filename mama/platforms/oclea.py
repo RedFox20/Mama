@@ -9,9 +9,13 @@ if TYPE_CHECKING:
 
 
 class Oclea(GenericYocto):
+    BUILD_DIR = 'oclea' # Constant: Oclea Ambarella CV25 build dir name
+
     def __init__(self, config: BuildConfig):
         ## Ambarella CV25 by Oclea is a Cortex-A53 based SoC with a HW Encoder.
-        super().__init__('oclea', 'OCLEA', config)
+        super().__init__(Oclea.BUILD_DIR, Oclea.BUILD_DIR.upper(), config)
+        self.build_dir = Oclea.BUILD_DIR  # override generic build dir
+        self.host_name = 'aarch64-oclea-linux' # override generic host name
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):

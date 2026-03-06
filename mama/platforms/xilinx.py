@@ -9,9 +9,13 @@ if TYPE_CHECKING:
 
 
 class Xilinx(GenericYocto):
+    BUILD_DIR = 'xilinx' # Constant: Xilinx Zync build dir name
+
     def __init__(self, config: BuildConfig):
         ## Xilinx Zynq UltraScale+ MPSoC
-        super().__init__('xilinx', 'XILINX', config)
+        super().__init__(Xilinx.BUILD_DIR, Xilinx.BUILD_DIR.upper(), config)
+        self.build_dir = Xilinx.BUILD_DIR  # override generic build dir
+        self.host_name = 'aarch64-xilinx-linux' # override generic host name
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):

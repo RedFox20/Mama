@@ -9,10 +9,14 @@ if TYPE_CHECKING:
 
 
 class Imx8mp(GenericYocto):
+    BUILD_DIR = 'imx8mp' # Constant: i.MX8M Plus build dir name
+
     def __init__(self, config: BuildConfig):
         # NXP i.MX8M Plus (imx8mp) is a Cortex-A53 based SoC with integrated NPU, 
         # and is supported by Yocto SDKs provided by NXP and 3rd parties like IMD Tec
-        super().__init__('imx8mp', 'IMX8MP', config)
+        super().__init__(Imx8mp.BUILD_DIR, Imx8mp.BUILD_DIR.upper(), config)
+        self.build_dir = Imx8mp.BUILD_DIR  # override generic build dir
+        self.host_name = 'aarch64-poky-linux' # override generic host name
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
@@ -21,6 +25,8 @@ class Imx8mp(GenericYocto):
         paths += [ '/opt/imdt-imx-xwayland/5.0.4' ]
         paths += [ '/opt/imx8mp-sdk' ]
         paths += [ 'imx8mp-toolchain' ]
+
+        self.distro_version = (5, 0, 4) # default distro version for i.MX8MP builds, overridden by config
 
         # /opt/imdt-imx-xwayland/5.0.4/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc
         compiler = 'usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc'

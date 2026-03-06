@@ -127,10 +127,8 @@ def _generator(target:BuildTarget):
     if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "Unix Makefiles"'
     if config.linux:              return '-G "Unix Makefiles"'
+    if config.yocto_linux:        return '-G "Unix Makefiles"'
     if config.raspi:              return '-G "Unix Makefiles"'
-    if config.oclea:              return '-G "Unix Makefiles"'
-    if config.xilinx:             return '-G "Unix Makefiles"'
-    if config.imx8mp:             return '-G "Unix Makefiles"'
     if config.mips:               return '-G "Unix Makefiles"'
     if config.ios:                return '-G "Xcode"'
     if config.macos:              return '-G "Xcode"'
@@ -154,8 +152,6 @@ def _default_options(target:BuildTarget):
     def add_flag(flag:str, value=''):
         if not flag in cxxflags:  # add flag if not already set
             cxxflags[flag] = value
-    def add_ldflag(flag:str, value=''):
-        ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''
         sep = ':' if config.msvc else '='
@@ -198,12 +194,8 @@ def _default_options(target:BuildTarget):
         add_flag('--sysroot', config.raspi_sysroot())
         for path in config.raspi_includes():
             add_flag(f'-I {path}')
-    elif config.oclea:
-        config.oclea.get_cxx_flags(add_flag)
-    elif config.xilinx:
-        config.xilinx.get_cxx_flags(add_flag)
-    elif config.imx8mp:
-        config.imx8mp.get_cxx_flags(add_flag)
+    elif config.yocto_linux:
+        config.yocto_linux.get_cxx_flags(add_flag)
     elif config.mips:
         config.mips.get_cxx_flags(add_flag)
 
@@ -252,6 +244,9 @@ def _default_options(target:BuildTarget):
     if cxxflags_str and target.enable_cxx_build:
         opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
+    if config.yocto_linux:
+        config.yocto_linux.get_ldflags_with_defaults(ldflags)
+
     ldflags_str = get_flags_string(ldflags)
     if ldflags_str:
         exe_ldflags = ldflags_str
@@ -261,7 +256,9 @@ def _default_options(target:BuildTarget):
             f'CMAKE_EXE_LINKER_FLAGS="{exe_ldflags}"',
             f'CMAKE_MODULE_LINKER_FLAGS="{exe_ldflags}"',
             f'CMAKE_SHARED_LINKER_FLAGS="{exe_ldflags}"',
-            f'CMAKE_STATIC_LINKER_FLAGS="{ldflags_str}"'
+            # NOTE: CMAKE_STATIC_LINKER_FLAGS is intentionally omitted because
+            # it is passed to the archiver (ar), not the linker (ld),
+            # and ar does not understand linker flags like -Wl,--as-needed
         ]
 
     make = _make_program(target)
@@ -286,12 +283,8 @@ def _default_options(target:BuildTarget):
             toolchain = target.source_dir(target.cmake_raspi_toolchain)
             if config.print: console(f'Toolchain: {toolchain}')
             opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
-    elif config.oclea:
-        opt += config.oclea.get_cmake_build_opts()
-    elif config.xilinx:
-        opt += config.xilinx.get_cmake_build_opts()
-    elif config.imx8mp:
-        opt += config.imx8mp.get_cmake_build_opts()
+    elif config.yocto_linux:
+        opt += config.yocto_linux.get_cmake_build_opts()
     elif config.mips:
         opt += config.mips.get_cmake_build_opts()
     elif config.macos:

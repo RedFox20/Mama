@@ -73,14 +73,9 @@ class GnuProject:
         self.install_dir_suffix = '-built'
         self.make_opts = '' # default options for make
         self.host = ''
-        if self.target.config.mips:
-            self.host = 'mipsel-linux-gnu'
-        elif self.target.config.oclea:
-            self.host = 'aarch64-oclea-linux'
-        elif self.target.config.xilinx:
-            self.host = 'aarch64-xilinx-linux'
-        elif self.target.config.imx8mp:
-            self.host = 'aarch64-poky-linux'
+        if   self.target.config.mips:         self.host = 'mipsel-linux-gnu'
+        elif self.target.config.yocto_linux:  self.host = self.target.config.yocto_linux.host_name
+
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it
         self.configure_command = configure
@@ -218,8 +213,8 @@ class GnuProject:
 
 
     def configure_env(self):
-        if self.target.oclea or self.target.xilinx or self.target.imx8mp:
-            self.target.oclea.get_gnu_build_env(self.extra_env)
+        if self.target.yocto_linux:
+            self.target.yocto_linux.get_gnu_build_env(self.extra_env)
         else:
             # GNU projects need to be configured with the CC, CXX and AR environment variables set
             cc_prefix = self.target.get_cc_prefix()

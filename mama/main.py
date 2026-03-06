@@ -278,10 +278,8 @@ def main():
     # initialize platform compiler config
     if config.android: config.android.android_home()
     if config.raspi:   config.raspi_bin()
-    if config.oclea:   config.oclea.init_default()
-    if config.imx8mp:  config.imx8mp.init_default()
-    if config.mips:    config.mips.init_default()
-    if config.xilinx:  config.xilinx.init_default()
+    if config.yocto_linux: config.yocto_linux.init_default()
+    if config.mips:        config.mips.init_default()
 
     if config.verbose:
         chain = ' -> '.join([d.name for d in flat_deps_reverse])
