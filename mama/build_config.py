@@ -45,10 +45,10 @@ class BuildConfig:
         self.start     = ''
         self.with_tests = False # forces -DENABLE_TESTS=ON
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
-        self.coverage  = None # gcc/clang: gcov | windows: /fsanitize-coverage=edge
+        self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
         # supported platforms
-        self.windows = False
+        self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
         self.macos   = False
         self.ios     = False
@@ -61,9 +61,9 @@ class BuildConfig:
         self.yocto_linux = False # whether this is a generic Yocto Linux embedded platform (e.g. Oclea, Xilinx, IMX8MP)
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
-        # compilers
+        # compiler preferences
         self.clang = False
-        self.gcc   = True # prefer gcc on linux
+        self.gcc   = False
         self.clang_path = ''
         self.gcc_path = ''
         # can be used to overide C and C++ compiler paths
@@ -157,7 +157,8 @@ class BuildConfig:
             elif arg == 'coverage': self.add_coverage_option()
             elif arg == 'coverage-report': self.coverage_report = '.'
             elif arg.startswith('coverage-report='): self.coverage_report = arg[16:]
-            elif arg == 'windows': self.set_platform(windows=True)
+            elif arg == 'windows': self.set_platform(msvc=True)
+            elif arg == 'msvc':    self.set_platform(msvc=True)
             elif arg == 'linux':   self.set_platform(linux=True)
             elif arg == 'macos':   self.set_platform(macos=True)
             elif arg == 'ios':     self.set_platform(ios=True)
@@ -232,20 +233,20 @@ class BuildConfig:
         return args + ' ' + arg
 
 
-    def set_platform(self, windows=False, linux=False, macos=False, \
+    def set_platform(self, msvc=False, linux=False, macos=False, \
                            ios=False, android=False, raspi=False, \
                            oclea=False, mips=False, xilinx=False, imx8mp=False):
         """ Ensures only a single platform is set """
 
         platforms = [False]*10
-        if windows: platforms[0] = True
+        if   msvc:   platforms[0] = True
         elif linux:  platforms[1] = True
         elif macos:  platforms[2] = True
         elif ios:    platforms[3] = True
         elif android: platforms[4] = True
-        elif raspi: platforms[5] = True
-        elif oclea: platforms[6] = True
-        elif mips: platforms[7] = True
+        elif raspi:  platforms[5] = True
+        elif oclea:  platforms[6] = True
+        elif mips:   platforms[7] = True
         elif xilinx: platforms[8] = True
         elif imx8mp: platforms[9] = True
 
@@ -255,7 +256,7 @@ class BuildConfig:
             if enable and not old_value:
                 return type(self) if type else True
             return old_value
-        self.windows = get_new_value(self.windows, platforms[0])
+        self.msvc    = get_new_value(self.msvc,    platforms[0])
         self.linux   = get_new_value(self.linux,   platforms[1])
         self.macos   = get_new_value(self.macos,   platforms[2])
         self.ios     = get_new_value(self.ios,     platforms[3])
@@ -272,16 +273,20 @@ class BuildConfig:
 
 
     def is_platform_set(self):
-        return self.windows or self.linux or self.macos \
+        return self.msvc or self.linux or self.macos \
             or self.ios or self.android or self.raspi or self.mips \
             or self.oclea or self.xilinx or self.imx8mp
 
 
     def check_platform(self):
         if not self.is_platform_set():
-            self.set_platform(windows=System.windows, linux=System.linux, macos=System.macos)
+            # choose MSVC if user did not specify `mama build gcc` on windows system
+            msvc = System.windows and not (self.gcc or self.clang)
+            self.set_platform(msvc=msvc, linux=System.linux, macos=System.macos)
             if not self.is_platform_set():
                 raise RuntimeError(f'Unsupported platform {sys.platform}: Please specify platform!')
+        if not self.msvc and not (self.gcc or self.clang):
+            self.gcc = True # default to GCC on non-MSVC platforms
 
         # set defaults if arch was not specified
         if not self.arch:
@@ -319,7 +324,7 @@ class BuildConfig:
     def get_distro_info(self):
         if self.distro:
             return self.distro
-        if self.windows:
+        if self.msvc:
             version = platform.version().split('.') + ['0']
             self.distro = (self.name(), int(version[0]), int(version[1]))
         elif self.macos:
@@ -372,7 +377,7 @@ class BuildConfig:
 
 
     def name(self):
-        if self.windows: return 'windows'
+        if self.msvc:    return 'windows' # TODO: maybe rename to MSVC?
         if self.linux:   return 'linux'
         if self.macos:   return 'macos'
         if self.ios:     return 'ios'
@@ -415,7 +420,7 @@ class BuildConfig:
         And 32-bit architectures add a suffix, eg 'windows32' or 'linux32'
         """
         # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
-        if self.windows:
+        if self.msvc:
             if self.is_target_arch_x64(): return self.build_dir_win64()
             if self.is_target_arch_x86(): return self.build_dir_win32()
             if self.is_target_arch_armv7(): return self.build_dir_winarm32()
@@ -540,7 +545,7 @@ class BuildConfig:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         # no preferred cc path for MSVC
-        if self.windows:
+        if self.msvc:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         if self.android:
@@ -597,7 +602,7 @@ class BuildConfig:
 
 
     def compiler_version(self):
-        if self.windows:
+        if self.msvc:
             msvc_tools = self.get_msvc_tools_path()
             version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
             return f'msvc{version}'
@@ -975,12 +980,12 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def libname(self, library):
-        if self.windows: return f'{library}.lib'
-        else:            return f'lib{library}.a'
+        if self.msvc: return f'{library}.lib'
+        else:         return f'lib{library}.a'
 
 
     def libext(self):
-        return 'lib' if self.windows else 'a'
+        return 'lib' if self.msvc else 'a'
 
 
     def has_target(self) -> bool:

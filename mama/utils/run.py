@@ -17,9 +17,9 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     #print(f'get_cwd_exe_args: program={program} args={args} cwd={cwd} root_dir={root_dir}')
 
     # add or remove .exe extension
-    if System.windows and target.windows and not program.endswith('.exe'):
+    if System.windows and target.msvc and not program.endswith('.exe'):
         program += '.exe'
-    if (System.linux or System.macos) and (not target.windows) and program.endswith('.exe'):
+    if (System.linux or System.macos) and (not target.msvc) and program.endswith('.exe'):
         program = program[:-4]
 
     if root_dir:

@@ -123,7 +123,7 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
 def _generator(target:BuildTarget):
     config:BuildConfig = target.config
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.windows:            return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
+    if config.msvc:               return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
     if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "Unix Makefiles"'
     if config.linux:              return '-G "Unix Makefiles"'
@@ -139,7 +139,7 @@ def _generator(target:BuildTarget):
 
 def _make_program(target:BuildTarget):
     config:BuildConfig = target.config
-    if config.windows: return ''
+    if config.msvc: return ''
     if target.enable_unix_make: return ''
     if target.enable_ninja_build: return config.ninja_path
     return ''
@@ -158,7 +158,7 @@ def _default_options(target:BuildTarget):
         ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''
-        sep = ':' if config.windows else '='
+        sep = ':' if config.msvc else '='
         for k, v in flags.items():
             if not v:
                 res += f' {k}'
@@ -168,7 +168,7 @@ def _default_options(target:BuildTarget):
                 res += f' {k}{sep}{v}'
         return res.lstrip()
 
-    if config.windows:
+    if config.msvc:
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
         add_flag('-DWIN32', '1') # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
@@ -214,27 +214,27 @@ def _default_options(target:BuildTarget):
     ld_coverage = ''
 
     if config.sanitize:
-        if config.gcc or config.clang:
+        if config.msvc:
+            console(f'Enabling sanitizers: {config.sanitize}')
+            ld_sanitize = f'/fsanitize={config.sanitize}'
+        elif config.gcc or config.clang:
             console(f'Enabling sanitizers: {config.sanitize}')
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
             add_flag('-fno-omit-frame-pointer')
             add_flag('-pie')
             add_flag('-fPIE')
-        elif config.windows: # ASSUMES MSVC
-            console(f'Enabling sanitizers: {config.sanitize}')
-            ld_sanitize = f'/fsanitize={config.sanitize}'
 
     if config.coverage:
-        if config.gcc or config.clang:
+        if config.msvc:
+            option = 'edge' if config.coverage == 'default' else config.coverage
+            console(f'Enabling coverage: /fsanitize-coverage={option}')
+            add_flag('/fsanitize-coverage', option)
+        elif config.gcc or config.clang:
             console(f'Enabling coverage: (gcov+gcovr)')
             add_flag('--coverage')
             add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
             ld_coverage='--coverage'
-        elif config.windows: # ASSUMES MSVC
-            option = 'edge' if config.coverage == 'default' else config.coverage
-            console(f'Enabling coverage: /fsanitize-coverage={option}')
-            add_flag('/fsanitize-coverage', option)
 
     opt = [
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
@@ -267,7 +267,7 @@ def _default_options(target:BuildTarget):
     make = _make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
 
-    if config.windows:
+    if config.msvc:
         if config.is_target_arch_x86(): ## need to override the toolset host
             opt.append('CMAKE_GENERATOR_TOOLSET=host=x86')
     elif config.android:
@@ -332,7 +332,7 @@ def _build_config(target:BuildTarget, install:bool):
 def _mp_flags(target:BuildTarget):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
-    if config.windows:     return f'/maxcpucount:{config.jobs}'
+    if config.msvc:       return f'/maxcpucount:{config.jobs}'
     if target.enable_unix_make:   return f'-j{config.jobs}'
     if target.enable_ninja_build: return ''
     if config.ios:         return f'-jobs {config.jobs}'
@@ -344,7 +344,7 @@ def _buildsys_flags(target:BuildTarget):
     config:BuildConfig = target.config
     def get_flags():
         mpf = _mp_flags(target)
-        if config.windows:            return f'/v:m {mpf} /nologo'
+        if config.msvc:               return f'/v:m {mpf} /nologo'
         if target.enable_unix_make:   return mpf
         if target.enable_ninja_build: return ''
         if config.android:            return mpf

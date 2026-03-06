@@ -19,7 +19,7 @@ def _get_exported_libs(target):
     is_linux_like = False
     if target.android or target.linux or target.raspi or target.mips or target.yocto_linux:
         is_linux_like = True
-    elif target.windows:
+    elif target.msvc:
         allowed = ['.lib']
     elif target.macos:
         allowed = ['.a', '.dylib', '.bundle']

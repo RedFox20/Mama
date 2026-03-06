@@ -101,7 +101,8 @@ class BuildTarget:
 
 
     def _update_platform_aliases(self):
-        self.windows = self.config.windows
+        self.windows = self.config.msvc and self.os_windows
+        self.msvc    = self.config.msvc
         self.linux   = self.config.linux
         self.macos   = self.config.macos
         self.ios     = self.config.ios
@@ -710,19 +711,19 @@ class BuildTarget:
             self.add_cmake_options(f'{name}={enabled}')
 
 
-    def add_platform_options(self, windows=None, linux=None, macos=None, ios=None, android=None):
+    def add_platform_options(self, msvc=None, linux=None, macos=None, ios=None, android=None):
         """
         Selectively applies CMake options depending on configuration platform.
         ```
-            self.add_platform_options(windows='ZLIB_STATIC=TRUE')
+            self.add_platform_options(msvc='ZLIB_STATIC=TRUE')
         ```
         """
-        defines = self.select(windows, linux, macos, ios, android)
+        defines = self.select(msvc, linux, macos, ios, android)
         if defines: self.cmake_opts += defines
 
 
-    def select(self, windows, linux, macos, ios, android):
-        if   self.windows and windows: return windows
+    def select(self, msvc, linux, macos, ios, android):
+        if   self.msvc and msvc: return msvc
         elif self.linux   and linux:   return linux
         elif self.macos   and macos:   return macos
         elif self.ios     and ios:     return ios
@@ -741,15 +742,25 @@ class BuildTarget:
 
 
     def _get_cxx_std(self):
-        return self.cmake_cxxflags.get('/std' if self.windows else '-std', '')
+        return self.cmake_cxxflags.get('/std' if self.msvc else '-std', '')
 
     def _set_cxx_std(self, std):
-        self.cmake_cxxflags['/std' if self.windows else '-std'] = std
+        self.cmake_cxxflags['/std' if self.msvc else '-std'] = std
+
+
+    def enable_cxx26(self):
+        """ Enable C++26 standard """
+        self._set_cxx_std('c++latest' if self.msvc else 'c++2b')
+
+    def is_enabled_cxx26(self):
+        if 'CXX26' in self.args: return True
+        std = self._get_cxx_std()
+        return 'c++26' in std or 'c++2c' in std or 'c++latest' in std
 
 
     def enable_cxx23(self):
         """ Enable C++23 standard """
-        self._set_cxx_std('c++latest' if self.windows else 'c++2b')
+        self._set_cxx_std('/std:c++23preview' if self.msvc else 'c++2b')
 
     def is_enabled_cxx23(self):
         if 'CXX23' in self.args: return True
@@ -1141,7 +1152,7 @@ class BuildTarget:
             # custom export any .lib or .a from build folder
             self.export_libs('.', ['.lib', '.a'])
 
-            if self.windows:
+            if self.msvc:
                 self.export_syslib('opengl32.lib')
 
             # export some asset from source folder

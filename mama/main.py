@@ -46,7 +46,8 @@ def print_usage():
     console('    install-msbuild - configures and installs MSBuild for linux')
     console('    install-ndk     - configures and installs Android NDK for linux or windows')
     console('  args:')
-    console('    windows    - build for windows')
+    console('    windows    - build for windows (alias for msvc)')
+    console('    msvc       - build for windows using MSVC')
     console('    linux      - build for linux')
     console('    imx8mp     - build for nxp imx8mp yocto')
     console('    xilinx     - build for amd xilinx yocto')
@@ -110,7 +111,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     if not found:
         raise KeyError(f'No project named {name}')
     
-    if config.windows:
+    if config.msvc:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
         if solutions:
             execute(f'start {solutions[0]}', echo=True)
@@ -172,7 +173,7 @@ def mama_dirty(root: BuildDependency, dep: BuildDependency):
 
 
 def run_coverage_report(target: BuildTarget):
-    if target.config.windows:
+    if target.config.msvc:
         console('Coverage report not supported yet on Windows')
         return
     root = target.source_dir(target.config.coverage_report)

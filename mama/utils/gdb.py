@@ -31,12 +31,12 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
         return # nothing to run
 
     root_dir = target.source_dir() if src_dir else target.build_dir()
-    if target.windows and not src_dir:
+    if target.msvc and not src_dir:
         root_dir = f'{root_dir}/{target.cmake_build_type}'
 
     cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
 
-    if target.windows:
+    if target.msvc:
         debugger = f'{exe} {args}'
     elif _is_running_leak_sanitizer(target):
         console('LEAK/ADDRESS sanitizer was enabled - GDB would disable LEAK detection, running without GDB', color=Color.YELLOW)
