@@ -38,7 +38,7 @@ class BuildTarget:
     ```
     class MyProject(mama.BuildTarget):
 
-        workspace = 'build'
+        workspace = 'packages'
 
         def configure(self):
             self.add_git('ReCpp',

@@ -13,21 +13,21 @@ def write_default_mamafile(project_name, mamafile):
 class {project_name}(mama.BuildTarget):
 
     # this defines where to build all the dependencies
-    # for project-local workspace: workspace = 'build'
+    # for project-local workspace: workspace = 'packages'
     # for system-wide workspace: global_workspace = 'mycompany'
-    workspace = 'build'
+    workspace = 'packages'
 
     # grab dependencies straight from git repositories
     # if the projects are trivial or support mama, then no extra configuration is needed
     # for others you will need to supply your own mamafile
     def dependencies(self):
-        #self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
+        self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git')
         #self.nothing_to_build() # if you have a header only library
         pass
 
     # customize CMake options in this step
     def configure(self):
-        self.enable_cxx17()
+        self.enable_cxx20()
         #self.add_cmake_options('BUILD_TESTS=ON', 'USE_SSE2=ON')
 
     ## optional: customize package exports if repository doesn't have `include` or `src`
@@ -52,6 +52,11 @@ project({project_name})
 # For each dependency there will also be ${{SomeLibrary_LIBS}} (case-sensitive)
 include(mama.cmake)
 include_directories(${{MAMA_INCLUDES}})
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # for clang-tidy
 
 # Executable {project_name}
 include_directories("include")
@@ -124,6 +129,27 @@ def patch_existing_cmakelists(project_name, cmakefile):
     write_text_to(cmakefile, contents)
 
 
+def find_cpp_main(src_dir):
+    # use top-level glob in src/ to match anything with "main" in the name and .cpp extension
+    for entry in os.listdir(src_dir):
+        if entry.endswith('.cpp') and 'main' in entry.lower():
+            return os.path.join(src_dir, entry)
+    return None
+
+
+def write_default_cpp_main(src_dir, project_name):
+    main_cpp = os.path.join(src_dir, f'{project_name}_main.cpp')
+    contents = f'''#include <rpp/debugging.h>
+
+int main(int argc, char** argv, char** envp)
+{{
+    LogInfo("hello world!");
+    return 0;
+}}
+    '''
+    write_text_to(main_cpp, contents)
+
+
 def mama_init_project(root: BuildDependency):
     mamafile = root.mamafile_path()
     if not os.path.exists(mamafile):
@@ -132,10 +158,18 @@ def mama_init_project(root: BuildDependency):
     else:
         console(f'{root.name} Mamafile already exists: {mamafile}')
 
+    src_dir = os.path.join(root.src_dir, 'src')
+    cpp_main = find_cpp_main(src_dir)
+    if cpp_main:
+        console(f'{root.name} Found C++ main file: {cpp_main}')
+    else:
+        console(f'{root.name} No C++ main file found in src directory. Generating default main file.')
+        write_default_cpp_main(src_dir, root.name)
+
     cmakelists = root.cmakelists_path()
     if not os.path.exists(cmakelists):
         console(f'{root.name} Creating new CMakeLists.txt: {cmakelists}')
-        write_default_cmakelists(root.name, cmakelists)
+        write_default_cmakelists(root.name, cmakelists, cpp_main)
     else:
         console(f'{root.name} Patching existing CMakeLists.txt: {cmakelists}')
         patch_existing_cmakelists(root.name, cmakelists)

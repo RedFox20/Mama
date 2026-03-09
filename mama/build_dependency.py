@@ -452,7 +452,7 @@ class BuildDependency:
                 if   'workspace'        in buildStatics: self.workspace = buildStatics['workspace']
                 elif 'local_workspace'  in buildStatics: self.workspace = buildStatics['local_workspace']
                 elif 'global_workspace' in buildStatics: self.workspace = buildStatics['global_workspace']
-                else:                                    self.workspace = 'build'
+                else:                                    self.workspace = 'packages'
             if self.is_root:
                 if   'workspace'        in buildStatics: self.config.global_workspace = False
                 elif 'local_workspace'  in buildStatics: self.config.global_workspace = False
@@ -462,7 +462,7 @@ class BuildDependency:
             self.target = buildTarget(name=project, config=self.config, dep=self, args=self.target_args)
         else:
             if not self.workspace:
-                self.workspace = 'build'
+                self.workspace = 'packages'
             if self.config.verbose:
                 console(f'  - Target {self.name: <16} Using Default BuildTarget Project={project} BuildTarget={buildTarget}', color=Color.YELLOW)
             self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)

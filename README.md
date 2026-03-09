@@ -97,7 +97,7 @@ Project `AlphaGL/mamafile.py`
 import mama
 class AlphaGL(mama.BuildTarget):
     # where to build intermediates
-    workspace = 'build' # for system-wide workspace, use: global_workspace = 'mycompany'
+    workspace = 'packages' # for system-wide workspace, use: global_workspace = 'mycompany'
 
     # grab dependencies straight from git repositories
     # if the projects are trivial, then no extra configuration is needed
