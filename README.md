@@ -71,7 +71,8 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt
   mama build                     Update and build main project only. This only clones, but does not update!
   mama build x86 opencv          Cross compile build target opencv to x86 architecture
-  mama build android             Cross compile to arm64 android NDK
+  mama build android             Cross compile to arm64 android NDK (default API level 29)
+  mama build android-31           Cross compile to arm64 with Android API level 31
   mama build android-26 arm      Cross compile to armv7 android NDK API level 26
   mama update                    Update all dependencies by doing git pull and build.
   mama clean                     Cleans main project only.
@@ -141,6 +142,59 @@ Call `mama help` for more usage information.
 
 ## Mamafile Reference
 
+### Adding dependencies
+
+```py
+# Git dependency with full options:
+self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git',
+             branch='master',      # track a branch (default: repo default branch)
+             git_tag='v1.2.3',     # pin to a specific git tag
+             git_commit='abc123',  # OR pin to a specific commit hash (alias of git_tag argument)
+             mamafile='recpp.py',  # explicit mamafile path (default: auto-detect {src}/mamafile.py)
+             shallow=True,         # shallow clone with --depth 1 (default: True)
+             args=['CXX20'])       # pass custom arguments to child target's self.args
+
+# Local dependency with full options:
+self.add_local('utils', 'libs/utils',
+               mamafile=None,       # explicit mamafile path (default: auto-detect {src}/mamafile.py)
+               always_build=False,  # force rebuild every time (useful for active sub-projects)
+               args=[])             # pass custom arguments to child target's self.args
+
+# Artifactory prebuilt package:
+self.add_artifactory_pkg('opencv', version='df76b66')      # by commit hash
+self.add_artifactory_pkg('opencv', fullname='opencv-linux-x64-release-df76b66')  # by full name
+```
+
+The `args` parameter passes custom arguments to the child target, accessible via `self.args`:
+```py
+class MyLib(mama.BuildTarget):
+    def configure(self):
+        if 'CXX20' in self.args:
+            self.enable_cxx20()
+        if 'SHARED' in self.args:
+            self.add_cmake_options('BUILD_SHARED_LIBS=ON')
+```
+
+**Mamafile discovery**: When adding a dependency without an explicit `mamafile=` path,
+mama automatically checks for `{src}/mamafile.py` in the parent project.
+
+### Inter-dependency configuration
+
+```py
+# Get a dependency's exported include path and library paths:
+zinclude, zlibrary = self.get_target_products('zlib')
+self.add_cmake_options(f'ZLIB_INCLUDE_DIR={zinclude}')
+self.add_cmake_options(f'ZLIB_LIBRARY={zlibrary}')
+
+# Or inject one dependency's products into another as CMake defines:
+self.inject_products(dst_dep='libpng', src_dep='zlib',
+                     include_path='ZLIB_INCLUDE_DIR',
+                     libs='ZLIB_LIBRARY')
+
+# Retrieve all injected product defines collected via inject_products():
+defines = self.get_product_defines()  # returns list of CMake defines
+```
+
 ### Overridable methods
 
 Mamafile classes extend `mama.BuildTarget` and can override these methods:
@@ -175,6 +229,7 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 | `enable_multiprocess_build` | `True` | Enable parallel compilation |
 | `clean_intermediate_files` | `False` | Clean intermediate build files after build |
 | `version` | `None` | Custom version string for packaging |
+| `args` | `[]` | Arguments passed from parent via `add_git(args=)` / `add_local(args=)` |
 
 ### Platform detection properties
 
@@ -187,6 +242,10 @@ Host OS detection: `self.os_windows`, `self.os_linux`, `self.os_macos`
 ### C++ standard selection (overrides CMakeLists.txt)
 ```py
 self.enable_cxx11()   # or enable_cxx14(), enable_cxx17(), enable_cxx20(), enable_cxx23(), enable_cxx26()
+
+# Query current C++ standard:
+if self.is_enabled_cxx20():  # or is_enabled_cxx11/14/17/23/26()
+    self.add_cmake_options('USE_CXX20_FEATURES=ON')
 ```
 
 ### Compiler flags
@@ -211,8 +270,11 @@ self.enable_from_env('CUDA')  # enable CMake option CUDA=ON if CUDA=1 env var is
 self.export_includes(['include'])                    # Export include dirs from source dir
 self.export_include('include', build_dir=True)       # Export single include dir from build dir
 self.export_libs('.', ['.lib', '.a'])                 # Find and export libs matching patterns
+self.export_libs('.', ['.lib', '.a'], order=['core', 'utils'])  # Control linker order (important on Linux)
 self.export_lib('lib/mylib.a')                       # Export a specific library file
 self.export_syslib('GL')                             # Export a system library
+self.export_syslib('GL', apt='libgl-dev')            # With apt package hint on failure
+self.export_syslib('optional_lib', required=False)   # Silently skip if not found
 self.export_asset('data/model.bin', category='models')  # Export asset files
 self.export_assets('data/', ['.bin', '.dat'])         # Export multiple assets by pattern
 self.no_export_includes()                            # Suppress automatic include exports
@@ -228,7 +290,46 @@ self.gtest('bin/MyTests', args, gdb=True)            # Run GTest executable with
 self.gnu_project('zlib', '1.2.13', url='...')        # Build a GNU autotools project
 self.ms_build('project.vcxproj', properties={})      # Build with MSBuild (for C#/.NET apps)
 self.cmake_build()                                   # Build . with CMake (default build() implementation)
+self.inject_env()                                    # Inject platform env vars (needed for custom build() overrides)
+self.get_cc_prefix()                                 # Get cross-compiler prefix (e.g. '/usr/bin/mipsel-linux-gnu-')
 ```
+
+#### GDB/LLDB auto-detection
+`gdb()` and `gtest()` automatically select the correct debugger:
+- **Linux**: uses `gdb`
+- **macOS**: uses `lldb`
+- **Windows**: runs directly (no debugger)
+- **Cross-compile targets**: skips debugger with a message
+- **Sanitizer active**: skips debugger to avoid runtime conflicts
+
+Pass `gdb` or `nogdb` in test/start args to override: `mama test=nogdb`
+
+#### GTest integration
+`gtest()` writes XML reports to `{source_dir}/test/report.xml` for CI integration.
+Non-gtest arguments are auto-converted to filters: `mama test=MyFixture` becomes `--gtest_filter="*MyFixture*"`.
+Native `--gtest_*` flags are passed through unchanged.
+
+#### GNU Project support
+For autotools-based projects, `gnu_project()` provides a complete build pipeline:
+```py
+from mama.utils.gnu_project import BuildProduct
+
+def build(self):
+    gp = self.gnu_project('zlib', '1.2.13',
+        url='https://zlib.net/zlib-1.2.13.tar.gz',  # download archive
+        # git='https://github.com/madler/zlib.git', # or clone from git
+        autogen=False,           # run ./autogen.sh before configure
+        configure='configure',   # configure command (default: 'configure')
+        build_products=[         # files to deploy
+            BuildProduct('{{installed}}/lib/libz.a', '{{build}}/lib/libz.a'),
+        ])
+    gp.build(options=['--static'], prefix='/usr/local')
+    # Or call steps individually:
+    # gp.configure(options=['--static'])
+    # gp.make(multithreaded=True)
+    # gp.install()
+```
+`BuildProduct` paths support template variables: `{{installed}}`, `{{source}}`, `{{build}}`.
 
 ### File and download utilities
 ```py
@@ -250,11 +351,25 @@ self.disable_install()                               # Skip cmake install step
 self.enable_fortran()                                # Enable Fortran compiler (for Fortran accelerated libraries)
 self.disable_cxx_compiler()                          # Disable C++ (C-only project)
 self.nothing_to_build()                              # Mark target as header-only/no-build
+self.add_build_dependency(linux='lib/libmylib.a')    # Add file dependency to control rebuild staleness
+```
+
+#### Platform utility methods
+```py
+self.config.libname('z')           # Returns 'z.lib' on MSVC or 'libz.a' on Unix
+self.config.libext()               # Returns 'lib' on MSVC or 'a' on Unix
+self.config.get_distro_info()      # Returns (name, major, minor) e.g. ('ubuntu', 22, 4)
+self.config.compiler_version()     # Returns e.g. 'msvc14', 'gcc11.3', 'clang15.0'
 ```
 
 ### Deployment
 ```py
 self.papa_deploy('path/to/package')                  # Deploy package for upload
+self.papa_deploy('path/to/package',                  # Deploy with RECURSIVE child dependency gathering:
+    r_includes=True,                                 #   include child dependency includes
+    r_dylibs=True,                                   #   include child .dll/.so/.dylib files
+    r_syslibs=True,                                  #   include child system library references
+    r_assets=True)                                   #   include child asset files
 self.default_deploy()                                # Deploy with default settings
 ```
 
@@ -395,6 +510,74 @@ $ mama rebuild googletest
     <I>  myworkspace/googletest/linux/include
     [L]  myworkspace/googletest/linux/libgmock.a
     [L]  myworkspace/googletest/linux/libgtest.a
+```
+
+
+## Artifactory Details
+
+### Authentication
+- **`auth='store'`** (default): Credentials are stored in system keyring (uses `keyrings.cryptfile` on Linux). Stored per-URL; failed logins clear stored credentials automatically.
+- **`auth='prompt'`**: Always prompts for username and password.
+- **Environment variables** `MAMA_ARTIFACTORY_USER` / `MAMA_ARTIFACTORY_PASS` always take priority over both modes.
+
+### Package naming convention
+Artifactory archives follow the naming format:
+```
+{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}
+```
+Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`. Sanitized builds append `-sanitized`. Set `version` class attribute to override the default commit hash.
+
+
+## `mama open` behavior
+
+- **Windows**: Opens `.sln` from build dir; falls back to VSCode
+- **macOS/iOS**: Opens `.xcodeproj` from build dir; falls back to VSCode
+- **Linux/Android**: Opens VSCode
+
+Syntax: `mama open` (root project) or `mama open=dep1` (specific dependency)
+
+
+## Android configuration
+
+Select the Android API level via the CLI:
+```
+mama build android-31             # arm64, API level 31
+mama build android-26 arm         # armv7, API level 26
+mama build android                # arm64, default API level 29
+```
+
+The NDK is auto-detected from these environment variables (in priority order):
+`ANDROID_NDK_LATEST_HOME`, `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_NDK`,
+then SDK paths: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and platform-specific defaults.
+When multiple NDK versions are installed under `{sdk}/ndk/`, the latest version is selected.
+
+For advanced configuration in `settings()`:
+```py
+def settings(self):
+    self.config.android.android_api = 'android-31'     # Override API level
+    self.config.android.android_ndk_stl = 'c++_shared'  # NDK STL (default: 'c++_shared')
+    self.config.set_android_toolchain('path/to/android.toolchain.cmake')  # Custom toolchain
+```
+
+Per-target NDK toolchain override is also supported via `self.cmake_ndk_toolchain` in a mamafile.
+
+
+## Setting macOS / iOS deployment targets
+
+Override in `settings()` (defaults: macOS `13.0`, iOS `16.0`):
+```py
+def settings(self):
+    self.config.macos_version = '14.0'
+    self.config.ios_version = '17.0'
+```
+
+## Custom toolchain overrides
+```py
+def settings(self):
+    self.config.set_android_toolchain('path/to/toolchain.cmake')
+    self.config.set_yocto_toolchain(toolchain_dir='path/to/sdk')
+    self.config.cc_path = '/usr/bin/gcc-12'    # Override C compiler path
+    self.config.cxx_path = '/usr/bin/g++-12'   # Override C++ compiler path
 ```
 
 
