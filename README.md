@@ -108,6 +108,7 @@ Call `mama help` for more usage information.
   with_tests                     Forces -DENABLE_TESTS=ON and -DBUILD_TESTS=ON.
   fortran                        Enable automatic Fortran compiler detection.
   flags="-Wextra -O3"            Pass additional compiler flags.
+  clang-tidy                     Enable clang-tidy static analysis during build.
   silent                         Greatly reduces output verbosity.
   verbose                        Greatly increases output verbosity.
   parallel                       Load dependencies in parallel.
@@ -130,6 +131,40 @@ Call `mama help` for more usage information.
   ubsan                          Shorthand for sanitize=undefined.
   coverage                       Build with GCC --coverage option.
   coverage-report[=src_root]     Generate coverage report using gcovr.
+```
+
+### Clang-Tidy static analysis
+
+Mama supports running [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) static analysis during the build. When enabled, CMake sets `CMAKE_C_CLANG_TIDY` and `CMAKE_CXX_CLANG_TIDY` so that clang-tidy runs on every compiled source file.
+
+```
+mama build clang-tidy             # Run clang-tidy analysis during build
+mama build clang-tidy debug       # Combine with other flags
+```
+
+Clang-tidy is resolved in this order:
+1. System `PATH` lookup
+2. `CLANG_TIDY` environment variable
+
+If clang-tidy is not found, a warning is printed and the build proceeds without static analysis.
+
+Place a `.clang-tidy` configuration file in your project root to control which checks are enabled:
+```yaml
+Checks: >
+  cppcoreguidelines-avoid-reference-coroutine-parameters
+
+WarningsAsErrors: >
+  cppcoreguidelines-avoid-reference-coroutine-parameters
+
+ExtraArgsBefore:
+  - -Wno-unknown-warning-option
+```
+
+You can also enable clang-tidy programmatically from a mamafile:
+```py
+def settings(self):
+    self.config.set_clang_tidy_path()             # auto-detect from PATH or CLANG_TIDY env
+    self.config.set_clang_tidy_path('/usr/bin/clang-tidy-18')  # explicit path
 ```
 
 ### Install utilities
@@ -596,6 +631,7 @@ def settings(self):
 | `OCLEA_HOME` | Path to Oclea SDK |
 | `IMX8MP_SDK_HOME` | Path to i.MX8M Plus SDK |
 | `XILINX_HOME` | Path to Xilinx SDK |
+| `CLANG_TIDY` | Path to clang-tidy executable (fallback if not found in PATH) |
 
 ## VSCode Integration
 

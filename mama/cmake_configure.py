@@ -207,10 +207,10 @@ def _default_options(target:BuildTarget):
 
     if config.sanitize:
         if config.msvc:
-            console(f'Enabling sanitizers: {config.sanitize}')
+            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
             ld_sanitize = f'/fsanitize={config.sanitize}'
         elif config.gcc or config.clang:
-            console(f'Enabling sanitizers: {config.sanitize}')
+            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
             add_flag('-fno-omit-frame-pointer')
@@ -220,10 +220,10 @@ def _default_options(target:BuildTarget):
     if config.coverage:
         if config.msvc:
             option = 'edge' if config.coverage == 'default' else config.coverage
-            console(f'Enabling coverage: /fsanitize-coverage={option}')
+            console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
             add_flag('/fsanitize-coverage', option)
         elif config.gcc or config.clang:
-            console(f'Enabling coverage: (gcov+gcovr)')
+            console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
             add_flag('--coverage')
             add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
             ld_coverage='--coverage'
@@ -234,6 +234,11 @@ def _default_options(target:BuildTarget):
     ]
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
+
+    if config.clang_tidy_path:
+        console('Enabling clang-tidy static analysis during build', color=Color.MAGENTA)
+        opt += [f'CMAKE_C_CLANG_TIDY="{config.clang_tidy_path}"',
+                f'CMAKE_CXX_CLANG_TIDY="{config.clang_tidy_path}"']
 
     _set_compiler_paths(target, opt)
 

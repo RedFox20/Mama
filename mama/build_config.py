@@ -48,6 +48,7 @@ class BuildConfig:
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
+        self.clang_tidy_path = None # enables clang-tidy static analysis during build
         # supported platforms
         self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
@@ -154,6 +155,7 @@ class BuildConfig:
             elif arg == 'lsan':    self.add_sanitizer_option('leak')
             elif arg == 'tsan':    self.add_sanitizer_option('thread')
             elif arg == 'ubsan':   self.add_sanitizer_option('undefined')
+            elif arg == 'clang-tidy': self.set_clang_tidy_path()
             elif arg.startswith('coverage='): self.add_coverage_option(arg[9:])
             elif arg == 'coverage': self.add_coverage_option()
             elif arg == 'coverage-report': self.coverage_report = '.'
@@ -612,6 +614,26 @@ class BuildConfig:
                 if self.verbose: console(f'Found Ninja Build System: {ninja_exe}')
                 return ninja_exe
         return ''
+
+
+    def set_clang_tidy_path(self, clang_tidy_path=None):
+        if clang_tidy_path and os.path.isfile(clang_tidy_path):
+            self.clang_tidy_path = clang_tidy_path
+            if self.print: console(f'Using clang-tidy from {clang_tidy_path}', color=Color.GREEN)
+            return
+        clang_tidy_exe = util.find_executable_from_system('clang-tidy')
+        if clang_tidy_exe:
+            self.clang_tidy_path = clang_tidy_exe
+            if self.print: console(f'Found clang-tidy in PATH: {clang_tidy_exe}', color=Color.GREEN)
+            return
+        clang_tidy_env = os.getenv('CLANG_TIDY')
+        if clang_tidy_env and os.path.isfile(clang_tidy_env):
+            self.clang_tidy_path = clang_tidy_env
+            if self.print: console(f'Found clang-tidy from CLANG_TIDY env: {clang_tidy_env}', color=Color.GREEN)
+            return
+        self.clang_tidy_path = None
+        console('clang-tidy not found! Static analysis will be disabled.', color=Color.YELLOW)
+        console('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>', color=Color.YELLOW)
 
 
     def add_sanitizer_option(self, option):

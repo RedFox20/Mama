@@ -20,13 +20,22 @@ class System:
     x86_64  = is_x86_64
     x86     = is_x86
 
+# Available text colors:
+#     black, red, green, yellow, blue, magenta, cyan, white,
+#     light_grey, dark_grey, light_red, light_green, light_yellow, light_blue,
+#     light_magenta, light_cyan.
 
+# Available text highlights:
+#     on_black, on_red, on_green, on_yellow, on_blue, on_magenta, on_cyan, on_white,
+#     on_light_grey, on_dark_grey, on_light_red, on_light_green, on_light_yellow,
+#     on_light_blue, on_light_magenta, on_light_cyan.
 class Color:
     DEFAULT = None
     RED = "red"
     GREEN = "green"
     YELLOW = "yellow"
     BLUE = "blue"
+    MAGENTA = "magenta"
 
 
 # on windows use colorama to enable ANSI color escape sequences
