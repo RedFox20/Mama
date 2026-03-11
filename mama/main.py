@@ -179,7 +179,9 @@ def run_coverage_report(target: BuildTarget):
         return
     root = target.source_dir(target.config.coverage_report)
     target.config.verbose = True # enable verbose mode before running the command
-    cmd = f'gcovr --gcov-ignore-parse-errors --sort uncovered-percent --root {root} {target.build_dir()}'
+    cmd = 'gcovr --gcov-ignore-parse-errors negative_hits.warn ' \
+        + '--sort uncovered-percent ' \
+        + f'--root "{root}" "{target.build_dir()}"'
     target.run(cmd, src_dir=True)
 
 
