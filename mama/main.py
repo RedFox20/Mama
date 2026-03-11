@@ -179,7 +179,7 @@ def run_coverage_report(target: BuildTarget):
         return
     root = target.source_dir(target.config.coverage_report)
     target.config.verbose = True # enable verbose mode before running the command
-    cmd = f'gcovr --sort-key uncovered-percent --root {root} {target.build_dir()}'
+    cmd = f'gcovr --sort uncovered-percent --root {root} {target.build_dir()}'
     target.run(cmd, src_dir=True)
 
 
