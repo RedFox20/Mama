@@ -216,8 +216,7 @@ class BuildConfig:
             elif arg.startswith('android-'):
                 self.set_platform(android=True)
                 self.android.android_api = arg
-            elif arg == 'install-clang6':  self.convenient_install.append('clang6')
-            elif arg == 'install-clang11': self.convenient_install.append('clang11')
+            elif arg.startswith('install-clang-'): self.convenient_install.append('clang-' + arg[14:])
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             elif arg == 'install-ndk':     self.convenient_install.append('ndk')
             else:
@@ -886,52 +885,24 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return f'{self.get_msvc_tools_path()}\\lib\\x64'
 
 
-    def install_clang6(self):
-        if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
+    def install_clang(self, clang_major):
+        if type(clang_major) != int: clang_major = int(clang_major) # convert to int
+        if System.windows: raise OSError('Install Visual Studio 2026 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
-
-        id, major, _ = self.get_distro_info()
-        if id != "ubuntu": raise OSError('install_clang6 only supports ubuntu')
-        suffix = '1404'
-        if major >= 16: suffix = '1604'
-
-        console(f'Choosing {suffix} for kernel major={major}')
-        self.install_clang(clang_major='6', clang_ver='6.0', suffix=suffix)
-
-
-    def install_clang11(self):
-        if System.windows: raise OSError('Install Visual Studio 2019 with Clang support')
-        if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
-
         id, major, minor = self.get_distro_info()
-        if id != "ubuntu": raise OSError('install_clang11 only supports ubuntu')
-        suffix = '1604'
-        if major >= 20 and minor >= 10: suffix = '2010'
-        elif major >= 20: suffix = '2004'
-        elif major >= 16: suffix = '1604'
-        console(f'Choosing {suffix} for kernel major={major} minor={minor}')
-
-        self.install_clang(clang_major='11', clang_ver='11.0', suffix=suffix)
-
-
-    def install_clang(self, clang_major, clang_ver, suffix):
-        clang_major = '11'
-        clang_ver = '11.0'
-        clangpp = f'clang++{clang_major}'
-        clang_zip = util.download_file(f'http://ateh10.net/dev/{clangpp}-{suffix}.zip', tempfile.gettempdir())
-        console(f'Installing to /usr/local/{clangpp}')
-        execute(f'sudo rm -rf /usr/local/{clangpp}') # get rid of any old stuff
-        execute(f'cd /usr/local && sudo unzip -oq {clang_zip}') # extract /usr/local/clang++11/
-        os.remove(clang_zip)
-        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++.so.1    /usr/lib')
-        execute(f'sudo ln -sf /usr/local/{clangpp}/lib/libc++abi.so.1 /usr/lib')
-        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang      /usr/bin/clang-{clang_ver}')
-        execute(f'sudo ln -sf /usr/local/{clangpp}/bin/clang++    /usr/bin/clang++-{clang_ver}')
-        execute(f'sudo ln -sf /usr/local/{clangpp}/include/c++/v1 /usr/include/c++/v1')
-        execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_ver}   100')
-        execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_ver} 100')
-        execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_ver}')
-        execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_ver}')
+        if id != "ubuntu": raise OSError(f'install-clang-{clang_major} only supports ubuntu')
+        console(f'Installing clang-{clang_major} and libc++-{clang_major}-dev from apt repositories', color=Color.MAGENTA)
+        execute('sudo apt-get update')
+        execute(f'sudo apt-get install clang-{clang_major} clang-tidy-{clang_major} '+\
+                f'libc++-{clang_major}-dev libc++abi-{clang_major}-dev -y')
+        # configure current clang version as default clang via update-alternatives
+        # this way mama and cmake tools can find it without additional configuration
+        execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_major}   100')
+        execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_major} 100')
+        execute(f'sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-{clang_major} 100')
+        execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_major}')
+        execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_major}')
+        execute(f'sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-{clang_major}')
 
 
     def install_msbuild(self):
@@ -988,10 +959,10 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
 
     def run_convenient_installs(self):
-        if 'clang6'  in self.convenient_install: self.install_clang6()
-        if 'clang11' in self.convenient_install: self.install_clang11()
-        if 'msbuild' in self.convenient_install: self.install_msbuild()
-        if 'ndk'     in self.convenient_install: self.install_ndk()
+        for tool in self.convenient_install:
+            if 'clang-' in tool: self.install_clang(tool[6:])
+            if 'msbuild' in tool: self.install_msbuild()
+            if 'ndk'     in tool: self.install_ndk()
 
 
     def libname(self, library):
