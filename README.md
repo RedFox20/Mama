@@ -169,8 +169,8 @@ def settings(self):
 
 ### Install utilities
 ```
-  install-clang6                 Install Clang 6 for Linux.
-  install-clang11                Install Clang 11 for Linux.
+  install-clang-<ver>            Install Clang <ver> for Ubuntu. Ex: install-clang-18
+  install-gcc-<ver>              Install GCC <ver> for Linux. Ex: install-gcc-13
   install-msbuild                Install MSBuild for Linux.
   install-ndk                    Install Android NDK for Linux or Windows.
 ```

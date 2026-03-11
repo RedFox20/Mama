@@ -42,6 +42,7 @@ def print_usage():
     console('    help       - shows this help list')
     console('  install utils:')
     console('    install-clang-<ver> - configures and installs clang-<ver> for ubuntu, ex: install-clang-18')
+    console('    install-gcc-<ver>   - configures and installs gcc-<ver> for ubuntu, ex: install-gcc-13')
     console('    install-msbuild - configures and installs MSBuild for linux')
     console('    install-ndk     - configures and installs Android NDK for linux or windows')
     console('  args:')

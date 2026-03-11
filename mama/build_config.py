@@ -217,6 +217,7 @@ class BuildConfig:
                 self.set_platform(android=True)
                 self.android.android_api = arg
             elif arg.startswith('install-clang-'): self.convenient_install.append('clang-' + arg[14:])
+            elif arg.startswith('install-gcc-'):   self.convenient_install.append('gcc-' + arg[12:])
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             elif arg == 'install-ndk':     self.convenient_install.append('ndk')
             else:
@@ -904,6 +905,23 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_major}')
         execute(f'sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-{clang_major}')
 
+    
+    def install_gcc(self, gcc_major):
+        if type(gcc_major) != int: gcc_major = int(gcc_major) # convert to int
+        if System.windows: raise OSError('Install MinGW to get GCC on Windows')
+        if System.macos:   raise OSError('install-gcc not implemented for macOS')
+        id, major, minor = self.get_distro_info()
+        if id != "ubuntu": raise OSError(f'install-gcc-{gcc_major} only supports ubuntu')
+        console(f'Installing gcc-{gcc_major} and g++-{gcc_major} from apt repositories', color=Color.MAGENTA)
+        execute('sudo apt-get update')
+        execute(f'sudo apt-get install gcc-{gcc_major} g++-{gcc_major} -y')
+        # configure current gcc version as default gcc via update-alternatives
+        # this way mama and cmake tools can find it without additional configuration
+        execute(f'sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{gcc_major} 100')
+        execute(f'sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{gcc_major} 100')
+        execute(f'sudo update-alternatives --set gcc /usr/bin/gcc-{gcc_major}')
+        execute(f'sudo update-alternatives --set g++ /usr/bin/g++-{gcc_major}')
+
 
     def install_msbuild(self):
         if System.windows: raise OSError('Install Visual Studio 2019 to get MSBuild on Windows')
@@ -961,8 +979,9 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def run_convenient_installs(self):
         for tool in self.convenient_install:
             if 'clang-' in tool: self.install_clang(tool[6:])
-            if 'msbuild' in tool: self.install_msbuild()
-            if 'ndk'     in tool: self.install_ndk()
+            elif 'gcc-' in tool: self.install_gcc(tool[4:])
+            elif 'msbuild' in tool: self.install_msbuild()
+            elif 'ndk'     in tool: self.install_ndk()
 
 
     def libname(self, library):
