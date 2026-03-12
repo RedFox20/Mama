@@ -95,6 +95,7 @@ class BuildConfig:
         self.artifactory_auth = None
         ## Ninja
         self.ninja_path = self.find_ninja_build()
+        self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
         ## MSVC, MSBuild
         self._visualstudio_path = None
         self._visualstudio_cmake_id = None

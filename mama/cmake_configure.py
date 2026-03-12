@@ -14,7 +14,6 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     rerun = False
     error = ''
     if target.config.verbose: console(cmd)
-    #xcode_filter = (target.ios or target.macos) and not target.enable_ninja_build
 
     if delete_cmakecache:
         if target.config.print: console('Deleting CMakeCache.txt')
@@ -122,9 +121,9 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
 
 def _generator(target:BuildTarget):
     config:BuildConfig = target.config
+    if target.enable_ninja_build: return '-G "Ninja"'
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
     if config.msvc:               return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
-    if target.enable_ninja_build: return '-G "Ninja"'
     if config.android:            return '-G "Unix Makefiles"'
     if config.linux:              return '-G "Unix Makefiles"'
     if config.yocto_linux:        return '-G "Unix Makefiles"'
@@ -137,9 +136,9 @@ def _generator(target:BuildTarget):
 
 def _make_program(target:BuildTarget):
     config:BuildConfig = target.config
+    if target.enable_ninja_build: return config.ninja_path
     if config.msvc: return ''
     if target.enable_unix_make: return ''
-    if target.enable_ninja_build: return config.ninja_path
     return ''
 
 
@@ -332,19 +331,18 @@ def _mp_flags(target:BuildTarget):
     if not target.enable_multiprocess_build: return ''
     if config.msvc:       return f'/maxcpucount:{config.jobs}'
     if target.enable_unix_make:   return f'-j{config.jobs}'
-    if target.enable_ninja_build: return ''
     if config.ios:         return f'-jobs {config.jobs}'
     if config.macos:       return f'-jobs {config.jobs}'
     return f'-j{config.jobs}'
 
 
 def _buildsys_flags(target:BuildTarget):
+    if target.enable_ninja_build: return '' # ninja does not need extra flags
     config:BuildConfig = target.config
     def get_flags():
         mpf = _mp_flags(target)
         if config.msvc:               return f'/v:m {mpf} /nologo'
         if target.enable_unix_make:   return mpf
-        if target.enable_ninja_build: return ''
         if config.android:            return mpf
         if config.ios or config.macos:
             if not target.config.verbose:

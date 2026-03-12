@@ -76,7 +76,7 @@ class BuildTarget:
         self.cmake_command = config.cmake_command # allow override from config, but also from target
         self.enable_exceptions = True
         self.enable_unix_make  = False
-        self.enable_ninja_build = True and config.ninja_path # attempt to use Ninja
+        self.enable_ninja_build = config.prefer_ninja and config.ninja_path # attempt to use Ninja
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
