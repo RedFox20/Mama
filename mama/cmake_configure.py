@@ -151,6 +151,9 @@ def _default_options(target:BuildTarget):
     def add_flag(flag:str, value=''):
         if not flag in cxxflags:  # add flag if not already set
             cxxflags[flag] = value
+    def add_ldflag(flag:str, value=''):
+        if not flag in ldflags:  # add flag if not already set
+            ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''
         sep = ':' if config.msvc else '='
@@ -213,8 +216,8 @@ def _default_options(target:BuildTarget):
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
             add_flag('-fno-omit-frame-pointer')
-            add_flag('-pie')
             add_flag('-fPIE')
+            add_ldflag('-pie') # -pie is a linker flag
 
     if config.coverage:
         if config.msvc:
