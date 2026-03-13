@@ -1,5 +1,5 @@
 import os
-from testutils import init, shell_exec, file_contains, native_platform_name
+from testutils import init, mama_exec, file_contains, native_platform_name
 from mama.types.git import Git
 
 REPO_URL   = 'https://github.com/BatteredBunny/MamaExampleRemote.git'
@@ -16,7 +16,7 @@ def test_local_work_protection():
 
     # Clone with branch pin (stage 5 = branch 'master')
     os.environ['GIT_PIN_CHANGE_TEST'] = '5'
-    shell_exec("mama update")
+    mama_exec(['update'])
 
     src_file = 'packages/ExampleRemote/ExampleRemote/remote.cpp'
     assert os.path.isfile(src_file), "Source file should exist after clone"
@@ -31,7 +31,7 @@ def test_local_work_protection():
         f.write(Git.format_git_status(REPO_URL, '', 'master', OLD_SHORT))
 
     # mama update should refuse to overwrite local work
-    result = shell_exec("mama update", exit_on_fail=False)
+    result = mama_exec(['update'], exit_on_fail=False)
     assert result != 0, "mama update should fail when local modifications exist"
 
     # Verify local work was NOT overwritten
@@ -47,7 +47,7 @@ def test_local_work_protection_on_pin_change():
 
     # Clone with tag pin (stage 2 = tag v1.0.0)
     os.environ['GIT_PIN_CHANGE_TEST'] = '2'
-    shell_exec("mama update")
+    mama_exec(['update'])
 
     src_file = 'packages/ExampleRemote/ExampleRemote/remote.cpp'
     assert os.path.isfile(src_file), "Source file should exist after clone"
@@ -58,7 +58,7 @@ def test_local_work_protection_on_pin_change():
 
     # Switch pin type from tag to branch (stage 4 = branch 'old')
     os.environ['GIT_PIN_CHANGE_TEST'] = '4'
-    result = shell_exec("mama update", exit_on_fail=False)
+    result = mama_exec(['update'], exit_on_fail=False)
     assert result != 0, "mama update should fail when local modifications exist during pin change"
 
     # Verify local work was NOT overwritten

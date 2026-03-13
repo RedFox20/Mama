@@ -1,9 +1,9 @@
 import os
-from testutils import init, shell_exec, file_contains
+from testutils import init, mama_exec, file_contains
 
 def stage(num: int, expects: bool, assert_message: str = ""):
     os.environ['GIT_PIN_CHANGE_TEST'] = str(num)
-    shell_exec("mama update")
+    mama_exec(['update'])
 
     result = file_contains('packages/ExampleRemote/ExampleRemote/remote.h', 'REMOTE_VERSION')
 

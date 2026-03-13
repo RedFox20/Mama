@@ -4,6 +4,7 @@ import subprocess
 import sys
 from typing import Iterable, Optional
 
+import mama
 import pytest
 
 def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
@@ -23,6 +24,22 @@ def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
     if result.returncode != 0 and exit_on_fail:
         pytest.fail(f'exec failed: code: {result.returncode} {cmd}')
     return result.returncode
+
+def mama_exec(args: list[str], exit_on_fail: bool = True, echo: bool = True) -> int:
+    """Calls mama.mamabuild() directly instead of shelling out to the mama CLI."""
+    if echo: print(f'mama: {" ".join(args)}')
+    try:
+        mama.mamabuild(args, source_dir=os.getcwd())
+        return 0
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+        if code != 0 and exit_on_fail:
+            pytest.fail(f'mama failed: code: {code} args: {args}')
+        return code
+    except Exception as e:
+        if exit_on_fail:
+            pytest.fail(f'mama failed: {e} args: {args}')
+        return 1
 
 def file_contains(filepath: str, text: str) -> bool:
     with open(filepath, 'r') as f:

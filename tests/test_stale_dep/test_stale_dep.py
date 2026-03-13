@@ -1,4 +1,4 @@
-from testutils import init, shell_exec, file_contains, native_platform_name
+from testutils import init, mama_exec, shell_exec, file_contains, native_platform_name
 from mama.types.git import Git
 
 REPO_URL   = 'https://github.com/BatteredBunny/MamaExampleRemote.git'
@@ -25,11 +25,11 @@ def test_stale_dep():
 
     dep_dir = get_dep_path('ExampleRemote')
     header = f'{dep_dir}/remote.h'
-    shell_exec('mama build unshallow')
+    mama_exec(['build', 'unshallow'])
     assert file_contains(header, 'REMOTE_VERSION'), 'Failed to clone dependency repo'
 
     switch_to_stale_commit('ExampleRemote')
     assert not file_contains(header, 'REMOTE_VERSION'), 'Failed to switch to stale commit'
 
-    shell_exec('mama update')
+    mama_exec(['update'])
     assert file_contains(header, 'REMOTE_VERSION'), "Failed updating to latest commit"

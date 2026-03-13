@@ -187,9 +187,15 @@ def run_coverage_report(target: BuildTarget):
     target.run(cmd, src_dir=True)
 
 
-def mamabuild(args):
+def reset_global_state():
+    # re-entrancy protection: clear global state
+    BuildDependency.loaded_deps.clear()
+
+
+def mamabuild(args, source_dir=os.getcwd()):
     """ Main entry point for MamaBuild. Parses command line arguments and executes the requested actions. 
         - args: list of command line arguments, without the script name. Ex: ['build', 'target=all', 'debug']
+        - source_dir: the directory to treat as the main project source
     """
     if sys.version_info < (3, 10):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
@@ -209,7 +215,8 @@ def mamabuild(args):
         if config.verbose:
             console(f'Build jobs={config.jobs}')
 
-    source_dir = os.getcwd()
+    reset_global_state()
+
     name = os.path.basename(source_dir)
     local_src = LocalSource(name, source_dir, mamafile=None, always_build=False, args=[])
     workspace = None # figure out the workspace from the root mamafile.py

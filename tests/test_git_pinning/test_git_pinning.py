@@ -1,4 +1,4 @@
-from testutils import init, shell_exec, file_contains
+from testutils import init, mama_exec, file_contains
 
 def remote_file_contains(dep_name, text):
     return file_contains(f'packages/{dep_name}/{dep_name}/remote.h', text)
@@ -6,7 +6,7 @@ def remote_file_contains(dep_name, text):
 # Make sure different git pinning methods work
 def test_git_pinning():
     init(__file__, clean_dirs=['packages'])
-    shell_exec("mama clean")
+    mama_exec(['clean'])
 
     # https://github.com/BatteredBunny/MamaExampleRemote repo has different commits that either do or dont have the REMOTE_VERSION line
     assert not remote_file_contains('ExampleRemote', 'REMOTE_VERSION'), "Tag pinning went wrong"
