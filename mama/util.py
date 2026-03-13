@@ -18,8 +18,7 @@ def find_executable_from_system(name: str, follow_symlinks=False) -> str:
     output = shutil.which(name)
     if not output: return ''
     if follow_symlinks:
-        while output and os.path.islink(output):
-            output = os.readlink(output)
+        output = os.path.realpath(output)
     return output if os.path.isfile(output) else ''
 
 
