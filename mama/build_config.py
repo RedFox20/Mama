@@ -631,16 +631,21 @@ class BuildConfig:
             self.clang_tidy_path = clang_tidy_path
             if self.print: console(f'Using clang-tidy from {clang_tidy_path}', color=Color.GREEN)
             return
-        clang_tidy_exe = util.find_executable_from_system('clang-tidy')
-        if clang_tidy_exe:
-            self.clang_tidy_path = clang_tidy_exe
-            if self.print: console(f'Found clang-tidy in PATH: {clang_tidy_exe}', color=Color.GREEN)
-            return
+
+        # respect user overrides first
         clang_tidy_env = os.getenv('CLANG_TIDY')
         if clang_tidy_env and os.path.isfile(clang_tidy_env):
             self.clang_tidy_path = clang_tidy_env
             if self.print: console(f'Found clang-tidy from CLANG_TIDY env: {clang_tidy_env}', color=Color.GREEN)
             return
+
+        # display the full path of clang-tidy by resolving symlinks (/etc/alternatives/clang-tidy -> /usr/bin/clang-tidy-18)
+        clang_tidy_exe = util.find_executable_from_system('clang-tidy', follow_symlinks=True)
+        if clang_tidy_exe:
+            self.clang_tidy_path = clang_tidy_exe
+            if self.print: console(f'Found clang-tidy in PATH: {clang_tidy_exe}', color=Color.GREEN)
+            return
+
         self.clang_tidy_path = None
         console('clang-tidy not found! Static analysis will be disabled.', color=Color.YELLOW)
         console('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>', color=Color.YELLOW)

@@ -12,10 +12,14 @@ def is_file_modified(src: str, dst: str):
            os.path.getsize(src) == os.path.getsize(dst)
 
 
-def find_executable_from_system(name: str):
+def find_executable_from_system(name: str, follow_symlinks=False) -> str:
+    """ Returns the absolute path to an executable if found, otherwise returns empty string """
     if not name: return ''
     output = shutil.which(name)
     if not output: return ''
+    if follow_symlinks:
+        while output and os.path.islink(output):
+            output = os.readlink(output)
     return output if os.path.isfile(output) else ''
 
 
