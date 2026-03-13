@@ -119,7 +119,7 @@ class BuildConfig:
         else:
             self.workspaces_root = os.getenv('HOME')
         self.unused_args = []
-        self.loaded_dependencies : List[BuildDependency] = []
+        self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.parse_args(args)
         self.check_platform()
 
