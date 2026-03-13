@@ -68,6 +68,11 @@ class Git(DepSource):
         return execute(cmd, throw=throw)
 
 
+    def _has_local_modifications(self, dep: BuildDependency) -> bool:
+        """Check if the working tree has uncommitted modifications to tracked files"""
+        return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
+
+
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
         if not self.commit_hash or not use_cache:
             self.commit_hash = self.init_commit_hash(dep, use_cache=use_cache, fetch_remote=True)
@@ -130,16 +135,27 @@ class Git(DepSource):
                 return None
 
 
+    def _is_detached_head(self, dep: BuildDependency) -> bool:
+        """Check if the repository is in detached HEAD state"""
+        result = execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
+        return not result
+
+
     def fetch_origin(self, dep: BuildDependency):
         branch = self.branch_or_tag()
-        if not Git.is_hex_string(branch):
-            if self.tag:
-                self.run_git(dep, f"fetch origin tag {branch} -q")
-            else:
-                # detached head cant perform this, e.g when switching from tag pin previously
-                result = self.run_git(dep, f"pull origin {branch} -q", throw=False)
-                if result != 0:
-                    self.run_git(dep, f"fetch origin {branch} -q")
+        if Git.is_hex_string(branch):
+            return # no need to fetch if we're pinned to a specific commit hash
+        if self.tag:
+            self.run_git(dep, f"fetch origin tag {branch} -q")
+        else:
+            # only safe to pull when staying on the same branch and not in detached HEAD
+            can_pull = not (self.tag_changed or self.branch_changed or self._is_detached_head(dep))
+            origin_br = f'origin {branch}' if branch else 'origin'
+            result = -1
+            if can_pull:
+                result = self.run_git(dep, f"pull {origin_br} -q", throw=False)
+            if result != 0:
+                self.run_git(dep, f"fetch {origin_br} -q")
 
 
     def git_status_file(self, dep: BuildDependency):
@@ -186,10 +202,12 @@ class Git(DepSource):
             self.branch_changed = True
             self.commit_changed = True
             return True
-        self.fetch_origin(dep)
+        # update basic flags before fetching origin, so we can detect tag/branch pin changes
         self.url_changed = self.url != status[0]
         self.tag_changed = self.tag != status[1]
         self.branch_changed = self.branch != status[2]
+        # fetch origin and then check the commit hash to detect upstream changes
+        self.fetch_origin(dep)
         self.commit_changed = self.get_commit_hash(dep, use_cache=False) != status[3]
         #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
@@ -204,7 +222,8 @@ class Git(DepSource):
     def checkout_current_branch_or_tag(self, dep: BuildDependency, is_commit_pin=False):
         branch = self.branch_or_tag()
         if branch:
-            if self.tag and self.tag_changed:
+            if self.tag_changed or self.branch_changed:
+                self.run_git(dep, "rebase --abort", throw=False)
                 self.run_git(dep, "reset --hard")
             if is_commit_pin:
                 self.run_git(dep, f"fetch --depth 1 origin {branch}")
@@ -304,6 +323,13 @@ class Git(DepSource):
         else:
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
+            # check for local modifications before potentially destructive operations
+            if self._has_local_modifications(dep):
+                name = dep.name
+                error(f"  Target {name} has local modifications that would be overwritten by update.\n"
+                      f"  To discard local changes and re-fetch, run: `mama reclone {name}`")
+                self.run_git(dep, "status --porcelain") # show the user what files are modified
+                raise RuntimeError(f"Target {name} has local modifications. Use 'mama reclone {name}' to discard changes.")
             if unshallow:
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())

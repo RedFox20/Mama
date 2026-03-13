@@ -39,7 +39,7 @@ classifiers = [
 "Bug Tracker" = "https://github.com/RedFox20/Mama/issues"
 
 [project.scripts]
-mama = "mama.main:main"
+mama = "mama.main:__main__"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

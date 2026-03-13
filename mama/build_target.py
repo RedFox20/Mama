@@ -1448,8 +1448,14 @@ class BuildTarget:
     def _execute_run_tasks(self):
         if self.is_test_target():
             test_args = self.config.test.lstrip()
-            if self.config.print: console(f'  - Testing {self.name} {test_args}')
-            self.test(test_args)
+            if self.config.test_until_failure > 0:
+                if self.config.print: console(f'  - Testing {self.name} {test_args} until failure (N={self.config.test_until_failure})')
+                for i in range(self.config.test_until_failure):
+                    if self.config.print: console(f'  - Testing {self.name} {test_args} ({i+1}/{self.config.test_until_failure})')
+                    self.test(test_args) # should throw on failure and stop loop
+            else:
+                if self.config.print: console(f'  - Testing {self.name} {test_args}')
+                self.test(test_args)
 
         if self.config.start:
             # start only if it's the current target or root target

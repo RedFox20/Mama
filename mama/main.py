@@ -69,6 +69,8 @@ def print_usage():
     console('    target=P   - Name of the target')
     console('    all        - Short for target=all')
     console('    with_tests - Forces CMake option -DENABLE_TESTS=ON and -DBUILD_TESTS=ON')
+    console('    test_until_failure - Runs tests in a loop until they fail, defaults to N=1000, useful to catch flaky tests')
+    console('    test_until_failure=N - Runs tests in a loop until they fail, with a maximum of N iterations')
     console('    sanitize=  - enables -fsanitize= for gcc/clang builds [address|leak|thread|undefined]')
     console('    asan|lsan|tsan|ubsan - shorthands for sanitize=address|leak|thread|undefined respectively')
     console('    clang-tidy - enables clang-tidy static analysis during build, clang-tidy must be in PATH')
@@ -185,20 +187,23 @@ def run_coverage_report(target: BuildTarget):
     target.run(cmd, src_dir=True)
 
 
-def main():
-    if sys.version_info < (3, 6):
-        console('FATAL ERROR: MamaBuild requires Python 3.6')
+def mamabuild(args):
+    """ Main entry point for MamaBuild. Parses command line arguments and executes the requested actions. 
+        - args: list of command line arguments, without the script name. Ex: ['build', 'target=all', 'debug']
+    """
+    if sys.version_info < (3, 10):
+        console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
         exit(-1)
 
-    if len(sys.argv) == 1 or 'help' in sys.argv:
+    if len(args) == 0 or 'help' in args:
         print_title()
         print_usage()
         exit(-1)
-    if 'version' in sys.argv:
+    if 'version' in args:
         console(f'MamaBuild version {__version__}')
         exit(0)
 
-    config = BuildConfig(sys.argv[1:])
+    config = BuildConfig(args)
     if config.print:
         print_title()
         if config.verbose:
@@ -307,10 +312,14 @@ def main():
         open_project(config, root)
 
 
+def main(): # for backwards compat with v0.10.x
+    mamabuild(sys.argv[1:])
+
+
 def __main__():
-    main()
+    mamabuild(sys.argv[1:])
 
 
 if __name__ == '__main__':
-    main()
+    mamabuild(sys.argv[1:])
 

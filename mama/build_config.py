@@ -45,6 +45,7 @@ class BuildConfig:
         self.test      = ''
         self.start     = ''
         self.with_tests = False # forces -DENABLE_TESTS=ON
+        self.test_until_failure = 0 # if > 0, runs test executable in a loop until it fails, useful for catching flaky tests
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
@@ -207,6 +208,10 @@ class BuildConfig:
             # Ex: mama build test=nogdb test=threadpool
             # Ex: mama build test=nogdb,threadpool
             elif arg.startswith('test='):   self.test = self.join_args(self.test, arg[5:])
+            # Adding arguments for test runner to run tests in a loop until failure, useful for catching flaky tests
+            # Ex: mama build test="my_flaky_test" test_until_failure=100
+            elif arg == 'test_until_failure': self.test_until_failure = 1000 # arbitrary default
+            elif arg.startswith('test_until_failure='): self.test_until_failure = int(arg[19:]) # set number of iterations to run tests until failure
             # Calls target.start with the specified arguments
             # Ex: mama build start=verify
             elif arg.startswith('start='):  self.start = self.join_args(self.start, arg[6:])
