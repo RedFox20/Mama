@@ -1,5 +1,6 @@
+from __future__ import annotations
 import os, sys, tempfile, platform, psutil, shutil
-from typing import List
+from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
 from mama.platforms.mips import Mips
@@ -13,6 +14,8 @@ from .utils.sub_process import execute, execute_piped
 if System.linux:
     import distro
 
+if TYPE_CHECKING:
+    from .build_dependency import BuildDependency
 
 ###
 # Mama Build Configuration is created only once in the root project working directory
@@ -116,6 +119,7 @@ class BuildConfig:
         else:
             self.workspaces_root = os.getenv('HOME')
         self.unused_args = []
+        self.loaded_dependencies : List[BuildDependency] = []
         self.parse_args(args)
         self.check_platform()
 

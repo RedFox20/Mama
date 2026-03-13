@@ -187,11 +187,6 @@ def run_coverage_report(target: BuildTarget):
     target.run(cmd, src_dir=True)
 
 
-def reset_global_state():
-    # re-entrancy protection: clear global state
-    BuildDependency.loaded_deps.clear()
-
-
 def mamabuild(args, source_dir=os.getcwd()):
     """ Main entry point for MamaBuild. Parses command line arguments and executes the requested actions. 
         - args: list of command line arguments, without the script name. Ex: ['build', 'target=all', 'debug']
@@ -214,8 +209,6 @@ def mamabuild(args, source_dir=os.getcwd()):
         print_title()
         if config.verbose:
             console(f'Build jobs={config.jobs}')
-
-    reset_global_state()
 
     name = os.path.basename(source_dir)
     local_src = LocalSource(name, source_dir, mamafile=None, always_build=False, args=[])

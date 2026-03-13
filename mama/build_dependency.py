@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 
 class BuildDependency:
-    loaded_deps = dict()
     def __init__(self, parent:BuildDependency, config:BuildConfig,
                  workspace:str, dep_source:DepSource):
         self.config = config
@@ -88,13 +87,6 @@ class BuildDependency:
     def __repr__(self): return f'BuildDependency {self.name} {self.dep_source}'
 
 
-    @staticmethod
-    def get_loaded_dependency(name: str) -> BuildDependency:
-        if name in BuildDependency.loaded_deps:
-            return BuildDependency.loaded_deps[name]
-        return None
-
-
     def _add_args(self, args):
         if args: # only add non-empty args (bugfix)
             for arg in args:
@@ -113,14 +105,16 @@ class BuildDependency:
         """
         Adds a new child dependency to this BuildDependency
         """
-        dep = BuildDependency.get_loaded_dependency(dep_source.name)
+        dep = None
+        if dep_source.name in self.config.loaded_dependencies:
+            dep = self.config.loaded_dependencies[dep_source.name]
         if dep:
             # reuse & update existing dep
             dep.update_existing_dependency(dep_source)
         else:
             # add new
             dep = BuildDependency(self, self.config, self.workspace, dep_source)
-            BuildDependency.loaded_deps[dep_source.name] = dep
+            self.config.loaded_dependencies[dep_source.name] = dep
             if self.config.verbose:
                 console(f'  - Target {self.name: <16} ADD {dep}', color=Color.BLUE)
 
