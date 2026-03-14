@@ -186,13 +186,18 @@ def run_coverage_report(target: BuildTarget):
         gcov_path = os.path.realpath(target.config.cc_path).replace('gcc', 'gcov')
         if os.path.exists(gcov_path):
             gcov_exec = f'--gcov-executable "{gcov_path}" '
-    verbose = '--verbose ' if target.config.verbose else ''
+    # this is too verbose for CI
+    #verbose = '--verbose ' if target.config.verbose else ''
     cmd = 'gcovr --gcov-ignore-parse-errors negative_hits.warn ' \
         + '--sort uncovered-percent ' \
         + gcov_exec \
-        + verbose \
         + f'--root "{root}" "{target.build_dir()}"'
-    target.run(cmd, src_dir=True, exit_on_fail=False)
+    try:
+        # throw if coverage fails, but don't exit with error, so we don't break CI on coverage report failures
+        # instead stdout must be checked for coverage report success or failure separately
+        target.run(cmd, src_dir=True, exit_on_fail=False)
+    except Exception as e:
+        console(f'ERROR: Coverage report failed: {e}', color=Color.RED)
 
 
 def mamabuild(args, source_dir=os.getcwd()):
