@@ -496,7 +496,21 @@ class BuildConfig:
 
     # returns: root path where the compilers exist and the discovered suffix
     #          (root_path, suffix)
-    def find_compiler_root(self, suggested_path, compiler, suffixes, dumpfullversion):
+    def find_compiler_root(self, suggested_path, compiler, suffixes, dumpfullversion) -> tuple[str, str, str]:
+        def resolve_compiler(cxx_path, suffix) -> tuple[str, str, str]:
+            cxx_path = os.path.realpath(cxx_path) # resolve symlinks
+            version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
+            if self.verbose: console(f'Compiler {cxx_path} version: {version}')
+            return os.path.dirname(cxx_path) + '/', suffix, version
+
+        # stop search early if we meet an already pre-configure /etc/alternatives/clang++ path on linux
+        # since this is likely what the user has configured as their default compiler
+        priority_choices = [ suggested_path, os.getenv('CXX'), '/etc/alternatives/' + compiler ]
+        for priority_cxx in priority_choices:
+            if priority_cxx and os.path.exists(priority_cxx):
+                return resolve_compiler(priority_cxx, '')
+
+        # perform exhaustive search through all candidate directories for any suitable compilers
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
@@ -511,9 +525,7 @@ class BuildConfig:
             for suffix in suffixes:
                 cc_path = root + compiler + suffix
                 if os.path.exists(cc_path):
-                    version = self.get_gcc_clang_fullversion(cc_path, dumpfullversion) # eg 9.4.0
-                    if self.verbose: console(f'Compiler {cc_path} version: {version}')
-                    candidates.append((root, suffix, version))
+                    candidates.append(resolve_compiler(cc_path, suffix))
         if not candidates:
             raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 
@@ -916,6 +928,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
                 f'libc++-{clang_major}-dev libc++abi-{clang_major}-dev -y')
         # configure current clang version as default clang via update-alternatives
         # this way mama and cmake tools can find it without additional configuration
+        console(f'Configuring clang-{clang_major} as default clang via update-alternatives', color=Color.MAGENTA)
         execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_major}   100')
         execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_major} 100')
         execute(f'sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-{clang_major} 100')
@@ -935,6 +948,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute(f'sudo apt-get install gcc-{gcc_major} g++-{gcc_major} -y')
         # configure current gcc version as default gcc via update-alternatives
         # this way mama and cmake tools can find it without additional configuration
+        console(f'Configuring gcc-{gcc_major} as default gcc via update-alternatives', color=Color.MAGENTA)
         execute(f'sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{gcc_major} 100')
         execute(f'sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{gcc_major} 100')
         execute(f'sudo update-alternatives --set gcc /usr/bin/gcc-{gcc_major}')
