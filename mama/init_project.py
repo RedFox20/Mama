@@ -45,7 +45,7 @@ class {project_name}(mama.BuildTarget):
 
 
 def write_default_cmakelists(project_name, cmakefile):
-    contents = f'''cmake_minimum_required(VERSION 3.8)
+    contents = f'''cmake_minimum_required(VERSION 3.25)
 project({project_name})
 
 # Include all mama dependencies via ${{MAMA_INCLUDES}} and ${{MAMA_LIBS}}
