@@ -10,7 +10,7 @@ def get_git_status_path():
     return f'packages/ExampleRemote/{native_platform_name()}/git_status'
 
 # Test that mama update does not overwrite local modifications
-# and instead shows an error suggesting mama reclone
+# and instead shows an error suggesting mama wipe
 def test_local_work_protection():
     init(__file__, clean_dirs=['packages'])
 

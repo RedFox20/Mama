@@ -92,7 +92,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama test=arg                  Run tests on main project with an argument.
   mama test="arg1 arg2"          Run tests on main project with multiple arguments.
   mama test dep1                 Run tests on target dependency project.
-  mama test="mytest" test_until_failure=1000 Run tests in a loop until failure, useful for catching flaky tests.
+  mama test="mytest" test_until_failure=100 Run tests in a loop until failure, useful for catching flaky tests.
   mama dep1 start=dbtool         Call target project mamafile start() with args [`dbtool`].
 ```
 Call `mama help` for more usage information.

@@ -327,9 +327,9 @@ class Git(DepSource):
             if self._has_local_modifications(dep):
                 name = dep.name
                 error(f"  Target {name} has local modifications that would be overwritten by update.\n"
-                      f"  To discard local changes and re-fetch, run: `mama reclone {name}`")
+                      f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
                 self.run_git(dep, "status --porcelain") # show the user what files are modified
-                raise RuntimeError(f"Target {name} has local modifications. Use 'mama reclone {name}' to discard changes.")
+                raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
             if unshallow:
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())

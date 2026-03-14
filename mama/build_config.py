@@ -197,7 +197,7 @@ class BuildConfig:
                 self.clang = False
                 self.compiler_cmd = True
             elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
-            elif arg == 'fortran=': self.fortran = arg[8:]
+            elif arg.startswith('fortran='): self.fortran = arg[8:]
             elif arg == 'release': self.set_build_config(release=True)
             elif arg == 'debug':   self.set_build_config(debug=True)
             elif arg == 'open':    self.open = 'root'
@@ -218,7 +218,7 @@ class BuildConfig:
             elif arg.startswith('test='):   self.test = self.join_args(self.test, arg[5:])
             # Adding arguments for test runner to run tests in a loop until failure, useful for catching flaky tests
             # Ex: mama build test="my_flaky_test" test_until_failure=100
-            elif arg == 'test_until_failure': self.test_until_failure = 1000 # arbitrary default
+            elif arg == 'test_until_failure': self.test_until_failure = 100 # arbitrary default
             elif arg.startswith('test_until_failure='): self.test_until_failure = int(arg[19:]) # set number of iterations to run tests until failure
             # Calls target.start with the specified arguments
             # Ex: mama build start=verify

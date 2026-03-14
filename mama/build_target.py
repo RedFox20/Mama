@@ -1449,12 +1449,19 @@ class BuildTarget:
         if self.is_test_target():
             test_args = self.config.test.lstrip()
             if self.config.test_until_failure > 0:
-                if self.config.print: console(f'  - Testing {self.name} {test_args} until failure (N={self.config.test_until_failure})')
+                start = time.time()
+                if self.config.print:
+                    console(f'  - Testing {self.name} {test_args} until failure (N={self.config.test_until_failure})')
                 for i in range(self.config.test_until_failure):
                     if self.config.print: console(f'  - Testing {self.name} {test_args} ({i+1}/{self.config.test_until_failure})')
                     self.test(test_args) # should throw on failure and stop loop
+                elapsed = time.time() - start
+                if self.config.print:
+                    console(f'  - Testing {self.name} {test_args} N={self.config.test_until_failure}' +
+                            f' SUCCESS in {util.get_time_str(elapsed)}', color=Color.GREEN)
             else:
-                if self.config.print: console(f'  - Testing {self.name} {test_args}')
+                if self.config.print:
+                    console(f'  - Testing {self.name} {test_args}')
                 self.test(test_args)
 
         if self.config.start:
