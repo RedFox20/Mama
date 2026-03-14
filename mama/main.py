@@ -180,11 +180,19 @@ def run_coverage_report(target: BuildTarget):
         console('Coverage report not supported yet on Windows')
         return
     root = target.source_dir(target.config.coverage_report)
-    target.config.verbose = True # enable verbose mode before running the command
+    gcov_exec = ''
+    if target.config.gcc and target.config.cc_path:
+        # Derive gcov path from gcc path: e.g. /usr/bin/gcc-14 -> /usr/bin/gcov-14
+        gcov_path = os.path.realpath(target.config.cc_path).replace('gcc', 'gcov')
+        if os.path.exists(gcov_path):
+            gcov_exec = f'--gcov-executable "{gcov_path}" '
+    verbose = '--verbose ' if target.config.verbose else ''
     cmd = 'gcovr --gcov-ignore-parse-errors negative_hits.warn ' \
         + '--sort uncovered-percent ' \
+        + gcov_exec \
+        + verbose \
         + f'--root "{root}" "{target.build_dir()}"'
-    target.run(cmd, src_dir=True)
+    target.run(cmd, src_dir=True, exit_on_fail=False)
 
 
 def mamabuild(args, source_dir=os.getcwd()):

@@ -164,8 +164,12 @@ class BuildConfig:
             elif arg == 'clang-tidy': self.set_clang_tidy_path()
             elif arg.startswith('coverage='): self.add_coverage_option(arg[9:])
             elif arg == 'coverage': self.add_coverage_option()
-            elif arg == 'coverage-report': self.coverage_report = '.'
-            elif arg.startswith('coverage-report='): self.coverage_report = arg[16:]
+            elif arg == 'coverage-report':
+                self.coverage_report = '.'
+                self.add_coverage_option() # also enable coverage if reporting is requested
+            elif arg.startswith('coverage-report='):
+                self.coverage_report = arg[16:]
+                self.add_coverage_option()
             elif arg == 'windows': self.set_platform(msvc=True)
             elif arg == 'msvc':    self.set_platform(msvc=True)
             elif arg == 'linux':   self.set_platform(linux=True)
