@@ -141,6 +141,12 @@ class Git(DepSource):
         return not result
 
 
+    def _is_rebase_in_progress(self, dep: BuildDependency) -> bool:
+        """Check if the repository currently has an active rebase"""
+        return os.path.exists(f'{dep.git_dir}/rebase-merge') or \
+               os.path.exists(f'{dep.git_dir}/rebase-apply')
+
+
     def fetch_origin(self, dep: BuildDependency):
         branch = self.branch_or_tag()
         if Git.is_hex_string(branch):
@@ -223,7 +229,8 @@ class Git(DepSource):
         branch = self.branch_or_tag()
         if branch:
             if self.tag_changed or self.branch_changed:
-                self.run_git(dep, "rebase --abort", throw=False)
+                if self._is_rebase_in_progress(dep):
+                    self.run_git(dep, "rebase --abort", throw=False)
                 self.run_git(dep, "reset --hard")
             if is_commit_pin:
                 self.run_git(dep, f"fetch --depth 1 origin {branch}")

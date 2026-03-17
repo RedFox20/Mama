@@ -223,7 +223,7 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
     try:
         lib = find_syslib(target, name, apt, required)
         if lib:
-            #console(f'Exporting syslib: {name}:{lib}')
+            # console(f'Exporting syslib: {name}:{lib}')
             target.exported_syslibs.append(lib)
             target.exported_syslibs = get_unique_libnames(target.exported_syslibs)
             return True
@@ -235,6 +235,7 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
             return True
         else:
             raise
+    console(f'WARNING: SysLib {name} not found for target {target.name}, ignoring.', color=Color.YELLOW)
     return False
 
 

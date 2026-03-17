@@ -89,6 +89,7 @@ class BuildTarget:
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
+        self.packaging_result = '' # how we performed the package() step?
         self.papa_path = None # recorded path for previous papa deployment
         self.os_windows = System.windows
         self.os_linux   = System.linux
@@ -1412,7 +1413,26 @@ class BuildTarget:
                     package.clean_intermediate_files(self)
 
         # skip package() if we already fetched it as a package from artifactory()
-        if not self.dep.from_artifactory:
+        # unless user has specified for a local rebuild
+        if self.dep.should_rebuild or not self.dep.from_artifactory:
+            self.packaging_result = 'target.package()'
+            # clear libs which were loaded during aritfactory_load_target()
+            # since we're repackaging, we want to have a clean slate of unpolluted exports
+            old_includes = self.exported_includes
+            old_libs = self.exported_libs
+            old_syslibs = self.exported_syslibs
+            old_assets = self.exported_assets
+            if self.dep.from_artifactory:
+                self.exported_includes = []
+                self.exported_libs = []
+                self.exported_syslibs = []
+                self.exported_assets = []
+
+            # this must populate exports by calling:
+            #  - export_include() / export_includes()
+            #  - export_lib() / export_libs()
+            #  - export_syslib()
+            #  - export_asset() / export_assets()
             self.package() # user customization
 
             # no packaging provided by user; use default packaging instead
@@ -1420,6 +1440,27 @@ class BuildTarget:
                 self.default_package_includes()
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
+
+            # if packages changed, then consider local papafile as stale
+            exports_changed = (old_includes != self.exported_includes or
+                               old_libs != self.exported_libs or
+                               old_syslibs != self.exported_syslibs or
+                               old_assets != self.exported_assets)
+            if exports_changed and self.dep.from_artifactory and self.config.print:
+                console(f'  - Target {self.name} exports changed', color=Color.BLUE)
+                artifactory_papa_file = self.build_dir('papa.txt')
+                if os.path.exists(artifactory_papa_file):
+                    os.remove(artifactory_papa_file)
+
+        elif self.dep.from_artifactory:
+            self.packaging_result = 'artifactory-cache'
+        elif not self.dep.should_rebuild:
+            self.packaging_result = 'local-cache'
+        else:
+            self.packaging_result = 'unknown' # if this happens, you didn't update the elif cases above
+
+        if self.config.verbose:
+            console(f'  - {self.name} package info loaded from [{self.packaging_result}]', color=Color.BLUE)
 
         # only save and print exports if we built anything
         if self.dep.build_dir_exists():
@@ -1494,7 +1535,7 @@ class BuildTarget:
         if not (self.exported_includes or self.exported_libs or self.exported_syslibs or self.exported_assets):
             return
 
-        console(f'  - Package {self.name}')
+        console(f'  - Package {self.name}  ({self.packaging_result})')
         for include in self.exported_includes: self._print_ws_path('<I>', include, abs_paths)
         for library in self.exported_libs:     self._print_ws_path('[L]', library, abs_paths)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, abs_paths, check_exists=False)
