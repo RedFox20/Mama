@@ -42,6 +42,7 @@ class BuildConfig:
         self.reclone   = False
         self.dirty     = False # marks a target for rebuild on next build even if it's up to date
         self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
+        self.run_cmake_configure = False # if True, forces running CMake configure step even if target doesn't need rebuild
         self.mama_init = False
         self.print     = True
         self.verbose   = False
@@ -148,6 +149,9 @@ class BuildConfig:
             elif arg == 'wipe':      self.reclone = True
             elif arg == 'dirty':     self.dirty = True
             elif arg == 'unshallow': self.unshallow = True
+            elif arg == 'configure':
+                self.run_cmake_configure = True
+                self.build = True # configure implies a build
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
             elif arg == 'verbose':   self.verbose = True

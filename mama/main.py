@@ -29,6 +29,7 @@ def print_usage():
     console('    wipe       - wipe specific target dependency and clone it again')
     console('    reclone    - (deprecated) alias for wipe')
     console('    dirty      - mark a target for rebuild even if it was up to date')
+    console('    configure  - run configure() task on target dependencies without rebuilding')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
     console('    art        - always fetch pkgs from artifactory, failure will throw an error')

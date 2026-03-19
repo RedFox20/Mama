@@ -83,6 +83,8 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama update dep1               Update and build the specified target.
   mama serve android             Update, build and deploy for Android.
   mama deploy                    Runs PAPA deploy stage.
+  mama configure                 Run CMake configure on dependencies to reconfigure and build
+  mama configure tsan            CMake Reconfigure dependencies with thread sanitizer enabled
   mama wipe dep1                 Wipe target dependency completely and clone again.
   mama upload dep1               Deploys and uploads dependency to Artifactory server.
   mama list                      List all mama dependencies on this project.

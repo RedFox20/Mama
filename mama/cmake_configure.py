@@ -72,9 +72,17 @@ def _opts_to_defines(opts:list[str]) -> str:
 
 
 def run_config(target:BuildTarget):
-    if not target.config.update and os.path.exists(target.build_dir('CMakeCache.txt')):
+    must_configure = target.config.update or target.config.run_cmake_configure
+    # also reconfigure if sanitizer flags changed
+    if not must_configure:
+        current_sanitizers = target.config.sanitize or ''
+        previous_sanitizers = target.dep.get_enabled_sanitizers()
+        if current_sanitizers != previous_sanitizers:
+            must_configure = True
+
+    if not must_configure and os.path.exists(target.build_dir('CMakeCache.txt')):
         if target.config.verbose:
-            console('Not running CMake configure because CMakeCache.txt exists and `update` was not specified')
+            console('Not running CMake configure because CMakeCache.txt exists and `update` or `configure` was not specified')
         return
 
     type_flags = f'-DCMAKE_BUILD_TYPE={target.cmake_build_type}'
