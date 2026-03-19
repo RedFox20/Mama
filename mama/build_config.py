@@ -41,6 +41,7 @@ class BuildConfig:
         self.disable_artifactory = False
         self.reclone   = False
         self.dirty     = False # marks a target for rebuild on next build even if it's up to date
+        self.deps_only = False # only execute build/rebuild/clean on dependencies, not the main target
         self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
         self.run_cmake_configure = False # if True, forces running CMake configure step even if target doesn't need rebuild
         self.mama_init = False
@@ -148,6 +149,7 @@ class BuildConfig:
                 self.reclone = True
             elif arg == 'wipe':      self.reclone = True
             elif arg == 'dirty':     self.dirty = True
+            elif arg == 'deps_only': self.deps_only = True
             elif arg == 'unshallow': self.unshallow = True
             elif arg == 'configure':
                 self.run_cmake_configure = True

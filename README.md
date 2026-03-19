@@ -79,6 +79,8 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama clean x86 opencv          Cleans opencv for x86 architecture.
   mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.
   mama rebuild                   Cleans, update and build main project only.
+  mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.
+  mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.
   mama build dep1                Update and build dep1 only.
   mama update dep1               Update and build the specified target.
   mama serve android             Update, build and deploy for Android.
@@ -115,6 +117,7 @@ Call `mama help` for more usage information.
   silent                         Greatly reduces output verbosity.
   verbose                        Greatly increases output verbosity.
   parallel                       Load dependencies in parallel.
+  deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
   unshallow                      Allow unshallowing shallow git clones.
 ```
 

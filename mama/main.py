@@ -29,6 +29,7 @@ def print_usage():
     console('    wipe       - wipe specific target dependency and clone it again')
     console('    reclone    - (deprecated) alias for wipe')
     console('    dirty      - mark a target for rebuild even if it was up to date')
+    console('    deps_only  - only execute build/rebuild/clean on dependencies, skip the main target')
     console('    configure  - run configure() task on target dependencies without rebuilding')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
@@ -90,6 +91,8 @@ def print_usage():
     console('    mama clean x86 opencv          Cleans main project only.')
     console('    mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.')
     console('    mama rebuild                   Cleans, update and build main project only.')
+    console('    mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.')
+    console('    mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.')
     console('    mama build dep1                Update and build dep1 only.')
     console('    mama update dep1               Update and build the specified target.')
     console('    mama serve android             Update, build and deploy for Android')
@@ -253,11 +256,14 @@ def mamabuild(args, source_dir=os.getcwd()):
         else:
             if config.print: console(f'Updating {config.target} target')
 
+    if config.deps_only and config.no_target():
+        config.target = 'all'
+
     if config.rebuild:
         config.build = True
         config.clean = True
 
-    if config.clean and config.no_target():
+    if config.clean and config.no_target() and not config.deps_only:
         root.clean()
 
     load_dependency_chain(root)
@@ -279,6 +285,10 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
     flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
+
+    if config.deps_only:
+        flat_deps.remove(root)
+        flat_deps_reverse.remove(root)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]

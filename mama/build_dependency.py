@@ -358,6 +358,7 @@ class BuildDependency:
 
         ## build also entails packaging
         if conf.clean and is_target: return build('cleaned target')
+        if conf.run_cmake_configure and is_target: return build('cmake reconfigure')
         if self.is_root:             return build('root target')
         if self.always_build:        return build('always build')
         if git_changed:              return build('git commit changed')
