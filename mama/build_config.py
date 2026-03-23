@@ -942,11 +942,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_major}   100')
         execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_major} 100')
         execute(f'sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-{clang_major} 100')
+        execute(f'sudo update-alternatives --install /usr/bin/run-clang-tidy run-clang-tidy /usr/lib/llvm-{clang_major}/bin/run-clang-tidy 100')
         execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_major}')
         execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_major}')
         execute(f'sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-{clang_major}')
+        execute(f'sudo update-alternatives --set run-clang-tidy /usr/lib/llvm-{clang_major}/bin/run-clang-tidy')
 
-    
+
     def install_gcc(self, gcc_major):
         if type(gcc_major) != int: gcc_major = int(gcc_major) # convert to int
         if System.windows: raise OSError('Install MinGW to get GCC on Windows')
