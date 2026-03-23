@@ -44,7 +44,6 @@ class BuildDependency:
         self.src_dir = None # source directory where the code is located
         self.dep_dir = None # dependency dir where platform build dirs are kept
         self.build_dir = None # {dep_dir}/{config.platform_build_dir_name()}
-        self.git_dir = None # git directory if this is a git dependency
         self.dep_source = dep_source
         self.name = dep_source.name
 
@@ -57,7 +56,6 @@ class BuildDependency:
             self._update_dep_name_and_dirs(self.name)
             # put the git repo in workspace
             self.src_dir = normalized_join(self.dep_dir, self.name)
-            self.git_dir = normalized_join(self.src_dir, '.git')
         elif dep_source.is_pkg:
             if not config.artifactory_ftp:
                 raise RuntimeError(f'add_artifactory_pkg({self.name}) failed because config.artifactory_ftp is not set!')

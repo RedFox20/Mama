@@ -328,8 +328,9 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                         did_extract = True
                 if did_extract:
                     # set the correct permissions for files and folders
-                    perm = stat.S_IMODE(zipmember.external_attr >> 16)
-                    os.chmod(dst_path, perm)
+                    if not is_symlink:
+                        perm = stat.S_IMODE(zipmember.external_attr >> 16)
+                        os.chmod(dst_path, perm)
                     # always set the modification date from the zipmember timestamp,
                     # this way we can avoid unnecessarily modifying files and causing full rebuilds
                     time = get_zipinfo_datetime(zipmember)

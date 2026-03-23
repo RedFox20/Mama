@@ -143,8 +143,8 @@ class Git(DepSource):
 
     def _is_rebase_in_progress(self, dep: BuildDependency) -> bool:
         """Check if the repository currently has an active rebase"""
-        return os.path.exists(f'{dep.git_dir}/rebase-merge') or \
-               os.path.exists(f'{dep.git_dir}/rebase-apply')
+        return os.path.exists(f'{dep.src_dir}/.git/rebase-merge') or \
+               os.path.exists(f'{dep.src_dir}/.git/rebase-apply')
 
 
     def fetch_origin(self, dep: BuildDependency):
