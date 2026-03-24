@@ -585,6 +585,8 @@ Select the Android API level via the CLI:
 mama build android-31             # arm64, API level 31
 mama build android-26 arm         # armv7, API level 26
 mama build android                # arm64, default API level 29
+mama build ndk-28                 # build with Android NDK-28 (requires ANDROID_HOME or ANDROID_SDK_ROOT)
+mama build ndk-28.2               # build with Android NDK-28.2 specifically
 ```
 
 The NDK is auto-detected from these environment variables (in priority order):

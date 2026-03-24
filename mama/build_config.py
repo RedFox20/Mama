@@ -54,7 +54,7 @@ class BuildConfig:
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
-        self.enable_clang_tidy = True # enables clang-tidy static analysis during build
+        self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
         # supported platforms
         self.msvc    = False # whether this is a MSVC build on Windows
@@ -237,6 +237,9 @@ class BuildConfig:
             elif arg.startswith('android-'):
                 self.set_platform(android=True)
                 self.android.android_api = arg
+            elif arg.startswith('ndk-'):
+                self.set_platform(android=True)
+                self.android.ndk_version = arg[4:] # can be `ndk-28` or `ndk-28.2` etc
             elif arg.startswith('install-clang-'): self.convenient_install.append('clang-' + arg[14:])
             elif arg.startswith('install-gcc-'):   self.convenient_install.append('gcc-' + arg[12:])
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')

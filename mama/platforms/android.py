@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import os
-from mama.utils.system import System, console
+from mama.utils.system import Color, System, console
 from mama.cmake_configure import _make_program
 from mama import util
 
@@ -18,7 +18,7 @@ class Android:
         self.android_ndk_path = ''
         self.android_api = 'android-29' # 29: Android 10.0 (2020)
         self.android_ndk_stl = 'c++_shared' # LLVM libc++
-        self.ndk_version = 'ndk'
+        self.ndk_version = ''
 
 
     def android_abi(self):
@@ -93,31 +93,28 @@ class Android:
     def init_ndk_path(self):
         ndk_build = 'ndk-build.cmd' if System.windows else 'ndk-build'
 
-        has_ndk_env = os.getenv('ANDROID_NDK_HOME') or os.getenv('ANDROID_NDK_ROOT') or os.getenv('ANDROID_NDK')
-        has_sdk_env = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
-        has_ndk_and_sdk_env = has_ndk_env and has_sdk_env
-
         # using NDK paths to find SDK and NDK
         ndk_paths = []
-        Android._append_env(ndk_paths, 'ANDROID_NDK_LATEST_HOME')
-        Android._append_env(ndk_paths, 'ANDROID_NDK_HOME')
-        Android._append_env(ndk_paths, 'ANDROID_NDK_ROOT')
-        Android._append_env(ndk_paths, 'ANDROID_NDK')
+        if not self.ndk_version: # skip if NDK version is explicitly requested via `ndk-<ver>` argument
+            Android._append_env(ndk_paths, 'ANDROID_NDK_LATEST_HOME')
+            Android._append_env(ndk_paths, 'ANDROID_NDK_HOME')
+            Android._append_env(ndk_paths, 'ANDROID_NDK_ROOT')
+            Android._append_env(ndk_paths, 'ANDROID_NDK')
 
-        for ndk_path in ndk_paths:
-            if ndk_path and os.path.exists(f'{ndk_path}/{ndk_build}'):
-                # figure out the Sdk path
-                # usually SDK=/Android/ and ANDROID_NDK_ROOT=/Android/ndk/26.1.10909125
-                # on linux we use /opt/android-sdk/ndk/26.1.10909125 but we might not have SDK there
-                sdk_path = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
-                if not sdk_path and os.path.exists(f'{ndk_path}/../../platforms'):
-                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
-                if not sdk_path and os.path.exists(f'{ndk_path}/../platforms'):
-                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/..'))
-                if not sdk_path: # default to modern NDK structure /Android/ndk/26.1.10909125 --> /Android/
-                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
-                self._set_ndk_sdk_paths(ndk_path, sdk_path)
-                return
+            for ndk_path in ndk_paths:
+                if ndk_path and os.path.exists(f'{ndk_path}/{ndk_build}'):
+                    # figure out the Sdk path
+                    # usually SDK=/Android/ and ANDROID_NDK_ROOT=/Android/ndk/26.1.10909125
+                    # on linux we use /opt/android-sdk/ndk/26.1.10909125 but we might not have SDK there
+                    sdk_path = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
+                    if not sdk_path and os.path.exists(f'{ndk_path}/../../platforms'):
+                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                    if not sdk_path and os.path.exists(f'{ndk_path}/../platforms'):
+                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/..'))
+                    if not sdk_path: # default to modern NDK structure /Android/ndk/26.1.10909125 --> /Android/
+                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                    self._set_ndk_sdk_paths(ndk_path, sdk_path)
+                    return
 
         # find SDK and NDK by using SDK root
         sdk_paths = []
@@ -152,8 +149,12 @@ class Android:
             # newer NDK with multiple ndk versions:
             elif os.path.exists(f'{sdk_path}/ndk'):
                 subdirs = os.listdir(f'{sdk_path}/ndk')
-                subdirs.sort(reverse=True)
+                subdirs.sort(reverse=True) # newer version always first
                 for subdir in subdirs:
+                    if self.ndk_version and not subdir.startswith(self.ndk_version):
+                        if self.config.verbose:
+                            console(f'Skipping NDK version {subdir} since it does not match the requested version {self.ndk_version}', color=Color.YELLOW)
+                        continue # skip if subdir doesn't match the requested NDK version
                     if os.path.exists(f'{sdk_path}/ndk/{subdir}/{ndk_build}'):
                         self.ndk_version = subdir
                         self._set_ndk_sdk_paths(f'{sdk_path}/ndk/{subdir}', sdk_path)
