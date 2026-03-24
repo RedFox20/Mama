@@ -178,7 +178,7 @@ def settings(self):
   install-clang-<ver>            Install Clang <ver> for Ubuntu. Ex: install-clang-18
   install-gcc-<ver>              Install GCC <ver> for Linux. Ex: install-gcc-13
   install-msbuild                Install MSBuild for Linux.
-  install-ndk                    Install Android NDK for Linux or Windows.
+  install-ndk-<ver>              Install Android NDK <ver> for Linux or Windows. Ex: install-ndk-25c. Use install-ndk- to list available versions.
 ```
 
 ## Mamafile Reference

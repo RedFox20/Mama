@@ -54,7 +54,8 @@ class BuildConfig:
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
-        self.clang_tidy_path = None # enables clang-tidy static analysis during build
+        self.enable_clang_tidy = True # enables clang-tidy static analysis during build
+        self.clang_tidy_path = None # resolved path to clang-tidy executable
         # supported platforms
         self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
@@ -167,7 +168,7 @@ class BuildConfig:
             elif arg == 'lsan':    self.add_sanitizer_option('leak')
             elif arg == 'tsan':    self.add_sanitizer_option('thread')
             elif arg == 'ubsan':   self.add_sanitizer_option('undefined')
-            elif arg == 'clang-tidy': self.set_clang_tidy_path()
+            elif arg == 'clang-tidy': self.enable_clang_tidy = True
             elif arg.startswith('coverage='): self.add_coverage_option(arg[9:])
             elif arg == 'coverage': self.add_coverage_option()
             elif arg == 'coverage-report':
@@ -239,7 +240,7 @@ class BuildConfig:
             elif arg.startswith('install-clang-'): self.convenient_install.append('clang-' + arg[14:])
             elif arg.startswith('install-gcc-'):   self.convenient_install.append('gcc-' + arg[12:])
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
-            elif arg == 'install-ndk':     self.convenient_install.append('ndk')
+            elif arg.startswith('install-ndk-'): self.convenient_install.append('ndk-' + arg[12:])
             else:
                 self.unused_args.append(arg)
             continue
@@ -339,6 +340,10 @@ class BuildConfig:
             if self.mips and self.arch not in self.mips.supported_arches:
                 raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
 
+        if self.enable_clang_tidy:
+            # resolve clang-tidy path based on platform
+            self.set_clang_tidy_path(self.clang_tidy_path)
+
 
     def get_distro_info(self):
         if self.distro:
@@ -395,7 +400,7 @@ class BuildConfig:
         if self.ios:     return 'ios'
         if self.android: return 'android'
         if self.raspi:   return 'raspi'
-        if self.yocto_linux: return self.yocto_linux.name
+        if self.yocto_linux: return self.yocto_linux.name # imx8mp, oclea, xilinx
         if self.mips:        return self.mips.name
         return 'build'
 
@@ -649,20 +654,37 @@ class BuildConfig:
 
 
     def set_clang_tidy_path(self, clang_tidy_path=None):
+        if not self.is_platform_set():
+            console('Cannot set clang-tidy path since platform is not set yet!', color=Color.RED)
+            return
+
         if clang_tidy_path and os.path.exists(clang_tidy_path):
             self.clang_tidy_path = clang_tidy_path
             if self.print: console(f'Using clang-tidy from {clang_tidy_path}', color=Color.GREEN)
             return
 
+        CLANG_TIDY_ENV = 'CLANG_TIDY'
+        if self.android:
+            CLANG_TIDY_ENV = 'ANDROID_CLANG_TIDY'
+
         # respect user overrides first
-        clang_tidy_env = os.getenv('CLANG_TIDY')
+        clang_tidy_env = os.getenv(CLANG_TIDY_ENV)
         if clang_tidy_env:
             if os.path.exists(clang_tidy_env):
                 self.clang_tidy_path = clang_tidy_env
-                if self.print: console(f'Using clang-tidy from CLANG_TIDY env: {clang_tidy_env}', color=Color.GREEN)
+                if self.print: console(f'Using clang-tidy from {CLANG_TIDY_ENV} env: {clang_tidy_env}', color=Color.GREEN)
                 return
             else:
-                console(f'CLANG_TIDY environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!', color=Color.YELLOW)
+                console(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!', color=Color.YELLOW)
+
+        # if android root has been configured, check if clang-tidy exists in the android toolchain bin dir
+        if self.android:
+            ndk_bin = self.android.bin()
+            clang_tidy_exe = f'{ndk_bin}/clang-tidy.exe' if System.windows else f'{ndk_bin}/clang-tidy'
+            if os.path.exists(clang_tidy_exe):
+                self.clang_tidy_path = clang_tidy_exe
+                if self.print: console(f'Found clang-tidy in Android NDK bin dir: {clang_tidy_exe}', color=Color.GREEN)
+                return
 
         # display the full path of clang-tidy by resolving symlinks (/etc/alternatives/clang-tidy -> /usr/bin/clang-tidy-18)
         clang_tidy_exe = util.find_executable_from_system('clang-tidy', follow_symlinks=True)
@@ -983,22 +1005,41 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute('sudo apt-get install dotnet-sdk-2.1')
 
 
-    def install_ndk(self):
+    def install_ndk(self, ndk_key):
+        ndk_versions = {
+            'r25c': { 'ver': '25.2.9519653', 'url': 'https://dl.google.com/android/repository/android-ndk-r25c-linux.zip' },
+            'r26d': { 'ver': '26.3.11579264', 'url': 'https://dl.google.com/android/repository/android-ndk-r26d-linux.zip' },
+            'r27d': { 'ver': '27.3.13750724', 'url': 'https://dl.google.com/android/repository/android-ndk-r27d-linux.zip' },
+            'r28c': { 'ver': '28.2.13676358', 'url': 'https://dl.google.com/android/repository/android-ndk-r28c-linux.zip' },
+            'r29':  { 'ver': '29.0.14206865', 'url': 'https://dl.google.com/android/repository/android-ndk-r29-linux.zip' },
+            'r30':  { 'ver': '30.0.14608247', 'url': 'https://dl.google.com/android/repository/android-ndk-r30-beta1-linux.zip' },
+        }
+
+        if not ndk_key.startswith('r'):
+            ndk_key = 'r' + ndk_key # add 'r' prefix if missing, eg 25c -> r25c
+
+        if not ndk_key in ndk_versions:
+            supported = '\n  '.join([f'{key} ({ndk_versions[key]["ver"]})' for key in ndk_versions.keys()])
+            raise ValueError(f'Unsupported NDK version: {ndk_key}. Supported versions are:\n  {supported}')
+
+        ndk_version = ndk_versions[ndk_key]['ver']
+        ndk_url = ndk_versions[ndk_key]['url']
+        if System.windows:
+            ndk_url = ndk_url.replace('-linux.zip', '-windows.zip')
+        elif System.macos:
+            ndk_url = ndk_url.replace('-linux.zip', '-darwin.dmg')
+
         if System.macos:
-            raise OSError('install_ndk not implemented for macOS')
+            ndk_dest = f'{os.getenv("HOME")}/Library/Android/sdk/ndk'
         elif System.windows:
-            ndk_version = '25.2.9519653'
-            ndk_url = 'https://dl.google.com/android/repository/android-ndk-r25c-windows.zip'
             ndk_dest = f'{os.getenv("LOCALAPPDATA")}\\Android\\Sdk\\ndk'
         elif System.linux:
-            ndk_version = '25.2.9519653'
-            ndk_url = 'https://dl.google.com/android/repository/android-ndk-r25c-linux.zip'
             ndk_dest = f'/opt/android-sdk/ndk'
 
         console(f'Downloading NDK {ndk_version}')
         ndk_zip = util.download_file(ndk_url, tempfile.gettempdir())
 
-        if System.windows:
+        if System.windows or System.macos:
             os.makedirs(ndk_dest, exist_ok=True)
         else:
             execute(f'sudo mkdir -p {ndk_dest} && sudo chown -R $USER {ndk_dest}')
@@ -1010,13 +1051,16 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if os.path.exists(final_dest):
             shutil.rmtree(final_dest)
 
-        shutil.move(f'{ndk_dest}/android-ndk-r25c', final_dest)
+        shutil.move(f'{ndk_dest}/android-ndk-{ndk_key}', final_dest)
         if os.path.exists(f'{final_dest}/build'):
             console(f'NDK installed successfully to {final_dest}')
         else:
             raise RuntimeError(f'Failed to install NDK to {final_dest}')
 
         console(f'Adding ANDROID_NDK_HOME={final_dest} to ~/.bashrc, run source ~/.bashrc or restart terminal to populate your env.')
+        # remove existing ANDROID_NDK_HOME from bashrc if exists
+        execute('sed -i "/export ANDROID_NDK_HOME/d" ~/.bashrc')
+        # add new ANDROID_NDK_HOME to bashrc
         execute(f'echo "export ANDROID_NDK_HOME={final_dest}" >> ~/.bashrc')
 
 
@@ -1025,7 +1069,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             if 'clang-' in tool: self.install_clang(tool[6:])
             elif 'gcc-' in tool: self.install_gcc(tool[4:])
             elif 'msbuild' in tool: self.install_msbuild()
-            elif 'ndk'     in tool: self.install_ndk()
+            elif 'ndk-'    in tool: self.install_ndk(tool[4:])
 
 
     def libname(self, library):

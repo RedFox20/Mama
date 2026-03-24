@@ -28,16 +28,19 @@ class Android:
 
 
     def android_home(self):
+        """ /opt/android-sdk/ """
         if not self.android_sdk_path: self.init_ndk_path()
         return self.android_sdk_path
 
 
     def android_ndk(self):
+        """ /opt/android-sdk/ndk/26.1.10909125 """
         if not self.android_ndk_path: self.init_ndk_path()
         return self.android_ndk_path
 
 
     def bin(self):
+        """ /opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin """
         if not self.android_ndk_path: self.init_ndk_path()
         platform_dir = 'linux-x86_64'
         if System.windows: platform_dir = 'windows-x86_64'
@@ -90,7 +93,11 @@ class Android:
     def init_ndk_path(self):
         ndk_build = 'ndk-build.cmd' if System.windows else 'ndk-build'
 
-        # prefer NDK paths to find SDK and NDK
+        has_ndk_env = os.getenv('ANDROID_NDK_HOME') or os.getenv('ANDROID_NDK_ROOT') or os.getenv('ANDROID_NDK')
+        has_sdk_env = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
+        has_ndk_and_sdk_env = has_ndk_env and has_sdk_env
+
+        # using NDK paths to find SDK and NDK
         ndk_paths = []
         Android._append_env(ndk_paths, 'ANDROID_NDK_LATEST_HOME')
         Android._append_env(ndk_paths, 'ANDROID_NDK_HOME')
@@ -100,28 +107,33 @@ class Android:
         for ndk_path in ndk_paths:
             if ndk_path and os.path.exists(f'{ndk_path}/{ndk_build}'):
                 # figure out the Sdk path
-                if os.path.exists(f'{ndk_path}/../../platforms'):
-                    self._set_ndk_sdk_paths(ndk_path, os.path.abspath(f'{ndk_path}/../..'))
-                    return
-                elif os.path.exists(f'{ndk_path}/../platforms'):
-                    self._set_ndk_sdk_paths(ndk_path, os.path.abspath(f'{ndk_path}/..'))
-                    return
-                else:
-                    continue # try next path
+                # usually SDK=/Android/ and ANDROID_NDK_ROOT=/Android/ndk/26.1.10909125
+                # on linux we use /opt/android-sdk/ndk/26.1.10909125 but we might not have SDK there
+                sdk_path = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
+                if not sdk_path and os.path.exists(f'{ndk_path}/../../platforms'):
+                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                if not sdk_path and os.path.exists(f'{ndk_path}/../platforms'):
+                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/..'))
+                if not sdk_path: # default to modern NDK structure /Android/ndk/26.1.10909125 --> /Android/
+                    sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                self._set_ndk_sdk_paths(ndk_path, sdk_path)
+                return
 
         # find SDK and NDK by using SDK root
         sdk_paths = []
         Android._append_env(sdk_paths, 'ANDROID_HOME')
         Android._append_env(sdk_paths, 'ANDROID_SDK_ROOT')
 
+        if os.getenv("HOME"):
+            user_sdk = util.forward_slashes(os.path.expanduser('~/Android/Sdk'))
+            if os.path.exists(user_sdk):
+                sdk_paths += [user_sdk]
+
         if System.windows:
             localappdata = util.forward_slashes(os.getenv("LOCALAPPDATA"))
             if localappdata:
                 sdk_paths += [f'{localappdata}/Android/Sdk']
         elif System.linux:
-            if os.getenv("HOME"):
-                sdk_paths += [os.path.expanduser('~/Android/Sdk')]
-
             sdk_paths += [
                 '/usr/bin/android-sdk',
                 '/opt/android-sdk',
