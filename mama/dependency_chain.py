@@ -73,6 +73,29 @@ def get_flat_deps(root: BuildDependency):
     return [root] + _get_flattened_deps(root)
 
 
+def get_flat_child_deps(dep: BuildDependency):
+    """ Gets flat child dependencies of dep, excluding dep itself """
+    return _get_flattened_deps(dep)
+
+
+def get_deps_only_targets(root: BuildDependency, deps_only_target_name: str, config: BuildConfig):
+    """
+    For `deps_only` with a specific target, returns (flat_deps, flat_deps_reverse)
+    containing only the dependencies of the named target.
+    Also marks those deps for rebuild and cleans them if needed.
+    """
+    deps_only_dep = find_dependency(root, deps_only_target_name)
+    flat_deps = _get_flattened_deps(deps_only_dep)
+    flat_deps_reverse = list(reversed(flat_deps))
+    if config.build or config.update:
+        for d in flat_deps_reverse:
+            if config.clean:
+                d.clean()
+                d.create_build_dir_if_needed()
+            d.should_rebuild = True
+    return flat_deps, flat_deps_reverse
+
+
 def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency, deps = []) -> List[BuildDependency]:
     discovered_new = False
     """ Gets all dependencies that depend on the target """

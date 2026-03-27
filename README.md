@@ -80,6 +80,8 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.
   mama rebuild                   Cleans, update and build main project only.
   mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.
+  mama rebuild dep1 deps_only    Cleans and rebuilds only dep1's dependencies, skipping dep1 itself.
+  mama build dep1 deps_only      Build only dep1's dependencies, skipping dep1 itself.
   mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.
   mama build dep1                Update and build dep1 only.
   mama update dep1               Update and build the specified target.
@@ -118,6 +120,7 @@ Call `mama help` for more usage information.
   verbose                        Greatly increases output verbosity.
   parallel                       Load dependencies in parallel.
   deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
+                                 When combined with a target name, applies to that target's dependencies only.
   unshallow                      Allow unshallowing shallow git clones.
 ```
 

@@ -8,7 +8,7 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps, get_deps_that_depend_on_target
+from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps, get_deps_only_targets, get_deps_that_depend_on_target
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -30,6 +30,7 @@ def print_usage():
     console('    reclone    - (deprecated) alias for wipe')
     console('    dirty      - mark a target for rebuild even if it was up to date')
     console('    deps_only  - only execute build/rebuild/clean on dependencies, skip the main target')
+    console('                 when combined with a target name, applies to that target\'s dependencies only')
     console('    configure  - run configure() task on target dependencies without rebuilding')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
@@ -94,6 +95,7 @@ def print_usage():
     console('    mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.')
     console('    mama rebuild                   Cleans, update and build main project only.')
     console('    mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.')
+    console('    mama rebuild dep1 deps_only    Cleans and rebuilds only dep1\'s dependencies, skipping dep1 itself.')
     console('    mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.')
     console('    mama build dep1                Update and build dep1 only.')
     console('    mama update dep1               Update and build the specified target.')
@@ -258,8 +260,14 @@ def mamabuild(args, source_dir=os.getcwd()):
         else:
             if config.print: console(f'Updating {config.target} target')
 
-    if config.deps_only and config.no_target():
-        config.target = 'all'
+    deps_only_target_name = None
+    if config.deps_only:
+        if config.no_target():
+            config.target = 'all'
+            if config.print: console(f'Executing deps_only action on all targets')
+        else:
+            deps_only_target_name = config.target
+            if config.print: console(f'Executing deps_only action on {deps_only_target_name} target dependencies')
 
     if config.rebuild:
         config.build = True
@@ -289,8 +297,12 @@ def mamabuild(args, source_dir=os.getcwd()):
     flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
     if config.deps_only:
-        flat_deps.remove(root)
-        flat_deps_reverse.remove(root)
+        if deps_only_target_name:
+            flat_deps, flat_deps_reverse = get_deps_only_targets(root, deps_only_target_name, config)
+            config.target = 'all'
+        else:
+            flat_deps.remove(root)
+            flat_deps_reverse.remove(root)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]
