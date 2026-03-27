@@ -397,15 +397,14 @@ def _should_copy(src: str, dst: str):
     return False
 
 
-def _passes_filter(src_file: str, filter: list) -> bool:
-    if not filter:
+def _passes_extension_filter(src_file: str, extensions: list) -> bool:
+    if not extensions:
         return True
-    if isinstance(filter, str):
-        return src_file.endswith(filter)
-    for f in filter:
-        if src_file.endswith(f):
-            return True
-    return False
+    _, ext = os.path.splitext(src_file)
+    if ext:
+        return ext in extensions
+    else:
+        return '' in extensions
 
 
 def copy_file(src: str, dst: str, filter: list = None) -> bool:
@@ -414,7 +413,7 @@ def copy_file(src: str, dst: str, filter: list = None) -> bool:
         if it has changed, returns TRUE if copied.
         The filter can be a string suffix or a list of string suffixes.
     """
-    if _passes_filter(src, filter):
+    if _passes_extension_filter(src, filter):
         if os.path.isdir(dst):
             dst = os.path.join(dst, os.path.basename(src))
         if _should_copy(src, dst):
