@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import os
+import os, shlex
 from .system import console
 from .gdb import filter_gdb_arg, run_gdb
 from .run import run_in_working_dir
@@ -14,11 +14,19 @@ def run_gtest(target: BuildTarget, executable: str, args='', src_dir=False, gdb=
     # https://github.com/google/googletest/blob/main/googletest/src/gtest.cc#L238
     params = f' --gtest_output="xml:{target.source_dir("test/report.xml")}"'
     if args:
-        for arg in args.split(' '):
-            if arg.startswith('--gtest_'):
+        gtest_filters = []
+        for arg in shlex.split(args):
+            if arg.startswith('--gtest_filter='):
+                gtest_filters.append(arg[len('--gtest_filter='):].strip('"').strip("'"))
+            elif arg.startswith('--gtest_'): # --gtest_list_tests etc
                 params += f' {arg}'
             else:
-                params += f' --gtest_filter="*{arg}*"'
+                gtest_filters.append(f'*{arg}*')
+        if gtest_filters:
+            filter_str = ':'.join(gtest_filters)
+            params += f' --gtest_filter="{filter_str}"'
+            if target.config.verbose:
+                console(f'Added gtest filters: {filter_str}')
 
     if gdb:
         run_gdb(target, f'{executable} {params}', src_dir=src_dir)
