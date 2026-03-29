@@ -51,12 +51,14 @@ def get_unique_libnames(items: list):
     return unique
 
 
-def export_include(target: BuildTarget, include_path: str, build_dir: bool):
+def export_include(target: BuildTarget, include_path: str, build_dir: bool,
+                   as_includes_root=False):
     include_path = target_root_path(target, include_path, build_dir=build_dir)
     if os.path.exists(include_path):
-        #console(f'export_include={include_path}')
         if not include_path in target.exported_includes:
             target.exported_includes.append(include_path)
+            if as_includes_root:
+                target.includes_root = include_path
         return True
     return False
 

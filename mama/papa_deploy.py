@@ -75,19 +75,24 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     if not includes:
         return # nothing to do
     config = target.config
-    includes_root = package_full_path + '/include'
+    includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
     includes_filter = target.include_glob_filter
 
-    # set the default include
-    descr.append(f'I include')
 
     def append(relpath):
         src_path = abs_include
         dst_dir = includes_root
+        is_default_include = target.includes_root and src_path == target.includes_root
 
+        # if this is the default include, then we will put it directly
+        # into include/foldername instead of something like foldername/ or include/src/foldername/
+        if is_default_include:
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  {relpath} as include/{os.path.basename(src_path)}')
+            dst_dir = includes_root # output root /include directly
+            descr.append('I include') # and set includepath to include/, so users can #include <mylib/mylib.h>
         # matches default include?
-        if relpath == 'include' or relpath == 'include/':
+        elif relpath == 'include' or relpath == 'include/':
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
             dst_dir = normalized_path(includes_root + '/../')
         else:
@@ -105,6 +110,12 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if not relpath in relincludes:
             relincludes.append(relpath)
             append(relpath)
+
+    if not relincludes:
+        # set the default include, just in case we cannot add anything
+        # this ensures we at least deploy something
+        descr.append('I include')
+
 
 
 def papa_deploy_to(target:BuildTarget, package_full_path:str,

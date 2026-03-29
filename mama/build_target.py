@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING
 import os.path, time
 
 from .types.git import Git
@@ -90,6 +90,7 @@ class BuildTarget:
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
+        self.includes_root = '' # if set, this is the root of all includes, any directory prefixes are stripped during packaging
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
         self.os_windows = System.windows
@@ -431,26 +432,39 @@ class BuildTarget:
         self.no_libs = True
 
 
-    def export_include(self, include_path, build_dir=False, includes_filter=None):
+    def export_include(self, include_path, build_dir=False,
+                       includes_filter=None, as_includes_root=False):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient).
 
         Export include path relative to source directory OR if build_dir=True, then relative to build directory.
         ```
+            # as_includes_root deploys as 'deploy/include/mylib/*.h' instead of 'deploy/include/installed/MyLib/*.h'
+            # this way your includes are clean: #include <mylib/mylib.h> instead of <src/mylib/mylib.h>
+            self.export_include('src/mylib', build_dir=False, as_includes_root=True)
+
+            # if you already use a separate include folder, then everything is ready to go
             self.export_include('include')  # MyRepo/include
 
             # CMake installed includes in build/installed/MyLib/include
             self.export_include('installed/MyLib/include', build_dir=True)
+
         ```
-        @see self.includes_filter for which .h files are automatically deployed during artifactory packaging
+        - includes_filter -- see self.include_glob_filter for which .h files are automatically deployed during artifactory packaging
              This setting applies to the entire target!
+        - as_includes_root -- if True, then this include_path is the root of all includes, any directory prefixes
+                              are stripped. For example:
+                              self.export_include('src/mylib', as_includes_root=True)
+                              --> 'deploy/include/mylib/\*' instead of 'deploy/include/src/mylib/\*'
         """
         if includes_filter is not None:
-            self.includes_filter = includes_filter
-        return package.export_include(self, include_path, build_dir=build_dir)
+            self.include_glob_filter = includes_filter
+        return package.export_include(self, include_path, build_dir=build_dir,
+                                      as_includes_root=as_includes_root)
 
 
-    def export_includes(self, include_paths=[''], build_dir=False, includes_filter=None):
+    def export_includes(self, include_paths=[''], build_dir=False,
+                        includes_filter=None):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient)
 
@@ -461,12 +475,13 @@ class BuildTarget:
         self.export_includes(['include', 'src/moreincludes'])
         self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
         ```
-        @see self.includes_filter for which .h files are automatically deployed during artifactory packaging
+        - includes_filter -- see self.include_glob_filter for which .h files are automatically deployed during artifactory packaging
              This setting applies to the entire target!
         """
         if includes_filter is not None:
-            self.includes_filter = includes_filter
+            self.include_glob_filter = includes_filter
         return package.export_includes(self, include_paths, build_dir=build_dir)
+
 
 
     def export_lib(self, relative_path, src_dir=False, build_dir=True):
@@ -1199,7 +1214,7 @@ class BuildTarget:
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
-        elif self.export_include('src',     build_dir=False): pass
+        elif self.export_include('src',     build_dir=False, as_includes_root=True): pass
         elif self.export_include('',        build_dir=False): pass
 
 
