@@ -313,6 +313,7 @@ self.enable_from_env('CUDA')  # enable CMake option CUDA=ON if CUDA=1 env var is
 ```py
 self.export_includes(['include'])                    # Export include dirs from source dir
 self.export_include('include', build_dir=True)       # Export single include dir from build dir
+self.export_include('src/mylib', as_includes_root=True)  # Deploy as include/mylib/ for clean #include <mylib/mylib.h>
 self.export_libs('.', ['.lib', '.a'])                 # Find and export libs matching patterns
 self.export_libs('.', ['.lib', '.a'], order=['core', 'utils'])  # Control linker order (important on Linux)
 self.export_lib('lib/mylib.a')                       # Export a specific library file
@@ -482,6 +483,23 @@ class libpng_static(mama.BuildTarget):
         # export installed include path from build dir
         self.export_include('include', build_dir=True)
 ```
+
+### Clean include deployment with `as_includes_root`
+When developing a library where source and headers live together (e.g. `src/mylib/mylib.h`),
+you can use `as_includes_root=True` to deploy headers with a clean namespace:
+```py
+def package(self):
+    self.export_libs('.', ['.lib', '.a'])
+    # Deploys src/mylib/*.h -> deploy/include/mylib/*.h
+    # Consumers use: #include <mylib/mylib.h>
+    self.export_include('src/mylib', as_includes_root=True)
+```
+
+During development, the actual include path is set to `src/` so that IDE navigation
+and error messages point to the real source files. After `papa deploy`, only headers
+are exported to `include/mylib/`, giving consumers clean `#include <mylib/mylib.h>` paths.
+
+This is also the default behavior of `default_package_includes()` when only a `src/` folder exists.
 
 ## Example output from Mama Build
 ```
