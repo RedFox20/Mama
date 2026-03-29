@@ -77,7 +77,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     config = target.config
     includes_root = package_full_path + '/include'
     # TODO: should we include .cpp files for easier debugging?
-    includes_filter = ['.h','.hpp','.hxx','.hh','.c','.cpp','.cxx']
+    includes_filter = target.include_glob_filter
 
     # set the default include
     descr.append(f'I include')
