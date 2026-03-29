@@ -55,10 +55,14 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
                    as_includes_root=False):
     include_path = target_root_path(target, include_path, build_dir=build_dir)
     if os.path.exists(include_path):
+        if as_includes_root:
+            # add parent of this include as the exported include, 
+            # so we can #include <mylib/file.h> instead of <src/mylib/file.h>
+            includes_root = include_path
+            include_path = normalized_path(include_path + '/../')
+            target.includes_root = (include_path, includes_root)
         if not include_path in target.exported_includes:
             target.exported_includes.append(include_path)
-            if as_includes_root:
-                target.includes_root = include_path
         return True
     return False
 

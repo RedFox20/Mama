@@ -90,7 +90,7 @@ class BuildTarget:
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
-        self.includes_root = '' # if set, this is the root of all includes, any directory prefixes are stripped during packaging
+        self.includes_root = ('','') # if set, this is the root of all includes, any directory prefixes are stripped during packaging
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
         self.os_windows = System.windows

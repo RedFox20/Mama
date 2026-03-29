@@ -83,13 +83,14 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     def append(relpath):
         src_path = abs_include
         dst_dir = includes_root
-        is_default_include = target.includes_root and src_path == target.includes_root
 
         # if this is the default include, then we will put it directly
         # into include/foldername instead of something like foldername/ or include/src/foldername/
-        if is_default_include:
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  {relpath} as include/{os.path.basename(src_path)}')
-            dst_dir = includes_root # output root /include directly
+        if target.includes_root[0] and src_path == target.includes_root[0]:
+            foldername = os.path.basename(target.includes_root[1])
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include [root] {relpath}/{foldername} -> include/{foldername}')
+            src_path = f'{src_path}/{foldername}' # input from src/foldername
+            dst_dir = includes_root # output to /include/foldername
             descr.append('I include') # and set includepath to include/, so users can #include <mylib/mylib.h>
         # matches default include?
         elif relpath == 'include' or relpath == 'include/':
