@@ -96,6 +96,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         elif relpath == 'include' or relpath == 'include/':
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
             dst_dir = normalized_path(includes_root + '/../')
+            descr.append('I include')
         else:
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
             descr.append(f'I include/{relpath}')
