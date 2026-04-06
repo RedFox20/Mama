@@ -16,7 +16,7 @@ from unittest.mock import Mock
 from mama.util import normalized_path
 import mama.package as package
 from mama.papa_deploy import _append_includes, papa_deploy_to, PapaFileInfo
-from mama.dependency_chain import _get_dependency_cmake_defines, _get_cmake_path_list
+from mama.dependency_chain import _get_dependency_cmake_defines
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,11 @@ def make_mock_target(source_dir, build_dir=None):
     target.includes_root = ('', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
+    target.config.verbose = False
+    target.config.print = False
+    target.config.test = False
+    target.children.return_value = []
+    target.is_current_target.return_value = False
     return target
 
 
@@ -56,7 +61,7 @@ def make_temp_lib_tree():
             mylib/
               mylib.h
               internal.h
-    Returns (tmpdir, src_mylib_path)
+    Returns tmpdir
     """
     tmpdir = tempfile.mkdtemp(prefix='mama_test_')
     mylib = os.path.join(tmpdir, 'src', 'mylib')
@@ -202,12 +207,8 @@ def test_append_includes_deploys_to_include_foldername():
         package.export_include(target, 'src/mylib', build_dir=False,
                                as_includes_root=True)
 
-        # set up config for _append_includes
-        target.config.verbose = False
-        target.config.print = False
-
         deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
-        os.makedirs(deploy_dir, exist_ok=True)
+        os.makedirs(deploy_dir)
 
         descr = ['P TestLib']
         src_dir = normalized_path(os.path.join(tmpdir, 'src'))
@@ -229,6 +230,37 @@ def test_append_includes_deploys_to_include_foldername():
         shutil.rmtree(tmpdir)
 
 
+def test_papa_deploy_standard_include_dir():
+    """papa_deploy_to with a standard include/ dir must produce 'I include' in papa.txt."""
+    tmpdir = tempfile.mkdtemp(prefix='mama_test_')
+    try:
+        target = make_mock_target(tmpdir)
+
+        inc_dir = os.path.join(tmpdir, 'include')
+        os.makedirs(inc_dir)
+        with open(os.path.join(inc_dir, 'test.h'), 'w') as f:
+            f.write('#pragma once\n')
+        package.export_include(target, 'include', build_dir=False)
+
+        deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
+        os.makedirs(deploy_dir)
+
+        papa_deploy_to(target, deploy_dir,
+                       r_includes=False, r_dylibs=False,
+                       r_syslibs=False, r_assets=False)
+
+        papa = PapaFileInfo(os.path.join(deploy_dir, 'papa.txt'))
+        assert papa.project_name == 'TestLib'
+        assert len(papa.includes) == 1, \
+            f'Expected exactly 1 include entry, got: {papa.includes}'
+
+        expected_include = normalized_path(os.path.join(deploy_dir, 'include'))
+        assert normalized_path(papa.includes[0]) == expected_include, \
+            f'Expected include path "{expected_include}", got: "{papa.includes[0]}"'
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_append_includes_without_includes_root_uses_subpath():
     """Without includes_root, includes from 'mylib/' get deployed as include/mylib/."""
     tmpdir = make_temp_lib_tree()
@@ -238,11 +270,8 @@ def test_append_includes_without_includes_root_uses_subpath():
         package.export_include(target, 'src/mylib', build_dir=False,
                                as_includes_root=False)
 
-        target.config.verbose = False
-        target.config.print = False
-
         deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
-        os.makedirs(deploy_dir, exist_ok=True)
+        os.makedirs(deploy_dir)
 
         descr = ['P TestLib']
         mylib_dir = normalized_path(os.path.join(tmpdir, 'src', 'mylib'))
@@ -268,14 +297,8 @@ def test_papa_deploy_writes_correct_papa_txt():
         package.export_include(target, 'src/mylib', build_dir=False,
                                as_includes_root=True)
 
-        target.config.verbose = False
-        target.config.print = False
-        target.config.test = False
-        target.children.return_value = []
-        target.is_current_target.return_value = False
-
         deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
-        os.makedirs(deploy_dir, exist_ok=True)
+        os.makedirs(deploy_dir)
 
         papa_deploy_to(target, deploy_dir,
                        r_includes=False, r_dylibs=False,
@@ -288,16 +311,13 @@ def test_papa_deploy_writes_correct_papa_txt():
             content = f.read()
         lines = content.strip().split('\n')
 
-        # First line is project name
         assert lines[0] == 'P TestLib'
 
-        # Should have 'I include' line
-        include_lines = [l for l in lines if l.startswith('I ')]
+        include_lines = [line for line in lines if line.startswith('I ')]
         assert 'I include' in include_lines, \
             f'Expected "I include" in papa.txt, got: {include_lines}'
 
-        # Should NOT have 'I include/src' or similar subpath entries
-        assert not any('I include/' in l for l in include_lines), \
+        assert not any('I include/' in line for line in include_lines), \
             f'Expected no I include/<subpath> entries, got: {include_lines}'
     finally:
         shutil.rmtree(tmpdir)
@@ -311,28 +331,20 @@ def test_papa_txt_parsed_correctly_with_includes_root():
         package.export_include(target, 'src/mylib', build_dir=False,
                                as_includes_root=True)
 
-        target.config.verbose = False
-        target.config.print = False
-        target.config.test = False
-        target.children.return_value = []
-        target.is_current_target.return_value = False
-
         deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
-        os.makedirs(deploy_dir, exist_ok=True)
+        os.makedirs(deploy_dir)
 
         papa_deploy_to(target, deploy_dir,
                        r_includes=False, r_dylibs=False,
                        r_syslibs=False, r_assets=False)
 
-        papa_file = os.path.join(deploy_dir, 'papa.txt')
-        papa = PapaFileInfo(papa_file)
+        papa = PapaFileInfo(os.path.join(deploy_dir, 'papa.txt'))
 
         assert papa.project_name == 'TestLib'
         assert len(papa.includes) == 1
         assert papa.includes[0].endswith('include'), \
             f'Expected include path ending with "include", got: {papa.includes[0]}'
 
-        # The resolved include path should point to deploy/TestLib/include
         expected_include = normalized_path(os.path.join(deploy_dir, 'include'))
         assert normalized_path(papa.includes[0]) == expected_include
     finally:
@@ -347,14 +359,8 @@ def test_deployed_headers_are_accessible_via_includes_root():
         package.export_include(target, 'src/mylib', build_dir=False,
                                as_includes_root=True)
 
-        target.config.verbose = False
-        target.config.print = False
-        target.config.test = False
-        target.children.return_value = []
-        target.is_current_target.return_value = False
-
         deploy_dir = os.path.join(tmpdir, 'deploy', 'TestLib')
-        os.makedirs(deploy_dir, exist_ok=True)
+        os.makedirs(deploy_dir)
 
         papa_deploy_to(target, deploy_dir,
                        r_includes=False, r_dylibs=False,
