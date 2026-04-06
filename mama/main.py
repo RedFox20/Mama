@@ -168,7 +168,7 @@ def print_package_exports(dep: BuildDependency):
     if dep.from_artifactory or target.try_automatic_artifactory_fetch():
         console(f'    Target {target.name} fetched from artifactory')
     else:
-        target.package()
+        console(f'    Target {target.name} local build at {target.build_dir()}')
     target.print_exports(abs_paths=True)
 
 
@@ -305,14 +305,9 @@ def mamabuild(args, source_dir=os.getcwd()):
             flat_deps_reverse.remove(root)
 
     if config.list:
-        flat_deps_names = [d.name for d in flat_deps]
-        if config.no_specific_target():
-            console(f'    ALL Dependency List: {flat_deps_names}', Color.BLUE)
-            for d in flat_deps: print_package_exports(d)
-        else:
-            console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
-            print_package_exports(dep)
-        return
+        # if listing, then mark all deps for no-build
+        for d in flat_deps:
+            d.target.nothing_to_build()
 
     if config.dirty:
         if not dep:
@@ -330,9 +325,19 @@ def mamabuild(args, source_dir=os.getcwd()):
     if config.verbose:
         chain = ' -> '.join([d.name for d in flat_deps_reverse])
         console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
-        print_package_exports(root)
 
     execute_task_chain(flat_deps_reverse)
+
+    if config.list:
+        flat_deps_names = [d.name for d in flat_deps]
+        if config.no_specific_target():
+            console(f'    ALL Dependency List: {flat_deps_names}', Color.BLUE)
+            for d in flat_deps: print_package_exports(d)
+        else:
+            console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
+            print_package_exports(dep)
+    elif config.verbose:
+        print_package_exports(dep)
 
     if config.coverage_report:
         if not dep:

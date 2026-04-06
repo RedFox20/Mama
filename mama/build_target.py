@@ -90,7 +90,7 @@ class BuildTarget:
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
-        self.includes_root = ('','') # if set, this is the root of all includes, any directory prefixes are stripped during packaging
+        self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
         self.os_windows = System.windows
@@ -433,7 +433,7 @@ class BuildTarget:
 
 
     def export_include(self, include_path, build_dir=False,
-                       includes_filter=None, as_includes_root=False):
+                       includes_filter=None, as_includes_root:bool|str=False):
         """
         CUSTOM PACKAGE INCLUDES (if self.default_package() is insufficient).
 
@@ -441,7 +441,7 @@ class BuildTarget:
         ```
             # as_includes_root deploys as 'deploy/include/mylib/*.h' instead of 'deploy/include/installed/MyLib/*.h'
             # this way your includes are clean: #include <mylib/mylib.h> instead of <src/mylib/mylib.h>
-            self.export_include('src/mylib', build_dir=False, as_includes_root=True)
+            self.export_include('src/mylib', build_dir=False, as_includes_root='mylib')
 
             # if you already use a separate include folder, then everything is ready to go
             self.export_include('include')  # MyRepo/include
@@ -452,9 +452,9 @@ class BuildTarget:
         ```
         - includes_filter -- see self.include_glob_filter for which .h files are automatically deployed during artifactory packaging
              This setting applies to the entire target!
-        - as_includes_root -- if True, then this include_path is the root of all includes, any directory prefixes
+        - as_includes_root -- if set, then this include_path is the root of all includes, any directory prefixes
                               are stripped. For example:
-                              self.export_include('src/mylib', as_includes_root=True)
+                              self.export_include('src/mylib', as_includes_root='mylib')
                               --> 'deploy/include/mylib/\*' instead of 'deploy/include/src/mylib/\*'
         """
         if includes_filter is not None:
@@ -1214,7 +1214,7 @@ class BuildTarget:
         # try multiple common/popular C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
-        elif self.export_include('src',     build_dir=False, as_includes_root=True): pass
+        elif self.export_include('src',     build_dir=False, as_includes_root=self.name): pass
         elif self.export_include('',        build_dir=False): pass
 
 
@@ -1540,17 +1540,18 @@ class BuildTarget:
     def _print_ws_path(self, what, path, abs_path, check_exists=True):
         def exists():
             return '' if os.path.exists(path) else '   !! (path does not exist) !!'
-        if path.startswith('-framework'):
-            console(f'    {what}  {path}')
-        elif not abs_path and path.startswith(self.config.workspaces_root):
-            console(f'    {what}  {path[len(self.config.workspaces_root) + 1:]}{exists()}')
-        elif not abs_path and path.startswith(self.source_dir()):
-            console(f'    {what}  {path[len(self.source_dir()) + 1:]}{exists()}')
-        elif not abs_path and path.startswith(self.build_dir()):
-            console(f'    {what}  {path[len(self.build_dir()) + 1:]}{exists()}')
-        else:
-            ex = exists() if check_exists else ''
-            console(f'    {what}  {path}{ex}')
+        display_path = path
+        if not abs_path and not path.startswith('-framework'):
+            if path.startswith(self.build_dir()):
+                display_path = path[len(self.build_dir()) + 1:]
+            elif path.startswith(self.source_dir()):
+                display_path = path[len(self.source_dir()) + 1:].strip()
+                if display_path == '':
+                    display_path = path # if it's exactly the source dir, keep it as is
+            elif path.startswith(self.config.workspaces_root):
+                display_path = path[len(self.config.workspaces_root) + 1:]
+        ex = exists() if check_exists else ''
+        console(f'    {what}  {display_path}{ex}')
 
 
     def print_exports(self, abs_paths=False):

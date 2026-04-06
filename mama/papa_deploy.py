@@ -9,7 +9,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 
 from .util import normalized_path, normalized_join, read_lines_from \
-                , write_text_to, console, copy_if_needed
+                , write_text_to, console, copy_if_needed, copy_dir
 
 import mama.package as package
 
@@ -80,22 +80,26 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     includes_filter = target.include_glob_filter
 
 
-    def append(relpath):
+    def append(relpath, abs_include):
         src_path = abs_include
         dst_dir = includes_root
+        remap_root_dirname = False
 
         # if this is the default include, then we will put it directly
         # into include/foldername instead of something like foldername/ or include/src/foldername/
         if target.includes_root[0] and src_path == target.includes_root[0]:
-            foldername = os.path.basename(target.includes_root[1])
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include [root] {relpath}/{foldername} -> include/{foldername}')
-            src_path = f'{src_path}/{foldername}' # input from src/foldername
-            dst_dir = includes_root # output to /include/foldername
+            src_name = os.path.basename(target.includes_root[1])
+            alias_name = target.includes_root[2]
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include [root] {relpath}/{src_name} -> include/{alias_name}')
+            src_path = f'{src_path}/{src_name}' # input from src/foldername
+            dst_dir = f'{includes_root}/{alias_name}/' # remap 'src/' to '{deploy}/include/alias_name/'
+            remap_root_dirname = True
             descr.append('I include') # and set includepath to include/, so users can #include <mylib/mylib.h>
         # matches default include?
         elif relpath == 'include' or relpath == 'include/':
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
             dst_dir = normalized_path(includes_root + '/../')
+            descr.append('I include') 
         else:
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
             descr.append(f'I include/{relpath}')
@@ -103,14 +107,14 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         src_dir = os.path.dirname(src_path)
         if src_dir != dst_dir:
             if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
-            copy_if_needed(src_path, dst_dir, includes_filter)
+            copy_dir(src_path, dst_dir, includes_filter, remap_root_dirname=remap_root_dirname)
 
     relincludes = []  # TODO: what was the point of this again?
     for inctarget, abs_include in includes:
         relpath = os.path.basename(abs_include)
         if not relpath in relincludes:
             relincludes.append(relpath)
-            append(relpath)
+            append(relpath, abs_include)
 
     if not relincludes:
         # set the default include, just in case we cannot add anything

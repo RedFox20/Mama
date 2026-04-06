@@ -425,19 +425,23 @@ def copy_file(src: str, dst: str, filter: list = None) -> bool:
     return False
 
 
-def copy_dir(src_dir: str, out_dir: str, filter: list = None) -> bool:
+def copy_dir(src_dir: str, out_dir: str, filter: list = None, remap_root_dirname=False) -> bool:
     """
         Copies an entire dir if it passes the filter and
         if the individual files have changed.
         Returns TRUE if any files were copied.
         The filter can be a string suffix or a list of string suffixes.
+        If remap_root_dirname is True, then src_dir contents are mapped directly
+        into out_dir, effectively renaming the source directory to out_dir's basename.
+        Example: copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True)
+                 copies src/* -> include/mylib/* instead of src/* -> include/mylib/src/*
     """
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
     if not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
     copied = False
-    root = os.path.dirname(src_dir)
+    root = src_dir if remap_root_dirname else os.path.dirname(src_dir)
     norm_out = os.path.normcase(os.path.normpath(out_dir))
     for fulldir, dirs, files in os.walk(src_dir):
         # skip the output directory to prevent infinite recursion
