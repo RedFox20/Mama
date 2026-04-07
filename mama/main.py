@@ -337,7 +337,7 @@ def mamabuild(args, source_dir=os.getcwd()):
             console(f'    {dep.name} Dependency List: {flat_deps_names}', Color.BLUE)
             print_package_exports(dep)
     elif config.verbose:
-        print_package_exports(dep)
+        print_package_exports(dep if dep else root)
 
     if config.coverage_report:
         if not dep:
