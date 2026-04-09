@@ -512,21 +512,31 @@ class BuildConfig:
         self.fortran = path if path else self.find_default_fortran_compiler()
 
 
-    # returns: root path where the compilers exist and the discovered suffix
-    #          (root_path, suffix)
     def find_compiler_root(self, suggested_path, compiler, suffixes, dumpfullversion) -> tuple[str, str, str]:
+        """
+        root path where the compilers exist and the discovered suffix
+            returns (root_path, suffix, version)
+        """
         def resolve_compiler(cxx_path, suffix) -> tuple[str, str, str]:
             cxx_path = os.path.realpath(cxx_path) # resolve symlinks
+            if not os.path.exists(cxx_path):
+                return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
-            if self.verbose: console(f'Compiler {cxx_path} version: {version}')
             return os.path.dirname(cxx_path) + '/', suffix, version
 
         # stop search early if we meet an already pre-configure /etc/alternatives/clang++ path on linux
         # since this is likely what the user has configured as their default compiler
-        priority_choices = [ suggested_path, os.getenv('CXX'), '/etc/alternatives/' + compiler ]
+        # if user has ~/.local/bin/clang or ~/.local/bin/gcc try to resolve that
+        priority_choices = [ suggested_path, os.getenv('CXX'),
+                            f'{os.getenv("HOME")}/.local/bin/{compiler}',
+                            '/etc/alternatives/' + compiler ]
         for priority_cxx in priority_choices:
             if priority_cxx and os.path.exists(priority_cxx):
-                return resolve_compiler(priority_cxx, '')
+                path, _, ver = resolve_compiler(priority_cxx, '')
+                if ver:
+                    if self.verbose:
+                        console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)}')
+                    return path, '', ver
 
         # perform exhaustive search through all candidate directories for any suitable compilers
         roots = []
@@ -539,11 +549,15 @@ class BuildConfig:
         roots += pathDirs
 
         candidates = []
+        already_added = set()
         for root in roots:
             for suffix in suffixes:
-                cc_path = root + compiler + suffix
-                if os.path.exists(cc_path):
-                    candidates.append(resolve_compiler(cc_path, suffix))
+                cxx_path = root + compiler + suffix # compiler=clang++
+                if os.path.exists(cxx_path):
+                    path, _, ver = resolve_compiler(cxx_path, suffix)
+                    if ver and not path in already_added: # if version is valid and path not already added
+                        already_added.add(path)
+                        candidates.append((path, suffix, ver))
         if not candidates:
             raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 
