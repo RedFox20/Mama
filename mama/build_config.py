@@ -535,7 +535,7 @@ class BuildConfig:
                 path, _, ver = resolve_compiler(priority_cxx, '')
                 if ver:
                     if self.verbose:
-                        console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)}')
+                        console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)} via {priority_cxx}')
                     return path, '', ver
 
         # perform exhaustive search through all candidate directories for any suitable compilers

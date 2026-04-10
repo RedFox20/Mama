@@ -217,11 +217,11 @@ def mamabuild(args, source_dir=os.getcwd()):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
         exit(-1)
 
-    if len(args) == 0 or 'help' in args:
+    if len(args) == 0 or 'help' in args or '--help' in args:
         print_title()
         print_usage()
         exit(-1)
-    if 'version' in args:
+    if 'version' in args or '--version' in args:
         console(f'MamaBuild version {__version__}')
         exit(0)
 
