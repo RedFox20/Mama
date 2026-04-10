@@ -108,6 +108,7 @@ class BuildConfig:
         self._visualstudio_cmake_id = None
         self._msbuild_path = None
         self._msvctools_path = None
+        self._vswhere_path = None
         ## Raspberry PI - Raspi
         self.raspi_compilers  = ''  ## Raspberry g++ and gcc
         self.raspi_system     = ''  ## path to Raspberry system libraries
@@ -841,18 +842,41 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         return None
 
 
+    def get_vswhere(self, fail_on_error=True):
+        if self._vswhere_path:
+            return self._vswhere_path
+        if not System.windows:
+            raise EnvironmentError('VisualStudio tools support not available on this platform!')
+
+        vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+        if os.path.exists(vswhere_exe):
+            self._vswhere_path = vswhere_exe
+            return vswhere_exe
+
+        vswhere_exe = util.find_executable_from_system('vswhere.exe')
+        if vswhere_exe and os.path.exists(vswhere_exe):
+            self._vswhere_path = vswhere_exe
+            return vswhere_exe
+
+        if fail_on_error:
+            raise EnvironmentError('Failed to find vswhere.exe for detecting Visual Studio installations!' \
+                                   'Please install Visual Studio with C++ workload and try again.')
+        return None
+
+
     def get_visualstudio_path(self):
         if self._visualstudio_path:
             return self._visualstudio_path
         if not System.windows:
             raise EnvironmentError('VisualStudio tools support not available on this platform!')
 
-        vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        vspath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
-        if vspath and os.path.exists(vspath):
-            self._visualstudio_path = vspath
-            if self.verbose: console(f'Detected VisualStudio: {vspath}')
-            return vspath
+        vswhere_exe = self.get_vswhere(fail_on_error=False)
+        if vswhere_exe:
+            vspath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
+            if vspath and os.path.exists(vspath):
+                self._visualstudio_path = vspath
+                if self.verbose: console(f'Detected VisualStudio: {vspath}')
+                return vspath
 
         paths = []
         vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
@@ -869,6 +893,8 @@ Define env RASPI_HOME with path to Raspberry tools.''')
                 if self.verbose: console(f'Detected VisualStudio: {path}')
                 return path
 
+        if not self._visualstudio_path:
+            raise EnvironmentError('Failed to find Visual Studio installation! Please install Visual Studio with C++ workload and try again.')
         return self._visualstudio_path
 
 
@@ -897,11 +923,11 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if self._visualstudio_cmake_id:
             return self._visualstudio_cmake_id
 
-        path = self.get_visualstudio_path()
-        if '\\2022\\' in path: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
-        elif '\\18\\' in path: self._visualstudio_cmake_id = 'Visual Studio 18 2026'
-        elif '\\2019\\' in path: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
-        else:                  self._visualstudio_cmake_id = 'Visual Studio 15 2017'
+        vspath = self.get_visualstudio_path()
+        if '\\18\\' in vspath:     self._visualstudio_cmake_id = 'Visual Studio 18 2026'
+        elif '\\2022\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
+        elif '\\2019\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
+        else:                      self._visualstudio_cmake_id = 'Visual Studio 15 2017'
 
         if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
         return self._visualstudio_cmake_id
@@ -913,12 +939,16 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
         paths = [ util.find_executable_from_system('msbuild') ]
         if System.windows:
-            vswhere = '"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -nologo -property installationPath'
-            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\Current\\Bin\\MSBuild.exe")
-            paths.append(f"{execute_piped(vswhere)}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
+            vswhere_exe = self.get_vswhere(fail_on_error=False)
+            if vswhere_exe:
+                installationPath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
+                paths.append(f"{installationPath}\\MSBuild\\Current\\Bin\\MSBuild.exe")
+                paths.append(f"{installationPath}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
 
             vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
             for variant in vs_variants:
+                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\18\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
+                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\2022\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
                 paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
                 paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\{variant}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe')
 
