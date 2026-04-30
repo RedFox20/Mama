@@ -4,6 +4,7 @@ from typing import List
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from .util import read_text_from, write_text_to, save_file_if_contents_changed
+from .utils import ssh_multiplex
 from .utils.system import Color, console, error
 
 
@@ -417,7 +418,24 @@ def load_dependency_chain(root: BuildDependency):
     ThreadPoolExecutor() is bounded (~min(32, cpu_count+4)) so a moderately
     deep dep tree can starve waiting for slots. We pick a max_workers high
     enough that this doesn't happen for any realistic project.
+
+    For `update` runs we auto-enable parallel_load so concurrent git fetches
+    share an SSH multiplexed master. The actual fetch concurrency is capped
+    at `parallel_max` (default 20) by a semaphore inside Git.run_git.
+
+    NOTE on parallel_load: existing helpers like BuildDependency.add_child
+    and BuildDependency.load are not strictly thread-safe (the existing
+    `currently_loading` busy-wait has a TOCTOU window). For most projects
+    this is benign because concurrent loads of the SAME dep are rare. Pass
+    `serial` on the command line to disable parallel loading if you hit
+    issues.
     """
+    if root.config.update and not root.config.serial_load:
+        root.config.parallel_load = True
+
+    ssh_multiplex.set_verbose(root.config.verbose)
+    ssh_multiplex.init_fetch_semaphore(root.config.parallel_max)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency):
             if dep.already_loaded:
