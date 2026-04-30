@@ -158,7 +158,7 @@ class TestProbeSshConfig:
         )
         fake_cp = mock.Mock(returncode=0, stdout=fake_out)
         with mock.patch('subprocess.run', return_value=fake_cp) as run:
-            cfg = sm.probe_ssh_config('git', 'github.com', None)
+            cfg = sm.probe_ssh_config(['git@github.com'])
             run.assert_called_once()
         assert cfg['user'] == 'git'
         assert cfg['hostname'] == 'github.com'
@@ -169,23 +169,22 @@ class TestProbeSshConfig:
     def test_returns_empty_on_failure(self):
         fake_cp = mock.Mock(returncode=255, stdout='', stderr='boom')
         with mock.patch('subprocess.run', return_value=fake_cp):
-            assert sm.probe_ssh_config('git', 'host', None) == {}
+            assert sm.probe_ssh_config(['git@host']) == {}
 
     def test_returns_empty_on_timeout(self):
         import subprocess as sp
         with mock.patch('subprocess.run', side_effect=sp.TimeoutExpired('ssh', 5)):
-            assert sm.probe_ssh_config('git', 'host', None) == {}
+            assert sm.probe_ssh_config(['git@host']) == {}
 
 
 class TestEnsureMasterIdempotent:
     def test_runs_probe_once_per_host(self, monkeypatch):
-        # Reset module state.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
 
         probe_calls = []
-        def fake_probe(user, host, port, timeout=5.0):
-            probe_calls.append((user, host, port))
+        def fake_probe(args, timeout=5.0):
+            probe_calls.append(list(args))
             return {'controlmaster': 'auto', 'controlpath': '/tmp/x'}
         monkeypatch.setattr(sm, 'probe_ssh_config', fake_probe)
 
@@ -195,7 +194,7 @@ class TestEnsureMasterIdempotent:
         sm.ensure_master_for_url(url)
         sm.ensure_master_for_url(url)
         assert len(probe_calls) == 1
-        assert sm._warmed['git@github.com:']['we_own_master'] is False
+        assert sm._warmed[('git', 'github.com', None)]['we_own_master'] is False
 
     def test_starts_master_when_user_lacks_config(self, monkeypatch, tmp_path):
         monkeypatch.setattr(sm, '_warmed', {})
@@ -204,7 +203,7 @@ class TestEnsureMasterIdempotent:
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
 
         monkeypatch.setattr(sm, 'probe_ssh_config',
-                            lambda u, h, p, timeout=5.0: {})  # nothing configured
+                            lambda args, timeout=5.0: {})
 
         master_calls = []
         def fake_start(user, host, port, opts):
@@ -215,7 +214,7 @@ class TestEnsureMasterIdempotent:
         sm.ensure_master_for_url('git@example.com:foo.git')
         sm.ensure_master_for_url('git@example.com:bar.git')  # same host
         assert len(master_calls) == 1
-        assert sm._warmed['git@example.com:']['we_own_master'] is True
+        assert sm._warmed[('git', 'example.com', None)]['we_own_master'] is True
 
     def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
         # When _start_master fails, we MUST clear ControlMaster/Path/Persist
@@ -227,12 +226,12 @@ class TestEnsureMasterIdempotent:
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         monkeypatch.setattr(sm, 'probe_ssh_config',
-                            lambda u, h, p, timeout=5.0: {})
+                            lambda args, timeout=5.0: {})
         monkeypatch.setattr(sm, '_start_master',
-                            lambda u, h, p, o: False)  # always fail
+                            lambda u, h, p, o: False)
 
         sm.ensure_master_for_url('git@example.com:foo.git')
-        info = sm._warmed['git@example.com:']
+        info = sm._warmed[('git', 'example.com', None)]
         assert info['we_own_master'] is False
         for o in info['opts']:
             assert not o.startswith('-oControlMaster=')
@@ -252,7 +251,7 @@ class TestEnsureMasterIdempotent:
 
         probe_count = [0]
         probe_lock = threading.Lock()
-        def slow_probe(user, host, port, timeout=5.0):
+        def slow_probe(args, timeout=5.0):
             with probe_lock:
                 probe_count[0] += 1
             # simulate the syscall being slow so threads pile up on the lock
@@ -322,4 +321,3 @@ class TestWrapperMain:
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     monkeypatch.delenv('GIT_SSH_COMMAND', raising=False)
-    monkeypatch.delenv(sm._OWNED_ENV, raising=False)
