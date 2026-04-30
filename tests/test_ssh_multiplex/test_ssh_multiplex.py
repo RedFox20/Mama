@@ -1,0 +1,311 @@
+"""Unit tests for mama.utils.ssh_multiplex pure-logic helpers.
+
+These cover:
+* URL -> (user, host, port) parsing for SSH and non-SSH URLs.
+* ssh-G probe output -> options decision: ControlMaster/ControlPath added
+  only when the user has not already configured multiplexing.
+* GIT_SSH_COMMAND wrapper arg parsing.
+
+Network-touching paths (probe, prewarm) are mocked.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from unittest import mock
+
+import pytest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from mama.utils import ssh_multiplex as sm  # noqa: E402
+
+
+class TestParseSshEndpoint:
+    def test_scp_form(self):
+        assert sm.parse_ssh_endpoint('git@github.com:foo/bar.git') == ('git', 'github.com', None)
+
+    def test_scp_form_user_other_than_git(self):
+        assert sm.parse_ssh_endpoint('alice@host.example:proj.git') == ('alice', 'host.example', None)
+
+    def test_scp_form_no_user(self):
+        # Falls back to default 'git' user.
+        assert sm.parse_ssh_endpoint('host.example:proj.git') == ('git', 'host.example', None)
+
+    def test_ssh_url_with_port(self):
+        assert sm.parse_ssh_endpoint('ssh://git@host:2222/foo/bar.git') == ('git', 'host', '2222')
+
+    def test_ssh_url_no_user(self):
+        assert sm.parse_ssh_endpoint('ssh://host/foo/bar.git') == ('git', 'host', None)
+
+    def test_https_rejected(self):
+        assert sm.parse_ssh_endpoint('https://github.com/foo/bar.git') is None
+
+    def test_http_rejected(self):
+        assert sm.parse_ssh_endpoint('http://github.com/foo/bar.git') is None
+
+    def test_file_url_rejected(self):
+        assert sm.parse_ssh_endpoint('file:///srv/repos/foo.git') is None
+
+    def test_local_path_rejected(self):
+        assert sm.parse_ssh_endpoint('/srv/repos/foo.git') is None
+
+    def test_relative_path_rejected(self):
+        # 'foo/bar.git' has no colon — not scp-style, no scheme.
+        assert sm.parse_ssh_endpoint('foo/bar.git') is None
+
+    def test_empty_url(self):
+        assert sm.parse_ssh_endpoint('') is None
+        assert sm.parse_ssh_endpoint(None) is None
+
+    def test_windows_path_rejected(self):
+        # Windows drive paths must NOT be treated as scp-form.
+        assert sm.parse_ssh_endpoint('C:/foo/bar') is None
+        assert sm.parse_ssh_endpoint('D:\\repos\\proj') is None
+
+    def test_host_with_no_path_rejected(self):
+        # `host:` with nothing after isn't a real git URL.
+        assert sm.parse_ssh_endpoint('git@host:') is None
+
+    def test_bracketed_ipv6_rejected(self):
+        # git itself doesn't treat scp-form bracketed IPv6 as a URL.
+        assert sm.parse_ssh_endpoint('git@[::1]:repo.git') is None
+
+
+class TestIsMultiplexConfigured:
+    def test_no_controlmaster_no_controlpath(self):
+        assert not sm.is_multiplex_configured({'controlmaster': 'no', 'controlpath': 'none'})
+
+    def test_controlmaster_auto_with_path(self):
+        assert sm.is_multiplex_configured({'controlmaster': 'auto', 'controlpath': '~/.ssh/cm/%C'})
+
+    def test_controlmaster_yes_with_path(self):
+        assert sm.is_multiplex_configured({'controlmaster': 'yes', 'controlpath': '/tmp/sock'})
+
+    def test_controlmaster_set_but_path_none(self):
+        # ControlPath=none means no socket -> not multiplexed even with master=auto.
+        assert not sm.is_multiplex_configured({'controlmaster': 'auto', 'controlpath': 'none'})
+
+    def test_path_set_but_no_master(self):
+        assert not sm.is_multiplex_configured({'controlmaster': 'no', 'controlpath': '/tmp/sock'})
+
+    def test_empty_probe(self):
+        # When ssh -G fails the probe is empty; treat as "not configured".
+        assert not sm.is_multiplex_configured({})
+
+
+class TestOptionsToAdd:
+    def test_user_has_full_config(self):
+        probe = {
+            'controlmaster': 'auto',
+            'controlpath': '~/.ssh/sockets/%C',
+            'serveraliveinterval': '30',
+            'serveralivecountmax': '5',
+        }
+        opts, we_own = sm.options_to_add(probe)
+        assert opts == [], 'should add nothing when user has everything'
+        assert we_own is False
+
+    def test_user_has_nothing(self, tmp_path, monkeypatch):
+        # Avoid mkdir on the user's actual ~/.ssh/cm.
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        probe = {'controlmaster': 'no', 'controlpath': 'none'}
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is True
+        assert any(o.startswith('-oControlMaster=') for o in opts)
+        assert any(o.startswith('-oControlPath=') for o in opts)
+        assert any(o.startswith('-oControlPersist=') for o in opts)
+        assert any(o.startswith('-oServerAliveInterval=') for o in opts)
+        assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
+
+    def test_user_has_keepalives_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        probe = {
+            'controlmaster': 'no', 'controlpath': 'none',
+            'serveraliveinterval': '60', 'serveralivecountmax': '3',
+        }
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is True
+        # We add multiplex but NOT keepalives (user has them already).
+        assert any(o.startswith('-oControlMaster=') for o in opts)
+        assert not any(o.startswith('-oServerAliveInterval=') for o in opts)
+        assert not any(o.startswith('-oServerAliveCountMax=') for o in opts)
+
+    def test_user_has_multiplex_only(self):
+        probe = {
+            'controlmaster': 'auto', 'controlpath': '/tmp/sock',
+            'serveraliveinterval': '0',
+        }
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is False
+        # No control* options; only keepalives.
+        assert not any(o.startswith('-oControlMaster=') for o in opts)
+        assert not any(o.startswith('-oControlPath=') for o in opts)
+        assert any(o.startswith('-oServerAliveInterval=') for o in opts)
+
+
+class TestParseHostFromSshArgs:
+    def test_simple(self):
+        # Mimic git's invocation: [opts] host command
+        args = ['-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
+                "git-upload-pack 'foo/bar.git'"]
+        assert sm.parse_host_from_ssh_args(args) == ('git', 'github.com', None)
+
+    def test_user_at_form(self):
+        args = ['alice@example.com', 'echo hi']
+        assert sm.parse_host_from_ssh_args(args) == ('alice', 'example.com', None)
+
+    def test_separate_l_flag(self):
+        args = ['-l', 'alice', 'example.com', 'echo hi']
+        assert sm.parse_host_from_ssh_args(args) == ('alice', 'example.com', None)
+
+    def test_glued_p_flag(self):
+        args = ['-p2222', 'git@host', 'cmd']
+        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', '2222')
+
+    def test_separate_p_flag(self):
+        args = ['-p', '2222', 'git@host', 'cmd']
+        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', '2222')
+
+    def test_glued_o_flag(self):
+        args = ['-oStrictHostKeyChecking=no', 'git@host', 'cmd']
+        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', None)
+
+    def test_no_args(self):
+        assert sm.parse_host_from_ssh_args([]) is None
+
+    def test_only_options(self):
+        assert sm.parse_host_from_ssh_args(['-v', '-q']) is None
+
+
+class TestProbeSshConfig:
+    def test_parses_keys(self):
+        fake_out = (
+            "user git\n"
+            "hostname github.com\n"
+            "ControlMaster auto\n"
+            "ControlPath ~/.ssh/sockets/%C\n"
+            "# comment line\n"
+            "\n"
+            "ServerAliveInterval 30\n"
+        )
+        fake_cp = mock.Mock(returncode=0, stdout=fake_out)
+        with mock.patch('subprocess.run', return_value=fake_cp) as run:
+            cfg = sm.probe_ssh_config('git', 'github.com', None)
+            run.assert_called_once()
+        assert cfg['user'] == 'git'
+        assert cfg['hostname'] == 'github.com'
+        assert cfg['controlmaster'] == 'auto'
+        assert cfg['controlpath'] == '~/.ssh/sockets/%C'
+        assert cfg['serveraliveinterval'] == '30'
+
+    def test_returns_empty_on_failure(self):
+        fake_cp = mock.Mock(returncode=255, stdout='', stderr='boom')
+        with mock.patch('subprocess.run', return_value=fake_cp):
+            assert sm.probe_ssh_config('git', 'host', None) == {}
+
+    def test_returns_empty_on_timeout(self):
+        import subprocess as sp
+        with mock.patch('subprocess.run', side_effect=sp.TimeoutExpired('ssh', 5)):
+            assert sm.probe_ssh_config('git', 'host', None) == {}
+
+
+class TestEnsureMasterIdempotent:
+    def test_runs_probe_once_per_host(self, monkeypatch):
+        # Reset module state.
+        monkeypatch.setattr(sm, '_warmed', {})
+        monkeypatch.setattr(sm, '_per_host_locks', {})
+
+        probe_calls = []
+        def fake_probe(user, host, port, timeout=5.0):
+            probe_calls.append((user, host, port))
+            return {'controlmaster': 'auto', 'controlpath': '/tmp/x'}
+        monkeypatch.setattr(sm, 'probe_ssh_config', fake_probe)
+
+        # User already has multiplex => we DON'T start a master, just remember.
+        url = 'git@github.com:foo/bar.git'
+        sm.ensure_master_for_url(url)
+        sm.ensure_master_for_url(url)
+        sm.ensure_master_for_url(url)
+        assert len(probe_calls) == 1
+        assert sm._warmed['git@github.com:']['we_own_master'] is False
+
+    def test_starts_master_when_user_lacks_config(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sm, '_warmed', {})
+        monkeypatch.setattr(sm, '_per_host_locks', {})
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+
+        monkeypatch.setattr(sm, 'probe_ssh_config',
+                            lambda u, h, p, timeout=5.0: {})  # nothing configured
+
+        master_calls = []
+        def fake_start(user, host, port, opts):
+            master_calls.append((user, host, port, list(opts)))
+            return True
+        monkeypatch.setattr(sm, '_start_master', fake_start)
+
+        sm.ensure_master_for_url('git@example.com:foo.git')
+        sm.ensure_master_for_url('git@example.com:bar.git')  # same host
+        assert len(master_calls) == 1
+        assert sm._warmed['git@example.com:']['we_own_master'] is True
+
+    def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
+        # When _start_master fails, we MUST clear ControlMaster/Path/Persist
+        # from opts. Otherwise N parallel fetches would race to be the master
+        # and trigger N concurrent auths — the exact thing this is meant to
+        # prevent.
+        monkeypatch.setattr(sm, '_warmed', {})
+        monkeypatch.setattr(sm, '_per_host_locks', {})
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        monkeypatch.setattr(sm, 'probe_ssh_config',
+                            lambda u, h, p, timeout=5.0: {})
+        monkeypatch.setattr(sm, '_start_master',
+                            lambda u, h, p, o: False)  # always fail
+
+        sm.ensure_master_for_url('git@example.com:foo.git')
+        info = sm._warmed['git@example.com:']
+        assert info['we_own_master'] is False
+        for o in info['opts']:
+            assert not o.startswith('-oControlMaster=')
+            assert not o.startswith('-oControlPath=')
+            assert not o.startswith('-oControlPersist=')
+        # Keepalives are still useful and stay.
+        assert any(o.startswith('-oServerAliveInterval=') for o in info['opts'])
+
+    def test_concurrent_ensure_probes_once(self, monkeypatch, tmp_path):
+        """50 threads racing on the same host must result in exactly one probe
+        and at most one master start."""
+        import threading
+        monkeypatch.setattr(sm, '_warmed', {})
+        monkeypatch.setattr(sm, '_per_host_locks', {})
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+
+        probe_count = [0]
+        probe_lock = threading.Lock()
+        def slow_probe(user, host, port, timeout=5.0):
+            with probe_lock:
+                probe_count[0] += 1
+            # simulate the syscall being slow so threads pile up on the lock
+            import time as _t; _t.sleep(0.05)
+            return {'controlmaster': 'auto', 'controlpath': '/tmp/sock'}
+        monkeypatch.setattr(sm, 'probe_ssh_config', slow_probe)
+
+        start_event = threading.Event()
+        def worker():
+            start_event.wait()
+            sm.ensure_master_for_url('git@example.com:proj.git')
+        threads = [threading.Thread(target=worker) for _ in range(50)]
+        for t in threads: t.start()
+        start_event.set()
+        for t in threads: t.join()
+        assert probe_count[0] == 1
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch):
+    monkeypatch.delenv('GIT_SSH_COMMAND', raising=False)
+    monkeypatch.delenv(sm._OWNED_ENV, raising=False)
