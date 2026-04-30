@@ -410,9 +410,15 @@ endif()
 def load_dependency_chain(root: BuildDependency):
     """
     This is main entrypoint for building the dependency chain.
-    All dependencies must be resolved at this stage
+    All dependencies must be resolved at this stage.
+
+    With parallel_load=True, parents submit child loads to this executor and
+    then block on their futures while still holding a worker slot. The default
+    ThreadPoolExecutor() is bounded (~min(32, cpu_count+4)) so a moderately
+    deep dep tree can starve waiting for slots. We pick a max_workers high
+    enough that this doesn't happen for any realistic project.
     """
-    with concurrent.futures.ThreadPoolExecutor() as e:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency):
             if dep.already_loaded:
                 return dep.should_rebuild
