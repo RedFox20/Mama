@@ -25,6 +25,7 @@ Design rules:
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import re
 import shlex
@@ -378,84 +379,9 @@ def init_fetch_semaphore(max_concurrent: int = DEFAULT_MAX_CONCURRENT_FETCHES) -
             _fetch_semaphore = threading.Semaphore(n)
 
 
-class _NullCM:
-    def __enter__(self): return self
-    def __exit__(self, *exc): return False
-
-
-class _SemCM:
-    def __init__(self, sem: threading.Semaphore):
-        self._sem = sem
-    def __enter__(self):
-        self._sem.acquire()
-        return self
-    def __exit__(self, *exc):
-        self._sem.release()
-        return False
-
-
 def fetch_slot():
     """
     Context manager that holds a slot in the fetch semaphore. No-op if
     `init_fetch_semaphore` has not been called (e.g. for non-parallel runs).
     """
-    sem = _fetch_semaphore
-    return _SemCM(sem) if sem is not None else _NullCM()
-
-
-# Wrapper helpers (used by mama_ssh.py) ------------------------------------
-
-# OpenSSH options that take an argument. If unsure, keep this conservative —
-# being wrong only means we may misidentify the host position; we still
-# fall back to a no-decoration exec.
-_SSH_OPTS_WITH_ARG = {
-    '-b', '-B', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l',
-    '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w',
-}
-
-
-def parse_host_from_ssh_args(argv: list[str]) -> tuple[str, str, str | None] | None:
-    """
-    Walk argv mirroring OpenSSH's getopt_long, return (user, host, port) of
-    the destination. Returns None if we can't identify the host.
-    """
-    user = None
-    port = None
-    host = None
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == '--':
-            i += 1
-            break
-        if a.startswith('-') and len(a) > 1:
-            short = a[:2]
-            if short in _SSH_OPTS_WITH_ARG:
-                if len(a) == 2:
-                    i += 2  # value is in next arg
-                else:
-                    i += 1  # value is glued (e.g. -oFoo=bar, -p2222)
-                if short == '-p' and len(a) > 2:
-                    port = a[2:]
-                if short == '-l' and len(a) > 2:
-                    user = a[2:]
-                if short == '-p' and len(a) == 2 and i - 1 < len(argv):
-                    port = argv[i - 1]
-                if short == '-l' and len(a) == 2 and i - 1 < len(argv):
-                    user = argv[i - 1]
-                continue
-            # boolean flag
-            i += 1
-            continue
-        # First non-flag is the destination
-        host = a
-        if '@' in host:
-            user_part, host = host.split('@', 1)
-            if user is None:
-                user = user_part
-        break
-    if not host:
-        return None
-    if user is None:
-        user = 'git'
-    return (user, host, port)
+    return _fetch_semaphore or contextlib.nullcontext()

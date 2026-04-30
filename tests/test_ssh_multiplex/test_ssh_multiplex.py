@@ -145,40 +145,6 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
 
-class TestParseHostFromSshArgs:
-    def test_simple(self):
-        # Mimic git's invocation: [opts] host command
-        args = ['-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
-                "git-upload-pack 'foo/bar.git'"]
-        assert sm.parse_host_from_ssh_args(args) == ('git', 'github.com', None)
-
-    def test_user_at_form(self):
-        args = ['alice@example.com', 'echo hi']
-        assert sm.parse_host_from_ssh_args(args) == ('alice', 'example.com', None)
-
-    def test_separate_l_flag(self):
-        args = ['-l', 'alice', 'example.com', 'echo hi']
-        assert sm.parse_host_from_ssh_args(args) == ('alice', 'example.com', None)
-
-    def test_glued_p_flag(self):
-        args = ['-p2222', 'git@host', 'cmd']
-        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', '2222')
-
-    def test_separate_p_flag(self):
-        args = ['-p', '2222', 'git@host', 'cmd']
-        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', '2222')
-
-    def test_glued_o_flag(self):
-        args = ['-oStrictHostKeyChecking=no', 'git@host', 'cmd']
-        assert sm.parse_host_from_ssh_args(args) == ('git', 'host', None)
-
-    def test_no_args(self):
-        assert sm.parse_host_from_ssh_args([]) is None
-
-    def test_only_options(self):
-        assert sm.parse_host_from_ssh_args(['-v', '-q']) is None
-
-
 class TestProbeSshConfig:
     def test_parses_keys(self):
         fake_out = (
@@ -303,6 +269,54 @@ class TestEnsureMasterIdempotent:
         start_event.set()
         for t in threads: t.join()
         assert probe_count[0] == 1
+
+
+class TestWrapperMain:
+    """The wrapper passes options + destination unchanged to ssh -G, then
+    exec's ssh with whatever extra -o flags are needed."""
+
+    def test_passthrough_when_user_has_full_config(self, monkeypatch):
+        from mama.utils import mama_ssh
+        # Simulate ssh -G saying user has multiplex + keepalives configured.
+        full = (
+            "controlmaster auto\ncontrolpath /tmp/x\n"
+            "serveraliveinterval 30\nserveralivecountmax 3\n"
+        )
+        monkeypatch.setattr(
+            'subprocess.run',
+            lambda *a, **k: mock.Mock(returncode=0, stdout=full),
+        )
+        execed: list = []
+        monkeypatch.setattr('os.execvp',
+                            lambda prog, argv: execed.extend([prog, argv]))
+        mama_ssh.main(['mama_ssh.py', '-o', 'SendEnv=GIT_PROTOCOL',
+                       'git@github.com', "git-upload-pack 'foo/bar.git'"])
+        prog, argv = execed
+        assert prog == 'ssh'
+        # No options added — user already has everything.
+        assert argv == ['ssh', '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
+                        "git-upload-pack 'foo/bar.git'"]
+
+    def test_adds_multiplex_when_user_has_nothing(self, monkeypatch, tmp_path):
+        from mama.utils import mama_ssh
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        empty = "controlmaster no\ncontrolpath none\nserveraliveinterval 0\n"
+        monkeypatch.setattr(
+            'subprocess.run',
+            lambda *a, **k: mock.Mock(returncode=0, stdout=empty),
+        )
+        execed: list = []
+        monkeypatch.setattr('os.execvp',
+                            lambda prog, argv: execed.extend([prog, argv]))
+        mama_ssh.main(['mama_ssh.py', 'git@example.com', 'git-upload-pack'])
+        prog, argv = execed
+        assert prog == 'ssh'
+        # Multiplex + keepalives are inserted before the original args.
+        assert any(a.startswith('-oControlMaster=') for a in argv)
+        assert any(a.startswith('-oControlPath=') for a in argv)
+        assert any(a.startswith('-oServerAliveInterval=') for a in argv)
+        assert argv[-2:] == ['git@example.com', 'git-upload-pack']
 
 
 @pytest.fixture(autouse=True)
