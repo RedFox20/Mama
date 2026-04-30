@@ -5,6 +5,7 @@ import os, shutil, stat, string
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
 from ..utils.sub_process import SubProcess, execute, execute_piped, execute_piped_echo
+from ..utils import ssh_multiplex
 from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join
 
 
@@ -65,7 +66,9 @@ class Git(DepSource):
         cmd = f"cd {dep.src_dir} && git {git_command}"
         if dep.config.verbose:
             console(f'  {dep.name: <16} git {git_command}', color=Color.YELLOW)
-        return execute(cmd, throw=throw)
+        ssh_multiplex.ensure_master_for_url(self.url)
+        with ssh_multiplex.fetch_slot():
+            return execute(cmd, throw=throw)
 
 
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
@@ -124,7 +127,9 @@ class Git(DepSource):
             try:
                 if self.branch: arguments = self.branch
                 elif self.tag:  arguments = self.tag
-                result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
+                ssh_multiplex.ensure_master_for_url(self.url)
+                with ssh_multiplex.fetch_slot():
+                    result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
                 if result: result = result.split(' ')[0][0:7]
                 if dep.config.verbose:
                     console(f'    {self.name}  git ls-remote {self.url} {arguments}: {result}', color=Color.YELLOW)
@@ -299,7 +304,9 @@ class Git(DepSource):
         cmd = f'git clone {clone_args} {clone_to_dir}'
         if dep.config.verbose:
             console(f'  {dep.name: <16} {cmd}')
-        result = SubProcess.run(cmd, io_func=print_output)
+        ssh_multiplex.ensure_master_for_url(self.url)
+        with ssh_multiplex.fetch_slot():
+            result = SubProcess.run(cmd, io_func=print_output)
 
         # handle the result:
         if dep.config.print:

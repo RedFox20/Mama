@@ -117,6 +117,8 @@ class BuildConfig:
         self.convenient_install = []
         ## Workspace and parsing
         self.parallel_load = False  ## Whether to load dependencies in parallel?
+        self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
+        self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
         self.global_workspace = False
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
@@ -160,6 +162,10 @@ class BuildConfig:
             elif arg == 'silent':    self.print = False
             elif arg == 'verbose':   self.verbose = True
             elif arg == 'parallel':  self.parallel_load = True
+            elif arg == 'serial':    self.serial_load = True
+            elif arg.startswith('parallel_max='):
+                try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
+                except (ValueError, IndexError): pass
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
             elif arg == 'start':     self.start = ' ' # no start arguments
