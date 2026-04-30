@@ -8,9 +8,9 @@ parallel git ops.
 
 Design rules:
 * Probe via `ssh -G user@host` to read the user's effective config. We never
-  override settings the user has already configured (ControlMaster,
-  ControlPath, ServerAliveInterval, ServerAliveCountMax). Our `-o` flags are
-  added only for keys the user has not set.
+  override settings the user already has (ControlMaster, ControlPath,
+  ServerAliveInterval, ServerAliveCountMax). Our `-o` flags are added only
+  for keys the user has not set.
 * `GIT_SSH_COMMAND` points at a small wrapper (`mama_ssh.py`) so per-host
   options can be applied just-in-time. A single global GIT_SSH_COMMAND can't
   encode per-host decisions, so the wrapper does it on each invocation.
@@ -25,6 +25,7 @@ Design rules:
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import re
 import shlex
@@ -43,19 +44,13 @@ _DEFAULT_KEEPALIVE_INTERVAL = '60'
 _DEFAULT_KEEPALIVE_COUNT    = '3'
 _DEFAULT_CONTROL_PERSIST    = '10m'
 
-# Marker so the wrapper knows we set GIT_SSH_COMMAND ourselves and didn't
-# inherit it from the user.
-_OWNED_ENV = 'MAMA_SSH_MUX_OWNED'
-
 
 # Module state -------------------------------------------------------------
 
 _state_lock = threading.Lock()
-_per_host_locks: dict[str, threading.Lock] = {}
-_warmed: dict[str, dict] = {}     # host_key -> info dict
+_per_host_locks: dict[tuple, threading.Lock] = {}
+_warmed: dict[tuple, dict] = {}     # (user, host, port) -> info
 _fetch_semaphore: threading.Semaphore | None = None
-_atexit_registered = False
-_verbose = False
 
 
 # URL parsing --------------------------------------------------------------
@@ -90,7 +85,6 @@ def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
             return None
         port = str(p.port) if p.port else None
         return (p.username or 'git', p.hostname, port)
-    # Reject anything that has a non-ssh scheme.
     if '://' in url:
         return None
     # Reject Windows-style absolute paths: a single drive letter followed by
@@ -98,38 +92,28 @@ def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
     if len(url) >= 3 and url[1] == ':' and url[0].isalpha() and url[2] in ('/', '\\'):
         return None
     m = _SCP_RE.match(url)
-    if not m:
+    if not m or m.end() >= len(url):
         return None
     host = m.group('host')
-    # Require the colon to be followed by a non-empty path component;
-    # `host:` with nothing after isn't a real git URL.
-    if m.end() >= len(url):
-        return None
-    # Bracketed IPv6 in scp-form (`git@[::1]:repo`) is not supported by git
-    # itself; punt to None rather than report a bogus host.
+    # Bracketed IPv6 in scp-form (`git@[::1]:repo`) is not supported by git.
     if '[' in host or ']' in host:
         return None
     return (m.group('user') or 'git', host, None)
 
 
-def host_key(user: str, host: str, port: str | None) -> str:
-    return f'{user}@{host}:{port or ""}'
-
-
 # ssh -G probe -------------------------------------------------------------
 
-def probe_ssh_config(user: str, host: str, port: str | None,
-                     timeout: float = 5.0) -> dict[str, str]:
+def probe_ssh_config(ssh_args: list[str], timeout: float = 5.0) -> dict[str, str]:
     """
-    Run `ssh -G [-p port] user@host` and return effective config (lower-cased
-    keys). Empty dict on failure — probe must never block the build.
+    Run `ssh -G <ssh_args>` and return effective config (lower-cased keys).
+    Empty dict on failure — probe must never block the build.
+
+    `ssh_args` is whatever you'd pass to ssh after `-G` — typically just
+    `[f'{user}@{host}']`, optionally with `-p PORT` etc.
     """
-    cmd = ['ssh', '-G']
-    if port:
-        cmd += ['-p', port]
-    cmd += [f'{user}@{host}']
     try:
-        cp = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        cp = subprocess.run(['ssh', '-G', *ssh_args],
+                            capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return {}
     if cp.returncode != 0:
@@ -142,9 +126,7 @@ def probe_ssh_config(user: str, host: str, port: str | None,
         parts = line.split(None, 1)
         if len(parts) == 2:
             # `ssh -G` prints each key only once; keep first.
-            key = parts[0].lower()
-            if key not in out:
-                out[key] = parts[1]
+            out.setdefault(parts[0].lower(), parts[1])
     return out
 
 
@@ -153,11 +135,6 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     cm = probe.get('controlmaster', 'no').lower()
     cp = probe.get('controlpath', 'none').lower()
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
-
-
-def _is_keepalive_configured(probe: dict[str, str]) -> bool:
-    interval = probe.get('serveraliveinterval', '0')
-    return interval not in ('0', '', None)
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
@@ -176,7 +153,7 @@ def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
             f'-oControlPath={_OUR_CONTROL_PATH}',
             f'-oControlPersist={_DEFAULT_CONTROL_PERSIST}',
         ]
-    if not _is_keepalive_configured(probe):
+    if probe.get('serveraliveinterval', '0') in ('0', '', None):
         opts += [
             f'-oServerAliveInterval={_DEFAULT_KEEPALIVE_INTERVAL}',
             f'-oServerAliveCountMax={_DEFAULT_KEEPALIVE_COUNT}',
@@ -186,7 +163,7 @@ def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
 
 # Per-host setup -----------------------------------------------------------
 
-def _host_lock(key: str) -> threading.Lock:
+def _host_lock(key: tuple) -> threading.Lock:
     with _state_lock:
         lk = _per_host_locks.get(key)
         if lk is None:
@@ -195,14 +172,8 @@ def _host_lock(key: str) -> threading.Lock:
         return lk
 
 
-def set_verbose(v: bool) -> None:
-    global _verbose
-    _verbose = bool(v)
-
-
-def _log(msg: str) -> None:
-    if _verbose:
-        sys.stderr.write(f'[ssh-mux] {msg}\n')
+def _probe_args(user: str, host: str, port: str | None) -> list[str]:
+    return (['-p', port] if port else []) + [f'{user}@{host}']
 
 
 def ensure_master_for_url(url: str) -> None:
@@ -218,47 +189,37 @@ def ensure_master_for_url(url: str) -> None:
     ep = parse_ssh_endpoint(url)
     if ep is None:
         return
-    user, host, port = ep
-    key = host_key(user, host, port)
-
-    if key in _warmed:
+    if ep in _warmed:
         return
 
-    with _host_lock(key):
-        if key in _warmed:
+    with _host_lock(ep):
+        if ep in _warmed:
             return
 
-        probe = probe_ssh_config(user, host, port)
+        user, host, port = ep
+        probe = probe_ssh_config(_probe_args(user, host, port))
         opts, we_own_master = options_to_add(probe)
 
-        if we_own_master:
-            master_up = _start_master(user, host, port, opts)
-            if not master_up:
-                # Pre-warm failed (auth declined, network blip, host key
-                # prompt, MFA timeout). If we left ControlMaster/ControlPath
-                # in opts, every subsequent fetch would race to BECOME the
-                # master and we'd trigger N concurrent auths instead of one —
-                # the exact thing multiplexing is meant to prevent. Strip
-                # the multiplex flags so each fetch makes its own simple
-                # connection. Keepalives are still useful and stay.
-                opts = [o for o in opts
-                        if not (o.startswith('-oControlMaster=')
-                                or o.startswith('-oControlPath=')
-                                or o.startswith('-oControlPersist='))]
-                we_own_master = False
+        if we_own_master and not _start_master(user, host, port, opts):
+            # Pre-warm failed (auth declined, network blip, host key prompt,
+            # MFA timeout). If we left ControlMaster/ControlPath in opts,
+            # every subsequent fetch would race to BECOME the master and
+            # we'd trigger N concurrent auths instead of one — the exact
+            # thing multiplexing is meant to prevent. Strip the multiplex
+            # flags so each fetch makes its own simple connection.
+            opts = [o for o in opts
+                    if not (o.startswith('-oControlMaster=')
+                            or o.startswith('-oControlPath=')
+                            or o.startswith('-oControlPersist='))]
+            we_own_master = False
 
         with _state_lock:
-            _warmed[key] = {
-                'user': user, 'host': host, 'port': port,
-                'opts': opts, 'we_own_master': we_own_master,
-            }
-        # Only install the GIT_SSH_COMMAND wrapper when there's something for
-        # it to do. If the user has every host configured to their liking the
-        # wrapper would only add a fork+exec per git op for no benefit.
+            _warmed[ep] = {'opts': opts, 'we_own_master': we_own_master}
+
+        # Only install the wrapper when there's something for it to do —
+        # otherwise it's a fork+exec per git op for no benefit.
         if opts:
             _set_git_ssh_command()
-        if we_own_master:
-            _ensure_atexit()
 
 
 def _master_control_args(opts: list[str]) -> list[str]:
@@ -274,28 +235,20 @@ def _start_master(user: str, host: str, port: str | None, opts: list[str]) -> bo
     callers should downgrade to non-multiplexed mode on False so concurrent
     fetches don't all race to be the master and trigger N parallel auths.
     """
-    cmd = ['ssh', '-fN']
     # Force ControlMaster=yes for the master itself; replace any =auto.
-    cmd += [o for o in opts if not o.startswith('-oControlMaster=')]
+    cmd = ['ssh', '-fN'] + [o for o in opts if not o.startswith('-oControlMaster=')]
     cmd += ['-oControlMaster=yes']
     if port:
         cmd += ['-p', port]
     cmd += [f'{user}@{host}']
-    _log(f'opening master: {" ".join(shlex.quote(c) for c in cmd)}')
     try:
         # 30s is generous for password/2FA prompts. -fN backgrounds AFTER auth
         # but BEFORE the ControlPath socket is bound, so we still need to poll.
         cp = subprocess.run(cmd, timeout=30, capture_output=True, text=True)
         if cp.returncode != 0:
-            _log(f'master start rc={cp.returncode} stderr={cp.stderr.strip()}')
             return False
-    except subprocess.TimeoutExpired:
-        _log(f'master start timed out for {host}')
+    except (subprocess.TimeoutExpired, OSError):
         return False
-    except (OSError, FileNotFoundError) as e:
-        _log(f'master start failed for {host}: {e}')
-        return False
-
     return _wait_master_ready(user, host, port, opts)
 
 
@@ -316,55 +269,45 @@ def _wait_master_ready(user: str, host: str, port: str | None,
     delay = 0.05
     while _t.monotonic() < end:
         try:
-            cp = subprocess.run(check, timeout=2, capture_output=True, text=True)
+            cp = subprocess.run(check, timeout=2, capture_output=True)
         except (subprocess.TimeoutExpired, OSError):
             return False
         if cp.returncode == 0:
             return True
         _t.sleep(delay)
         delay = min(delay * 2, 0.5)
-    _log(f'master never became ready for {host}')
     return False
 
 
 def cleanup_masters() -> None:
     """Run `ssh -O exit` for masters we started. Don't touch user-owned ones."""
     with _state_lock:
-        snapshot = list(_warmed.values())
-    for info in snapshot:
-        if not info.get('we_own_master'):
+        snapshot = list(_warmed.items())
+    for (user, host, port), info in snapshot:
+        if not info['we_own_master']:
             continue
         cmd = ['ssh', '-Oexit'] + _master_control_args(info['opts'])
-        if info.get('port'):
-            cmd += ['-p', info['port']]
-        cmd += [f'{info["user"]}@{info["host"]}']
+        if port:
+            cmd += ['-p', port]
+        cmd += [f'{user}@{host}']
         try:
             subprocess.run(cmd, timeout=5, capture_output=True)
         except Exception:
             pass
 
 
-def _ensure_atexit() -> None:
-    global _atexit_registered
-    if not _atexit_registered:
-        atexit.register(cleanup_masters)
-        _atexit_registered = True
+atexit.register(cleanup_masters)
 
 
 def _set_git_ssh_command() -> None:
-    # If user already set GIT_SSH_COMMAND we leave it alone — they've made an
-    # explicit choice. Our wrapper would override that.
-    if os.environ.get('GIT_SSH_COMMAND') and os.environ.get(_OWNED_ENV) != '1':
+    # If GIT_SSH_COMMAND is already set we leave it alone — either the user
+    # made an explicit choice or we already installed our wrapper.
+    if os.environ.get('GIT_SSH_COMMAND'):
         return
-    wrapper = wrapper_script_path()
+    wrapper = os.path.join(os.path.dirname(__file__), 'mama_ssh.py')
     os.environ['GIT_SSH_COMMAND'] = (
         shlex.quote(sys.executable) + ' ' + shlex.quote(wrapper)
     )
-    os.environ[_OWNED_ENV] = '1'
-
-
-def wrapper_script_path() -> str:
-    return os.path.join(os.path.dirname(__file__), 'mama_ssh.py')
 
 
 # Concurrent-fetch semaphore -----------------------------------------------
@@ -378,84 +321,9 @@ def init_fetch_semaphore(max_concurrent: int = DEFAULT_MAX_CONCURRENT_FETCHES) -
             _fetch_semaphore = threading.Semaphore(n)
 
 
-class _NullCM:
-    def __enter__(self): return self
-    def __exit__(self, *exc): return False
-
-
-class _SemCM:
-    def __init__(self, sem: threading.Semaphore):
-        self._sem = sem
-    def __enter__(self):
-        self._sem.acquire()
-        return self
-    def __exit__(self, *exc):
-        self._sem.release()
-        return False
-
-
 def fetch_slot():
     """
     Context manager that holds a slot in the fetch semaphore. No-op if
     `init_fetch_semaphore` has not been called (e.g. for non-parallel runs).
     """
-    sem = _fetch_semaphore
-    return _SemCM(sem) if sem is not None else _NullCM()
-
-
-# Wrapper helpers (used by mama_ssh.py) ------------------------------------
-
-# OpenSSH options that take an argument. If unsure, keep this conservative —
-# being wrong only means we may misidentify the host position; we still
-# fall back to a no-decoration exec.
-_SSH_OPTS_WITH_ARG = {
-    '-b', '-B', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l',
-    '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w',
-}
-
-
-def parse_host_from_ssh_args(argv: list[str]) -> tuple[str, str, str | None] | None:
-    """
-    Walk argv mirroring OpenSSH's getopt_long, return (user, host, port) of
-    the destination. Returns None if we can't identify the host.
-    """
-    user = None
-    port = None
-    host = None
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == '--':
-            i += 1
-            break
-        if a.startswith('-') and len(a) > 1:
-            short = a[:2]
-            if short in _SSH_OPTS_WITH_ARG:
-                if len(a) == 2:
-                    i += 2  # value is in next arg
-                else:
-                    i += 1  # value is glued (e.g. -oFoo=bar, -p2222)
-                if short == '-p' and len(a) > 2:
-                    port = a[2:]
-                if short == '-l' and len(a) > 2:
-                    user = a[2:]
-                if short == '-p' and len(a) == 2 and i - 1 < len(argv):
-                    port = argv[i - 1]
-                if short == '-l' and len(a) == 2 and i - 1 < len(argv):
-                    user = argv[i - 1]
-                continue
-            # boolean flag
-            i += 1
-            continue
-        # First non-flag is the destination
-        host = a
-        if '@' in host:
-            user_part, host = host.split('@', 1)
-            if user is None:
-                user = user_part
-        break
-    if not host:
-        return None
-    if user is None:
-        user = 'git'
-    return (user, host, port)
+    return _fetch_semaphore or contextlib.nullcontext()

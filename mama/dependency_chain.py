@@ -433,7 +433,6 @@ def load_dependency_chain(root: BuildDependency):
     if root.config.update and not root.config.serial_load:
         root.config.parallel_load = True
 
-    ssh_multiplex.set_verbose(root.config.verbose)
     ssh_multiplex.init_fetch_semaphore(root.config.parallel_max)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
