@@ -144,6 +144,23 @@ class TestOptionsToAdd:
         assert not any(o.startswith('-oControlPath=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
+    def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
+        # Microsoft OpenSSH on Windows has unreliable ControlMaster — the
+        # master drops mid-session and leaves the socket file behind. We
+        # disable multiplex on Windows entirely; keepalives are still useful.
+        monkeypatch.setattr(sm, '_is_windows', lambda: True)
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        probe = {'controlmaster': 'no', 'controlpath': 'none',
+                 'serveraliveinterval': '0'}
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is False
+        assert not any(o.startswith('-oControlMaster=') for o in opts)
+        assert not any(o.startswith('-oControlPath=') for o in opts)
+        assert not any(o.startswith('-oControlPersist=') for o in opts)
+        assert any(o.startswith('-oServerAliveInterval=') for o in opts)
+        assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
+
 
 class TestProbeSshConfig:
     def test_parses_keys(self):

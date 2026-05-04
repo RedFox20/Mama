@@ -137,15 +137,28 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
+def _is_windows() -> bool:
+    return os.name == 'nt'
+
+
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
     one configuring multiplex (and therefore responsible for pre-warming and
-    cleaning it up). False if the user already has multiplex configured.
+    cleaning it up). False if the user already has multiplex configured, or
+    if multiplex is unsupported on this platform.
     """
     opts: list[str] = []
     we_own_master = False
-    if not is_multiplex_configured(probe):
+    # Windows OpenSSH (Microsoft port shipping in Win10/11) has unreliable
+    # ControlMaster support: the master commonly drops mid-session with
+    # "Connection reset by peer" and the stale socket file then blocks new
+    # multiplex attempts. Skip multiplex entirely on Windows; keepalives
+    # still work fine and parallel_load + the fetch semaphore continue to
+    # bound git concurrency. Users who want multiplex on Windows should
+    # configure it explicitly in ~/.ssh/config (e.g. via WSL or a Cygwin
+    # ssh) — we'll detect their config via `ssh -G` and respect it.
+    if not _is_windows() and not is_multiplex_configured(probe):
         we_own_master = True
         os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [
