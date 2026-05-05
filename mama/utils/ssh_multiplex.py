@@ -53,6 +53,7 @@ _state_lock = threading.Lock()
 _per_host_locks: dict[tuple, threading.Lock] = {}
 _warmed: dict[tuple, dict] = {}     # (user, host, port) -> info
 _fetch_semaphore: threading.Semaphore | None = None
+_buggy_ssh_cached: bool | None = None
 
 
 # URL parsing --------------------------------------------------------------
@@ -139,24 +140,47 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
+def multiplex_known_broken() -> bool:
+    """True when the active ssh has known-broken ControlMaster.
+
+    Microsoft's OpenSSH port for Windows ships a flaky multiplex
+    implementation (master drops with "Connection reset by peer" and the
+    stale socket then blocks reattach). Its `ssh -V` banner is
+    `OpenSSH_for_Windows_<ver>` — Cygwin/MSYS/Git-Bash on Windows report
+    the standard `OpenSSH_<ver>p1` banner and work fine, so we let those
+    through. Result is cached for the process.
+    """
+    global _buggy_ssh_cached
+    if not System.windows:
+        return False
+    if _buggy_ssh_cached is not None:
+        return _buggy_ssh_cached
+    with _state_lock:
+        if _buggy_ssh_cached is not None:
+            return _buggy_ssh_cached
+        try:
+            cp = subprocess.run(['ssh', '-V'], capture_output=True,
+                                text=True, timeout=5)
+            # `ssh -V` writes to stderr on most builds; read both for safety.
+            banner = ((cp.stdout or '') + (cp.stderr or '')).lower()
+            _buggy_ssh_cached = 'for_windows' in banner
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            # Can't tell; on Windows default to the safe choice (skip mux).
+            _buggy_ssh_cached = True
+        return _buggy_ssh_cached
+
+
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
     one configuring multiplex (and therefore responsible for pre-warming and
     cleaning it up). False if the user already has multiplex configured, or
-    if multiplex is unsupported on this platform.
+    if multiplex is known-broken on this platform.
     """
     opts: list[str] = []
     we_own_master = False
-    # Windows OpenSSH (Microsoft port shipping in Win10/11) has unreliable
-    # ControlMaster support: the master commonly drops mid-session with
-    # "Connection reset by peer" and the stale socket file then blocks new
-    # multiplex attempts. Skip multiplex entirely on Windows; keepalives
-    # still work fine and parallel_load + the fetch semaphore continue to
-    # bound git concurrency. Users who want multiplex on Windows should
-    # configure it explicitly in ~/.ssh/config (e.g. via WSL or a Cygwin
-    # ssh) — we'll detect their config via `ssh -G` and respect it.
-    if not System.windows and not is_multiplex_configured(probe):
+    # Skip multiplex on Microsoft OpenSSH for Windows — see multiplex_known_broken.
+    if not multiplex_known_broken() and not is_multiplex_configured(probe):
         we_own_master = True
         os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [

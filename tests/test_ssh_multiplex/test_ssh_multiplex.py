@@ -144,11 +144,11 @@ class TestOptionsToAdd:
         assert not any(o.startswith('-oControlPath=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
-    def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
+    def test_windows_microsoft_ssh_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
         # Microsoft OpenSSH on Windows has unreliable ControlMaster — the
         # master drops mid-session and leaves the socket file behind. We
-        # disable multiplex on Windows entirely; keepalives are still useful.
-        monkeypatch.setattr(sm.System, 'windows', True)
+        # detect it via the "for_Windows" banner string and skip multiplex.
+        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: True)
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none',
@@ -160,6 +160,79 @@ class TestOptionsToAdd:
         assert not any(o.startswith('-oControlPersist=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
+
+    def test_windows_cygwin_ssh_keeps_multiplex(self, monkeypatch, tmp_path):
+        # Cygwin/Git-Bash ssh on Windows reports the standard banner and has
+        # working ControlMaster — so we DO add multiplex even though we're
+        # on Windows. (Equivalent to "non-buggy ssh" in detection terms.)
+        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: False)
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        probe = {'controlmaster': 'no', 'controlpath': 'none',
+                 'serveraliveinterval': '0'}
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is True
+        assert any(o.startswith('-oControlMaster=') for o in opts)
+
+    def test_windows_user_configured_multiplex_respected(self, monkeypatch):
+        # Even when the active ssh is the buggy one, if the user has multiplex
+        # explicitly configured (e.g. via ~/.ssh/config pointing at Cygwin ssh)
+        # we must respect their config, not override it.
+        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: True)
+        probe = {
+            'controlmaster': 'auto', 'controlpath': '~/.ssh/sockets/%C',
+            'serveraliveinterval': '30', 'serveralivecountmax': '5',
+        }
+        opts, we_own = sm.options_to_add(probe)
+        assert we_own is False
+        assert opts == [], 'user has full config — we add nothing'
+
+
+class TestMultiplexKnownBroken:
+    """`ssh -V` banner parsing for known-buggy clients."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self, monkeypatch):
+        monkeypatch.setattr(sm, '_buggy_ssh_cached', None)
+
+    def test_non_windows_never_broken(self, monkeypatch):
+        # On Linux/macOS we don't even probe — multiplex always works.
+        monkeypatch.setattr(sm.System, 'windows', False)
+        run_mock = mock.Mock()
+        with mock.patch('subprocess.run', run_mock):
+            assert sm.multiplex_known_broken() is False
+        run_mock.assert_not_called()
+
+    def test_microsoft_for_windows_banner_detected(self, monkeypatch):
+        monkeypatch.setattr(sm.System, 'windows', True)
+        fake_cp = mock.Mock(returncode=0, stdout='',
+                            stderr='OpenSSH_for_Windows_8.6p1, LibreSSL 3.4.3\n')
+        with mock.patch('subprocess.run', return_value=fake_cp):
+            assert sm.multiplex_known_broken() is True
+
+    def test_cygwin_banner_not_broken(self, monkeypatch):
+        monkeypatch.setattr(sm.System, 'windows', True)
+        fake_cp = mock.Mock(returncode=0, stdout='',
+                            stderr='OpenSSH_9.6p1, OpenSSL 3.0.13 30 Jan 2024\n')
+        with mock.patch('subprocess.run', return_value=fake_cp):
+            assert sm.multiplex_known_broken() is False
+
+    def test_result_is_cached(self, monkeypatch):
+        monkeypatch.setattr(sm.System, 'windows', True)
+        fake_cp = mock.Mock(returncode=0, stdout='',
+                            stderr='OpenSSH_for_Windows_8.6p1\n')
+        with mock.patch('subprocess.run', return_value=fake_cp) as run:
+            sm.multiplex_known_broken()
+            sm.multiplex_known_broken()
+            sm.multiplex_known_broken()
+            assert run.call_count == 1
+
+    def test_ssh_missing_treated_as_broken_on_windows(self, monkeypatch):
+        # Conservative default: if we can't even invoke ssh, don't risk
+        # configuring multiplex on Windows.
+        monkeypatch.setattr(sm.System, 'windows', True)
+        with mock.patch('subprocess.run', side_effect=FileNotFoundError):
+            assert sm.multiplex_known_broken() is True
 
 
 class TestProbeSshConfig:
