@@ -148,7 +148,7 @@ class TestOptionsToAdd:
         # Microsoft OpenSSH on Windows has unreliable ControlMaster — the
         # master drops mid-session and leaves the socket file behind. We
         # disable multiplex on Windows entirely; keepalives are still useful.
-        monkeypatch.setattr(sm, '_is_windows', lambda: True)
+        monkeypatch.setattr(sm.System, 'windows', True)
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none',

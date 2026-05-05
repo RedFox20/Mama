@@ -34,6 +34,8 @@ import sys
 import threading
 from urllib.parse import urlparse
 
+from .system import System
+
 
 DEFAULT_MAX_CONCURRENT_FETCHES = 20
 
@@ -137,10 +139,6 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
-def _is_windows() -> bool:
-    return os.name == 'nt'
-
-
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
@@ -158,7 +156,7 @@ def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     # bound git concurrency. Users who want multiplex on Windows should
     # configure it explicitly in ~/.ssh/config (e.g. via WSL or a Cygwin
     # ssh) — we'll detect their config via `ssh -G` and respect it.
-    if not _is_windows() and not is_multiplex_configured(probe):
+    if not System.windows and not is_multiplex_configured(probe):
         we_own_master = True
         os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [
