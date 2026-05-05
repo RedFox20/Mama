@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import functools
 import os
 import re
 import shlex
@@ -33,6 +34,9 @@ import subprocess
 import sys
 import threading
 from urllib.parse import urlparse
+
+from .sub_process import execute_piped
+from .system import System
 
 
 DEFAULT_MAX_CONCURRENT_FETCHES = 20
@@ -137,15 +141,30 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
+@functools.cache
+def multiplex_known_broken() -> bool:
+    """True iff the active ssh is Microsoft's OpenSSH for Windows, whose
+    ControlMaster is flaky (master drops, stale socket blocks reattach).
+    Detected via the `OpenSSH_for_Windows_<ver>` banner; Cygwin/MSYS/Git-Bash
+    on Windows report the standard banner and work fine."""
+    if not System.windows:
+        return False
+    out = execute_piped(['ssh', '-V'], timeout=5, throw=False, merge_stderr=True)
+    if out is None:
+        return True  # ssh missing or failed — be safe
+    return 'for_windows' in out.lower()
+
+
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
     one configuring multiplex (and therefore responsible for pre-warming and
-    cleaning it up). False if the user already has multiplex configured.
+    cleaning it up). False if the user already has multiplex configured, or
+    if multiplex is known-broken on this platform.
     """
     opts: list[str] = []
     we_own_master = False
-    if not is_multiplex_configured(probe):
+    if not multiplex_known_broken() and not is_multiplex_configured(probe):
         we_own_master = True
         os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [
