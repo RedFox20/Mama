@@ -34,6 +34,8 @@ import sys
 import threading
 from urllib.parse import urlparse
 
+from .system import System
+
 
 DEFAULT_MAX_CONCURRENT_FETCHES = 20
 
@@ -51,6 +53,7 @@ _state_lock = threading.Lock()
 _per_host_locks: dict[tuple, threading.Lock] = {}
 _warmed: dict[tuple, dict] = {}     # (user, host, port) -> info
 _fetch_semaphore: threading.Semaphore | None = None
+_buggy_ssh_cached: bool | None = None
 
 
 # URL parsing --------------------------------------------------------------
@@ -137,15 +140,34 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
+def multiplex_known_broken() -> bool:
+    """True iff the active ssh is Microsoft's OpenSSH for Windows, whose
+    ControlMaster is flaky (master drops, stale socket blocks reattach).
+    Detected via the `OpenSSH_for_Windows_<ver>` banner; Cygwin/MSYS/Git-Bash
+    on Windows report the standard banner and work fine. Cached per process."""
+    global _buggy_ssh_cached
+    if not System.windows:
+        return False
+    if _buggy_ssh_cached is None:
+        try:
+            cp = subprocess.run(['ssh', '-V'], capture_output=True,
+                                text=True, timeout=5)
+            _buggy_ssh_cached = 'for_windows' in (cp.stdout + cp.stderr).lower()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            _buggy_ssh_cached = True  # can't tell — be safe
+    return _buggy_ssh_cached
+
+
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
     one configuring multiplex (and therefore responsible for pre-warming and
-    cleaning it up). False if the user already has multiplex configured.
+    cleaning it up). False if the user already has multiplex configured, or
+    if multiplex is known-broken on this platform.
     """
     opts: list[str] = []
     we_own_master = False
-    if not is_multiplex_configured(probe):
+    if not multiplex_known_broken() and not is_multiplex_configured(probe):
         we_own_master = True
         os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [
