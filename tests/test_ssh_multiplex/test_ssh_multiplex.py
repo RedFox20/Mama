@@ -200,41 +200,40 @@ class TestMultiplexKnownBroken:
     def test_non_windows_never_broken(self, monkeypatch):
         # On Linux/macOS we don't even probe — multiplex always works.
         monkeypatch.setattr(sm.System, 'windows', False)
-        run_mock = mock.Mock()
-        with mock.patch('subprocess.run', run_mock):
-            assert sm.multiplex_known_broken() is False
-        run_mock.assert_not_called()
+        ep = mock.Mock()
+        monkeypatch.setattr(sm, 'execute_piped', ep)
+        assert sm.multiplex_known_broken() is False
+        ep.assert_not_called()
 
     def test_microsoft_for_windows_banner_detected(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', True)
-        fake_cp = mock.Mock(returncode=0, stdout='',
-                            stderr='OpenSSH_for_Windows_8.6p1, LibreSSL 3.4.3\n')
-        with mock.patch('subprocess.run', return_value=fake_cp):
-            assert sm.multiplex_known_broken() is True
+        monkeypatch.setattr(sm, 'execute_piped',
+                            lambda *a, **k: 'OpenSSH_for_Windows_8.6p1, LibreSSL 3.4.3')
+        assert sm.multiplex_known_broken() is True
 
     def test_cygwin_banner_not_broken(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', True)
-        fake_cp = mock.Mock(returncode=0, stdout='',
-                            stderr='OpenSSH_9.6p1, OpenSSL 3.0.13 30 Jan 2024\n')
-        with mock.patch('subprocess.run', return_value=fake_cp):
-            assert sm.multiplex_known_broken() is False
+        monkeypatch.setattr(sm, 'execute_piped',
+                            lambda *a, **k: 'OpenSSH_9.6p1, OpenSSL 3.0.13 30 Jan 2024')
+        assert sm.multiplex_known_broken() is False
 
     def test_result_is_cached(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', True)
-        fake_cp = mock.Mock(returncode=0, stdout='',
-                            stderr='OpenSSH_for_Windows_8.6p1\n')
-        with mock.patch('subprocess.run', return_value=fake_cp) as run:
-            sm.multiplex_known_broken()
-            sm.multiplex_known_broken()
-            sm.multiplex_known_broken()
-            assert run.call_count == 1
+        ep = mock.Mock(return_value='OpenSSH_for_Windows_8.6p1')
+        monkeypatch.setattr(sm, 'execute_piped', ep)
+        sm.multiplex_known_broken()
+        sm.multiplex_known_broken()
+        sm.multiplex_known_broken()
+        assert ep.call_count == 1
 
     def test_ssh_missing_treated_as_broken_on_windows(self, monkeypatch):
         # Conservative default: if we can't even invoke ssh, don't risk
         # configuring multiplex on Windows.
         monkeypatch.setattr(sm.System, 'windows', True)
-        with mock.patch('subprocess.run', side_effect=FileNotFoundError):
-            assert sm.multiplex_known_broken() is True
+        # execute_piped(throw=False) returns None on failure; we treat that as
+        # the conservative "skip mux" default.
+        monkeypatch.setattr(sm, 'execute_piped', lambda *a, **k: None)
+        assert sm.multiplex_known_broken() is True
 
 
 class TestProbeSshConfig:

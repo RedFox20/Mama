@@ -35,6 +35,7 @@ import sys
 import threading
 from urllib.parse import urlparse
 
+from .sub_process import execute_piped
 from .system import System
 
 
@@ -148,12 +149,10 @@ def multiplex_known_broken() -> bool:
     on Windows report the standard banner and work fine."""
     if not System.windows:
         return False
-    try:
-        cp = subprocess.run(['ssh', '-V'], capture_output=True,
-                            text=True, timeout=5)
-        return 'for_windows' in (cp.stdout + cp.stderr).lower()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return True  # can't tell — be safe
+    out = execute_piped(['ssh', '-V'], timeout=5, throw=False, merge_stderr=True)
+    if out is None:
+        return True  # ssh missing or failed — be safe
+    return 'for_windows' in out.lower()
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
