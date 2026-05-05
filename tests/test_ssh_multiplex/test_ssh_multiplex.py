@@ -360,6 +360,46 @@ class TestEnsureMasterIdempotent:
         assert probe_count[0] == 1
 
 
+class TestWrapperPathSafety:
+    """Regression: running mama_ssh.py as a script must not shadow stdlib
+    modules. Earlier versions inserted `<...>/mama` onto sys.path, which made
+    `mama/types/` shadow Python's stdlib `types` module — breaking `contextlib`
+    on uv-installed Pythons that hadn't pre-imported it."""
+
+    def test_invocation_does_not_put_mama_dir_on_syspath(self, tmp_path):
+        import json
+        import subprocess
+        import textwrap
+        wrapper = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), '..', '..', 'mama', 'utils', 'mama_ssh.py'))
+        mama_dir = os.path.dirname(os.path.dirname(wrapper))
+        # Subprocess so we get a fresh interpreter (no pre-cached `types` etc).
+        # Monkey-patch os.execvp to a no-op BEFORE running the wrapper, so it
+        # can't replace the process before we read sys.path back.
+        probe = tmp_path / 'probe.py'
+        probe.write_text(textwrap.dedent(f"""
+            import json, os, sys
+            os.execvp = lambda *a, **k: None
+            sys.argv = [{wrapper!r}, 'git@example.com:foo.git', 'git-upload-pack']
+            ns = {{'__name__': '__main__', '__package__': '', '__file__': {wrapper!r}}}
+            with open({wrapper!r}) as f:
+                code = f.read()
+            try:
+                exec(code, ns)
+            except SystemExit:
+                pass
+            print('PATH_PROBE:' + json.dumps(sys.path))
+        """))
+        cp = subprocess.run([sys.executable, str(probe)],
+                            capture_output=True, text=True, timeout=15)
+        marker = [l for l in cp.stdout.splitlines() if l.startswith('PATH_PROBE:')]
+        assert marker, f'probe did not produce output. stderr={cp.stderr!r}'
+        path = json.loads(marker[-1][len('PATH_PROBE:'):])
+        assert mama_dir not in path, (
+            f'{mama_dir!r} ended up on sys.path — `mama/types/` would shadow '
+            f'stdlib `types`. sys.path={path!r}')
+
+
 class TestWrapperMain:
     """The wrapper passes options + destination unchanged to ssh -G, then
     exec's ssh with whatever extra -o flags are needed."""

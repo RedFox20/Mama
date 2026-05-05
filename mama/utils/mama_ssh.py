@@ -21,10 +21,18 @@ import os
 import sys
 
 # Allow running as a standalone script, not just as a package module.
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+# Important: do NOT put `<...>/mama` on sys.path — `mama/types/` would then
+# shadow Python's stdlib `types` module the moment anything (e.g. contextlib)
+# does `from types import ...`. Add the package's PARENT instead, so that
+# `mama.utils.ssh_multiplex` resolves as a normal qualified import.
 if __package__ in (None, ''):
-    sys.path.insert(0, os.path.dirname(_THIS_DIR))
-    from utils import ssh_multiplex  # type: ignore
+    try:
+        from mama.utils import ssh_multiplex
+    except ImportError:
+        _MAMA_PARENT = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        sys.path.insert(0, _MAMA_PARENT)
+        from mama.utils import ssh_multiplex
 else:
     from . import ssh_multiplex
 
