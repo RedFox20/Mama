@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import functools
 import os
 import re
 import shlex
@@ -53,7 +54,6 @@ _state_lock = threading.Lock()
 _per_host_locks: dict[tuple, threading.Lock] = {}
 _warmed: dict[tuple, dict] = {}     # (user, host, port) -> info
 _fetch_semaphore: threading.Semaphore | None = None
-_buggy_ssh_cached: bool | None = None
 
 
 # URL parsing --------------------------------------------------------------
@@ -140,22 +140,20 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
+@functools.cache
 def multiplex_known_broken() -> bool:
     """True iff the active ssh is Microsoft's OpenSSH for Windows, whose
     ControlMaster is flaky (master drops, stale socket blocks reattach).
     Detected via the `OpenSSH_for_Windows_<ver>` banner; Cygwin/MSYS/Git-Bash
-    on Windows report the standard banner and work fine. Cached per process."""
-    global _buggy_ssh_cached
+    on Windows report the standard banner and work fine."""
     if not System.windows:
         return False
-    if _buggy_ssh_cached is None:
-        try:
-            cp = subprocess.run(['ssh', '-V'], capture_output=True,
-                                text=True, timeout=5)
-            _buggy_ssh_cached = 'for_windows' in (cp.stdout + cp.stderr).lower()
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            _buggy_ssh_cached = True  # can't tell — be safe
-    return _buggy_ssh_cached
+    try:
+        cp = subprocess.run(['ssh', '-V'], capture_output=True,
+                            text=True, timeout=5)
+        return 'for_windows' in (cp.stdout + cp.stderr).lower()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return True  # can't tell — be safe
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:

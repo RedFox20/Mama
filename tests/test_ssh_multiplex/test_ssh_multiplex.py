@@ -192,8 +192,10 @@ class TestMultiplexKnownBroken:
     """`ssh -V` banner parsing for known-buggy clients."""
 
     @pytest.fixture(autouse=True)
-    def _clear_cache(self, monkeypatch):
-        monkeypatch.setattr(sm, '_buggy_ssh_cached', None)
+    def _clear_cache(self):
+        sm.multiplex_known_broken.cache_clear()
+        yield
+        sm.multiplex_known_broken.cache_clear()
 
     def test_non_windows_never_broken(self, monkeypatch):
         # On Linux/macOS we don't even probe — multiplex always works.
