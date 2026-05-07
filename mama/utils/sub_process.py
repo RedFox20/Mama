@@ -224,24 +224,19 @@ def execute(command, echo=False, throw=True):
 
 
 # TODO: use new SubProcess.run instead
-def execute_piped(command, cwd=None, timeout=None, throw=True, merge_stderr=False):
+def execute_piped(command, cwd=None, timeout=None, throw=True):
     """
     Executes a command and returns the piped outout string
     - command: command string
     - cwd: working dir for the subprocess
     - timeout: timeout in seconds
     - throw: if True, throws exception on status_code != 0
-    - merge_stderr: if True, stderr is captured into the returned string too.
-                    Useful for tools like `ssh -V` that emit to stderr.
     - returns: output string or None if throw=False
     """
     if not isinstance(command, list):
         command = shlex.split(command)
     try:
-        cp = subprocess.run(command,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT if merge_stderr else None,
-                            cwd=cwd, timeout=timeout)
+        cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd, timeout=timeout)
         return cp.stdout.decode('utf-8').rstrip()
     except Exception as e:
         if throw:
