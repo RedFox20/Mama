@@ -144,11 +144,10 @@ class TestOptionsToAdd:
         assert not any(o.startswith('-oControlPath=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
-    def test_windows_microsoft_ssh_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
-        # Microsoft OpenSSH on Windows has unreliable ControlMaster — the
-        # master drops mid-session and leaves the socket file behind. We
-        # detect it via the "for_Windows" banner string and skip multiplex.
-        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: True)
+    def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
+        # Native Windows: Microsoft OpenSSH ControlMaster is unreliable in
+        # practice, so we skip multiplex entirely. Keepalives still help.
+        monkeypatch.setattr(sm.System, 'windows', True)
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none',
@@ -161,24 +160,11 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
 
-    def test_windows_cygwin_ssh_keeps_multiplex(self, monkeypatch, tmp_path):
-        # Cygwin/Git-Bash ssh on Windows reports the standard banner and has
-        # working ControlMaster — so we DO add multiplex even though we're
-        # on Windows. (Equivalent to "non-buggy ssh" in detection terms.)
-        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: False)
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
-        probe = {'controlmaster': 'no', 'controlpath': 'none',
-                 'serveraliveinterval': '0'}
-        opts, we_own = sm.options_to_add(probe)
-        assert we_own is True
-        assert any(o.startswith('-oControlMaster=') for o in opts)
-
     def test_windows_user_configured_multiplex_respected(self, monkeypatch):
-        # Even when the active ssh is the buggy one, if the user has multiplex
-        # explicitly configured (e.g. via ~/.ssh/config pointing at Cygwin ssh)
-        # we must respect their config, not override it.
-        monkeypatch.setattr(sm, 'multiplex_known_broken', lambda: True)
+        # If the user has multiplex explicitly configured (e.g. via
+        # ~/.ssh/config pointing at Cygwin ssh) we respect their config and
+        # don't add anything — even on Windows.
+        monkeypatch.setattr(sm.System, 'windows', True)
         probe = {
             'controlmaster': 'auto', 'controlpath': '~/.ssh/sockets/%C',
             'serveraliveinterval': '30', 'serveralivecountmax': '5',
@@ -189,50 +175,15 @@ class TestOptionsToAdd:
 
 
 class TestMultiplexKnownBroken:
-    """`ssh -V` banner parsing for known-buggy clients."""
+    """Multiplex is disabled on native Windows; everywhere else it's fine.
+    WSL/Cygwin/Git-Bash run as Linux from Python's POV (System.windows=False)."""
 
-    @pytest.fixture(autouse=True)
-    def _clear_cache(self):
-        sm.multiplex_known_broken.cache_clear()
-        yield
-        sm.multiplex_known_broken.cache_clear()
-
-    def test_non_windows_never_broken(self, monkeypatch):
-        # On Linux/macOS we don't even probe — multiplex always works.
+    def test_non_windows_not_broken(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)
-        ep = mock.Mock()
-        monkeypatch.setattr(sm, 'execute_piped', ep)
-        assert sm.multiplex_known_broken() is False
-        ep.assert_not_called()
-
-    def test_microsoft_for_windows_banner_detected(self, monkeypatch):
-        monkeypatch.setattr(sm.System, 'windows', True)
-        monkeypatch.setattr(sm, 'execute_piped',
-                            lambda *a, **k: 'OpenSSH_for_Windows_8.6p1, LibreSSL 3.4.3')
-        assert sm.multiplex_known_broken() is True
-
-    def test_cygwin_banner_not_broken(self, monkeypatch):
-        monkeypatch.setattr(sm.System, 'windows', True)
-        monkeypatch.setattr(sm, 'execute_piped',
-                            lambda *a, **k: 'OpenSSH_9.6p1, OpenSSL 3.0.13 30 Jan 2024')
         assert sm.multiplex_known_broken() is False
 
-    def test_result_is_cached(self, monkeypatch):
+    def test_windows_is_broken(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', True)
-        ep = mock.Mock(return_value='OpenSSH_for_Windows_8.6p1')
-        monkeypatch.setattr(sm, 'execute_piped', ep)
-        sm.multiplex_known_broken()
-        sm.multiplex_known_broken()
-        sm.multiplex_known_broken()
-        assert ep.call_count == 1
-
-    def test_ssh_missing_treated_as_broken_on_windows(self, monkeypatch):
-        # Conservative default: if we can't even invoke ssh, don't risk
-        # configuring multiplex on Windows.
-        monkeypatch.setattr(sm.System, 'windows', True)
-        # execute_piped(throw=False) returns None on failure; we treat that as
-        # the conservative "skip mux" default.
-        monkeypatch.setattr(sm, 'execute_piped', lambda *a, **k: None)
         assert sm.multiplex_known_broken() is True
 
 

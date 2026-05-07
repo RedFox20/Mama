@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import functools
 import os
 import re
 import shlex
@@ -35,7 +34,6 @@ import sys
 import threading
 from urllib.parse import urlparse
 
-from .sub_process import execute_piped
 from .system import System
 
 
@@ -141,18 +139,14 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
     return cm not in ('no', 'false', '') and cp not in ('none', '', 'no')
 
 
-@functools.cache
 def multiplex_known_broken() -> bool:
-    """True iff the active ssh is Microsoft's OpenSSH for Windows, whose
-    ControlMaster is flaky (master drops, stale socket blocks reattach).
-    Detected via the `OpenSSH_for_Windows_<ver>` banner; Cygwin/MSYS/Git-Bash
-    on Windows report the standard banner and work fine."""
-    if not System.windows:
-        return False
-    out = execute_piped(['ssh', '-V'], timeout=5, throw=False, merge_stderr=True)
-    if out is None:
-        return True  # ssh missing or failed — be safe
-    return 'for_windows' in out.lower()
+    """Native Windows: skip multiplex entirely. Microsoft OpenSSH's
+    ControlMaster is unreliable in practice — `mux_client_request_session:
+    read from master failed: Connection reset by peer` mid-fetch and stale
+    `ControlSocket ... already exists, disabling multiplexing` after a master
+    drops. WSL/Cygwin/Git-Bash run as Linux from Python's POV
+    (`System.windows == False`) and keep multiplex."""
+    return System.windows
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
