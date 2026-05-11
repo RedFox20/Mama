@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, ftplib, traceback, getpass
+import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
 from urllib.error import HTTPError
 
@@ -17,6 +17,10 @@ from .papa_deploy import PapaFileInfo
 if TYPE_CHECKING:
     from .build_target import BuildTarget
     from .build_config import BuildConfig
+
+
+class ArtifactoryCredentialsError(RuntimeError):
+    pass
 
 
 def artifactory_archive_name(target:BuildTarget):
@@ -84,23 +88,43 @@ def _get_keyring():
 def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
     # get the values from ENV
     username = os.getenv('MAMA_ARTIFACTORY_USER', None)
-    password = os.getenv('MAMA_ARTIFACTORY_PASS', '')  # empty password as default
+    password = os.getenv('MAMA_ARTIFACTORY_PASS', None)
     if username is not None:
+        if not username:
+            raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing username. ' \
+                                              'Set MAMA_ARTIFACTORY_USER.')
+        if not password:
+            raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing password. ' \
+                                              'Set MAMA_ARTIFACTORY_PASS.')
         return username, password
 
     if config.artifactory_auth == 'store':
         username = _get_keyring().get_password('mamabuild', f'username-{url}')
         password = _get_keyring().get_password('mamabuild', f'password-{url}')
-        if username is not None:
+        if username is not None and password is not None:
             return username, password
 
-    username = input(f'{url} username: ').strip()
-    if not username:
-        raise EnvironmentError(f'Artifactory user missing: try setting MAMA_ARTIFACTORY_USER env variable.')
+    if not sys.stdin.isatty():
+        raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing credentials. ' \
+                                          'Set MAMA_ARTIFACTORY_USER and MAMA_ARTIFACTORY_PASS.')
 
-    password = getpass.getpass(f'{username}@{url} password: ').strip()
-    if password is None: # None on CI
-        raise EnvironmentError(f'Artifactory user missing: try setting MAMA_ARTIFACTORY_PASS env variable.')
+    try:
+        username = input(f'{url} username: ').strip()
+    except EOFError:
+        raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing credentials. ' \
+                                          'Set MAMA_ARTIFACTORY_USER and MAMA_ARTIFACTORY_PASS.') from None
+    if not username:
+        raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing username. ' \
+                                          'Set MAMA_ARTIFACTORY_USER.')
+
+    try:
+        password = getpass.getpass(f'{username}@{url} password: ').strip()
+    except EOFError:
+        raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing password. ' \
+                                          'Set MAMA_ARTIFACTORY_PASS.') from None
+    if not password:
+        raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing password. ' \
+                                          'Set MAMA_ARTIFACTORY_PASS.')
     return username, password
 
 
@@ -193,10 +217,18 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
             return True
+        except ArtifactoryCredentialsError as e:
+            error(str(e))
+            raise SystemExit(-1)
         except:
             traceback.print_exc()
+            raise SystemExit(-1)
         finally:
-            ftp.quit()
+            if ftp.sock is not None:
+                try:
+                    ftp.quit()
+                except Exception:
+                    ftp.close()
     return False
 
 
@@ -302,4 +334,3 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         return (False, None)
     console(f'    Artifactory unzip {archive}')
     return unzip_and_load_target(target, local_file)
-
