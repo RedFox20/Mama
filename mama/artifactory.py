@@ -317,7 +317,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     archive = artifactory_archive_name(target)
     if not archive:
         return (False, None)
-    
+
     cache_dir = target.dep.dep_dir #target.dep.workspace
     local_file = normalized_join(cache_dir, f'{archive}.zip')
 
@@ -336,3 +336,55 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         return (False, None)
     console(f'    Artifactory unzip {archive}')
     return unzip_and_load_target(target, local_file)
+
+
+def try_load_artifactory_shim(dep) -> Tuple:
+    """
+    Probe artifactory for a prebuilt package using the commit hash resolved via
+    `git ls-remote` (no clone). On hit, construct a default BuildTarget, load
+    papa.txt exports/deps into it, write the shim marker, and return the target
+    plus its child dep_sources.
+
+    On miss (or when artifactory is not configured), returns (None, None) and
+    leaves dep state untouched so the caller can fall back to the clone path.
+
+    Returns (target_or_None, dep_sources_or_None).
+    """
+    from .build_target import BuildTarget  # local import to avoid cycle
+
+    config = dep.config
+    if not config.artifactory_ftp:
+        return (None, None)
+    if not dep.dep_source.is_git:
+        return (None, None)
+
+    git: Git = dep.dep_source
+
+    # Resolve commit hash without cloning. `init_commit_hash` already supports
+    # ls-remote and respects the stored git_status cache when `update` is not set.
+    commit_hash = git.init_commit_hash(dep, use_cache=True, fetch_remote=True)
+    if not commit_hash:
+        if config.verbose:
+            console(f'    {dep.name}  shim probe: could not resolve commit hash', color=Color.YELLOW)
+        return (None, None)
+    git.commit_hash = commit_hash  # cache for downstream consumers
+
+    # Construct a throwaway default BuildTarget purely to call into the existing
+    # artifactory fetch+unzip+load machinery. The shim path explicitly does NOT
+    # consult `target.version` (we have no parsed mamafile yet). If a project
+    # uses `target.version`, the post-clone probe will catch it instead.
+    probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
+
+    fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
+    if not fetched:
+        # Reset any side effect on the dep so the clone path can run cleanly.
+        dep.from_artifactory = False
+        return (None, None)
+
+    # Hit: persist marker and return the configured target.
+    archive = artifactory_archive_name(probe_target)
+    dep.write_shim_marker(archive_name=archive or '', commit_hash=commit_hash)
+    if config.print:
+        console(f'  - Target {dep.name: <16} SHIM FETCHED {archive}', color=Color.GREEN)
+
+    return (probe_target, dependencies)

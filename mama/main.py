@@ -121,7 +121,13 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     found = root_dependency if name == 'root' else find_dependency(root_dependency, name)
     if not found:
         raise KeyError(f'No project named {name}')
-    
+
+    # `mama open <shim>` has no source dir to open; tell the user how to materialize one.
+    if found.is_artifactory_shim():
+        console(f'Target {found.name} is an artifactory shim — no source files available locally.', color=Color.YELLOW)
+        console(f'To fetch source, run: mama unshallow {found.name}')
+        return
+
     if config.msvc:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
         if solutions:

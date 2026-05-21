@@ -6,10 +6,13 @@ from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error
-from .artifactory import artifactory_fetch_and_reconfigure
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
+
+
+MAMA_SHIM_FILENAME = 'mama_shim'
 
 
 if TYPE_CHECKING:
@@ -198,6 +201,68 @@ class BuildDependency:
         return os.path.exists(self.build_dir)
 
 
+    def mama_shim_file(self) -> str:
+        """ Marker file path identifying this dep as an artifactory shim. """
+        return normalized_join(self.build_dir, MAMA_SHIM_FILENAME)
+
+
+    def is_artifactory_shim(self) -> bool:
+        """
+        True if this dep was loaded from artifactory without a git clone.
+        The marker file persists across mama runs.
+        """
+        return self.dep_source.is_git \
+            and os.path.exists(self.mama_shim_file()) \
+            and not self.is_real_clone()
+
+
+    def is_real_clone(self) -> bool:
+        """ True if this dep has an actual git working tree on disk. """
+        return self.src_dir is not None and os.path.exists(f'{self.src_dir}/.git')
+
+
+    def write_shim_marker(self, archive_name: str, commit_hash: str):
+        """
+        Persist shim metadata so subsequent runs (and Phase 7 transitions)
+        can identify the shim and know which archive backed it.
+        """
+        git: Git = self.dep_source
+        lines = [
+            'shim 1',
+            f'name {self.name}',
+            f'url {git.url}',
+            f'branch {git.branch or ""}',
+            f'tag {git.tag or ""}',
+            f'hash {commit_hash}',
+            f'archive {archive_name}',
+        ]
+        write_text_to(self.mama_shim_file(), '\n'.join(lines) + '\n')
+
+
+    def read_shim_marker(self) -> dict:
+        """
+        Returns a dict of shim metadata, or empty dict if no marker.
+        Keys: name, url, branch, tag, hash, archive.
+        """
+        result = {}
+        path = self.mama_shim_file()
+        if not os.path.exists(path):
+            return result
+        for line in read_lines_from(path):
+            line = line.rstrip()
+            if not line or line == 'shim 1':
+                continue
+            key, _, value = line.partition(' ')
+            result[key] = value
+        return result
+
+
+    def remove_shim_marker(self):
+        path = self.mama_shim_file()
+        if os.path.exists(path):
+            os.remove(path)
+
+
     def create_build_dir_if_needed(self):
         if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
             os.makedirs(self.build_dir, exist_ok=True)
@@ -248,7 +313,27 @@ class BuildDependency:
             self._update_dep_name_and_dirs(self.name)
             self.create_build_dir_if_needed()
 
-        git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
+        loaded_from_pkg = False
+        git_changed = False
+
+        # Try artifactory shim BEFORE the expensive git clone.
+        # For non-root git deps, probe artifactory using the commit hash resolved via
+        # `git ls-remote` (no clone). On hit, load papa.txt exports/deps and skip clone.
+        # On miss, do not mark did_check_artifactory: post-clone probe may still succeed
+        # using a mamafile-declared `target.version` we couldn't see before cloning.
+        if not self.is_root and self.dep_source.is_git \
+                and self.can_fetch_artifactory(print=False, which='SHIM'):
+            shim_target, shim_deps = try_load_artifactory_shim(self)
+            if shim_target is not None:
+                self.target = shim_target
+                self.did_check_artifactory = True
+                if shim_deps:
+                    for dep_source in shim_deps:
+                        self.add_child(dep_source)
+                loaded_from_pkg = True
+
+        if not loaded_from_pkg:
+            git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
 
         target = self._load_target() ## load target for Git and Src
 
@@ -257,9 +342,8 @@ class BuildDependency:
 
         # if artifactory_fetch_and_reconfigure succeeds, it will overwrite products and libs
         # and sets self.from_artifactory
-        loaded_from_pkg = False
         should_load_art = self.should_load_artifactory()
-        if should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
+        if not loaded_from_pkg and should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
             self.did_check_artifactory = True
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
@@ -268,7 +352,7 @@ class BuildDependency:
                 loaded_from_pkg = True
             elif self.dep_source.is_pkg:
                 raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
-        elif should_load_art and self.is_force_art_target():
+        elif not loaded_from_pkg and should_load_art and self.is_force_art_target():
             raise RuntimeError(f'  - Target {self.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
 
         # load any build products from previous builds
@@ -352,6 +436,12 @@ class BuildDependency:
                 args = f'{target.args}' if target.args else ''
                 console(f'  - Target {target.name: <16} BUILD [{r}]  {args}', color=Color.YELLOW)
             return True
+
+        # Artifactory shim: no source on disk, nothing to build from. The shim was
+        # already (re-)loaded during _load(); a rebuild requires `mama unshallow`
+        # to convert it to a real clone first.
+        if self.is_artifactory_shim():
+            return False
 
         if conf.target and not is_target: # if we called: "target=SpecificProject"
             return False # skip build if target doesn't match
@@ -498,10 +588,17 @@ class BuildDependency:
 
 
     def update_mamafile_tag(self):
+        # Shims have no source; the mamafile we'd be tagging doesn't exist on disk.
+        # Explicit short-circuit so a future parent-mamafile fetch (Phase 2 target.version
+        # probe) doesn't accidentally flag the shim as "modified" every run.
+        if self.is_artifactory_shim():
+            return False
         return self.src_dir and update_mamafile_tag(self.config, self.mamafile_path(), self.build_dir)
 
 
     def update_cmakelists_tag(self):
+        if self.is_artifactory_shim():
+            return False
         return self.src_dir and update_cmakelists_tag(self.config, self.cmakelists_path(), self.build_dir)
 
 
@@ -635,3 +732,6 @@ class BuildDependency:
             if os.path.exists(papafile):
                 os.remove(papafile)
                 if self.config.verbose: console('    dirty: removed papa.txt')
+
+            # remove shim marker so next build re-evaluates artifactory freshness
+            self.remove_shim_marker()
