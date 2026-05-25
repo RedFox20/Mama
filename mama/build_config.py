@@ -124,6 +124,7 @@ class BuildConfig:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
         else:
             self.workspaces_root = os.getenv('HOME')
+        self._network_available = None  # None=untested, True/False=result
         self.unused_args = []
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.parse_args(args)
@@ -1183,4 +1184,15 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def no_specific_target(self) -> bool:
         """ True if no target or 'all' was specified from cmdline """
         return self.no_target() or self.targets_all()
+
+    def is_network_available(self) -> bool:
+        """Lazily cached: True until a clearly network-related failure marks it False."""
+        return self._network_available is not False
+
+    def mark_network_unavailable(self):
+        if self._network_available is not False:
+            if self.print:
+                from .utils.system import console, Color
+                console('  Network unavailable — using cached packages where possible', color=Color.YELLOW)
+            self._network_available = False
 

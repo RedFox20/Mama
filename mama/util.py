@@ -471,3 +471,54 @@ def copy_if_needed(src: str, dst: str, filter: list = None) -> bool:
     else:
         return copy_file(src, dst, filter)
 
+
+def is_network_error(e: Exception) -> bool:
+    """
+    Returns True only if the exception clearly indicates network unavailability
+    (DNS failure, connection refused/reset, timeout). Returns False for auth
+    errors (SSH key rejected, HTTP 401/403), HTTP 404, and anything ambiguous.
+    """
+    import subprocess, socket
+    from urllib.error import HTTPError, URLError
+
+    if isinstance(e, subprocess.TimeoutExpired):
+        return True
+    if isinstance(e, HTTPError):
+        return False
+    if isinstance(e, URLError):
+        reason = getattr(e, 'reason', None)
+        if isinstance(reason, (socket.timeout, socket.gaierror,
+                               ConnectionRefusedError, ConnectionResetError,
+                               TimeoutError, OSError)):
+            return True
+        return not isinstance(reason, str)
+    if isinstance(e, (ConnectionRefusedError, ConnectionResetError,
+                      TimeoutError, socket.timeout, socket.gaierror)):
+        return True
+    if isinstance(e, OSError):
+        import errno
+        if e.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH,
+                       errno.ECONNREFUSED, errno.ETIMEDOUT, errno.ECONNRESET):
+            return True
+
+    msg = str(e).lower()
+    auth_patterns = [
+        'permission denied', 'authentication failed',
+        'host key verification failed',
+        'returned error: 401', 'returned error: 403',
+        'invalid credentials',
+    ]
+    for p in auth_patterns:
+        if p in msg:
+            return False
+    network_patterns = [
+        'could not resolve host', 'connection refused',
+        'connection timed out', 'network is unreachable',
+        'no route to host', 'name or service not known',
+        'temporary failure in name resolution', 'connection reset',
+    ]
+    for p in network_patterns:
+        if p in msg:
+            return True
+    return False
+

@@ -10,7 +10,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip
+from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
 
 
@@ -270,11 +270,15 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
 
 
 def _fetch_package(target:BuildTarget, url, archive, cache_dir):
+    if not target.config.is_network_available():
+        return None
     remote_file = f'http://{url}/{target.name}/{archive}.zip'
     try:
-        return download_file(remote_file, cache_dir, force=True, 
+        return download_file(remote_file, cache_dir, force=True,
                              message=f'    Artifactory fetch {url}/{archive} ')
     except Exception as e:
+        if is_network_error(e):
+            target.config.mark_network_unavailable()
         if target.config.verbose or target.config.force_artifactory:
             error(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
 

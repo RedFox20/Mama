@@ -6,7 +6,7 @@ from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
 from ..utils.sub_process import SubProcess, execute, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join
+from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error
 
 
 if TYPE_CHECKING:
@@ -123,6 +123,8 @@ class Git(DepSource):
 
         # can we fetch the latest commit from remote instead?
         if fetch_remote:
+            if not dep.config.is_network_available():
+                return None
             arguments = 'HEAD'
             try:
                 if self.branch: arguments = self.branch
@@ -135,6 +137,8 @@ class Git(DepSource):
                     console(f'    {self.name}  git ls-remote {self.url} {arguments}: {result}', color=Color.YELLOW)
                 return result
             except Exception as e:
+                if is_network_error(e):
+                    dep.config.mark_network_unavailable()
                 if dep.config.verbose:
                     error(f'    {self.name}  git ls-remote {self.url} {arguments} failed: {e}')
                 return None
@@ -156,6 +160,8 @@ class Git(DepSource):
         branch = self.branch_or_tag()
         if Git.is_hex_string(branch):
             return # no need to fetch if we're pinned to a specific commit hash
+        if not dep.config.is_network_available():
+            return
         if self.tag:
             self.run_git(dep, f"fetch origin tag {branch} -q")
         else:
@@ -325,6 +331,10 @@ class Git(DepSource):
         # by default we create a shallow clone, unless unshallow is specified in config or this dep
         unshallow = dep.config.unshallow or (not self.shallow)
         if is_dir_empty(dep.src_dir):
+            if not dep.config.is_network_available():
+                raise RuntimeError(
+                    f'Target {dep.name} requires network to clone but network is unavailable.'
+                    f' Check your connection or use a cached artifactory package.')
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             br_or_tag = self.branch_or_tag()
@@ -335,6 +345,10 @@ class Git(DepSource):
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
             self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
         else:
+            if not dep.config.is_network_available():
+                if dep.config.print:
+                    console(f"  - Target {dep.name: <16} SKIP PULL (network unavailable, using cached source)", color=Color.YELLOW)
+                return
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             # check for local modifications before potentially destructive operations
