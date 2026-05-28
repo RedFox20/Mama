@@ -64,8 +64,10 @@ def artifactory_archive_name(target:BuildTarget):
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     build_type = 'release' if target.config.release else 'debug'
-    if target.config.sanitize:
-        build_type += '-sanitized'
+    sanitizer_suffix = target.config.sanitizer_suffix()
+    # e.g. appends "-asan_tsan" if both of them are enabled
+    if sanitizer_suffix:
+        build_type += '-' + sanitizer_suffix
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 

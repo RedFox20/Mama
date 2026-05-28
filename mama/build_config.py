@@ -727,6 +727,33 @@ class BuildConfig:
         else:             self.sanitize = option
 
 
+    # asan/tsan/ubsan/lsan runtimes are mutually incompatible (asan vs tsan
+    # cannot link together; ubsan combos vary). Package archives built with
+    # different sanitizers must therefore have distinct names so a tsan build
+    # isn't downloaded into an asan consumer.
+    _SANITIZER_SHORT_NAMES = {
+        'address':   'asan',
+        'thread':    'tsan',
+        'leak':      'lsan',
+        'undefined': 'ubsan',
+        'memory':    'msan',
+    }
+
+    def sanitizer_suffix(self):
+        """Short package-name suffix for the active sanitizer config:
+        'asan', 'tsan', 'asan_ubsan', etc. Returns '' if no sanitizer is set.
+        Multiple sanitizers are joined with '_' to keep '-' as the field
+        separator in the surrounding archive name."""
+        if not self.sanitize:
+            return ''
+        parts = []
+        for s in self.sanitize.split(','):
+            s = s.strip()
+            if s:
+                parts.append(BuildConfig._SANITIZER_SHORT_NAMES.get(s, s))
+        return '_'.join(parts)
+
+
     def add_coverage_option(self, option='default'):
         if self.coverage: self.coverage += ',' + option
         else:             self.coverage = option
