@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
-from urllib.error import HTTPError
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -289,14 +288,11 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
         if d.is_pkg:
             raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
 
-        # if server gives us 404, then we need to wipe the git_status and re-initialize
-        # the dependency source from scratch
-        if d.is_git:
-            d: Git = d
-            if isinstance(e, HTTPError) and e.code == 404:
-                if target.config.verbose:
-                    error(f'    Resetting Git status file: {target.name}')
-                d.reset_status(target.dep)
+        # NB: a 404 here for a git dep is normal (no prebuilt archive uploaded
+        # for the current commit). DO NOT wipe git_status - check_status already
+        # detects url/tag/branch/commit changes from the mamafile; wiping the
+        # status causes the *next* `mama update` to falsely report 'SCM change
+        # detected' and trigger a full rebuild of an already-up-to-date dep.
 
         return None
 
