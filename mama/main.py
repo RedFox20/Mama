@@ -3,7 +3,7 @@ import sys, os
 
 from .types.local_source import LocalSource
 from .utils.system import Color, console
-from .utils.sub_process import execute
+from .utils.sub_process import execute, execute_piped_echo
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
@@ -196,14 +196,16 @@ def run_coverage_report(target: BuildTarget):
             gcov_exec = f'--gcov-executable "{gcov_path}" '
     # this is too verbose for CI
     #verbose = '--verbose ' if target.config.verbose else ''
-    cmd = 'gcovr --gcov-ignore-parse-errors negative_hits.warn ' \
+    cmd = 'gcovr --gcov-ignore-errors all --gcov-ignore-parse-errors all ' \
         + '--sort uncovered-percent ' \
         + gcov_exec \
         + f'--root "{root}" "{target.build_dir()}"'
     try:
         # throw if coverage fails, but don't exit with error, so we don't break CI on coverage report failures
         # instead stdout must be checked for coverage report success or failure separately
-        target.run(cmd, src_dir=True, exit_on_fail=False)
+        status, _ = execute_piped_echo(cwd=target.source_dir(), cmd=cmd, echo=True)
+        if status != 0:
+            console(f'WARNING: gcovr exited {status} - coverage report may be incomplete', color=Color.YELLOW)
     except Exception as e:
         console(f'ERROR: Coverage report failed: {e}', color=Color.RED)
 

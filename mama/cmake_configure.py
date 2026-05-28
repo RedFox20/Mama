@@ -235,7 +235,8 @@ def _default_options(target:BuildTarget):
         elif config.gcc or config.clang:
             console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
             add_flag('--coverage')
-            add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+            if config.gcc:
+                add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
             ld_coverage='--coverage'
 
     opt = [
