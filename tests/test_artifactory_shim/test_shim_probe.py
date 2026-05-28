@@ -48,6 +48,7 @@ def _make_dep(tmpdir, artifactory_ftp='ftp.example.com'):
     config.arch = 'x64'
     config.release = True
     config.sanitize = None
+    config.sanitizer_suffix.return_value = ''
     config.update = False
 
     git = Git(name='libfoo', url='https://example.com/libfoo.git',

@@ -180,8 +180,8 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 n = int(percent / 2)
                 left = '=' * n
                 right = ' ' * int(50 - n)
-                print(f'\r    |{left}>{right}| {percent:>3} %', end='')
-        print(f'    |>{" ":50}| {0:>3} %', end='')
+                console(f'\r    |{left}>{right}| {percent:>3} %', end='')
+        console(f'    |>{" ":50}| {0:>3} %', end='')
         # chdir into FTP_ROOT/target_name/
         try:
             ftp.cwd(target_name)
@@ -189,7 +189,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
             ftp.mkd(target_name) # create subdirectory if needed
             ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
-        print(f'\r    |{"="*50}>| 100 %')
+        console(f'\r    |{"="*50}>| 100 %')
 
 
 def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:str):
@@ -388,6 +388,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
     # Hit: persist marker and return the configured target.
     archive = artifactory_archive_name(probe_target)
     dep.write_shim_marker(archive_name=archive or '', commit_hash=commit_hash)
+    config.update_stats.record_shim()
     if config.print:
         console(f'  - Target {dep.name: <16} SHIM FETCHED {archive}', color=Color.GREEN)
 

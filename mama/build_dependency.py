@@ -39,6 +39,7 @@ class BuildDependency:
         self.currently_loading = False
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.did_check_artifactory = False # if true, artifactory was already checked and can be skipped
+        self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # Root deps are always built
         self.children: List[BuildDependency] = []
         self.product_sources = []
@@ -207,13 +208,13 @@ class BuildDependency:
 
 
     def is_artifactory_shim(self) -> bool:
-        """
-        True if this dep was loaded from artifactory without a git clone.
-        The marker file persists across mama runs.
-        """
-        return self.dep_source.is_git \
-            and os.path.exists(self.mama_shim_file()) \
-            and not self.is_real_clone()
+        """True if this dep was loaded from artifactory without a git clone.
+        Cached: state only changes via write/remove_shim_marker and dirty()."""
+        if self._is_shim_cache is None:
+            self._is_shim_cache = self.dep_source.is_git \
+                and os.path.exists(self.mama_shim_file()) \
+                and not self.is_real_clone()
+        return self._is_shim_cache
 
 
     def is_real_clone(self) -> bool:
@@ -237,6 +238,8 @@ class BuildDependency:
             f'archive {archive_name}',
         ]
         write_text_to(self.mama_shim_file(), '\n'.join(lines) + '\n')
+        # Invalidate (not set True): a real .git may also be present.
+        self._is_shim_cache = None
 
 
     def read_shim_marker(self) -> dict:
@@ -261,6 +264,7 @@ class BuildDependency:
         path = self.mama_shim_file()
         if os.path.exists(path):
             os.remove(path)
+        self._is_shim_cache = False
 
 
     def create_build_dir_if_needed(self):
@@ -292,6 +296,9 @@ class BuildDependency:
         return self.target
 
     def _git_checkout_if_needed(self) -> bool:
+        # Shims have no working tree; upstream check happens via ls-remote in try_load_artifactory_shim.
+        if self.is_artifactory_shim():
+            return False
         if not self.is_root and self.dep_source.is_git:
             git:Git = self.dep_source
             return git.dependency_checkout(self)

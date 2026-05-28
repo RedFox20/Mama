@@ -220,7 +220,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
         size = urlfile.info()['Content-Length']
         size = int(size.strip()) if size else None
         if not message: message = f'Downloading {remote_url}'
-        print(f'{message} {get_file_size_str(size) if size else "unknown size"}')
+        console(f'{message} {get_file_size_str(size) if size else "unknown size"}')
         if not size:
             return None
 
@@ -230,7 +230,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
         report_interval = max(1, int((100*1024*1024) / size))
         transferred = 0
         lastpercent = 0
-        print(f'    |{" ":50}<| {0:>3}%', end='')
+        console(f'    |{" ":50}<| {0:>3}%', end='')
         with open(local_file, 'wb') as output:
             while transferred < size:
                 data = urlfile.read(32*1024) # large chunks plz
@@ -245,12 +245,12 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
                         right = '=' * n
                         left = ' ' * int(50 - n)
                         elapsed = time.time() - start
-                        print(f'\r    |{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
+                        console(f'\r    |{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
 
     # report actual percent here, just incase something goes wrong
     elapsed = time.time() - start
     percent = int((transferred / size) * 100.0)
-    print(f'\r    |<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
+    console(f'\r    |<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
     return local_file
 
 

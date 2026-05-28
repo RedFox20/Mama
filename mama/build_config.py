@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, platform, psutil, shutil
+import os, sys, tempfile, platform, psutil, shutil, threading, time
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -16,6 +16,54 @@ if System.linux:
 
 if TYPE_CHECKING:
     from .build_dependency import BuildDependency
+
+class UpdateStats:
+    """Counts and times clone/pull/shim-fetch activity during the load phase."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.cloned = 0
+        self.pulled = 0
+        self.shim_fetched = 0
+        self._start = None
+        self._duration = 0.0
+
+    def start(self):
+        self._start = time.monotonic()
+
+    def stop(self):
+        if self._start is not None:
+            self._duration = time.monotonic() - self._start
+            self._start = None
+
+    def record_clone(self):
+        with self._lock: self.cloned += 1
+
+    def record_pull(self):
+        with self._lock: self.pulled += 1
+
+    def record_shim(self):
+        with self._lock: self.shim_fetched += 1
+
+    @property
+    def total(self) -> int:
+        return self.cloned + self.pulled + self.shim_fetched
+
+    @property
+    def duration(self) -> float:
+        return self._duration
+
+    def summary_line(self) -> str:
+        """One-line summary, or '' if nothing happened."""
+        if self.total == 0:
+            return ''
+        parts = []
+        if self.shim_fetched: parts.append(f'{self.shim_fetched} shim-fetched')
+        if self.pulled:       parts.append(f'{self.pulled} pulled')
+        if self.cloned:       parts.append(f'{self.cloned} cloned')
+        # Local import to avoid circular dependency with util
+        from .util import get_time_str
+        return f'Updated {self.total} target(s): {", ".join(parts)} in {get_time_str(self._duration)}'
+
 
 ###
 # Mama Build Configuration is created only once in the root project working directory
@@ -54,6 +102,7 @@ class BuildConfig:
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
+        self.update_stats = UpdateStats() # clone/pull/shim counters for the load phase summary
         self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
         # supported platforms

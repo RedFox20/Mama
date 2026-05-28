@@ -435,6 +435,7 @@ def load_dependency_chain(root: BuildDependency):
 
     ssh_multiplex.init_fetch_semaphore(root.config.parallel_max)
 
+    root.config.update_stats.start()
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency):
             if dep.already_loaded:
@@ -454,6 +455,10 @@ def load_dependency_chain(root: BuildDependency):
             dep.after_load()
             return changed
         load_dependency(root)
+    root.config.update_stats.stop()
+    summary = root.config.update_stats.summary_line()
+    if summary and root.config.print:
+        console(f'  {summary}', color=Color.BLUE)
 
 
 def print_dependencies(root: BuildDependency):

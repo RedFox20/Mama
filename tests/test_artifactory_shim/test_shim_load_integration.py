@@ -58,6 +58,7 @@ def _make_dep(tmpdir):
     config.arch = 'x64'
     config.release = True
     config.sanitize = None
+    config.sanitizer_suffix.return_value = ''
 
     git = Git(name='libfoo', url='https://example.com/libfoo.git',
               branch='main', tag='', mamafile=None, shallow=True, args=[])

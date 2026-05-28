@@ -164,6 +164,100 @@ def test_papa_deploy_to_refuses_with_shim_marker_in_destination():
         shutil.rmtree(tmpdir)
 
 
+# ---------------------------------------------------------------------------
+# _git_checkout_if_needed / Git.run_git refuse to touch a shim's "working tree"
+# ---------------------------------------------------------------------------
+
+def test_git_checkout_if_needed_short_circuits_for_shim():
+    """Without this guard, a shim that misses on re-probe falls through to
+    dependency_checkout → check_status → `git fetch origin <branch>` which
+    walks up the parent dir and queries the wrong repo's remote."""
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_shim(tmpdir)
+        # Even though dep.dep_source.is_git is True and is_root is False,
+        # the shim guard must short-circuit before dependency_checkout runs.
+        called = []
+        with patch.object(Git, 'dependency_checkout',
+                          side_effect=lambda d: called.append(d) or True):
+            result = dep._git_checkout_if_needed()
+        assert result is False
+        assert called == [], 'dependency_checkout must not run on a shim'
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_run_git_raises_on_shim():
+    """Defense-in-depth: any caller that still reaches run_git on a shim
+    must hit a clear RuntimeError instead of silently corrupting state."""
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_shim(tmpdir)
+        git: Git = dep.dep_source
+        with pytest.raises(RuntimeError, match='artifactory shim'):
+            git.run_git(dep, 'fetch origin main -q')
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_run_git_returns_nonzero_when_not_throwing_on_shim():
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_shim(tmpdir)
+        git: Git = dep.dep_source
+        # throw=False path: callers like _has_local_modifications must
+        # still see a non-zero status, not silently succeed.
+        result = git.run_git(dep, 'diff --quiet HEAD', throw=False)
+        assert result != 0
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# ---------------------------------------------------------------------------
+# is_artifactory_shim caches the filesystem check
+# ---------------------------------------------------------------------------
+
+def test_is_artifactory_shim_caches_filesystem_stat():
+    """Called per-progress-tick and per-git-op, so it must not stat on every call."""
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_shim(tmpdir)
+        # First call populates the cache.
+        assert dep.is_artifactory_shim() is True
+        # Subsequent calls must not stat anything.
+        with patch('os.path.exists', side_effect=AssertionError('stat called')):
+            for _ in range(10):
+                assert dep.is_artifactory_shim() is True
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_is_artifactory_shim_cache_updates_on_remove():
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_shim(tmpdir)
+        assert dep.is_artifactory_shim() is True
+        dep.remove_shim_marker()
+        # Cache must reflect the removal without restating.
+        with patch('os.path.exists', side_effect=AssertionError('stat called')):
+            assert dep.is_artifactory_shim() is False
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_is_artifactory_shim_cache_invalidated_on_write():
+    """Write must invalidate (not preset True) so a coexisting .git wins."""
+    tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')
+    try:
+        dep = _make_dep(tmpdir)
+        assert dep.is_artifactory_shim() is False
+        dep.write_shim_marker(archive_name='archive', commit_hash='abc1234')
+        # Recomputes; no .git so it is in fact a shim now.
+        assert dep.is_artifactory_shim() is True
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_papa_deploy_to_succeeds_for_normal_destination():
     """Sanity: a non-shim destination still works."""
     tmpdir = tempfile.mkdtemp(prefix='mama_shim_test_')

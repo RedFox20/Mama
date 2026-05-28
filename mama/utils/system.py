@@ -1,4 +1,4 @@
-import sys, subprocess, platform
+import sys, subprocess, platform, threading
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -48,9 +48,23 @@ def get_colored_text(text:str, color):
     return colored(text, color=color) if color else text
 
 
+# Serialize writes and finalize any pending progress line before a normal
+# status print, so parallel redraws don't get glued to status lines.
+_console_lock = threading.Lock()
+_progress_active = False  # last write left cursor mid-row
+
+
 def console(text:str, color=None, end="\n"):
     """ Always flush to support most build environments """
-    print(get_colored_text(text, color), end=end, flush=True)
+    global _progress_active
+    # Cheap O(1) check: redraws start with \r to reset the cursor; only those
+    # may overwrite an in-flight progress line. Anything else gets a leading \n.
+    is_redraw = text.startswith('\r')
+    with _console_lock:
+        if _progress_active and not is_redraw:
+            print()
+        print(get_colored_text(text, color), end=end, flush=True)
+        _progress_active = (end != '\n')
 
 
 def error(text:str):

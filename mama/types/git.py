@@ -1,12 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import os, shutil, stat, string
+import os, shutil, stat, string, time
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
 from ..utils.sub_process import SubProcess, execute, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error
+from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error, get_time_str
 
 
 if TYPE_CHECKING:
@@ -63,6 +63,14 @@ class Git(DepSource):
 
 
     def run_git(self, dep: BuildDependency, git_command, throw=True):
+        # Shim has no .git; `cd src_dir && git ...` would walk up and hit the wrong repo.
+        if dep.is_artifactory_shim():
+            msg = f'Target {dep.name} is an artifactory shim; cannot run `git {git_command}`'
+            if dep.config.verbose:
+                error(f'  {dep.name: <16} {msg}')
+            if throw:
+                raise RuntimeError(msg)
+            return 1
         cmd = f"cd {dep.src_dir} && git {git_command}"
         if dep.config.verbose:
             console(f'  {dep.name: <16} git {git_command}', color=Color.YELLOW)
@@ -270,6 +278,7 @@ class Git(DepSource):
     def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
         output = ''
         current_percent = -1
+        start = time.monotonic()
         def print_output(p:SubProcess, line:str):
             nonlocal output, current_percent
             if 'remote: Counting objects:' in line or \
@@ -292,7 +301,8 @@ class Git(DepSource):
                         elif 'Receiving objects:' in line:           status = 'receiving objects  '
                         elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
                         elif 'Updating files:' in line:              status = 'updating files     '
-                        console(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}%', end='')
+                        elapsed = get_time_str(time.monotonic() - start)
+                        console(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}% ({elapsed})', end='')
             elif 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
@@ -315,16 +325,19 @@ class Git(DepSource):
             result = SubProcess.run(cmd, io_func=print_output)
 
         # handle the result:
+        elapsed = get_time_str(time.monotonic() - start)
+        if result == 0:
+            dep.config.update_stats.record_clone()
         if dep.config.print:
             if result == 0:
-                console(f'\r  - Target {dep.name: <16} CLONE SUCCESS                  ', color=Color.BLUE)
+                console(f'\r  - Target {dep.name: <16} CLONE SUCCESS {elapsed}                  ', color=Color.BLUE)
                 if dep.config.verbose and output:
                     console(output, end='')
             else:
-                console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result})              ', color=Color.RED)
+                console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result}) after {elapsed}              ', color=Color.RED)
                 if output:
                     console(output, end='')
-                raise RuntimeError(f'Target {self.name} clone failed: {cmd}')
+                raise RuntimeError(f'Target {self.name} clone failed after {elapsed}: {cmd}')
 
 
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
@@ -370,6 +383,7 @@ class Git(DepSource):
                 else:
                     self.run_git(dep, "fetch -q", throw=False)
                     self.run_git(dep, "reset --hard @{upstream} -q") # https://git-scm.com/docs/gitrevisions#Documentation/gitrevisions.txt-branchnameupstreamegmasterupstreamu
+            dep.config.update_stats.record_pull()
 
 
     def unshallow(self, dep: BuildDependency):
