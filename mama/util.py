@@ -199,10 +199,17 @@ def get_time_str(seconds: float):
     return f'{int(seconds/(24*60*60))}d {int((seconds%(24*60*60))/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
 
 
-def download_file(remote_url:str, local_dir:str, force=False, message=None):
+def download_file(remote_url:str, local_dir:str, force=False, message=None, name:str=None):
+    """Downloads remote_url into local_dir.
+    - force=False: use any existing local file without contacting the server.
+    - force=True:  open the connection and compare Content-Length; skip the
+      body transfer when sizes match (used for artifactory fetches so we don't
+      re-download archives already on disk).
+    - name: optional target name for prefixing log lines under parallel updates."""
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
-    if not force and os.path.exists(local_file): # download file?
-        console(f"    Using locally cached {local_file}")
+    indent = f'  - {name: <16} ' if name else '    '
+    if not force and os.path.exists(local_file):
+        console(f'{indent}Using locally cached {local_file}')
         return local_file
     start = time.time()
     if not os.path.exists(local_dir):
@@ -219,6 +226,16 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
     with request.urlopen(remote_url, context=ctx, timeout=5) as urlfile:
         size = urlfile.info()['Content-Length']
         size = int(size.strip()) if size else None
+
+        # Size-match cache: skip the body transfer entirely when the local
+        # file matches the remote Content-Length. Costs one HTTP round-trip
+        # (already paid by opening the connection); saves the whole body.
+        if size is not None and os.path.exists(local_file) \
+                and os.path.getsize(local_file) == size:
+            console(f'{indent}Artifactory CACHE (size-match) '
+                    f'{os.path.basename(local_file)} ({get_file_size_str(size)})')
+            return local_file
+
         if not message: message = f'Downloading {remote_url}'
         console(f'{message} {get_file_size_str(size) if size else "unknown size"}')
         if not size:
@@ -230,7 +247,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
         report_interval = max(1, int((100*1024*1024) / size))
         transferred = 0
         lastpercent = 0
-        console(f'    |{" ":50}<| {0:>3}%', end='')
+        console(f'{indent}|{" ":50}<| {0:>3}%', end='')
         with open(local_file, 'wb') as output:
             while transferred < size:
                 data = urlfile.read(32*1024) # large chunks plz
@@ -245,12 +262,12 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
                         right = '=' * n
                         left = ' ' * int(50 - n)
                         elapsed = time.time() - start
-                        console(f'\r    |{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
+                        console(f'\r{indent}|{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
 
     # report actual percent here, just incase something goes wrong
     elapsed = time.time() - start
     percent = int((transferred / size) * 100.0)
-    console(f'\r    |<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
+    console(f'\r{indent}|<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
     return local_file
 
 

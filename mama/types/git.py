@@ -1,12 +1,12 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import os, shutil, stat, string, time
+import os, shutil, stat, string, time, re, tempfile, subprocess
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error
-from ..utils.sub_process import SubProcess, execute, execute_piped, execute_piped_echo
+from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error, get_time_str
+from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error, get_time_str, normalized_path
 
 
 if TYPE_CHECKING:
@@ -71,12 +71,22 @@ class Git(DepSource):
             if throw:
                 raise RuntimeError(msg)
             return 1
-        cmd = f"cd {dep.src_dir} && git {git_command}"
+        cmd = f"git {git_command}"
         if dep.config.verbose:
-            console(f'  {dep.name: <16} git {git_command}', color=Color.YELLOW)
+            console(f'  {dep.name: <16} {cmd}', color=Color.YELLOW)
         ssh_multiplex.ensure_master_for_url(self.url)
+        # Capture and prefix each line so parallel updates don't tear and the
+        # user can see which target said what (e.g. 'remote: Enumerating ...').
+        def prefixed(p:SubProcess, line:str):
+            line = line.rstrip()
+            if line:
+                console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
-            return execute(cmd, throw=throw)
+            # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
+            result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed)
+        if result != 0 and throw:
+            raise RuntimeError(f'{cmd} (in {dep.src_dir}) failed with return code {result}')
+        return result
 
 
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
@@ -100,6 +110,74 @@ class Git(DepSource):
     @staticmethod
     def is_hex_string(s: str) -> bool:
         return len(s) > 0 and all(c in string.hexdigits for c in s)
+
+
+    # Captures only quoted literals; f-strings / computed values miss on purpose.
+    _SELF_VERSION_RE = re.compile(r"""^\s*self\.version\s*=\s*['"]([^'"]+)['"]""", re.MULTILINE)
+
+    @staticmethod
+    def extract_self_version(mamafile_text: str):
+        """Find `self.version = '<literal>'` in a mamafile. Returns the version
+        string or None. Computed values (f-strings, function calls) are
+        intentionally not handled - those callers must full-clone."""
+        m = Git._SELF_VERSION_RE.search(mamafile_text)
+        return m.group(1) if m else None
+
+
+    def fetch_self_version_from_remote(self, dep: BuildDependency):
+        """Fetches just the dep's mamafile to read `self.version` without
+        pulling the full repo. Used by the shim probe for version-pinned deps
+        (e.g. boost 1.60) where the archive name doesn't track the commit hash.
+
+        Two-tool design: the clone goes through SubProcess.run (for the live
+        progress UI), but the one-shot `git show` uses subprocess.run + timeout
+        because SubProcess.run uses os.forkpty() which is unsafe in heavy
+        parallel mode and has no timeout to abort a stuck lazy fetch.
+
+        Returns the version string or None on any failure."""
+        if not dep.config.is_network_available():
+            return None
+        mamafile_name = self.mamafile or 'mamafile.py'
+        branch = self.branch or self.tag or ''
+        branch_arg = f' --branch {branch}' if branch and not Git.is_hex_string(branch) else ''
+        try:
+            # ignore_cleanup_errors: on Windows git sets read-only on .git/objects/*,
+            # which trips shutil.rmtree. normalized_path: project convention is
+            # forward slashes; raw tempdir paths on Windows use backslashes that
+            # would be eaten by shlex.split inside SubProcess.
+            with tempfile.TemporaryDirectory(prefix='mama_probe_', ignore_cleanup_errors=True) as tmp:
+                tmp = normalized_path(tmp)
+                clone_cmd = f'git clone --depth=1 --filter=blob:none --no-checkout{branch_arg} {self.url} {tmp}'
+                result, _, elapsed = self._run_git_with_filtered_progress(dep, clone_cmd, label='PROBE')
+                if result != 0:
+                    if dep.config.print:
+                        console(f'\r  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}              ', color=Color.RED)
+                    return None
+                # subprocess.run, not SubProcess.run: see docstring above.
+                # stderr=DEVNULL drops the lazy-fetch's `remote: ...` noise.
+                try:
+                    cp = subprocess.run(['git', '-C', tmp, 'show', f'HEAD:{mamafile_name}'],
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        timeout=30)
+                except subprocess.TimeoutExpired:
+                    if dep.config.verbose:
+                        error(f'  {dep.name: <16} PROBE timed out fetching mamafile')
+                    return None
+                if cp.returncode != 0:
+                    return None
+                content = cp.stdout.decode('utf-8', errors='replace')
+                if not content:
+                    return None
+                version = Git.extract_self_version(content)
+                if dep.config.print and version:
+                    console(f'\r  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}', color=Color.BLUE)
+                return version
+        except Exception as e:
+            if is_network_error(e):
+                dep.config.mark_network_unavailable()
+            if dep.config.verbose:
+                error(f'    {self.name}  sparse-probe failed: {e}')
+            return None
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
         """
@@ -275,7 +353,11 @@ class Git(DepSource):
             shutil.rmtree(dep.dep_dir)
 
 
-    def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
+    def _run_git_with_filtered_progress(self, dep: BuildDependency, cmd: str, label: str):
+        """Run a git command with progress filtered into one redrawn status line.
+        Returns (exit_code, captured_output, elapsed_str). Does not raise.
+        Used by full clone and by the sparse mamafile probe so both share the
+        same nice UI instead of spewing git's raw remote: output."""
         output = ''
         current_percent = -1
         start = time.monotonic()
@@ -302,7 +384,7 @@ class Git(DepSource):
                         elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
                         elif 'Updating files:' in line:              status = 'updating files     '
                         elapsed = get_time_str(time.monotonic() - start)
-                        console(f'\r  - Target {dep.name: <16} CLONE {status} {current_percent:3}% ({elapsed})', end='')
+                        console(f'\r  - Target {dep.name: <16} {label} {status} {current_percent:3}% ({elapsed})', end='')
             elif 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
@@ -316,16 +398,17 @@ class Git(DepSource):
                 if dep.config.verbose:
                     console(line)
 
-        # run the command, working dir not needed since it should be a full path in the clone_args
-        cmd = f'git clone {clone_args} {clone_to_dir}'
         if dep.config.verbose:
             console(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         with ssh_multiplex.fetch_slot():
             result = SubProcess.run(cmd, io_func=print_output)
+        return result, output, get_time_str(time.monotonic() - start)
 
-        # handle the result:
-        elapsed = get_time_str(time.monotonic() - start)
+
+    def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
+        cmd = f'git clone {clone_args} {clone_to_dir}'
+        result, output, elapsed = self._run_git_with_filtered_progress(dep, cmd, label='CLONE')
         if result == 0:
             dep.config.update_stats.record_clone()
         if dep.config.print:

@@ -170,6 +170,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
     size = os.path.getsize(file_path)
     transferred = 0
     lastpercent = 0
+    indent = f'  - {target_name: <16} '
     with open(file_path, 'rb') as f:
         def print_progress(bytes):
             nonlocal transferred, lastpercent, size
@@ -180,8 +181,8 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 n = int(percent / 2)
                 left = '=' * n
                 right = ' ' * int(50 - n)
-                console(f'\r    |{left}>{right}| {percent:>3} %', end='')
-        console(f'    |>{" ":50}| {0:>3} %', end='')
+                console(f'\r{indent}|{left}>{right}| {percent:>3} %', end='')
+        console(f'{indent}|>{" ":50}| {0:>3} %', end='')
         # chdir into FTP_ROOT/target_name/
         try:
             ftp.cwd(target_name)
@@ -189,7 +190,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
             ftp.mkd(target_name) # create subdirectory if needed
             ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
-        console(f'\r    |{"="*50}>| 100 %')
+        console(f'\r{indent}|{"="*50}>| 100 %')
 
 
 def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:str):
@@ -275,7 +276,8 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
     remote_file = f'http://{url}/{target.name}/{archive}.zip'
     try:
         return download_file(remote_file, cache_dir, force=True,
-                             message=f'    Artifactory fetch {url}/{archive} ')
+                             message=f'  - {target.name: <16} Artifactory fetch {url}/{archive} ',
+                             name=target.name)
     except Exception as e:
         if is_network_error(e):
             target.config.mark_network_unavailable()
@@ -338,7 +340,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     local_file = _fetch_package(target, url, archive, cache_dir)
     if not local_file:
         return (False, None)
-    console(f'    Artifactory unzip {archive}')
+    console(f'  - {target.name: <16} Artifactory unzip {archive}')
     return unzip_and_load_target(target, local_file)
 
 
@@ -373,13 +375,22 @@ def try_load_artifactory_shim(dep) -> Tuple:
         return (None, None)
     git.commit_hash = commit_hash  # cache for downstream consumers
 
-    # Construct a throwaway default BuildTarget purely to call into the existing
-    # artifactory fetch+unzip+load machinery. The shim path explicitly does NOT
-    # consult `target.version` (we have no parsed mamafile yet). If a project
-    # uses `target.version`, the post-clone probe will catch it instead.
+    # First probe: commit-hash-based archive name. Works for the common case.
     probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
-
     fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
+
+    # Fallback: dep may pin target.version (e.g. boost 1.60), so its archive
+    # name doesn't include the commit hash. Sparse-fetch only the mamafile,
+    # grep self.version, and re-probe with that version.
+    if not fetched:
+        version = git.fetch_self_version_from_remote(dep)
+        if version:
+            if config.verbose:
+                console(f'    {dep.name}  shim probe: retrying with self.version={version}', color=Color.YELLOW)
+            probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
+            probe_target.version = version
+            fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
+
     if not fetched:
         # Reset any side effect on the dep so the clone path can run cleanly.
         dep.from_artifactory = False

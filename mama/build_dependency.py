@@ -324,11 +324,13 @@ class BuildDependency:
         git_changed = False
 
         # Try artifactory shim BEFORE the expensive git clone.
-        # For non-root git deps, probe artifactory using the commit hash resolved via
-        # `git ls-remote` (no clone). On hit, load papa.txt exports/deps and skip clone.
-        # On miss, do not mark did_check_artifactory: post-clone probe may still succeed
-        # using a mamafile-declared `target.version` we couldn't see before cloning.
+        # For non-root git deps with no existing working tree, probe artifactory
+        # using the commit hash from `git ls-remote` (no clone). On hit, load
+        # papa.txt exports/deps and skip clone. If a real clone already exists,
+        # we skip the shim probe - the user already paid the clone cost and
+        # the regular update path (fetch+reset) is the right call.
         if not self.is_root and self.dep_source.is_git \
+                and not self.is_real_clone() \
                 and self.can_fetch_artifactory(print=False, which='SHIM'):
             shim_target, shim_deps = try_load_artifactory_shim(self)
             if shim_target is not None:
