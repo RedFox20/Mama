@@ -31,3 +31,16 @@ def test_combined_sanitizers_stay_distinct():
     c = linux_config()
     c.sanitize = 'address,undefined'
     assert c.platform_build_dir_name() == 'linux-asan-ubsan'
+
+
+def test_coverage_gets_own_dir():
+    c = linux_config()
+    c.coverage = 'default'
+    assert c.platform_build_dir_name() == 'linux-coverage'
+
+
+def test_coverage_composes_with_sanitizer():
+    c = linux_config()
+    c.coverage = 'default'
+    c.sanitize = 'address'
+    assert c.platform_build_dir_name() == 'linux-coverage-asan'

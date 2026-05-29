@@ -442,8 +442,10 @@ class BuildConfig:
     SANITIZER_SUFFIX = { 'address':'-asan', 'leak':'-lsan', 'thread':'-tsan', 'undefined':'-ubsan' }
 
     def build_dir_suffix(self):
-        if not self.sanitize: return '' # no sanitizer -> unchanged build dir (back-compat)
-        return ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
+        suffix = ''
+        if self.coverage: suffix += '-coverage'
+        if self.sanitize: suffix += ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
+        return suffix # no coverage/sanitizer -> unchanged build dir (back-compat)
 
 
     def platform_build_dir_name(self):
@@ -451,7 +453,8 @@ class BuildConfig:
         Gets the build folder name depending on platform and architecture.
         By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
         And 32-bit architectures add a suffix, eg 'windows32' or 'linux32'
-        Sanitizer builds add a further suffix, eg 'linux-asan' or 'windows-tsan'.
+        Coverage builds add '-coverage' and sanitizer builds add a further
+        suffix, eg 'linux-coverage', 'linux-asan' or 'linux-coverage-asan'.
         """
         # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
         return self._platform_build_dir_name() + self.build_dir_suffix()
