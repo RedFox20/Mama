@@ -287,7 +287,9 @@ def _save_mama_cmake(root: BuildDependency):
     c:BuildConfig = root.config
 
     # gets the defines for a single platform and architecture
+    # must match platform_build_dir_name(): same sanitizer suffix as the actual build dir
     def get_build_dir_defines(build_dir):
+        build_dir += c.build_dir_suffix()
         return f'''set(MAMA_BUILD "{build_dir}")
         {_get_mama_dependencies_cmake(root, build_dir)}'''
 
