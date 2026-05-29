@@ -66,10 +66,8 @@ class Git(DepSource):
         # Shim has no .git; `cd src_dir && git ...` would walk up and hit the wrong repo.
         if dep.is_artifactory_shim():
             msg = f'Target {dep.name} is an artifactory shim; cannot run `git {git_command}`'
-            if dep.config.verbose:
-                error(f'  {dep.name: <16} {msg}')
-            if throw:
-                raise RuntimeError(msg)
+            if dep.config.verbose: error(f'  {dep.name: <16} {msg}')
+            if throw: raise RuntimeError(msg)
             return 1
         cmd = f"git {git_command}"
         if dep.config.verbose:
@@ -79,8 +77,7 @@ class Git(DepSource):
         # user can see which target said what (e.g. 'remote: Enumerating ...').
         def prefixed(p:SubProcess, line:str):
             line = line.rstrip()
-            if line:
-                console(f'  {dep.name: <16} {line}')
+            if line: console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
             result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed)
@@ -160,8 +157,7 @@ class Git(DepSource):
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                         timeout=30)
                 except subprocess.TimeoutExpired:
-                    if dep.config.verbose:
-                        error(f'  {dep.name: <16} PROBE timed out fetching mamafile')
+                    if dep.config.verbose: error(f'  {dep.name: <16} PROBE timed out fetching mamafile')
                     return None
                 if cp.returncode != 0:
                     return None
@@ -428,9 +424,8 @@ class Git(DepSource):
         unshallow = dep.config.unshallow or (not self.shallow)
         if is_dir_empty(dep.src_dir):
             if not dep.config.is_network_available():
-                raise RuntimeError(
-                    f'Target {dep.name} requires network to clone but network is unavailable.'
-                    f' Check your connection or use a cached artifactory package.')
+                raise RuntimeError(f'Target {dep.name} requires network to clone but network is unavailable.' + \
+                                   ' Check your connection or use a cached artifactory package.')
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             br_or_tag = self.branch_or_tag()

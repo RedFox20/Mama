@@ -135,9 +135,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # corrupt the artifactory snapshot (papa.txt + unzipped tree) the next mama
     # run depends on. The proper deploy-skip lives in _execute_deploy_tasks.
     if os.path.exists(os.path.join(package_full_path, 'mama_shim')):
-        raise RuntimeError(
-            f'papa_deploy refused: {package_full_path} contains a mama_shim marker.'
-        )
+        raise RuntimeError(f'papa_deploy refused: {package_full_path} contains a mama_shim marker.')
 
     dependencies = _gather_dependencies(target)
 
