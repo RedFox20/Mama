@@ -136,6 +136,33 @@ class TestErrorPaths:
         assert 'list-cmd' in lines
 
 
+class TestCarriageReturnProgress:
+    def test_cr_separated_progress_emitted_as_distinct_lines(self):
+        _, lines = _py_run(
+            r'import sys; sys.stdout.write("[1/3] foo\r[2/3] bar\r[3/3] baz\n"); sys.stdout.flush()')
+        assert lines == ['[1/3] foo', '[2/3] bar', '[3/3] baz']
+
+    def test_cr_at_chunk_end_flushes_on_idle(self):
+        # The slow-step write isolates a \r in its own chunk; without idle-flush
+        # the line would only appear when the next chunk arrives seconds later.
+        _, lines = _py_run(
+            r'import sys, time; '
+            r'sys.stdout.write("[1/2] slow_step\r"); sys.stdout.flush(); '
+            r'time.sleep(0.25); '
+            r'sys.stdout.write("[2/2] done\n"); sys.stdout.flush()')
+        assert lines == ['[1/2] slow_step', '[2/2] done']
+
+    def test_lone_lf_after_cr_idle_flush_does_not_emit_empty_line(self):
+        # After idle-flushing on \r, a delayed \n (or PTY-ONLCR \r\n) is part
+        # of the same logical line and must be swallowed, not emit "".
+        _, lines = _py_run(
+            r'import sys, time; '
+            r'sys.stdout.write("partial\r"); sys.stdout.flush(); '
+            r'time.sleep(0.25); '
+            r'sys.stdout.write("\n"); sys.stdout.flush()')
+        assert lines == ['partial']
+
+
 class TestNoForkptyDeprecationWarning:
     # The whole point of the Popen+pty.openpty rewrite was to kill this warning
     # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).

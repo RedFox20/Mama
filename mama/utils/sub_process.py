@@ -12,6 +12,11 @@ from .system import System, console, error
 # the threaded-deadlock risk.
 if not System.windows:
     import pty
+    import select
+
+
+READER_IDLE_TIMEOUT = 0.1  # seconds; how long to wait before flushing a \r-progress partial
+READER_CHUNK = 8192
 
 
 class SubProcess:
@@ -36,6 +41,7 @@ class SubProcess:
         self._reader_thread = None
         self._reader_exc = None        # exception raised inside io_func (re-raised in run())
         self._master_fd = None         # UNIX PTY master fd; None on Windows or no-io_func paths
+        self._swallow_lf = False       # after \r-progress idle-flush, swallow a leading \n (or \r\n) in next chunk
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
@@ -60,11 +66,10 @@ class SubProcess:
             return
 
         if System.windows:
-            # No PTY on Windows; merge stderr into stdout pipe, read line by line.
-            # text + bufsize=1 gives line-buffered Unicode lines on the parent side.
+            # No PTY on Windows; merge stderr into stdout pipe. Binary mode so the
+            # reader can byte-level split on \r as well as \n (ninja/cmake progress).
             self.process = subprocess.Popen(args, cwd=cwd, env=env,
-                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                            text=True, bufsize=1)
+                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         else:
             # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
             self._master_fd, slave = pty.openpty()
@@ -90,48 +95,73 @@ class SubProcess:
 
 
     def _read_loop_pty(self):
-        """Drain the PTY master until the child closes the slave end."""
+        """Drain PTY master with select-based idle detection so \\r-terminated
+        progress (ninja/cmake/git) surfaces without waiting for a \\n."""
         buf = bytearray()
-        try:
-            while True:
-                try:
-                    chunk = os.read(self._master_fd, 8192)
-                except OSError:
-                    # On Linux a closed slave produces EIO on the master. Treat as EOF.
-                    break
-                if not chunk:
-                    break
+        while True:
+            ready, _, _ = select.select([self._master_fd], [], [], READER_IDLE_TIMEOUT)
+            if ready:
+                try: chunk = os.read(self._master_fd, READER_CHUNK)
+                except OSError: break  # EIO on a closed slave end
+                if not chunk: break
                 buf.extend(chunk)
-                while True:
-                    nl = buf.find(b'\n')
-                    if nl < 0:
-                        break
-                    line = bytes(buf[:nl]).decode('utf-8', errors='replace').rstrip('\r')
-                    self.io_func(self, line)
-                    del buf[:nl + 1]
-        finally:
-            if buf:
-                line = bytes(buf).decode('utf-8', errors='replace').rstrip('\r')
-                self.io_func(self, line)
+                self._drain_buffer(buf)
+            else:
+                self._drain_buffer(buf, idle=True)
+        self._drain_buffer(buf, eof=True)
 
 
     def _read_loop_pipe(self):
-        """Drain the stdout pipe (Windows path)."""
+        """Windows path: blocking byte reads. select() does not work on Windows
+        pipes, so \\r at a chunk boundary delays until the next read."""
         stdout = self.process.stdout
-        if not stdout:
-            return
-        for line in stdout:
-            self.io_func(self, line.rstrip('\r\n'))
+        if not stdout: return
+        fd = stdout.fileno()
+        buf = bytearray()
+        while True:
+            try: chunk = os.read(fd, READER_CHUNK)
+            except OSError: break
+            if not chunk: break
+            buf.extend(chunk)
+            self._drain_buffer(buf)
+        self._drain_buffer(buf, eof=True)
+
+
+    def _drain_buffer(self, buf, idle=False, eof=False):
+        """Emit \\r- and \\n-delimited lines from buf. \\r alone is progress;
+        \\r\\n and bare \\n are line endings (trailing \\r stripped). A \\r at
+        buf end waits for more data unless idle/eof, then sets _swallow_lf so
+        the next chunk's leading \\n or \\r\\n (via PTY ONLCR) is consumed."""
+        emit = lambda end: self.io_func(self, bytes(buf[:end]).decode('utf-8', errors='replace'))
+        if self._swallow_lf and buf:
+            if len(buf) >= 2 and buf[0] == 0x0d and buf[1] == 0x0a: del buf[:2]
+            elif buf[0] == 0x0a: del buf[:1]
+            self._swallow_lf = False
+        while True:
+            cr = buf.find(b'\r')
+            if cr >= 0:
+                if cr + 1 < len(buf) and buf[cr + 1] != 0x0a:
+                    emit(cr); del buf[:cr + 1]; continue
+                if cr + 1 == len(buf) and (idle or eof):
+                    emit(cr); del buf[:cr + 1]; self._swallow_lf = True; continue
+            nl = buf.find(b'\n')
+            if nl >= 0:
+                end = nl - 1 if nl > 0 and buf[nl - 1] == 0x0d else nl
+                emit(end); del buf[:nl + 1]; continue
+            break
+        if eof and buf:
+            emit(len(buf)); buf.clear()
 
 
     def write(self, text: str):
         """Send `text` to the child's stdin (used for interactive prompts
         like SSH host-key acceptance)."""
+        data = text.encode('utf-8')
         if self._master_fd is not None:
-            os.write(self._master_fd, text.encode('utf-8'))
+            os.write(self._master_fd, data)
         elif self.process and self.process.stdin and not self.process.stdin.closed:
             try:
-                self.process.stdin.write(text)
+                self.process.stdin.write(data)
                 self.process.stdin.flush()
             except (BrokenPipeError, OSError):
                 pass
