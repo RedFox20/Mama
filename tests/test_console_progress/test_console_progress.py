@@ -15,7 +15,6 @@ import threading
 
 import pytest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from mama.utils import system  # noqa: E402
 
 

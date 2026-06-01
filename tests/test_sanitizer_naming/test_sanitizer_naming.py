@@ -20,7 +20,6 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from mama.build_config import BuildConfig  # noqa: E402
 from mama import artifactory as art  # noqa: E402
 
