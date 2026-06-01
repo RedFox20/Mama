@@ -128,7 +128,7 @@ Call `mama help` for more usage information.
 ```
   if_needed                      Only upload if package does not already exist on server.
   art                            Always fetch packages from artifactory; failure will throw.
-  noart                          Temporarily ignore artifactory package fetching.
+  noart                          Temporarily ignore artifactory package fetching, however CACHE will still be used and fetches check for git staleness.
 ```
 
 ### Sanitizer and coverage flags

@@ -1,4 +1,4 @@
-# Mama — Claude Notes
+# Mama - Claude Notes
 
 Hand-written notes for Claude. Capture style rules and codebase invariants that
 keep biting future-Claude. Update as the codebase teaches new lessons.
@@ -14,6 +14,12 @@ keep biting future-Claude. Update as the codebase teaches new lessons.
   break right after `(`.
 - **One-liner `if` for a single short statement.** Use `if cond: do_thing()` on
   one line when the body is a single short call.
+- **No em-dashes (`-`) in code, comments, or docs.** Use a regular ASCII dash
+  `-` instead. Em-dashes look fancy in prose but are noise in source files and
+  hard to grep for.
+- **Yellow output goes through `warning(text)`** (from `mama.utils.system`),
+  not `console(text, color=Color.YELLOW)`. The helper exists so warnings have
+  a single chokepoint and a consistent shape.
 
 ### Examples
 
@@ -47,7 +53,7 @@ raise RuntimeError(
     f' Check your connection or use a cached artifactory package.')
 ```
 
-## Path handling — forward slashes everywhere
+## Path handling - forward slashes everywhere
 
 The project standardises on forward slashes on every platform, including
 Windows. The utility is `mama.util.normalized_path()` (which calls
@@ -56,29 +62,29 @@ Windows. The utility is `mama.util.normalized_path()` (which calls
 - After any function that may return a backslash path (notably
   `tempfile.TemporaryDirectory()` on Windows), pass the result through
   `normalized_path()` BEFORE interpolating into a shell command string.
-- `shlex.split()` (which `SubProcess` uses) eats backslashes as escapes — a raw
+- `shlex.split()` (which `SubProcess` uses) eats backslashes as escapes - a raw
   Windows path embedded in a command string silently corrupts.
 - For directory cleanup on Windows: `tempfile.TemporaryDirectory(prefix='...',
-  ignore_cleanup_errors=True)` — git leaves read-only files in `.git/objects/`
+  ignore_cleanup_errors=True)` - git leaves read-only files in `.git/objects/`
   that trip `shutil.rmtree`.
 
 ## Subprocess: the two-tool rule
 
 There are two primitives. They are NOT interchangeable.
 
-- **`SubProcess.run(cmd, cwd=, io_func=, timeout=)`** — the project's standard
+- **`SubProcess.run(cmd, cwd=, io_func=, timeout=)`** - the project's standard
   wrapper. Uses `subprocess.Popen` + `pty.openpty()` on UNIX (child sees a real
   TTY for git's progress output) and plain `Popen` with pipes on Windows.
   Multi-thread safe. Has timeout. **Use this for everything by default.**
-- **`subprocess.run(...)` directly** — only for the rare case where you need to
+- **`subprocess.run(...)` directly** - only for the rare case where you need to
   suppress stderr entirely (`stderr=subprocess.DEVNULL`) and a timeout but don't
   want the live progress UI. The current example is the post-blob:none `git
-  show HEAD:<file>` in `Git.fetch_self_version_from_remote` — its lazy fetch
+  show HEAD:<file>` in `Git.fetch_self_version_from_remote` - its lazy fetch
   spews `remote: ...` chatter we don't want surfaced.
 
 When deviating from `SubProcess.run`, document why in the function docstring.
 
-**Never** use `os.system("cd <dir> && cmd")` — `SubProcess.run(cmd,
+**Never** use `os.system("cd <dir> && cmd")` - `SubProcess.run(cmd,
 cwd=<dir>)` is the correct idiom. SubProcess uses `execve`, not a shell, so
 `cd` and `&&` aren't valid.
 
@@ -112,7 +118,7 @@ loads.
 - `mama update` auto-enables `parallel_load`. The `fetch_slot` semaphore caps
   concurrent git fetches at `parallel_max` (default 20). Independent of the
   worker thread count.
-- The shim probe's `SubProcess.run` calls go through `fetch_slot` too — count
+- The shim probe's `SubProcess.run` calls go through `fetch_slot` too - count
   the slot acquisitions per probe (one for the clone, possibly one for `git
   show`).
 - `ensure_master_for_url` is idempotent and serialised per-host.
@@ -123,7 +129,7 @@ loads.
 - Mock external IO (subprocess, urlopen, ftplib) heavily. Tests must not hit
   the network unless integration-flavored (`test_git_pin_change/`,
   `test_papa_deploy/`).
-- When patching: `patch('mama.<module>.<name>')` — patch where it's looked up,
+- When patching: `patch('mama.<module>.<name>')` - patch where it's looked up,
   not where it's defined.
 - Always run the **full** suite (`python -m pytest tests/`) before committing.
   Total runtime ≈ 35 seconds.
