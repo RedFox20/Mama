@@ -223,6 +223,7 @@ def _default_options(target:BuildTarget):
             console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
+            add_flag('-fno-sanitize-recover', config.sanitize) # fail the build on the first sanitizer error (UBSan recovers by default)
             add_flag('-fno-omit-frame-pointer')
             add_flag('-fPIE')
             add_ldflag('-pie') # -pie is a linker flag
