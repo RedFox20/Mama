@@ -163,6 +163,105 @@ class TestCarriageReturnProgress:
         assert lines == ['partial']
 
 
+class _Drainer:
+    """Drives _drain_buffer directly (no child process) over a shared buffer +
+    swallow state, so chunk boundaries and idle/eof can be controlled exactly."""
+    def __init__(self):
+        self.p = object.__new__(SubProcess)
+        self.p._swallow_lf = False
+        self.lines = []
+        self.p.io_func = lambda _s, line: self.lines.append(line)
+        self.buf = bytearray()
+
+    def feed(self, data, idle=False, eof=False):
+        self.buf.extend(data)
+        self.p._drain_buffer(self.buf, idle=idle, eof=eof)
+        return self.lines
+
+
+class TestDrainBuffer:
+    def test_multiple_cr_progress_in_one_chunk(self):
+        d = _Drainer()
+        assert d.feed(b'a\rb\rc\n') == ['a', 'b', 'c']
+        assert d.buf == b''
+
+    def test_crlf_is_single_line_with_cr_stripped(self):
+        d = _Drainer()
+        assert d.feed(b'line\r\n') == ['line']
+
+    def test_bare_lf_lines(self):
+        assert _Drainer().feed(b'x\ny\n') == ['x', 'y']
+
+    def test_empty_lf_lines_preserved(self):
+        assert _Drainer().feed(b'\n\n') == ['', '']
+
+    def test_cr_at_end_without_idle_is_retained(self):
+        d = _Drainer()
+        assert d.feed(b'prog\r') == []
+        assert d.buf == b'prog\r' and d.p._swallow_lf is False
+
+    def test_cr_at_end_with_idle_flushes_and_arms_swallow(self):
+        d = _Drainer()
+        assert d.feed(b'prog\r', idle=True) == ['prog']
+        assert d.buf == b'' and d.p._swallow_lf is True
+
+    def test_swallow_consumes_leading_lf(self):
+        d = _Drainer()
+        d.feed(b'prog\r', idle=True)
+        assert d.feed(b'\nmore\n') == ['prog', 'more']
+
+    def test_swallow_consumes_leading_crlf(self):
+        d = _Drainer()
+        d.feed(b'prog\r', idle=True)
+        assert d.feed(b'\r\nmore\n') == ['prog', 'more']
+
+    def test_swallow_consumes_only_one_lf(self):
+        # Second \n is a real empty line, not swallowed.
+        d = _Drainer()
+        d.feed(b'prog\r', idle=True)
+        assert d.feed(b'\n\nmore\n') == ['prog', '', 'more']
+
+    def test_swallow_with_no_leading_lf_keeps_content(self):
+        d = _Drainer()
+        d.feed(b'prog\r', idle=True)
+        assert d.feed(b'xyz\n') == ['prog', 'xyz']
+
+    def test_crlf_split_across_chunks_is_not_progress(self):
+        # \r held at a non-idle boundary must pair with the next chunk's \n
+        # as one CRLF line, never flush as progress then swallow.
+        d = _Drainer()
+        assert d.feed(b'abc\r') == [] and d.buf == b'abc\r'
+        assert d.feed(b'\ndef\n') == ['abc', 'def']
+
+    def test_partial_after_progress_is_retained_then_completed(self):
+        d = _Drainer()
+        assert d.feed(b'ab\rcd') == ['ab'] and d.buf == b'cd'
+        assert d.feed(b'ef\n') == ['ab', 'cdef']
+
+    def test_idle_keeps_trailing_partial_without_delimiter(self):
+        d = _Drainer()
+        assert d.feed(b'done\nrest', idle=True) == ['done']
+        assert d.buf == b'rest'
+
+    def test_eof_flushes_trailing_partial(self):
+        d = _Drainer()
+        assert d.feed(b'tail', eof=True) == ['tail'] and d.buf == b''
+
+    def test_eof_strips_trailing_cr(self):
+        d = _Drainer()
+        assert d.feed(b'tail\r', eof=True) == ['tail'] and d.buf == b''
+
+    def test_partial_without_delimiter_or_flags_is_buffered(self):
+        d = _Drainer()
+        assert d.feed(b'partial') == [] and d.buf == b'partial'
+
+    def test_many_tiny_lines(self):
+        # Stresses cursor advancement: thousands of single-byte lines in one chunk.
+        d = _Drainer()
+        lines = d.feed(b'x\n' * 5000)
+        assert lines == ['x'] * 5000 and d.buf == b''
+
+
 class TestNoForkptyDeprecationWarning:
     # The whole point of the Popen+pty.openpty rewrite was to kill this warning
     # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).

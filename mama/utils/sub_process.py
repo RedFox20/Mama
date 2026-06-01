@@ -127,30 +127,51 @@ class SubProcess:
         self._drain_buffer(buf, eof=True)
 
 
-    def _drain_buffer(self, buf, idle=False, eof=False):
+    def _drain_buffer(self, buf:bytearray, idle=False, eof=False):
         """Emit \\r- and \\n-delimited lines from buf. \\r alone is progress;
         \\r\\n and bare \\n are line endings (trailing \\r stripped). A \\r at
         buf end waits for more data unless idle/eof, then sets _swallow_lf so
-        the next chunk's leading \\n or \\r\\n (via PTY ONLCR) is consumed."""
-        emit = lambda end: self.io_func(self, bytes(buf[:end]).decode('utf-8', errors='replace'))
-        if self._swallow_lf and buf:
-            if len(buf) >= 2 and buf[0] == 0x0d and buf[1] == 0x0a: del buf[:2]
-            elif buf[0] == 0x0a: del buf[:1]
+        the next chunk's leading \\n or \\r\\n (via PTY ONLCR) is consumed.
+
+        Scans with a moving `pos` cursor and trims consumed bytes in one
+        trailing `del` instead of a `del buf[:k]` per emitted line."""
+        n = len(buf)
+        pos = 0
+        if self._swallow_lf and n:
+            if n >= 2 and buf[0] == 0x0d and buf[1] == 0x0a: pos = 2 # 0x0d = \r, 0x0a = \n
+            elif buf[0] == 0x0a: pos = 1
             self._swallow_lf = False
         while True:
-            cr = buf.find(b'\r')
+            cr = buf.find(b'\r', pos)
             if cr >= 0:
-                if cr + 1 < len(buf) and buf[cr + 1] != 0x0a:
-                    emit(cr); del buf[:cr + 1]; continue
-                if cr + 1 == len(buf) and (idle or eof):
-                    emit(cr); del buf[:cr + 1]; self._swallow_lf = True; continue
-            nl = buf.find(b'\n')
+                if cr + 1 < n and buf[cr + 1] != 0x0a:
+                    self._emit_io_out(buf[pos:cr]);
+                    pos = cr + 1;
+                    continue
+                if cr + 1 == n and (idle or eof):
+                    self._emit_io_out(buf[pos:cr]);
+                    pos = cr + 1;
+                    self._swallow_lf = True;
+                    continue
+            nl = buf.find(b'\n', pos)
             if nl >= 0:
-                end = nl - 1 if nl > 0 and buf[nl - 1] == 0x0d else nl
-                emit(end); del buf[:nl + 1]; continue
+                end = nl - 1 if nl > pos and buf[nl - 1] == 0x0d else nl
+                self._emit_io_out(buf[pos:end]);
+                pos = nl + 1;
+                continue
             break
-        if eof and buf:
-            emit(len(buf)); buf.clear()
+        if eof and pos < n:
+            self._emit_io_out(buf[pos:n]); pos = n
+        if pos: del buf[:pos]
+
+
+    def _emit_io_out(self, buf:bytearray):
+        if self.io_func:
+            try:
+                self.io_func(self, buf.decode('utf-8', errors='replace'))
+            except Exception as e:
+                # Capture so run() can surface it. Don't crash the reader thread.
+                self._reader_exc = e
 
 
     def write(self, text: str):

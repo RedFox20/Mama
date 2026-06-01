@@ -455,7 +455,7 @@ class BuildTarget:
         - as_includes_root -- if set, then this include_path is the root of all includes, any directory prefixes
                               are stripped. For example:
                               self.export_include('src/mylib', as_includes_root='mylib')
-                              --> 'deploy/include/mylib/\*' instead of 'deploy/include/src/mylib/\*'
+                              --> 'deploy/include/mylib/\\*' instead of 'deploy/include/src/mylib/\\*'
         """
         if includes_filter is not None:
             self.include_glob_filter = includes_filter
