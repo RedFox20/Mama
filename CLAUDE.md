@@ -133,3 +133,25 @@ loads.
   not where it's defined.
 - Always run the **full** suite (`python -m pytest tests/`) before committing.
   Total runtime ≈ 35 seconds.
+
+## Mandatory final-stage review
+
+**No feature, fix, or refactor is complete until the `mama-style-review`
+skill has run against the pending changes and reported 0 issues.** This is
+the last step of every task list, before the commit.
+
+How to apply, every session:
+1. After implementing the task and running tests, invoke the
+   `/mama-style-review` skill (or spawn a sub-agent with that skill's prompt).
+2. The skill reports findings as `<file>:<line> - <rule>: <fix>`.
+3. Apply the fixes, re-run the review. Loop until `REVIEW PASSED - 0 issues`.
+4. Only then commit.
+
+The skill checks: 130-col limit, no 3+ line single expressions, no break
+after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
+`normalized_path()` for paths, `SubProcess.run` over raw `subprocess.run`,
+helper-reuse vs duplication (especially against `util.py` /
+`utils/system.py`), and that any added behaviour has a test pinning it.
+
+Trivial-looking diffs still need this; they routinely sneak in over-length
+lines or em-dashes. No exceptions.
