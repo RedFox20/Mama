@@ -16,6 +16,85 @@ review passes with 0 issues.**
 The user has explicitly opted into this being the final stage of every task.
 Run automatically as the last todo item; loop until clean.
 
+## The work cycle (default behaviour for every task)
+
+```
+Edit -> Review -> Refactor -> Test -> (Edit) -> Review  [until 0 issues]
+```
+
+This is not optional, not "nice to have", not "for big changes". Every change
+set goes through this loop, including one-line fixes, including doc edits,
+including "trivial" diffs that look correct on first write. Verbosity and
+duplication appear most often exactly in the changes that "looked obviously
+fine". The cycle catches them.
+
+## Line count is a primary metric
+
+**Less code means fewer bugs.** When applying review findings, the success
+metric isn't "fixed the listed issues" - it's "net line count went down,
+materially". When the review finds duplication or verbose docstrings or
+boilerplate fixtures, the target is typically a **30-60% reduction** in the
+affected file. If a refactor doesn't move the line count meaningfully, the
+refactor was too timid.
+
+Concrete examples from this codebase (production reductions, all behaviour-preserving):
+- `test_noart_shim_cache.py`: 256 -> 110 lines (-57%)
+- `test_shim_load_integration.py`: 181 -> 64 lines (-65%)
+- `test_shim_guards.py`: 290 -> 138 lines (-52%)
+- `test_shim_probe.py`: 184 -> 81 lines (-56%)
+- `test_artifactory_404_status.py`: 131 -> 59 lines (-55%)
+
+Net across that pass: 16 files changed, **499 insertions / 1135 deletions**.
+260 tests still pass. The reductions came from the patterns documented below;
+the review skill exists to find more like them.
+
+## What worked (patterns to apply, not just to flag)
+
+When you find a violation, prefer these proven moves:
+
+1. **Hoist shared stub-builders into `tests/testutils.py`** (or `mama/util.py`
+   for production helpers). A second `def _make_dep(...)` in a new file is a
+   loud signal to extend the shared helper instead. Parameterise via
+   `**overrides` rather than copying.
+
+2. **Use pytest's `tmp_path` fixture** in place of `tempfile.mkdtemp() +
+   try/finally + shutil.rmtree(...)`. It's function-scoped, auto-cleaning,
+   and gives you a `pathlib.Path`. Saves 5-6 lines per test method.
+
+3. **`sys.path` bootstrap lives in `tests/conftest.py`, once.** Strip it from
+   every test file. One conftest line ate ten test files of boilerplate.
+
+4. **Module docstrings: 1 line.** The bug background, the fix design, the
+   why-this-was-tricky - all of that goes in the commit message. The test
+   file's docstring answers "what does this pin" in a sentence.
+
+5. **Drop tautological tests.** An assertion that can't fail regardless of
+   the code under test is noise. Example flagged this pass:
+   `test_load_does_not_set_did_check_artifactory_on_shim_miss` whose docstring
+   literally admitted it didn't really test anything. Delete it.
+
+6. **Comments explain WHY, never WHAT.** `# Marker still intact.` above
+   `assert dep.is_artifactory_shim()` adds nothing - the assertion is already
+   self-describing. Keep comments only when the choice would surprise a
+   reader (e.g. why ls-remote failure is treated as "cache fresh" not
+   "cache stale").
+
+7. **Inline trivial helpers; extract repeated ones.** Three identical patch
+   blocks across three tests = factor out. A single-use lambda used once =
+   inline. Aim for the median test method to fit in 5-10 lines.
+
+8. **Collapse multi-line single expressions** that fit on one or two lines.
+   `subprocess.Popen(\n  args, cwd=cwd, env=env,\n  stdin=PIPE, ...\n)`
+   broken across 6 lines is wrong when 2 lines fits 130 cols.
+
+9. **Class docstrings paraphrasing test methods - delete.** If
+   `class TestX` summarises what `test_x_does_y` already says by name, the
+   class docstring is noise.
+
+10. **Per-test docstrings only when an unusual invariant needs explaining.**
+    `test_404_does_not_wipe_git_status` does not need
+    `"""The bug: a 404 fetch was deleting git_status..."""` - the name says it.
+
 ## How to run
 
 1. **Inspect pending changes.** Combine staged + unstaged:

@@ -167,24 +167,34 @@ Don't repeat that:
 - **Patches scoped to the smallest needed block.** Repeated `with patch(...)`
   setup across tests in the same file is a fixture or helper opportunity.
 
-## Mandatory final-stage review
+## The work cycle (default behaviour for every change)
 
-**No feature, fix, or refactor is complete until the `mama-style-review`
-skill has run against the pending changes and reported 0 issues.** This is
-the last step of every task list, before the commit.
+```
+Edit -> Review -> Refactor -> Test -> (Edit) -> Review  [until 0 issues]
+```
 
-How to apply, every session:
-1. After implementing the task and running tests, invoke the
-   `/mama-style-review` skill (or spawn a sub-agent with that skill's prompt).
-2. The skill reports findings as `<file>:<line> - <rule>: <fix>`.
-3. Apply the fixes, re-run the review. Loop until `REVIEW PASSED - 0 issues`.
-4. Only then commit.
+**This loop is the default behaviour, not an option.** Every change set
+- one-line fixes, doc edits, "obviously trivial" diffs - goes through it.
+The skill exists because verbosity and duplication appear most often in
+the changes that looked fine on first write.
+
+Concretely, every task ends with:
+1. Implement the change + run the test suite.
+2. Invoke `/mama-style-review` (or spawn a sub-agent with that skill's
+   prompt). The skill reports findings as `<file>:<line> - <rule>: <fix>`.
+3. **Apply the fixes** - not just acknowledge them. Aim for the line-count
+   reduction the skill targets; that is the success metric, not "all
+   findings addressed".
+4. Re-run the suite, re-run the review. Loop until `REVIEW PASSED - 0 issues`.
+5. Only then commit.
 
 The skill checks: 130-col limit, no 3+ line single expressions, no break
 after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
 `normalized_path()` for paths, `SubProcess.run` over raw `subprocess.run`,
 helper-reuse vs duplication (especially against `util.py` /
-`utils/system.py`), and that any added behaviour has a test pinning it.
+`utils/system.py` / `tests/testutils.py`), terse test docstrings, drop
+tautological tests, and that any added behaviour has a test pinning it.
 
-Trivial-looking diffs still need this; they routinely sneak in over-length
-lines or em-dashes. No exceptions.
+**Less code means fewer bugs.** Reductions of 30-60% on a refactored file
+are normal when applying these rules; a refactor that doesn't move the
+line count meaningfully was too timid.
