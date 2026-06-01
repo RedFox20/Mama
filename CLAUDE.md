@@ -134,6 +134,39 @@ loads.
 - Always run the **full** suite (`python -m pytest tests/`) before committing.
   Total runtime ≈ 35 seconds.
 
+### Test code style
+
+The same brevity and DRY rules that apply to `mama/` apply to `tests/`. The
+historical bias was "tests are throwaway, verbosity is fine" - in this repo
+that bias compounded into ~13% removable noise across the new test suite.
+Don't repeat that:
+
+- **Shared stub-builders live in `tests/testutils.py`**, not duplicated
+  per-file. A second `def _make_dep(tmpdir): config = Mock(); ...` in a new
+  test file is a smell - check `testutils.py` first; extend or parameterise
+  the existing helper. The current `_make_dep` / `_make_target_with_status`
+  duplication across 6 shim/probe/noart/404 test files is the worst offender.
+- **Use pytest's `tmp_path` fixture**, not `tempfile.mkdtemp() + try /
+  shutil.rmtree() finally`. `tmp_path` is function-scoped, auto-cleans, and
+  is a `pathlib.Path` - shorter, no boilerplate, no chance of leaks.
+- **No `sys.path.insert(...)` boilerplate** in test files. `tests/conftest.py`
+  is the right place for any test-bootstrap path manipulation.
+- **Module docstring: 1-2 lines max, "what this file pins".** The bug
+  background, the fix design, the why-this-was-tricky - that's all in the
+  commit message. Don't duplicate it into the test file's docstring; it
+  rots faster there.
+- **No class docstrings that paraphrase what every test in the class checks.**
+  The test method names + their assertions already say it.
+- **Per-test docstrings only when an unusual invariant needs explaining.**
+  Don't write `"""The bug: a 404 fetch was deleting git_status..."""` above
+  `def test_404_does_not_wipe_git_status` - the name already conveys it.
+- **Comments explain WHY, not WHAT** - same rule as for `mama/` code. The
+  assertion already says what; only add a comment when the choice would
+  surprise a reader (e.g. why `ls-remote` failure is treated as
+  "cache still fresh" rather than "drop the cache").
+- **Patches scoped to the smallest needed block.** Repeated `with patch(...)`
+  setup across tests in the same file is a fixture or helper opportunity.
+
 ## Mandatory final-stage review
 
 **No feature, fix, or refactor is complete until the `mama-style-review`

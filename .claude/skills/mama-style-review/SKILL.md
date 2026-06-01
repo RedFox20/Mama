@@ -110,6 +110,56 @@ grep -rn 'Color\.YELLOW' mama/ | grep -v 'utils/system.py'
 - When patching: `patch('mama.<module>.<name>')` - patch where the name is
   LOOKED UP, not where it's defined.
 
+### Test verbosity / duplication (specific patterns to flag)
+
+The same brevity rules apply to tests. These patterns sneaked in across the
+new shim/probe/noart/404/sub_process test files and must not return:
+
+- **Duplicate `_make_dep` / `_make_target` helpers** across multiple test
+  files. Look in `tests/testutils.py` first; extend that. Flag any
+  per-file stub-builder that mirrors another file's.
+  ```bash
+  grep -rn 'def _make_dep\|def _make_target\|def _make_shim' tests/
+  ```
+  More than one site of the same intent = finding.
+
+- **`tempfile.mkdtemp() ... try ... finally: shutil.rmtree(...)`** patterns
+  in test methods. Use pytest's `tmp_path` fixture instead - it's
+  function-scoped, auto-cleans, and is a `pathlib.Path`.
+  ```bash
+  grep -rn 'tempfile.mkdtemp\|shutil.rmtree' tests/
+  ```
+
+- **`sys.path.insert(...)`** at the top of test files. Belongs in
+  `tests/conftest.py`, exactly once.
+  ```bash
+  grep -rn 'sys\.path\.insert' tests/
+  ```
+
+- **Module docstring longer than 2 lines.** Background/history belongs in
+  the commit message, not the test file. The docstring should answer
+  "what does this file pin?" in a sentence.
+
+- **Class docstrings that paraphrase the test methods.** If
+  `class TestX` has a docstring that summarises what every
+  `test_x_does_y` method already says by name, delete the class docstring.
+
+- **Per-test docstrings that just re-English the test name.**
+  `test_404_does_not_wipe_git_status` with docstring "The bug: a 404
+  fetch was deleting git_status..." - the name already says it. Keep
+  docstrings only when there's a subtle invariant or counter-intuitive
+  expectation to explain.
+
+- **Comments that narrate WHAT the assertion checks.**
+  `# Marker still intact.` above `assert dep.is_artifactory_shim()` -
+  the assertion is already self-describing. Comments only earn their
+  keep when they say WHY (e.g. why we treat ls-remote failure as
+  "cache fresh" instead of "cache stale").
+
+- **Repeated `with patch(...)` setup across tests in the same file.**
+  Extract to a fixture or helper method when the same three patches
+  appear three or more times.
+
 ### Commit style
 - Single-line `<type>: <message>`. Types: `feature`, `fix`, `refactor`,
   `release`, `cleanup`, `docs`. (Note: it's `feature`, NOT `feat`.)
