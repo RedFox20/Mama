@@ -456,10 +456,10 @@ class BuildConfig:
         Coverage builds add '-coverage' and sanitizer builds add a further
         suffix, eg 'linux-coverage', 'linux-asan' or 'linux-coverage-asan'.
         """
-        # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
         return self._platform_build_dir_name() + self.build_dir_suffix()
 
 
+    # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
     def _platform_build_dir_name(self):
         if self.msvc:
             if self.is_target_arch_x64(): return self.build_dir_win64()
