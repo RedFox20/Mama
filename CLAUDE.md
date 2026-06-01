@@ -89,7 +89,7 @@ loads.
 ## Git commit style
 
 - Single line, `<type>: <message>` prefix. Examples:
-  `feat:`, `fix:`, `refactor:`, `release:`, `cleanup:`.
+  `feature:`, `fix:`, `refactor:`, `release:`, `cleanup:`.
 - No `Co-Authored-By` trailer in this repo (different from many others).
 - Atomic commits: one logical change per commit. Bug fix + refactor → two
   commits, even when in one session.
