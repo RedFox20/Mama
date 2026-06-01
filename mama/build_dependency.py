@@ -267,6 +267,41 @@ class BuildDependency:
         self._is_shim_cache = False
 
 
+    def try_load_cached_shim(self):
+        """noart path: honour an existing shim's local cache without fetching from
+        artifactory. Probes upstream commit via ls-remote; if it matches the shim's
+        stored hash, loads exports from the cached papa.txt and returns the configured
+        BuildTarget. If upstream advanced, removes the stale marker so the caller's
+        git path takes over (clone+build). Returns None on any cache miss/staleness."""
+        from .artifactory import artifactory_load_target  # local import: avoid cycle
+        from .build_target import BuildTarget
+        from .types.git import Git
+
+        if not self.is_artifactory_shim(): return None
+
+        marker = self.read_shim_marker()
+        stored_hash = marker.get('hash', '')
+        if not stored_hash: return None
+
+        git: Git = self.dep_source
+        # ls-remote is a cheap remote-ref probe, not a package fetch - allowed under noart.
+        current_hash = git.init_commit_hash(self, use_cache=False, fetch_remote=True)
+        if current_hash and current_hash != stored_hash:
+            if self.config.print:
+                console(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}', color=Color.YELLOW)
+            self.remove_shim_marker()
+            return None
+
+        probe_target = BuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
+        fetched, dependencies = artifactory_load_target(probe_target, self.build_dir, num_files_copied=0)
+        if not fetched: return None
+        if dependencies:
+            for dep_source in dependencies: self.add_child(dep_source)
+        if self.config.print:
+            console(f'  - Target {self.name: <16} SHIM CACHED {marker.get("archive", "")}', color=Color.GREEN)
+        return probe_target
+
+
     def create_build_dir_if_needed(self):
         if not os.path.exists(self.build_dir): # check to avoid Access Denied errors
             os.makedirs(self.build_dir, exist_ok=True)
@@ -323,13 +358,26 @@ class BuildDependency:
         loaded_from_pkg = False
         git_changed = False
 
+        # noart + existing shim: honour the cached papa.txt without fetching anything.
+        # ls-remote still runs to detect staleness; mismatch drops the marker so the
+        # caller's git path takes over (clone+build from source).
+        if not self.is_root and self.dep_source.is_git \
+                and self.config.disable_artifactory \
+                and self.is_artifactory_shim():
+            cached = self.try_load_cached_shim()
+            if cached is not None:
+                self.target = cached
+                self.did_check_artifactory = True
+                loaded_from_pkg = True
+
         # Try artifactory shim BEFORE the expensive git clone.
         # For non-root git deps with no existing working tree, probe artifactory
         # using the commit hash from `git ls-remote` (no clone). On hit, load
         # papa.txt exports/deps and skip clone. If a real clone already exists,
         # we skip the shim probe - the user already paid the clone cost and
         # the regular update path (fetch+reset) is the right call.
-        if not self.is_root and self.dep_source.is_git \
+        if not loaded_from_pkg \
+                and not self.is_root and self.dep_source.is_git \
                 and not self.is_real_clone() \
                 and self.can_fetch_artifactory(print=False, which='SHIM'):
             shim_target, shim_deps = try_load_artifactory_shim(self)
