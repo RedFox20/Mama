@@ -1,5 +1,8 @@
 import os
 import sys
 
-# Add the tests directory to sys.path so test files can import testutils directly
-sys.path.insert(0, os.path.dirname(__file__))
+# Tests/ for `import testutils`, project root for `from mama.x import y` -
+# saves every new test file from repeating the same sys.path.insert dance.
+_here = os.path.dirname(__file__)
+sys.path.insert(0, _here)
+sys.path.insert(0, os.path.abspath(os.path.join(_here, '..')))

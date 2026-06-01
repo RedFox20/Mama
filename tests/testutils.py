@@ -3,9 +3,87 @@ import shutil
 import subprocess
 import sys
 from typing import Iterable, Optional
+from unittest.mock import Mock
 
 import mama
 import pytest
+
+
+def make_mock_config(tmp_path, **overrides):
+    """Mock BuildConfig pre-populated with the defaults every shim/probe/dep
+    unit test needs. Pass kwargs to override specific fields per test."""
+    cfg = Mock()
+    cfg.artifactory_ftp = 'ftp.example.com'
+    cfg.workspaces_root = str(tmp_path)
+    cfg.global_workspace = False
+    cfg.platform_build_dir_name.return_value = 'linux'
+    cfg.verbose = False
+    cfg.print = False
+    cfg.loaded_dependencies = {}
+    cfg.target_matches.return_value = False
+    cfg.force_artifactory = False
+    cfg.disable_artifactory = False
+    cfg.is_network_available.return_value = True
+    cfg.update_stats = Mock()
+    # commands off by default - tests opt in explicitly
+    cfg.build = False
+    cfg.update = False
+    cfg.clean = False
+    cfg.rebuild = False
+    cfg.run_cmake_configure = False
+    cfg.target = None
+    cfg.list = False
+    # platform aliases (BuildTarget.__init__ pokes these)
+    cfg.msvc = False
+    cfg.linux = True
+    cfg.macos = False
+    cfg.ios = False
+    cfg.android = None
+    cfg.raspi = False
+    cfg.oclea = None
+    cfg.xilinx = None
+    cfg.mips = None
+    cfg.imx8mp = None
+    cfg.yocto_linux = None
+    cfg.debug = False
+    cfg.prefer_ninja = False
+    cfg.ninja_path = ''
+    cfg.cmake_command = 'cmake'
+    # artifactory_archive_name uses these
+    cfg.get_distro_info.return_value = ('ubuntu', 22, 4)
+    cfg.compiler_version.return_value = 'gcc11.3'
+    cfg.arch = 'x64'
+    cfg.release = True
+    cfg.sanitize = None
+    cfg.sanitizer_suffix.return_value = ''
+    for k, v in overrides.items(): setattr(cfg, k, v)
+    return cfg
+
+
+def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
+                  branch='main', tag='', mamafile=None, **config_overrides):
+    """Real BuildDependency wired to a mock BuildConfig + a Git dep_source.
+    Used by shim/probe/load-integration/noart tests that need real
+    is_artifactory_shim() / shim-marker semantics on disk."""
+    from mama.build_dependency import BuildDependency
+    from mama.types.git import Git
+    config = make_mock_config(tmp_path, **config_overrides)
+    git = Git(name=name, url=url, branch=branch, tag=tag, mamafile=mamafile, shallow=True, args=[])
+    dep = BuildDependency(parent=None, config=config, workspace='packages', dep_source=git)
+    dep.is_root = False  # tests rarely have a real parent chain
+    dep.create_build_dir_if_needed()
+    return dep
+
+
+def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **config_overrides):
+    """make_mock_dep + a shim marker already written. Optionally seeds papa.txt
+    so artifactory_load_target can parse it (for noart cache-hit tests)."""
+    dep = make_mock_dep(tmp_path, **config_overrides)
+    dep.write_shim_marker(archive_name=f'libfoo-linux-22-gcc11.3-x64-release-{stored_hash}',
+                          commit_hash=stored_hash)
+    if write_papa_txt:
+        (tmp_path / 'packages/libfoo/linux/papa.txt').write_text('p libfoo\nv 1.0\n')
+    return dep
 
 def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
     # Needed for mama commands to perform work in the correct directory

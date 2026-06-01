@@ -8,7 +8,7 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console, Color
+from .utils.system import System, console, Color, warning
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -1504,14 +1504,38 @@ class BuildTarget:
         if not (for_all or no_targets or one_target):
             return # not going to deploy
 
+        # Shim is read-only: its papa.txt and unzipped tree must not be overwritten
+        # by a re-deploy or re-upload. The artifactory already has the package.
+        if self.dep.is_artifactory_shim():
+            if self.config.print:
+                warning(f'  - Target {self.name: <16} DEPLOY skipped (artifactory shim)')
+                console(f'    To repackage from source, run: mama unshallow {self.name}')
+            return
+
         self.deploy() # user customization
 
         if self.config.upload:
             papa_upload_to(self, self.papa_path)
 
 
+    def _require_source(self, action: str) -> bool:
+        """
+        For commands that need source on disk (test, start, open),
+        refuse on shims with a clear message pointing at `mama unshallow`.
+        Returns True if the action may proceed, False if it was refused.
+        """
+        if not self.dep.is_artifactory_shim():
+            return True
+        if self.config.print:
+            warning(f'  - Target {self.name: <16} {action.upper()} skipped: artifactory shim has no source on disk')
+            console(f'    To fetch source, run: mama unshallow {self.name}')
+        return False
+
+
     def _execute_run_tasks(self):
         if self.is_test_target():
+            if not self._require_source('test'):
+                return
             test_args = self.config.test.lstrip()
             if self.config.test_until_failure > 0:
                 start = time.time()
@@ -1532,6 +1556,8 @@ class BuildTarget:
         if self.config.start:
             # start only if it's the current target or root target
             if self.is_current_target() or (self.dep.is_root and self.config.no_specific_target()):
+                if not self._require_source('start'):
+                    return
                 start_args = self.config.start.lstrip()
                 if self.config.print: console(f'  - Starting {self.name} {start_args}')
                 self.start(start_args)

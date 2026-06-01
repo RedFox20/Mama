@@ -344,7 +344,7 @@ class GnuProject:
         """ Copies a file or symlink preserving their attributes and relative symlinks """
         if os.path.islink(src_file):
             link = os.readlink(src_file)
-            #console(f'link: {dst_file} -> {link}', color=Color.YELLOW)
+            #warning(f'link: {dst_file} -> {link}')
             os.remove(dst_file)
             os.symlink(link, dst_file)
         else:
@@ -409,7 +409,7 @@ class GnuProject:
         if count > 0:
             console(f'>>> Deployed {src_dir} to {dest_dir}', color=Color.GREEN)
         else:
-            console(f'>>> No files to deploy from {src_dir}', color=Color.YELLOW)
+            warning(f'>>> No files to deploy from {src_dir}')
 
 
 ######################################################################################

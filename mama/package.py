@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
-from .utils.system import console, System, Color
+from .utils.system import console, System, Color, warning
 from .util import normalized_path, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
@@ -124,15 +124,15 @@ def clean_intermediate_files(target: BuildTarget):
     should_clean = False
 
     if target.clean_intermediate_files:
-        if config.verbose: console('  clean_intermediate [target.clean_intermediate_files]', color=Color.YELLOW)
+        if config.verbose: warning('  clean_intermediate [target.clean_intermediate_files]')
         should_clean = True
     # always clean the intermediate files if we just did an upload operation
     elif config.upload:
-        if config.verbose: console('  clean_intermediate [config.upload]', color=Color.YELLOW)
+        if config.verbose: warning('  clean_intermediate [config.upload]')
         should_clean = True
     # do automatic cleaning if we did not do a targeted build -- this was an automatic build from source
     elif (config.build or config.rebuild or config.update) and config.no_specific_target():
-        if config.verbose: console('  clean_intermediate [dependency build cleanup]', color=Color.YELLOW)
+        if config.verbose: warning('  clean_intermediate [dependency build cleanup]')
         should_clean = True
 
     if not should_clean:
@@ -141,7 +141,7 @@ def clean_intermediate_files(target: BuildTarget):
     files_to_clean = glob_with_extensions(target.build_dir(), ['.obj', '.o'])
     if files_to_clean:
         if target.config.print:
-            console(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}', color=Color.YELLOW)
+            warning(f'Cleaning {len(files_to_clean)} intermediate files in {target.build_dir()}')
         for file in files_to_clean:
             if os.path.isfile(file):
                 os.remove(file)
@@ -245,7 +245,7 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
             return True
         else:
             raise
-    console(f'WARNING: SysLib {name} not found for target {target.name}, ignoring.', color=Color.YELLOW)
+    warning(f'WARNING: SysLib {name} not found for target {target.name}, ignoring.')
     return False
 
 

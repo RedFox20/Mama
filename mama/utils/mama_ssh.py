@@ -21,7 +21,7 @@ import os
 import sys
 
 # Allow running as a standalone script, not just as a package module.
-# Important: do NOT put `<...>/mama` on sys.path — `mama/types/` would then
+# Important: do NOT put `<...>/mama` on sys.path - `mama/types/` would then
 # shadow Python's stdlib `types` module the moment anything (e.g. contextlib)
 # does `from types import ...`. Add the package's PARENT instead, so that
 # `mama.utils.ssh_multiplex` resolves as a normal qualified import.

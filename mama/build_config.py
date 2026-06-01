@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, platform, psutil, shutil
+import os, sys, tempfile, platform, psutil, shutil, threading, time
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -8,7 +8,7 @@ from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
 import mama.util as util
-from .utils.system import System, console, Color
+from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
 
 if System.linux:
@@ -16,6 +16,54 @@ if System.linux:
 
 if TYPE_CHECKING:
     from .build_dependency import BuildDependency
+
+class UpdateStats:
+    """Counts and times clone/pull/shim-fetch activity during the load phase."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.cloned = 0
+        self.pulled = 0
+        self.shim_fetched = 0
+        self._start = None
+        self._duration = 0.0
+
+    def start(self):
+        self._start = time.monotonic()
+
+    def stop(self):
+        if self._start is not None:
+            self._duration = time.monotonic() - self._start
+            self._start = None
+
+    def record_clone(self):
+        with self._lock: self.cloned += 1
+
+    def record_pull(self):
+        with self._lock: self.pulled += 1
+
+    def record_shim(self):
+        with self._lock: self.shim_fetched += 1
+
+    @property
+    def total(self) -> int:
+        return self.cloned + self.pulled + self.shim_fetched
+
+    @property
+    def duration(self) -> float:
+        return self._duration
+
+    def summary_line(self) -> str:
+        """One-line summary, or '' if nothing happened."""
+        if self.total == 0:
+            return ''
+        parts = []
+        if self.shim_fetched: parts.append(f'{self.shim_fetched} shim-fetched')
+        if self.pulled:       parts.append(f'{self.pulled} pulled')
+        if self.cloned:       parts.append(f'{self.cloned} cloned')
+        # Local import to avoid circular dependency with util
+        from .util import get_time_str
+        return f'Updated {self.total} target(s): {", ".join(parts)} in {get_time_str(self._duration)}'
+
 
 ###
 # Mama Build Configuration is created only once in the root project working directory
@@ -54,6 +102,7 @@ class BuildConfig:
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
+        self.update_stats = UpdateStats() # clone/pull/shim counters for the load phase summary
         self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
         # supported platforms
@@ -124,6 +173,7 @@ class BuildConfig:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
         else:
             self.workspaces_root = os.getenv('HOME')
+        self._network_available = None  # None=untested, True/False=result
         self.unused_args = []
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.parse_args(args)
@@ -699,7 +749,7 @@ class BuildConfig:
                 if self.print: console(f'Using clang-tidy from {CLANG_TIDY_ENV} env: {clang_tidy_env}', color=Color.GREEN)
                 return
             else:
-                console(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!', color=Color.YELLOW)
+                warning(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!')
 
         # if android root has been configured, check if clang-tidy exists in the android toolchain bin dir
         if self.android:
@@ -718,8 +768,8 @@ class BuildConfig:
             return
 
         self.clang_tidy_path = None
-        console('clang-tidy not found! Static analysis will be disabled.', color=Color.YELLOW)
-        console('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>', color=Color.YELLOW)
+        warning('clang-tidy not found! Static analysis will be disabled.')
+        warning('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>')
 
 
     def add_sanitizer_option(self, option):
@@ -1183,4 +1233,13 @@ Define env RASPI_HOME with path to Raspberry tools.''')
     def no_specific_target(self) -> bool:
         """ True if no target or 'all' was specified from cmdline """
         return self.no_target() or self.targets_all()
+
+    def is_network_available(self) -> bool:
+        """Lazily cached: True until a clearly network-related failure marks it False."""
+        return self._network_available is not False
+
+    def mark_network_unavailable(self):
+        if self._network_available is not False:
+            if self.print: warning('  Network unavailable - using cached packages where possible')
+            self._network_available = False
 

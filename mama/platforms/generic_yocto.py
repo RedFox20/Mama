@@ -121,10 +121,10 @@ class GenericYocto:
             # add some helpful debug messages on potentially broken toolchain configurations
             if found_compiler and not found_sysroot:
                 if self.config.print:
-                    console(f'Found compiler at {yocto_compiler} but sysroot not found at {yocto_sysroot}', color=Color.YELLOW)
+                    warning(f'Found compiler at {yocto_compiler} but sysroot not found at {yocto_sysroot}')
             elif not found_compiler and found_sysroot:
                 if self.config.print:
-                    console(f'Found sysroot at {yocto_sysroot} but compiler not found at {yocto_compiler}', color=Color.YELLOW)
+                    warning(f'Found sysroot at {yocto_sysroot} but compiler not found at {yocto_compiler}')
 
         # fallback
         if not self.toolchain_file and toolchain_file:

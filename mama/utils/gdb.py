@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 import os
-from .system import console, Color
+from .system import console, Color, warning
 from .run import get_cwd_exe_args
 from .sub_process import execute_echo
 
@@ -38,7 +38,7 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
     if target.msvc:
         debugger = f'{exe} {args}'
     elif _is_running_leak_sanitizer(target):
-        console('LEAK/ADDRESS sanitizer was enabled - GDB would disable LEAK detection, running without GDB', color=Color.YELLOW)
+        warning('LEAK/ADDRESS sanitizer was enabled - GDB would disable LEAK detection, running without GDB')
         debugger = f'{exe} {args}'
     elif target.macos:
         # b: batch, q: quiet, -o r: run

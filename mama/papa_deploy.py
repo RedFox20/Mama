@@ -9,7 +9,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 
 from .util import normalized_path, normalized_join, read_lines_from \
-                , write_text_to, console, copy_if_needed, copy_dir
+                , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
 
 import mama.package as package
 
@@ -124,11 +124,18 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 
 def papa_deploy_to(target:BuildTarget, package_full_path:str,
-                   r_includes:bool, r_dylibs:bool, 
+                   r_includes:bool, r_dylibs:bool,
                    r_syslibs:bool, r_assets:bool):
     config = target.config
     detail_echo = config.print and target.is_current_target() and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
+
+    # Defense-in-depth: never write into a directory holding a shim marker. A
+    # misconfigured caller could pass the shim's build_dir directly, which would
+    # corrupt the artifactory snapshot (papa.txt + unzipped tree) the next mama
+    # run depends on. The proper deploy-skip lives in _execute_deploy_tasks.
+    if has_shim_marker(package_full_path):
+        raise RuntimeError(f'papa_deploy refused: {package_full_path} contains a mama_shim marker.')
 
     dependencies = _gather_dependencies(target)
 

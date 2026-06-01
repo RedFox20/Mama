@@ -2,7 +2,7 @@
 import sys, os
 
 from .types.local_source import LocalSource
-from .utils.system import Color, console
+from .utils.system import Color, console, warning
 from .utils.sub_process import execute, execute_piped_echo
 from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
@@ -121,7 +121,13 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     found = root_dependency if name == 'root' else find_dependency(root_dependency, name)
     if not found:
         raise KeyError(f'No project named {name}')
-    
+
+    # `mama open <shim>` has no source dir to open; tell the user how to materialize one.
+    if found.is_artifactory_shim():
+        warning(f'Target {found.name} is an artifactory shim - no source files available locally.')
+        console(f'To fetch source, run: mama unshallow {found.name}')
+        return
+
     if config.msvc:
         solutions = glob_with_extensions(found.build_dir, ['.sln'])
         if solutions:
@@ -205,7 +211,7 @@ def run_coverage_report(target: BuildTarget):
         # instead stdout must be checked for coverage report success or failure separately
         status, _ = execute_piped_echo(cwd=target.source_dir(), cmd=cmd, echo=True)
         if status != 0:
-            console(f'WARNING: gcovr exited {status} - coverage report may be incomplete', color=Color.YELLOW)
+            warning(f'WARNING: gcovr exited {status} - coverage report may be incomplete')
     except Exception as e:
         console(f'ERROR: Coverage report failed: {e}', color=Color.RED)
 

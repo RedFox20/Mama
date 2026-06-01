@@ -1,16 +1,15 @@
 from __future__ import annotations
 import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
-from urllib.error import HTTPError
 
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
-from .utils.system import Color, System, console, error
+from .utils.system import Color, System, console, error, warning
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip
+from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
 
 
@@ -170,6 +169,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
     size = os.path.getsize(file_path)
     transferred = 0
     lastpercent = 0
+    indent = f'  - {target_name: <16} '
     with open(file_path, 'rb') as f:
         def print_progress(bytes):
             nonlocal transferred, lastpercent, size
@@ -180,8 +180,8 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 n = int(percent / 2)
                 left = '=' * n
                 right = ' ' * int(50 - n)
-                print(f'\r    |{left}>{right}| {percent:>3} %', end='')
-        print(f'    |>{" ":50}| {0:>3} %', end='')
+                console(f'\r{indent}|{left}>{right}| {percent:>3} %', end='')
+        console(f'{indent}|>{" ":50}| {0:>3} %', end='')
         # chdir into FTP_ROOT/target_name/
         try:
             ftp.cwd(target_name)
@@ -189,7 +189,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
             ftp.mkd(target_name) # create subdirectory if needed
             ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
-        print(f'\r    |{"="*50}>| 100 %')
+        console(f'\r{indent}|{"="*50}>| 100 %')
 
 
 def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:str):
@@ -270,11 +270,16 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
 
 
 def _fetch_package(target:BuildTarget, url, archive, cache_dir):
+    if not target.config.is_network_available():
+        return None
     remote_file = f'http://{url}/{target.name}/{archive}.zip'
     try:
-        return download_file(remote_file, cache_dir, force=True, 
-                             message=f'    Artifactory fetch {url}/{archive} ')
+        return download_file(remote_file, cache_dir, force=True,
+                             message=f'  - {target.name: <16} Artifactory fetch {url}/{archive} ',
+                             name=target.name)
     except Exception as e:
+        if is_network_error(e):
+            target.config.mark_network_unavailable()
         if target.config.verbose or target.config.force_artifactory:
             error(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
 
@@ -283,14 +288,11 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
         if d.is_pkg:
             raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
 
-        # if server gives us 404, then we need to wipe the git_status and re-initialize
-        # the dependency source from scratch
-        if d.is_git:
-            d: Git = d
-            if isinstance(e, HTTPError) and e.code == 404:
-                if target.config.verbose:
-                    error(f'    Resetting Git status file: {target.name}')
-                d.reset_status(target.dep)
+        # NB: a 404 here for a git dep is normal (no prebuilt archive uploaded
+        # for the current commit). DO NOT wipe git_status - check_status already
+        # detects url/tag/branch/commit changes from the mamafile; wiping the
+        # status causes the *next* `mama update` to falsely report 'SCM change
+        # detected' and trigger a full rebuild of an already-up-to-date dep.
 
         return None
 
@@ -317,7 +319,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     archive = artifactory_archive_name(target)
     if not archive:
         return (False, None)
-    
+
     cache_dir = target.dep.dep_dir #target.dep.workspace
     local_file = normalized_join(cache_dir, f'{archive}.zip')
 
@@ -334,5 +336,67 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     local_file = _fetch_package(target, url, archive, cache_dir)
     if not local_file:
         return (False, None)
-    console(f'    Artifactory unzip {archive}')
+    console(f'  - {target.name: <16} Artifactory unzip {archive}')
     return unzip_and_load_target(target, local_file)
+
+
+def try_load_artifactory_shim(dep) -> Tuple:
+    """
+    Probe artifactory for a prebuilt package using the commit hash resolved via
+    `git ls-remote` (no clone). On hit, construct a default BuildTarget, load
+    papa.txt exports/deps into it, write the shim marker, and return the target
+    plus its child dep_sources.
+
+    On miss (or when artifactory is not configured), returns (None, None) and
+    leaves dep state untouched so the caller can fall back to the clone path.
+
+    Returns (target_or_None, dep_sources_or_None).
+    """
+    from .build_target import BuildTarget  # local import to avoid cycle
+
+    config = dep.config
+    if not config.artifactory_ftp:
+        return (None, None)
+    if not dep.dep_source.is_git:
+        return (None, None)
+
+    git: Git = dep.dep_source
+
+    # Resolve commit hash without cloning. `init_commit_hash` already supports
+    # ls-remote and respects the stored git_status cache when `update` is not set.
+    commit_hash = git.init_commit_hash(dep, use_cache=True, fetch_remote=True)
+    if not commit_hash:
+        if config.verbose:
+            warning(f'    {dep.name}  shim probe: could not resolve commit hash')
+        return (None, None)
+    git.commit_hash = commit_hash  # cache for downstream consumers
+
+    # First probe: commit-hash-based archive name. Works for the common case.
+    probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
+    fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
+
+    # Fallback: dep may pin target.version (e.g. boost 1.60), so its archive
+    # name doesn't include the commit hash. Sparse-fetch only the mamafile,
+    # grep self.version, and re-probe with that version.
+    if not fetched:
+        version = git.fetch_self_version_from_remote(dep)
+        if version:
+            if config.verbose:
+                warning(f'    {dep.name}  shim probe: retrying with self.version={version}')
+            probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
+            probe_target.version = version
+            fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
+
+    if not fetched:
+        # Reset any side effect on the dep so the clone path can run cleanly.
+        dep.from_artifactory = False
+        return (None, None)
+
+    # Hit: persist marker and return the configured target.
+    archive = artifactory_archive_name(probe_target)
+    dep.write_shim_marker(archive_name=archive or '', commit_hash=commit_hash)
+    config.update_stats.record_shim()
+    if config.print:
+        console(f'  - Target {dep.name: <16} SHIM FETCHED {archive}', color=Color.GREEN)
+
+    return (probe_target, dependencies)

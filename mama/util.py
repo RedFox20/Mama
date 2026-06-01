@@ -7,6 +7,14 @@ from urllib import request
 from datetime import datetime
 from dateutil import tz
 
+MAMA_SHIM_FILENAME = 'mama_shim'
+
+
+def has_shim_marker(directory: str) -> bool:
+    """True if `directory` contains a mama_shim marker file."""
+    return os.path.exists(os.path.join(directory, MAMA_SHIM_FILENAME))
+
+
 def is_file_modified(src: str, dst: str):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
            os.path.getsize(src) == os.path.getsize(dst)
@@ -199,10 +207,17 @@ def get_time_str(seconds: float):
     return f'{int(seconds/(24*60*60))}d {int((seconds%(24*60*60))/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
 
 
-def download_file(remote_url:str, local_dir:str, force=False, message=None):
+def download_file(remote_url:str, local_dir:str, force=False, message=None, name:str=None):
+    """Downloads remote_url into local_dir.
+    - force=False: use any existing local file without contacting the server.
+    - force=True:  open the connection and compare Content-Length; skip the
+      body transfer when sizes match (used for artifactory fetches so we don't
+      re-download archives already on disk).
+    - name: optional target name for prefixing log lines under parallel updates."""
     local_file = os.path.join(local_dir, os.path.basename(remote_url))
-    if not force and os.path.exists(local_file): # download file?
-        console(f"    Using locally cached {local_file}")
+    indent = f'  - {name: <16} ' if name else '    '
+    if not force and os.path.exists(local_file):
+        console(f'{indent}Using locally cached {local_file}')
         return local_file
     start = time.time()
     if not os.path.exists(local_dir):
@@ -219,8 +234,18 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
     with request.urlopen(remote_url, context=ctx, timeout=5) as urlfile:
         size = urlfile.info()['Content-Length']
         size = int(size.strip()) if size else None
+
+        # Size-match cache: skip the body transfer entirely when the local
+        # file matches the remote Content-Length. Costs one HTTP round-trip
+        # (already paid by opening the connection); saves the whole body.
+        if size is not None and os.path.exists(local_file) \
+                and os.path.getsize(local_file) == size:
+            console(f'{indent}Artifactory CACHE (size-match) '
+                    f'{os.path.basename(local_file)} ({get_file_size_str(size)})')
+            return local_file
+
         if not message: message = f'Downloading {remote_url}'
-        print(f'{message} {get_file_size_str(size) if size else "unknown size"}')
+        console(f'{message} {get_file_size_str(size) if size else "unknown size"}')
         if not size:
             return None
 
@@ -230,7 +255,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
         report_interval = max(1, int((100*1024*1024) / size))
         transferred = 0
         lastpercent = 0
-        print(f'    |{" ":50}<| {0:>3}%', end='')
+        console(f'{indent}|{" ":50}<| {0:>3}%', end='')
         with open(local_file, 'wb') as output:
             while transferred < size:
                 data = urlfile.read(32*1024) # large chunks plz
@@ -245,12 +270,12 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None):
                         right = '=' * n
                         left = ' ' * int(50 - n)
                         elapsed = time.time() - start
-                        print(f'\r    |{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
+                        console(f'\r{indent}|{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
 
     # report actual percent here, just incase something goes wrong
     elapsed = time.time() - start
     percent = int((transferred / size) * 100.0)
-    print(f'\r    |<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
+    console(f'\r{indent}|<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
     return local_file
 
 
@@ -470,4 +495,55 @@ def copy_if_needed(src: str, dst: str, filter: list = None) -> bool:
         return copy_dir(src, dst, filter)
     else:
         return copy_file(src, dst, filter)
+
+
+def is_network_error(e: Exception) -> bool:
+    """
+    Returns True only if the exception clearly indicates network unavailability
+    (DNS failure, connection refused/reset, timeout). Returns False for auth
+    errors (SSH key rejected, HTTP 401/403), HTTP 404, and anything ambiguous.
+    """
+    import subprocess, socket
+    from urllib.error import HTTPError, URLError
+
+    if isinstance(e, subprocess.TimeoutExpired):
+        return True
+    if isinstance(e, HTTPError):
+        return False
+    if isinstance(e, URLError):
+        reason = getattr(e, 'reason', None)
+        if isinstance(reason, (socket.timeout, socket.gaierror,
+                               ConnectionRefusedError, ConnectionResetError,
+                               TimeoutError, OSError)):
+            return True
+        return not isinstance(reason, str)
+    if isinstance(e, (ConnectionRefusedError, ConnectionResetError,
+                      TimeoutError, socket.timeout, socket.gaierror)):
+        return True
+    if isinstance(e, OSError):
+        import errno
+        if e.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH,
+                       errno.ECONNREFUSED, errno.ETIMEDOUT, errno.ECONNRESET):
+            return True
+
+    msg = str(e).lower()
+    auth_patterns = [
+        'permission denied', 'authentication failed',
+        'host key verification failed',
+        'returned error: 401', 'returned error: 403',
+        'invalid credentials',
+    ]
+    for p in auth_patterns:
+        if p in msg:
+            return False
+    network_patterns = [
+        'could not resolve host', 'connection refused',
+        'connection timed out', 'network is unreachable',
+        'no route to host', 'name or service not known',
+        'temporary failure in name resolution', 'connection reset',
+    ]
+    for p in network_patterns:
+        if p in msg:
+            return True
+    return False
 

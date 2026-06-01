@@ -1,215 +1,212 @@
-import os, shlex, shutil
-from signal import SIGTERM
-from errno import ECHILD
+import os, shlex, shutil, threading
 import subprocess
-from time import sleep
-from .nonblocking_io import set_nonblocking
 from .system import System, console, error
+
+
+# Linux/macOS: we allocate a PTY for the child so git etc. still see a TTY
+# (preserves progress output and isatty checks). The pty.openpty() syscall
+# does NOT fork - it just creates a master/slave fd pair - so it's safe to
+# call from a worker thread. subprocess.Popen does the actual fork via
+# posix_spawn/vfork which is multi-thread-safe, unlike the older os.forkpty
+# which Python 3.12 flags with a DeprecationWarning specifically because of
+# the threaded-deadlock risk.
+if not System.windows:
+    import pty
 
 
 class SubProcess:
     """
-    An alternative to subprocess.Popen with redirectable IO
-    using fork and forktty on UNIX.
+    Subprocess wrapper with optional line-by-line output capture.
 
-    Windows version uses standard subprocess.Popen with pipes
+    With ``io_func`` set, child's combined stdout+stderr is fed to ``io_func``
+    one line at a time by a background reader thread. On UNIX a PTY is
+    allocated so the child sees a TTY (gets coloured/progress output).
 
-    Any redirected stdout/stderr which needs to retain its
-    terminal colors etc, should use this SubProcess
+    Without ``io_func``, the child inherits the parent's stdout/stderr -
+    used for things like `mama test` where output should flow directly.
+
+    Replaces the previous os.fork/os.forkpty-based implementation which
+    was unsafe in multi-threaded programs (Python 3.12 deprecation warning,
+    real deadlocks under heavy parallel load).
     """
-    def __init__(self, cmd, cwd, env=None, io_func=None):
+    def __init__(self, cmd, cwd=None, env=None, io_func=None):
         self.io_func = io_func
         self.status = None
+        self.process = None
+        self._reader_thread = None
+        self._reader_exc = None        # exception raised inside io_func (re-raised in run())
+        self._master_fd = None         # UNIX PTY master fd; None on Windows or no-io_func paths
 
         env = env if env else os.environ.copy()
-        args = shlex.split(cmd)
+        args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
 
+        # Resolve the executable ourselves so we don't have to ask the shell
+        # (avoids shell quoting/escaping pitfalls; same logic as before).
         executable = args[0]
-        if os.path.isfile(executable): # it's something like `./run_tests` or `/usr/bin/gcc`
+        if os.path.isfile(executable):
             executable = os.path.abspath(executable)
         elif System.windows and os.path.isfile(executable + '.exe'):
             executable = os.path.abspath(executable + '.exe')
-        else: # lookup from PATH
-            executable = shutil.which(args[0])
-            if not executable:
-                raise OSError(f"SubProcess failed to start: {args[0]} not found in PATH")
+        else:
+            resolved = shutil.which(executable)
+            if not resolved:
+                raise OSError(f"SubProcess failed to start: {executable} not found in PATH")
+            executable = resolved
         args[0] = executable
 
-        if System.windows:
-            self.process = None
-            try:
-                stdout = subprocess.PIPE if io_func else None
-                stderr = subprocess.STDOUT if io_func else None
-                self.process = subprocess.Popen(args, cwd=cwd, env=env, shell=True,
-                                                universal_newlines=True,
-                                                stdout=stdout,
-                                                stderr=stderr)
-            except Exception as e:
-                raise RuntimeError(f"Popen failed {args}: {e}")
-        else: # all UNIX based systems support fork or forkpty
-            # FD visible only for the parent process, 
-            # and can be used to read the child PTY output
-            self.parent_fd = 0
-            if io_func:
-                self.pid, self.parent_fd = os.forkpty()
-            else:
-                self.pid = os.fork()
+        if io_func is None:
+            # No capture: child inherits parent's stdio (terminal direct).
+            self.process = subprocess.Popen(args, cwd=cwd, env=env)
+            return
 
-            # 0: inside the child process, PID inside the parent process
-            if self.pid == -1:
-                raise OSError(f"SubProcess failed to start: {cmd}")
-            elif self.pid == 0: # child process:
-                if cwd: os.chdir(cwd)
-                # execve: universal, but requires full path to program
-                os.execve(executable, args, env)
-            else: # parent process:
-                # set the parent FD as non-blocking, otherwise the async tasks will never finish
-                set_nonblocking(self.parent_fd)
+        if System.windows:
+            # No PTY on Windows; merge stderr into stdout pipe, read line by line.
+            # text + bufsize=1 gives line-buffered Unicode lines on the parent side.
+            self.process = subprocess.Popen(args, cwd=cwd, env=env,
+                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, bufsize=1)
+        else:
+            # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
+            self._master_fd, slave = pty.openpty()
+            try:
+                self.process = subprocess.Popen(args, cwd=cwd, env=env,
+                                                stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+            finally:
+                os.close(slave) # parent doesn't need the slave once Popen has it
+
+        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader_thread.start()
+
+
+    def _read_loop(self):
+        try:
+            if self._master_fd is not None:
+                self._read_loop_pty()
+            else:
+                self._read_loop_pipe()
+        except Exception as e:
+            # Capture so run() can surface it. Don't crash the reader thread.
+            self._reader_exc = e
+
+
+    def _read_loop_pty(self):
+        """Drain the PTY master until the child closes the slave end."""
+        buf = bytearray()
+        try:
+            while True:
+                try:
+                    chunk = os.read(self._master_fd, 8192)
+                except OSError:
+                    # On Linux a closed slave produces EIO on the master. Treat as EOF.
+                    break
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                while True:
+                    nl = buf.find(b'\n')
+                    if nl < 0:
+                        break
+                    line = bytes(buf[:nl]).decode('utf-8', errors='replace').rstrip('\r')
+                    self.io_func(self, line)
+                    del buf[:nl + 1]
+        finally:
+            if buf:
+                line = bytes(buf).decode('utf-8', errors='replace').rstrip('\r')
+                self.io_func(self, line)
+
+
+    def _read_loop_pipe(self):
+        """Drain the stdout pipe (Windows path)."""
+        stdout = self.process.stdout
+        if not stdout:
+            return
+        for line in stdout:
+            self.io_func(self, line.rstrip('\r\n'))
+
+
+    def write(self, text: str):
+        """Send `text` to the child's stdin (used for interactive prompts
+        like SSH host-key acceptance)."""
+        if self._master_fd is not None:
+            os.write(self._master_fd, text.encode('utf-8'))
+        elif self.process and self.process.stdin and not self.process.stdin.closed:
+            try:
+                self.process.stdin.write(text)
+                self.process.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+
+
+    def kill(self):
+        if self.process and self.process.poll() is None:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    self.process.kill()
+                    self.process.wait(timeout=1.0)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
 
     def close(self):
         self.kill()
-        if System.windows:
-            self.process.wait(1.0)
-            self.process = None
-        else:
-            if self.parent_fd:
-                os.close(self.parent_fd)
-                self.parent_fd = 0
-
-
-    def kill(self):
-        if System.windows:
-            self.process.kill()
-        else:
-            pid, self.pid = (self.pid, 0)
-            if pid > 0:
-                try:
-                    os.kill(pid, SIGTERM)
-                except:
-                    pass
+        # Reader thread exits when the PTY master sees EOF (slave closed by
+        # the child or by Popen's __exit__). Join briefly to drain any
+        # trailing buffered output the io_func hasn't seen yet.
+        if self._reader_thread:
+            self._reader_thread.join(timeout=2.0)
+            self._reader_thread = None
+        if self._master_fd is not None:
+            try:
+                os.close(self._master_fd)
+            except OSError:
+                pass
+            self._master_fd = None
 
 
     def try_wait(self):
-        """ Returns EXIT_STATUS int if process has finished, otherwise None """
-        if System.windows:
-            self.status = self.process.poll()
+        """Returns the exit status if the child has finished, else None.
+        Kept for backwards-compat with callers that used the old polling API."""
+        if self.process is None:
             return self.status
-        else:
-            try:
-                r, status = os.waitpid(self.pid, os.WNOHANG)
-                if r == self.pid: # r == pid: process finished
-                    self.status = self._handle_exitstatus(status)
-            except OSError as e:
-                if e.errno == ECHILD:
-                    self.status = -1 # ECHILD: no such child
-            return self.status
+        rc = self.process.poll()
+        if rc is not None:
+            self.status = rc
+        return self.status
 
-
-    def _handle_exitstatus(self, status):
-        if os.WIFSIGNALED(status):
-            return -os.WTERMSIG(status)
-        elif os.WIFEXITED(status):
-            return os.WEXITSTATUS(status)
-        return -1
-
-
-    def _parse_lines(self, text: str):
-        end = len(text)
-        start = 0
-        line = ''
-        while start < end:
-            current = text.find('\n', start)
-            if current != -1:
-                eol = current
-                if (eol-start) > 0 and text[eol-1] == '\r':
-                    eol -= 1 # drop the '\r'
-                line = text[start:eol]
-                start = current + 1
-            else: # last token:
-                line = text[start:]
-                start = end
-            self.io_func(self, line)
-
-
-    def read_output(self) -> bool:
-        """ 
-        Returns TRUE if output was read.
-        Calls self.io_func(line) for every line that was read.
-        Newlines are INCLUDED.
-        """
-        try:
-            if System.windows:
-                if not self.process.stdout or self.process.stdout.closed:
-                    return False
-
-                text = self.process.stdout.readline()
-                # console(f'line: {text} status={self.process.poll()}', end='')
-                got_bytes = len(text) > 0
-                if self.io_func and got_bytes:
-                    self._parse_lines(text)
-                return got_bytes
-            else:
-                if not self.parent_fd:
-                    return False
-
-                data: bytes = os.read(self.parent_fd, 8192)
-                got_bytes = len(data) > 0
-                if self.io_func and got_bytes:
-                    text = data.decode()
-                    self._parse_lines(text)
-                return got_bytes
-        except OSError as _:
-            # when in non-blocking IO, EAGAIN will be thrown if there's no data
-            # and when the other process closes the pipes
-            return False
-
-
-    def read_outputs(self, max_blocks=-1) -> bool:
-        """ Reads output multiple times until max_blocks calls of read_output() are done """
-        num_reads = 0
-        while self.read_output():
-            num_reads += 1
-            if max_blocks != -1 and num_reads >= max_blocks:
-                break # we've read enough
-        return num_reads > 0
-
-    def write(self, text: str):
-        """ Writes the text to the process stdin """
-        if System.windows:
-            if self.process.stdin and not self.process.stdin.closed:
-                self.process.stdin.write(text)
-        elif self.parent_fd:
-            os.write(self.parent_fd, text.encode())
 
     @staticmethod
-    def run(cmd, cwd=None, env=None, io_func=None):
+    def run(cmd, cwd=None, env=None, io_func=None, timeout=None):
         """
-        Runs the titled sub-process with `cmd` using fork or forktty if io_func is set
-        - cmd: full command string
-        - cwd: working dir for the subprocess
-        - env: execution environment, or None for default env
-        - io_func: if set, this callback will receive SubProcess p reference and each line from output
-                   if None, then output is echoed as normal to stdout/stderr
-
-        ```
-        SubProcess.run('tool', 'cmake xyz', env)
-        SubProcess.run('tool', 'cmake xyz', io_func=lambda p, line: print(line))
-        ```
+        Runs `cmd` and returns its exit status.
+        - cmd:     command string (shlex.split) or list of args.
+        - cwd:     working directory for the child.
+        - env:     environment dict, defaults to os.environ.
+        - io_func: callback `(SubProcess, line:str)` for each output line;
+                   if None, child inherits parent's std streams.
+        - timeout: kill the child after this many seconds (raises
+                   subprocess.TimeoutExpired). Default: no timeout.
         """
-        p = SubProcess(cmd, cwd, env=env, io_func=io_func)
+        p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
         try:
-            while p.try_wait() is None:
-                p.read_outputs(max_blocks=1)
-                sleep(0.01)
-            p.read_outputs() # read any trailing output
+            try:
+                p.status = p.process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                raise
         finally:
             p.close()
+            if p._reader_exc is not None:
+                raise p._reader_exc
         return p.status
 
 
 def execute(command, echo=False, throw=True):
-    """ 
+    """
     Executes a command and returns the status code.
     - command: command string
     - echo: if True, prints the command to console
@@ -223,7 +220,6 @@ def execute(command, echo=False, throw=True):
     return retcode
 
 
-# TODO: use new SubProcess.run instead
 def execute_piped(command, cwd=None, timeout=None, throw=True):
     """
     Executes a command and returns the piped outout string
