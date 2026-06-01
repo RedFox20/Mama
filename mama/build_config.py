@@ -749,7 +749,7 @@ class BuildConfig:
                 if self.print: console(f'Using clang-tidy from {CLANG_TIDY_ENV} env: {clang_tidy_env}', color=Color.GREEN)
                 return
             else:
-                console(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!', color=Color.YELLOW)
+                warning(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!')
 
         # if android root has been configured, check if clang-tidy exists in the android toolchain bin dir
         if self.android:
@@ -768,8 +768,8 @@ class BuildConfig:
             return
 
         self.clang_tidy_path = None
-        console('clang-tidy not found! Static analysis will be disabled.', color=Color.YELLOW)
-        console('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>', color=Color.YELLOW)
+        warning('clang-tidy not found! Static analysis will be disabled.')
+        warning('install clang-tidy and add to PATH or define env CLANG_TIDY=<path>')
 
 
     def add_sanitizer_option(self, option):
@@ -1242,6 +1242,6 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         if self._network_available is not False:
             if self.print:
                 from .utils.system import console, Color
-                console('  Network unavailable — using cached packages where possible', color=Color.YELLOW)
+                warning('  Network unavailable - using cached packages where possible')
             self._network_available = False
 

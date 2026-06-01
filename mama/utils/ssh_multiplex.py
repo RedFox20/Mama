@@ -108,9 +108,9 @@ def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
 def probe_ssh_config(ssh_args: list[str], timeout: float = 5.0) -> dict[str, str]:
     """
     Run `ssh -G <ssh_args>` and return effective config (lower-cased keys).
-    Empty dict on failure — probe must never block the build.
+    Empty dict on failure - probe must never block the build.
 
-    `ssh_args` is whatever you'd pass to ssh after `-G` — typically just
+    `ssh_args` is whatever you'd pass to ssh after `-G` - typically just
     `[f'{user}@{host}']`, optionally with `-p PORT` etc.
     """
     try:
@@ -141,7 +141,7 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
 
 def multiplex_known_broken() -> bool:
     """Native Windows: skip multiplex entirely. Microsoft OpenSSH's
-    ControlMaster is unreliable in practice — `mux_client_request_session:
+    ControlMaster is unreliable in practice - `mux_client_request_session:
     read from master failed: Connection reset by peer` mid-fetch and stale
     `ControlSocket ... already exists, disabling multiplexing` after a master
     drops. WSL/Cygwin/Git-Bash run as Linux from Python's POV
@@ -217,7 +217,7 @@ def ensure_master_for_url(url: str) -> None:
             # Pre-warm failed (auth declined, network blip, host key prompt,
             # MFA timeout). If we left ControlMaster/ControlPath in opts,
             # every subsequent fetch would race to BECOME the master and
-            # we'd trigger N concurrent auths instead of one — the exact
+            # we'd trigger N concurrent auths instead of one - the exact
             # thing multiplexing is meant to prevent. Strip the multiplex
             # flags so each fetch makes its own simple connection.
             opts = [o for o in opts
@@ -229,7 +229,7 @@ def ensure_master_for_url(url: str) -> None:
         with _state_lock:
             _warmed[ep] = {'opts': opts, 'we_own_master': we_own_master}
 
-        # Only install the wrapper when there's something for it to do —
+        # Only install the wrapper when there's something for it to do -
         # otherwise it's a fork+exec per git op for no benefit.
         if opts:
             _set_git_ssh_command()
@@ -244,7 +244,7 @@ def _master_control_args(opts: list[str]) -> list[str]:
 def _start_master(user: str, host: str, port: str | None, opts: list[str]) -> bool:
     """
     Open a master in the background with `ssh -fN` and verify it's listening
-    via `ssh -O check`. Returns True only if the master is confirmed ready —
+    via `ssh -O check`. Returns True only if the master is confirmed ready -
     callers should downgrade to non-multiplexed mode on False so concurrent
     fetches don't all race to be the master and trigger N parallel auths.
     """
@@ -313,7 +313,7 @@ atexit.register(cleanup_masters)
 
 
 def _set_git_ssh_command() -> None:
-    # If GIT_SSH_COMMAND is already set we leave it alone — either the user
+    # If GIT_SSH_COMMAND is already set we leave it alone - either the user
     # made an explicit choice or we already installed our wrapper.
     if os.environ.get('GIT_SSH_COMMAND'):
         return

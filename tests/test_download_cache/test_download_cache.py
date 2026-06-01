@@ -40,7 +40,7 @@ class TestSizeMatchCache:
         cached_path = tmp_path / 'archive.zip'
         cached_path.write_bytes(b'x' * 1024)
 
-        # Server says 1024 bytes — same as local. download_file should not
+        # Server says 1024 bytes - same as local. download_file should not
         # read any bytes from the body.
         opened = _mock_urlopen(b'NEW' * 100, content_length=1024)
         opened.read = MagicMock(side_effect=AssertionError('body should not be read'))

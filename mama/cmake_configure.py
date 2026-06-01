@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
-from .utils.system import System, console, Color
+from .utils.system import System, console, Color, warning
 from .utils.sub_process import SubProcess, execute_piped_echo
 from mama import util
 
@@ -62,7 +62,7 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
             if 'CXX' in os.environ:
                 del os.environ['CXX']  # remove CXX env var to avoid conflicts, since CMake prioritizes this option
     elif 'CC' in os.environ or 'CXX' in os.environ:
-        console('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set', color=Color.YELLOW)
+        warning('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set')
 
 
 def _opts_to_defines(opts:list[str]) -> str:

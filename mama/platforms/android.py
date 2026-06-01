@@ -153,7 +153,7 @@ class Android:
                 for subdir in subdirs:
                     if self.ndk_version and not subdir.startswith(self.ndk_version):
                         if self.config.verbose:
-                            console(f'Skipping NDK version {subdir} since it does not match the requested version {self.ndk_version}', color=Color.YELLOW)
+                            warning(f'Skipping NDK version {subdir} since it does not match the requested version {self.ndk_version}')
                         continue # skip if subdir doesn't match the requested NDK version
                     if os.path.exists(f'{sdk_path}/ndk/{subdir}/{ndk_build}'):
                         self.ndk_version = subdir

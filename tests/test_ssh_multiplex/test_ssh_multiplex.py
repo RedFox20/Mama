@@ -50,7 +50,7 @@ class TestParseSshEndpoint:
         assert sm.parse_ssh_endpoint('/srv/repos/foo.git') is None
 
     def test_relative_path_rejected(self):
-        # 'foo/bar.git' has no colon — not scp-style, no scheme.
+        # 'foo/bar.git' has no colon - not scp-style, no scheme.
         assert sm.parse_ssh_endpoint('foo/bar.git') is None
 
     def test_empty_url(self):
@@ -163,7 +163,7 @@ class TestOptionsToAdd:
     def test_windows_user_configured_multiplex_respected(self, monkeypatch):
         # If the user has multiplex explicitly configured (e.g. via
         # ~/.ssh/config pointing at Cygwin ssh) we respect their config and
-        # don't add anything — even on Windows.
+        # don't add anything - even on Windows.
         monkeypatch.setattr(sm.System, 'windows', True)
         probe = {
             'controlmaster': 'auto', 'controlpath': '~/.ssh/sockets/%C',
@@ -171,7 +171,7 @@ class TestOptionsToAdd:
         }
         opts, we_own = sm.options_to_add(probe)
         assert we_own is False
-        assert opts == [], 'user has full config — we add nothing'
+        assert opts == [], 'user has full config - we add nothing'
 
 
 class TestMultiplexKnownBroken:
@@ -261,7 +261,7 @@ class TestEnsureMasterIdempotent:
     def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
         # When _start_master fails, we MUST clear ControlMaster/Path/Persist
         # from opts. Otherwise N parallel fetches would race to be the master
-        # and trigger N concurrent auths — the exact thing this is meant to
+        # and trigger N concurrent auths - the exact thing this is meant to
         # prevent.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -315,7 +315,7 @@ class TestEnsureMasterIdempotent:
 class TestWrapperPathSafety:
     """Regression: running mama_ssh.py as a script must not shadow stdlib
     modules. Earlier versions inserted `<...>/mama` onto sys.path, which made
-    `mama/types/` shadow Python's stdlib `types` module — breaking `contextlib`
+    `mama/types/` shadow Python's stdlib `types` module - breaking `contextlib`
     on uv-installed Pythons that hadn't pre-imported it."""
 
     def test_invocation_does_not_put_mama_dir_on_syspath(self, tmp_path):
@@ -348,7 +348,7 @@ class TestWrapperPathSafety:
         assert marker, f'probe did not produce output. stderr={cp.stderr!r}'
         path = json.loads(marker[-1][len('PATH_PROBE:'):])
         assert mama_dir not in path, (
-            f'{mama_dir!r} ended up on sys.path — `mama/types/` would shadow '
+            f'{mama_dir!r} ended up on sys.path - `mama/types/` would shadow '
             f'stdlib `types`. sys.path={path!r}')
 
 
@@ -374,7 +374,7 @@ class TestWrapperMain:
                        'git@github.com', "git-upload-pack 'foo/bar.git'"])
         prog, argv = execed
         assert prog == 'ssh'
-        # No options added — user already has everything.
+        # No options added - user already has everything.
         assert argv == ['ssh', '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
                         "git-upload-pack 'foo/bar.git'"]
 

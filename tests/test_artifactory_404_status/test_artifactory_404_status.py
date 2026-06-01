@@ -1,10 +1,10 @@
 """Regression test for the 'SCM change detected on second mama update' bug.
 
-Background: when artifactory returned 404 for a git dep (normal — there's just
+Background: when artifactory returned 404 for a git dep (normal - there's just
 no prebuilt archive for the current commit), the previous _fetch_package code
 deleted the git_status file via Git.reset_status(). The next ``mama update``
 then read an empty status, treated the dep as first-time, and printed
-``Pulling X SCM change detected`` followed by a full rebuild — even though
+``Pulling X SCM change detected`` followed by a full rebuild - even though
 nothing in the source had changed.
 
 This test pins the corrected behaviour: a 404 on a git dep MUST NOT touch
@@ -76,7 +76,7 @@ def test_404_does_not_wipe_git_status():
 
         assert result is None, 'fetch must report miss'
         assert os.path.exists(status_path), (
-            'git_status was deleted on 404 — this is the regression bug. '
+            'git_status was deleted on 404 - this is the regression bug. '
             'A 404 means "no archive for this commit", not "git source is stale".'
         )
     finally:
@@ -84,7 +84,7 @@ def test_404_does_not_wipe_git_status():
 
 
 def test_404_on_is_pkg_still_raises():
-    """For an artifactory-only pkg dep (not git), a 404 IS fatal —
+    """For an artifactory-only pkg dep (not git), a 404 IS fatal -
     those URLs must exist."""
     from mama.types.artifactory_pkg import ArtifactoryPkg
     tmpdir = tempfile.mkdtemp(prefix='mama_404_test_')
@@ -115,7 +115,7 @@ def test_404_on_is_pkg_still_raises():
 
 
 def test_non_404_network_error_does_not_wipe_git_status_either():
-    """Connection refused / timeout should also leave status untouched —
+    """Connection refused / timeout should also leave status untouched -
     these are transient and shouldn't trigger a spurious rebuild later."""
     tmpdir = tempfile.mkdtemp(prefix='mama_404_test_')
     try:

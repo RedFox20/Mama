@@ -8,7 +8,7 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console, Color
+from .utils.system import System, console, Color, warning
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -1508,7 +1508,7 @@ class BuildTarget:
         # by a re-deploy or re-upload. The artifactory already has the package.
         if self.dep.is_artifactory_shim():
             if self.config.print:
-                console(f'  - Target {self.name: <16} DEPLOY skipped (artifactory shim)', color=Color.YELLOW)
+                warning(f'  - Target {self.name: <16} DEPLOY skipped (artifactory shim)')
                 console(f'    To repackage from source, run: mama unshallow {self.name}')
             return
 
@@ -1527,8 +1527,7 @@ class BuildTarget:
         if not self.dep.is_artifactory_shim():
             return True
         if self.config.print:
-            console(f'  - Target {self.name: <16} {action.upper()} skipped: artifactory shim has no source on disk',
-                    color=Color.YELLOW)
+            warning(f'  - Target {self.name: <16} {action.upper()} skipped: artifactory shim has no source on disk')
             console(f'    To fetch source, run: mama unshallow {self.name}')
         return False
 

@@ -1,7 +1,7 @@
 """Unit tests for ``mama.util.get_time_str``.
 
-This formatter is used in several places — build timings, download progress,
-and (newly) clone progress — so its boundary behaviour matters. None of the
+This formatter is used in several places - build timings, download progress,
+and (newly) clone progress - so its boundary behaviour matters. None of the
 existing test suites covered it, so these pin down the format at each scale
 boundary (ms / s / m / h / d) and at the transitions between them.
 """
@@ -29,7 +29,7 @@ from mama.util import get_time_str  # noqa: E402
     (42,       '42.0s'),
     (59.9,     '59.9s'),
 
-    # 1m–59m: 'Xm Ys' (note the space — already established project style)
+    # 1m–59m: 'Xm Ys' (note the space - already established project style)
     (60,       '1m 0s'),
     (67,       '1m 7s'),    # the example from the user request
     (125,      '2m 5s'),

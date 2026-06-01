@@ -7,7 +7,7 @@ sparse-clones just the dep's mamafile, greps ``self.version``, and re-probes
 artifactory with that explicit version.
 
 These tests cover:
-* the regex extraction (literal quotes only — f-strings/computed values miss)
+* the regex extraction (literal quotes only - f-strings/computed values miss)
 * the shim probe falling through to the version-based probe on hash miss
 * the shim probe NOT calling the sparse-fetch when the hash probe hits
 * full miss still falling through cleanly to the clone path

@@ -28,7 +28,7 @@ def _make_dep(tmpdir):
     config.target_matches.return_value = False
     config.force_artifactory = False
     config.disable_artifactory = False
-    # commands off — pure load-only run
+    # commands off - pure load-only run
     config.build = False
     config.update = False
     config.clean = False

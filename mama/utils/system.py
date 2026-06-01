@@ -71,3 +71,8 @@ def error(text:str):
     """ Prints a message as an error, usually colored red """
     console(text, color=Color.RED)
 
+
+def warning(text:str):
+    """ Prints a message as a warning, colored yellow """
+    console(text, color=Color.YELLOW)
+

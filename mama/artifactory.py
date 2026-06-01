@@ -7,7 +7,7 @@ from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
-from .utils.system import Color, System, console, error
+from .utils.system import Color, System, console, error, warning
 import mama.package as package
 from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
@@ -367,7 +367,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
     commit_hash = git.init_commit_hash(dep, use_cache=True, fetch_remote=True)
     if not commit_hash:
         if config.verbose:
-            console(f'    {dep.name}  shim probe: could not resolve commit hash', color=Color.YELLOW)
+            warning(f'    {dep.name}  shim probe: could not resolve commit hash')
         return (None, None)
     git.commit_hash = commit_hash  # cache for downstream consumers
 
@@ -382,7 +382,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
         version = git.fetch_self_version_from_remote(dep)
         if version:
             if config.verbose:
-                console(f'    {dep.name}  shim probe: retrying with self.version={version}', color=Color.YELLOW)
+                warning(f'    {dep.name}  shim probe: retrying with self.version={version}')
             probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
             probe_target.version = version
             fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
