@@ -62,25 +62,17 @@ class SubProcess:
         if System.windows:
             # No PTY on Windows; merge stderr into stdout pipe, read line by line.
             # text + bufsize=1 gives line-buffered Unicode lines on the parent side.
-            self.process = subprocess.Popen(
-                args, cwd=cwd, env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True, bufsize=1, universal_newlines=True,
-            )
+            self.process = subprocess.Popen(args, cwd=cwd, env=env,
+                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, bufsize=1, universal_newlines=True)
         else:
             # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
             self._master_fd, slave = pty.openpty()
             try:
-                self.process = subprocess.Popen(
-                    args, cwd=cwd, env=env,
-                    stdin=slave, stdout=slave, stderr=slave,
-                    close_fds=True,
-                )
+                self.process = subprocess.Popen(args, cwd=cwd, env=env,
+                                                stdin=slave, stdout=slave, stderr=slave, close_fds=True)
             finally:
-                # Parent doesn't need the slave once Popen has it.
-                os.close(slave)
+                os.close(slave) # parent doesn't need the slave once Popen has it
 
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()

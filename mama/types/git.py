@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import os, shutil, stat, string, time, re, tempfile, subprocess
 from .dep_source import DepSource
-from ..utils.system import Color, System, console, error
+from ..utils.system import Color, System, console, error, warning
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error, get_time_str, normalized_path
@@ -71,7 +71,7 @@ class Git(DepSource):
             return 1
         cmd = f"git {git_command}"
         if dep.config.verbose:
-            console(f'  {dep.name: <16} {cmd}', color=Color.YELLOW)
+            warning(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         # Capture and prefix each line so parallel updates don't tear and the
         # user can see which target said what (e.g. 'remote: Enumerating ...').
@@ -153,9 +153,9 @@ class Git(DepSource):
                 # subprocess.run, not SubProcess.run: see docstring above.
                 # stderr=DEVNULL drops the lazy-fetch's `remote: ...` noise.
                 try:
+                    # 10s is plenty: the clone is already done, this is a <1KB blob fetch via the same connection.
                     cp = subprocess.run(['git', '-C', tmp, 'show', f'HEAD:{mamafile_name}'],
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                        timeout=30)
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
                 except subprocess.TimeoutExpired:
                     if dep.config.verbose: error(f'  {dep.name: <16} PROBE timed out fetching mamafile')
                     return None
@@ -216,7 +216,7 @@ class Git(DepSource):
                     result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
                 if result: result = result.split(' ')[0][0:7]
                 if dep.config.verbose:
-                    console(f'    {self.name}  git ls-remote {self.url} {arguments}: {result}', color=Color.YELLOW)
+                    warning(f'    {self.name}  git ls-remote {self.url} {arguments}: {result}')
                 return result
             except Exception as e:
                 if is_network_error(e):
@@ -438,7 +438,7 @@ class Git(DepSource):
         else:
             if not dep.config.is_network_available():
                 if dep.config.print:
-                    console(f"  - Target {dep.name: <16} SKIP PULL (network unavailable, using cached source)", color=Color.YELLOW)
+                    warning(f"  - Target {dep.name: <16} SKIP PULL (network unavailable, using cached source)")
                 return
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
@@ -472,13 +472,13 @@ class Git(DepSource):
         if not is_shallow:
             _, output = execute_piped_echo(dep.src_dir, 'git config remote.origin.fetch', echo=False)
             if dep.config.verbose:
-                console(f'  {dep.name: <16} remote.origin.fetch: {output.strip()}', color=Color.YELLOW)
+                warning(f'  {dep.name: <16} remote.origin.fetch: {output.strip()}')
             if not output or not output.startswith('+refs/heads/*'):
                 is_shallow = True # likely a shallow clone
 
         if is_shallow:
             if dep.config.print:
-                console(f'  - Unshallowing {dep.name}', color=Color.YELLOW)
+                warning(f'  - Unshallowing {dep.name}')
             self.run_git(dep, 'config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"')
             self.run_git(dep, 'remote update')
             # this last step is allowed to fail, just in case it was
@@ -517,7 +517,7 @@ class Git(DepSource):
             non_update_target = is_target and not config.update
             if non_update_target or not changed:
                 if config.verbose:
-                    console(f'    {self.name} git no changes detected and update not specified', color=Color.YELLOW)
+                    warning(f'    {self.name} git no changes detected and update not specified')
                 return False
 
         self.clone_or_pull(dep, wiped)

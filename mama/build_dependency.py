@@ -5,14 +5,12 @@ import os, sys, shutil, time
 from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
-from .utils.system import Color, console, error
+from .utils.system import Color, console, error, warning
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
-from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from
+from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
+                  MAMA_SHIM_FILENAME, has_shim_marker # noqa: F401 re-export for tests
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
-
-
-MAMA_SHIM_FILENAME = 'mama_shim'
 
 
 if TYPE_CHECKING:
@@ -288,7 +286,7 @@ class BuildDependency:
         current_hash = git.init_commit_hash(self, use_cache=False, fetch_remote=True)
         if current_hash and current_hash != stored_hash:
             if self.config.print:
-                console(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}', color=Color.YELLOW)
+                warning(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}')
             self.remove_shim_marker()
             return None
 
@@ -340,81 +338,79 @@ class BuildDependency:
         return False
 
 
+    def _try_artifactory_shim(self) -> bool:
+        """Pre-clone artifactory load for non-root git deps. Either honours a
+        cached shim (under noart) or probes artifactory via ls-remote. Returns
+        True when the dep was satisfied without a clone."""
+        # noart + existing shim: use cached papa.txt; ls-remote still detects
+        # staleness, and a mismatch drops the marker so the caller's git path
+        # takes over (clone+build from source).
+        if self.config.disable_artifactory and self.is_artifactory_shim():
+            cached = self.try_load_cached_shim()
+            if cached is not None:
+                self.target = cached
+                self.did_check_artifactory = True
+                return True
+        # Regular shim probe: skip when a real clone already exists - for an
+        # already-cloned dep the regular update path (fetch+reset) is correct.
+        if not self.is_real_clone() and self.can_fetch_artifactory(print=False, which='SHIM'):
+            shim_target, shim_deps = try_load_artifactory_shim(self)
+            if shim_target is not None:
+                self.target = shim_target
+                self.did_check_artifactory = True
+                if shim_deps:
+                    for dep_source in shim_deps: self.add_child(dep_source)
+                return True
+        return False
+
+
+    def _try_artifactory_load(self, target) -> bool:
+        """Post-clone artifactory probe. Catches the target.version case where
+        the archive name isn't predictable until the mamafile has been parsed."""
+        if not self.should_load_artifactory(): return False
+        if self.can_fetch_artifactory(print=True, which='LOAD'):
+            self.did_check_artifactory = True
+            fetched, dependencies = artifactory_fetch_and_reconfigure(target)
+            if fetched:
+                for dep_name in dependencies: self.add_child(dep_name)
+                return True
+            if self.dep_source.is_pkg:
+                raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
+        elif self.is_force_art_target():
+            raise RuntimeError(f'  - Target {self.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
+        return False
+
+
     def _load(self):
         conf = self.config
         if conf.verbose:
             console(f'  - Target {self.name: <16} LOAD ({self.dep_source.get_type_string()})', color=Color.BLUE)
 
         is_target = self.is_current_target()
-
-        # for root targets, always load the BuildTarget immediately, we need the root workspace from its mamafile
-        if self.is_root:
-            target = self._load_target()
-        # for non-root targets, only create the required dirs
-        else:
-            self._update_dep_name_and_dirs(self.name)
-            self.create_build_dir_if_needed()
-
         loaded_from_pkg = False
         git_changed = False
 
-        # noart + existing shim: honour the cached papa.txt without fetching anything.
-        # ls-remote still runs to detect staleness; mismatch drops the marker so the
-        # caller's git path takes over (clone+build from source).
-        if not self.is_root and self.dep_source.is_git \
-                and self.config.disable_artifactory \
-                and self.is_artifactory_shim():
-            cached = self.try_load_cached_shim()
-            if cached is not None:
-                self.target = cached
-                self.did_check_artifactory = True
-                loaded_from_pkg = True
-
-        # Try artifactory shim BEFORE the expensive git clone.
-        # For non-root git deps with no existing working tree, probe artifactory
-        # using the commit hash from `git ls-remote` (no clone). On hit, load
-        # papa.txt exports/deps and skip clone. If a real clone already exists,
-        # we skip the shim probe - the user already paid the clone cost and
-        # the regular update path (fetch+reset) is the right call.
-        if not loaded_from_pkg \
-                and not self.is_root and self.dep_source.is_git \
-                and not self.is_real_clone() \
-                and self.can_fetch_artifactory(print=False, which='SHIM'):
-            shim_target, shim_deps = try_load_artifactory_shim(self)
-            if shim_target is not None:
-                self.target = shim_target
-                self.did_check_artifactory = True
-                if shim_deps:
-                    for dep_source in shim_deps:
-                        self.add_child(dep_source)
-                loaded_from_pkg = True
-
-        if not loaded_from_pkg:
-            git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
-
-        target = self._load_target() ## load target for Git and Src
+        if self.is_root:
+            # For root targets, always load the BuildTarget immediately - we need the workspace from its mamafile.
+            target = self._load_target()
+        else:
+            # For non-root targets, only create the required dirs; mamafile is loaded after the shim/clone step.
+            self._update_dep_name_and_dirs(self.name)
+            self.create_build_dir_if_needed()
+            if self.dep_source.is_git:
+                loaded_from_pkg = self._try_artifactory_shim()
+            if not loaded_from_pkg:
+                git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
+            target = self._load_target() ## load target for Git and Src
 
         if conf.clean and is_target:
             self.clean() ## requires a parsed mamafile target
 
-        # if artifactory_fetch_and_reconfigure succeeds, it will overwrite products and libs
-        # and sets self.from_artifactory
-        should_load_art = self.should_load_artifactory()
-        if not loaded_from_pkg and should_load_art and self.can_fetch_artifactory(print=True, which='LOAD'):
-            self.did_check_artifactory = True
-            fetched, dependencies = artifactory_fetch_and_reconfigure(target)
-            if fetched:
-                for dep_name in dependencies:
-                    self.add_child(dep_name)
-                loaded_from_pkg = True
-            elif self.dep_source.is_pkg:
-                raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
-        elif not loaded_from_pkg and should_load_art and self.is_force_art_target():
-            raise RuntimeError(f'  - Target {self.name} failed to find artifactory pkg {self.dep_source} but `art` was specified')
-
-        # load any build products from previous builds
         if not self.is_root and not loaded_from_pkg:
-            self.load_build_products(target)
+            # Post-clone probe catches target.version-pinned deps that the pre-clone shim couldn't predict.
+            loaded_from_pkg = self._try_artifactory_load(target)
+            if not loaded_from_pkg:
+                self.load_build_products(target)
 
         if conf.verbose:
             console(f'  - Target {self.name: <16} load settings and dependencies')
@@ -422,22 +418,19 @@ class BuildDependency:
         target.dependencies() ## customization point for additional dependencies
 
         if not loaded_from_pkg and self.is_root:
-            # fetch the compiler immediately from root settings
-            conf.get_preferred_compiler_paths()
+            conf.get_preferred_compiler_paths() # fetch the compiler immediately from root settings
 
         build = False
         if conf.build or conf.update:
             build = self._should_build(conf, target, is_target, git_changed, loaded_from_pkg)
-            if build:
-                self.create_build_dir_if_needed() # in case we just cleaned
+            if build: self.create_build_dir_if_needed() # in case we just cleaned
             if git_changed:
                 git:Git = self.dep_source
                 git.save_status(self)
 
         self.already_loaded = True
         self.should_rebuild = build
-        if conf.list:
-            self._print_list(conf, target)
+        if conf.list: self._print_list(conf, target)
         return build
 
 
@@ -451,7 +444,7 @@ class BuildDependency:
 
         def noart(r):
             if print and (self.config.print or force_art):
-                console(f'  - Target {self.name: <16} NO ARTIFACTORY PKG [{which} {r}]', color=Color.YELLOW)
+                warning(f'  - Target {self.name: <16} NO ARTIFACTORY PKG [{which} {r}]')
             self.did_check_artifactory = True
             return False
 
@@ -463,7 +456,7 @@ class BuildDependency:
             # don't load anything during cleaning -- because it will get cleaned anyways
             if self.config.clean: return noart('target clean')
         elif print and (self.config.verbose or force_art):
-            console(f'  - Target {self.name: <16} CHECK ARTIFACTORY PKG [{which}]', color=Color.YELLOW)
+            warning(f'  - Target {self.name: <16} CHECK ARTIFACTORY PKG [{which}]')
 
         return True
 
@@ -491,7 +484,7 @@ class BuildDependency:
         def build(r):
             if conf.print:
                 args = f'{target.args}' if target.args else ''
-                console(f'  - Target {target.name: <16} BUILD [{r}]  {args}', color=Color.YELLOW)
+                warning(f'  - Target {target.name: <16} BUILD [{r}]  {args}')
             return True
 
         # Artifactory shim: no source on disk, nothing to build from. The shim was
@@ -606,7 +599,7 @@ class BuildDependency:
             if not self.workspace:
                 self.workspace = 'packages'
             if self.config.verbose:
-                console(f'  - Target {self.name: <16} Using Default BuildTarget Project={project} BuildTarget={buildTarget}', color=Color.YELLOW)
+                warning(f'  - Target {self.name: <16} Using Default BuildTarget Project={project} BuildTarget={buildTarget}')
             self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
 
 

@@ -7,6 +7,14 @@ from urllib import request
 from datetime import datetime
 from dateutil import tz
 
+MAMA_SHIM_FILENAME = 'mama_shim'
+
+
+def has_shim_marker(directory: str) -> bool:
+    """True if `directory` contains a mama_shim marker file."""
+    return os.path.exists(os.path.join(directory, MAMA_SHIM_FILENAME))
+
+
 def is_file_modified(src: str, dst: str):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
            os.path.getsize(src) == os.path.getsize(dst)

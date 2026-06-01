@@ -9,7 +9,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 
 from .util import normalized_path, normalized_join, read_lines_from \
-                , write_text_to, console, copy_if_needed, copy_dir
+                , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
 
 import mama.package as package
 
@@ -134,7 +134,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # misconfigured caller could pass the shim's build_dir directly, which would
     # corrupt the artifactory snapshot (papa.txt + unzipped tree) the next mama
     # run depends on. The proper deploy-skip lives in _execute_deploy_tasks.
-    if os.path.exists(os.path.join(package_full_path, 'mama_shim')):
+    if has_shim_marker(package_full_path):
         raise RuntimeError(f'papa_deploy refused: {package_full_path} contains a mama_shim marker.')
 
     dependencies = _gather_dependencies(target)
