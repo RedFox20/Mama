@@ -13,7 +13,7 @@ def linux_config():
 
 def test_no_sanitizer_dir_unchanged():
     c = linux_config()
-    assert c.build_dir_suffix() == ''
+    assert c.build_dir_with_suffix('linux') == 'linux'
     assert c.platform_build_dir_name() == 'linux'
 
 

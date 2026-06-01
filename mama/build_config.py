@@ -441,11 +441,10 @@ class BuildConfig:
     # per-sanitizer build dir suffix so flavors don't share a dir and force a reconfigure
     SANITIZER_SUFFIX = { 'address':'-asan', 'leak':'-lsan', 'thread':'-tsan', 'undefined':'-ubsan' }
 
-    def build_dir_suffix(self):
-        suffix = ''
-        if self.coverage: suffix += '-coverage'
-        if self.sanitize: suffix += ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
-        return suffix # no coverage/sanitizer -> unchanged build dir (back-compat)
+    def build_dir_with_suffix(self, build_dir):
+        if self.coverage: build_dir += '-coverage'
+        if self.sanitize: build_dir += ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
+        return build_dir
 
 
     def platform_build_dir_name(self):
@@ -456,10 +455,9 @@ class BuildConfig:
         Coverage builds add '-coverage' and sanitizer builds add a further
         suffix, eg 'linux-coverage', 'linux-asan' or 'linux-coverage-asan'.
         """
-        return self._platform_build_dir_name() + self.build_dir_suffix()
+        return self.build_dir_with_suffix(self._platform_build_dir_name())
 
 
-    # WARNING: This needs to be in sync with dependency_chain.py: _save_mama_cmake !!!
     def _platform_build_dir_name(self):
         if self.msvc:
             if self.is_target_arch_x64(): return self.build_dir_win64()
