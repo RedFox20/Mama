@@ -1,21 +1,9 @@
-"""Unit tests for the parallel-aware ``console()`` finalizer.
-
-The bug being prevented: during parallel updates, one thread's ``\\r``-redrawn
-progress bar (``console('\\r... 47% ...', end='')``) and another thread's
-status line (``console('  - Target X SHIM FETCHED')``) used to get glued
-together as ``...47%   - Target X SHIM FETCHED``. Now ``console()`` tracks
-whether the cursor is mid-progress and emits a leading newline before any
-status print so the progress bar ends cleanly on its own row.
-"""
-from __future__ import annotations
-
-import os
-import sys
+"""Parallel-aware console() finalizer: progress redraws + status lines must not tear."""
 import threading
 
 import pytest
 
-from mama.utils import system  # noqa: E402
+from mama.utils import system
 
 
 @pytest.fixture
@@ -72,8 +60,6 @@ class TestProgressFinalization:
 class TestThreadSafety:
     def test_parallel_writers_never_tear_within_a_single_call(
             self, capsys, reset_progress_state):
-        """Each console() call is atomic. Concurrent writes must produce
-        only complete strings, never partial interleaving inside a string."""
         msgs = [f'msg-{i:04d}' for i in range(200)]
         def worker(text):
             system.console(text)

@@ -1,9 +1,4 @@
-"""
-Tests for the reactive network availability flag.
-
-The flag is set once on first clear network failure and cached globally
-so subsequent targets skip network operations instantly.
-"""
+"""Reactive network-availability flag: classification + caching."""
 import socket
 import subprocess
 from unittest.mock import Mock
@@ -12,10 +7,6 @@ from urllib.error import URLError, HTTPError
 from mama.util import is_network_error
 from mama.build_config import BuildConfig
 
-
-# ---------------------------------------------------------------------------
-# is_network_error classification
-# ---------------------------------------------------------------------------
 
 def test_timeout_is_network_error():
     e = subprocess.TimeoutExpired(cmd='git ls-remote', timeout=5)
@@ -78,10 +69,6 @@ def test_ambiguous_error_is_not_network_error():
     e = RuntimeError('something unexpected happened')
     assert is_network_error(e) is False
 
-
-# ---------------------------------------------------------------------------
-# BuildConfig flag behavior
-# ---------------------------------------------------------------------------
 
 def test_config_network_available_by_default():
     config = BuildConfig(['build'])

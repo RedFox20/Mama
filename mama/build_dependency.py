@@ -7,8 +7,7 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
-from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
-                  MAMA_SHIM_FILENAME, has_shim_marker # noqa: F401 re-export for tests
+from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, MAMA_SHIM_FILENAME
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
 
@@ -209,9 +208,8 @@ class BuildDependency:
         """True if this dep was loaded from artifactory without a git clone.
         Cached: state only changes via write/remove_shim_marker and dirty()."""
         if self._is_shim_cache is None:
-            self._is_shim_cache = self.dep_source.is_git \
-                and os.path.exists(self.mama_shim_file()) \
-                and not self.is_real_clone()
+            self._is_shim_cache = (self.dep_source.is_git and os.path.exists(self.mama_shim_file())
+                                   and not self.is_real_clone())
         return self._is_shim_cache
 
 

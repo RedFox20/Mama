@@ -64,7 +64,7 @@ class SubProcess:
             # text + bufsize=1 gives line-buffered Unicode lines on the parent side.
             self.process = subprocess.Popen(args, cwd=cwd, env=env,
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                            text=True, bufsize=1, universal_newlines=True)
+                                            text=True, bufsize=1)
         else:
             # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
             self._master_fd, slave = pty.openpty()

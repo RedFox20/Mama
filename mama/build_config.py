@@ -8,7 +8,7 @@ from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
 import mama.util as util
-from .utils.system import System, console, Color
+from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
 
 if System.linux:
@@ -1240,8 +1240,6 @@ Define env RASPI_HOME with path to Raspberry tools.''')
 
     def mark_network_unavailable(self):
         if self._network_available is not False:
-            if self.print:
-                from .utils.system import console, Color
-                warning('  Network unavailable - using cached packages where possible')
+            if self.print: warning('  Network unavailable - using cached packages where possible')
             self._network_available = False
 

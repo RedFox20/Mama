@@ -1,21 +1,8 @@
-"""Unit tests for the load-phase clone/pull/shim summary.
-
-After `mama update`, the dependency-load phase prints a one-line summary like
-``Updated 12 target(s): 9 shim-fetched, 2 pulled, 1 cloned in 6.3s`` so a user
-can spot which packages are slow to update. These tests cover the counter
-class itself and its summary formatting at the empty / single-kind / mixed /
-ordering edges.
-"""
-from __future__ import annotations
-
-import os
-import sys
+"""UpdateStats counters + summary_line formatting."""
 import threading
 import time
 
-import pytest
-
-from mama.build_config import UpdateStats  # noqa: E402
+from mama.build_config import UpdateStats
 
 
 class TestCounters:

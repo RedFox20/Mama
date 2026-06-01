@@ -1,14 +1,11 @@
 """Pin SubProcess.run contract: exit status, io_func, cwd/env/timeout, stdin write, PTY isatty."""
-from __future__ import annotations
-
 import os
 import sys
 import subprocess
-import tempfile
 
 import pytest
 
-from mama.utils.sub_process import SubProcess  # noqa: E402
+from mama.utils.sub_process import SubProcess
 
 
 PY = sys.executable

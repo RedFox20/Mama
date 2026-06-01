@@ -1,18 +1,7 @@
-"""Unit tests for ``mama.util.get_time_str``.
-
-This formatter is used in several places - build timings, download progress,
-and (newly) clone progress - so its boundary behaviour matters. None of the
-existing test suites covered it, so these pin down the format at each scale
-boundary (ms / s / m / h / d) and at the transitions between them.
-"""
-from __future__ import annotations
-
-import os
-import sys
-
+"""get_time_str format at each ms/s/m/h/d boundary and between transitions."""
 import pytest
 
-from mama.util import get_time_str  # noqa: E402
+from mama.util import get_time_str
 
 
 @pytest.mark.parametrize('seconds,expected', [

@@ -1,25 +1,9 @@
-"""Unit tests for mama.main.run_coverage_report.
-
-These pin down two behaviours that are easy to regress:
-
-1. The gcovr command is built with maximally permissive flags
-   (``--gcov-ignore-errors all`` and ``--gcov-ignore-parse-errors all``) and
-   the right ``--gcov-executable`` wiring for the gcc-N → gcov-N case.
-2. A coverage failure - whether gcovr exits non-zero or ``execute_piped_echo``
-   itself raises - must never propagate as a build failure. Coverage is
-   best-effort; the CI step that runs tests must not be broken by parse
-   errors in third-party headers (e.g. nlohmann/json.hpp under newer gcov
-   output containing ``%%%%%`` / ``$$$$$`` / ``-block N`` syntax).
-"""
-from __future__ import annotations
-
-import os
-import sys
+"""run_coverage_report: gcovr command shape + failure never propagates as build failure."""
 from types import SimpleNamespace
 
 import pytest
 
-from mama import main as mama_main  # noqa: E402
+from mama import main as mama_main
 
 
 def _make_target(*, msvc=False, gcc=False, cc_path=None,
@@ -110,9 +94,6 @@ class TestGcovrCommandShape:
 
 
 class TestFailureNeverPropagates:
-    """The whole point of switching to execute_piped_echo: gcovr's exit code
-    must never become mama's exit code."""
-
     def test_nonzero_exit_is_a_warning_not_a_raise(self, capture_gcovr, capsys):
         capture_gcovr['status'] = 120  # what triggered this whole work
         # Must return normally - no exception escapes.

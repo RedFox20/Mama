@@ -1,5 +1,4 @@
 """Self.version regex + sparse-mamafile probe + shim hash-then-version fallback."""
-from __future__ import annotations
 
 import subprocess
 from unittest.mock import Mock, patch
@@ -71,9 +70,6 @@ def _make_dep(branch='main', mamafile_field=''):
 
 
 class TestFetchSelfVersionFromRemote:
-    # Clone uses _run_git_with_filtered_progress (live UI); git-show uses subprocess.run
-    # with stderr=DEVNULL + timeout because a stuck lazy fetch must never block the executor.
-
     def _patch_clone(self, return_code=0):
         return patch.object(Git, '_run_git_with_filtered_progress',
                             new=lambda *a, **k: (return_code, '', '100ms'))

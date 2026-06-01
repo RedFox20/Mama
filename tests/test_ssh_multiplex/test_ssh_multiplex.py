@@ -1,22 +1,11 @@
-"""Unit tests for mama.utils.ssh_multiplex pure-logic helpers.
-
-These cover:
-* URL -> (user, host, port) parsing for SSH and non-SSH URLs.
-* ssh-G probe output -> options decision: ControlMaster/ControlPath added
-  only when the user has not already configured multiplexing.
-* GIT_SSH_COMMAND wrapper arg parsing.
-
-Network-touching paths (probe, prewarm) are mocked.
-"""
-from __future__ import annotations
-
+"""ssh_multiplex pure-logic: URL parsing, options decision, wrapper arg parsing."""
 import os
 import sys
 from unittest import mock
 
 import pytest
 
-from mama.utils import ssh_multiplex as sm  # noqa: E402
+from mama.utils import ssh_multiplex as sm
 
 
 class TestParseSshEndpoint:

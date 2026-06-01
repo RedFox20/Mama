@@ -1,27 +1,10 @@
-"""Unit tests for the sanitizer-aware package archive naming.
-
-Background: asan / tsan / ubsan / lsan have mutually incompatible runtimes
-(asan and tsan in particular cannot link together). Mama used to suffix every
-sanitized archive with ``-sanitized``, which conflated all of them under one
-name and caused the wrong artifact to be downloaded by consumers built with a
-different sanitizer. The fix is to encode the active sanitizer set into the
-archive name via :meth:`BuildConfig.sanitizer_suffix` and to consume it in
-:func:`mama.artifactory.artifactory_archive_name`.
-
-These tests pin both ends:
-* the short-name mapping for individual and combined sanitizers
-* the final archive name carries the short suffix instead of ``sanitized``
-"""
-from __future__ import annotations
-
-import os
-import sys
+"""sanitizer_suffix mapping + archive name composition (asan/tsan/ubsan/lsan are mutually incompatible)."""
 from types import SimpleNamespace
 
 import pytest
 
-from mama.build_config import BuildConfig  # noqa: E402
-from mama import artifactory as art  # noqa: E402
+from mama.build_config import BuildConfig
+from mama import artifactory as art
 
 
 def _make_config(sanitize=None):
@@ -104,8 +87,6 @@ def _make_target(*, sanitize=None, release=True, arch='x64', version='abc1234'):
 
 
 class TestArchiveName:
-    """The archive name carries the sanitizer suffix instead of '-sanitized'."""
-
     def test_no_sanitizer_has_no_suffix(self):
         name = art.artifactory_archive_name(_make_target())
         assert name == 'pkg-linux-24-gcc14-x64-release-abc1234'

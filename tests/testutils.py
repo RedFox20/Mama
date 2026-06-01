@@ -74,6 +74,17 @@ def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
     dep.create_build_dir_if_needed()
     return dep
 
+
+def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **config_overrides):
+    """make_mock_dep + a shim marker already written. Optionally seeds papa.txt
+    so artifactory_load_target can parse it (for noart cache-hit tests)."""
+    dep = make_mock_dep(tmp_path, **config_overrides)
+    dep.write_shim_marker(archive_name=f'libfoo-linux-22-gcc11.3-x64-release-{stored_hash}',
+                          commit_hash=stored_hash)
+    if write_papa_txt:
+        (tmp_path / 'packages/libfoo/linux/papa.txt').write_text('p libfoo\nv 1.0\n')
+    return dep
+
 def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
     # Needed for mama commands to perform work in the correct directory
     if caller_file:

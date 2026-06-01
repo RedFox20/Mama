@@ -6,7 +6,8 @@ from .dep_source import DepSource
 from ..utils.system import Color, System, console, error, warning
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join, is_network_error, get_time_str, normalized_path
+from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
+                    is_network_error, get_time_str, normalized_path)
 
 
 if TYPE_CHECKING:
@@ -122,16 +123,12 @@ class Git(DepSource):
 
 
     def fetch_self_version_from_remote(self, dep: BuildDependency):
-        """Fetches just the dep's mamafile to read `self.version` without
-        pulling the full repo. Used by the shim probe for version-pinned deps
-        (e.g. boost 1.60) where the archive name doesn't track the commit hash.
-
-        Two-tool design: the clone goes through SubProcess.run (for the live
-        progress UI), but the one-shot `git show` uses subprocess.run + timeout
-        because SubProcess.run uses os.forkpty() which is unsafe in heavy
-        parallel mode and has no timeout to abort a stuck lazy fetch.
-
-        Returns the version string or None on any failure."""
+        """Fetches just the dep's mamafile to read `self.version` without pulling the
+        full repo. Used by the shim probe for version-pinned deps (e.g. boost 1.60)
+        where the archive name doesn't track the commit hash. The clone goes through
+        SubProcess.run (live progress UI); the one-shot `git show` uses subprocess.run
+        with stderr=DEVNULL + timeout to drop the lazy-fetch's `remote: ...` chatter
+        and to bound a stuck fetch. Returns the version string or None on any failure."""
         if not dep.config.is_network_available():
             return None
         mamafile_name = self.mamafile or 'mamafile.py'
@@ -148,7 +145,8 @@ class Git(DepSource):
                 result, _, elapsed = self._run_git_with_filtered_progress(dep, clone_cmd, label='PROBE')
                 if result != 0:
                     if dep.config.print:
-                        console(f'\r  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}              ', color=Color.RED)
+                        console(f'\r  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}      ',
+                                color=Color.RED)
                     return None
                 # subprocess.run, not SubProcess.run: see docstring above.
                 # stderr=DEVNULL drops the lazy-fetch's `remote: ...` noise.

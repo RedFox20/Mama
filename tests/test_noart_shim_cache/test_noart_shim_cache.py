@@ -1,24 +1,15 @@
 """noart must honour an existing shim cache (no fetch, but ls-remote staleness check)."""
 from unittest.mock import Mock, patch
 
-from testutils import make_mock_dep
+from testutils import make_mock_dep, make_mock_shim_dep
 
 from mama.build_dependency import BuildDependency
 from mama.types.git import Git
 
 
-def _make_shim(tmp_path, disable_artifactory=False, stored_hash='abc1234'):
-    dep = make_mock_dep(tmp_path, disable_artifactory=disable_artifactory)
-    dep.write_shim_marker(archive_name=f'libfoo-linux-22-gcc11.3-x64-release-{stored_hash}',
-                          commit_hash=stored_hash)
-    # papa.txt the cache-load path will parse - must look like a real artifactory drop.
-    (tmp_path / 'packages/libfoo/linux/papa.txt').write_text('p libfoo\nv 1.0\n')
-    return dep
-
-
 class TestNoartShimCacheHit:
     def test_returns_target_when_hash_matches(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=True)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
              patch('mama.artifactory.artifactory_load_target', return_value=(True, [])) as mock_load:
             target = dep.try_load_cached_shim()
@@ -27,7 +18,7 @@ class TestNoartShimCacheHit:
         assert dep.is_artifactory_shim()
 
     def test_shim_dependencies_are_added_as_children(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=True)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         child_dep_source = Mock(name='child')
         with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
              patch('mama.artifactory.artifactory_load_target', return_value=(True, [child_dep_source])), \
@@ -38,7 +29,7 @@ class TestNoartShimCacheHit:
 
 class TestNoartShimCacheStale:
     def test_stale_marker_is_removed(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=True, stored_hash='abc1234')
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True, stored_hash='abc1234')
         with patch.object(Git, 'init_commit_hash', return_value='def5678'), \
              patch('mama.artifactory.artifactory_load_target') as mock_load:
             target = dep.try_load_cached_shim()
@@ -61,7 +52,7 @@ class TestNoartShimCacheMisses:
 
     def test_ls_remote_failure_does_not_drop_marker(self, tmp_path):
         # Transient network failure should not penalize the dep with a forced re-clone next run.
-        dep = _make_shim(tmp_path, disable_artifactory=True)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         with patch.object(Git, 'init_commit_hash', return_value=None), \
              patch('mama.artifactory.artifactory_load_target', return_value=(True, [])):
             target = dep.try_load_cached_shim()
@@ -69,21 +60,15 @@ class TestNoartShimCacheMisses:
         assert dep.is_artifactory_shim()
 
     def test_corrupted_papa_returns_none(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=True)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
              patch('mama.artifactory.artifactory_load_target', return_value=(False, None)):
             assert dep.try_load_cached_shim() is None
 
 
 class TestNonNoartRegression:
-    """Pin the structural choice that noart and non-noart take separate paths -
-    swapping them would silently break `mama update all`."""
-
-    def _setup_dep_for_load(self, dep):
-        dep.target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
-
     def test_load_without_noart_does_not_call_cached_shim_path(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=False)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=False)
         with patch.object(BuildDependency, 'try_load_cached_shim') as mock_cached, \
              patch('mama.build_dependency.try_load_artifactory_shim', return_value=(None, None)) as mock_probe, \
              patch.object(BuildDependency, '_load_target'), \
@@ -91,13 +76,13 @@ class TestNonNoartRegression:
              patch.object(BuildDependency, 'can_fetch_artifactory', return_value=True), \
              patch.object(BuildDependency, 'should_load_artifactory', return_value=False), \
              patch.object(BuildDependency, 'load_build_products'):
-            self._setup_dep_for_load(dep)
+            dep.target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
             dep._load()
         mock_cached.assert_not_called()
         mock_probe.assert_called_once()
 
     def test_noart_routes_to_cached_shim_path(self, tmp_path):
-        dep = _make_shim(tmp_path, disable_artifactory=True)
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         fake_target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
         with patch.object(BuildDependency, 'try_load_cached_shim', return_value=fake_target) as mock_cached, \
              patch('mama.build_dependency.try_load_artifactory_shim') as mock_probe, \
