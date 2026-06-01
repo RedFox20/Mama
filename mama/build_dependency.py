@@ -263,12 +263,10 @@ class BuildDependency:
         self._is_shim_cache = False
 
 
-    def try_load_cached_shim(self):
-        """noart path: honour an existing shim's local cache without fetching from
-        artifactory. Probes upstream commit via ls-remote; if it matches the shim's
-        stored hash, loads exports from the cached papa.txt and returns the configured
-        BuildTarget. If upstream advanced, removes the stale marker so the caller's
-        git path takes over (clone+build). Returns None on any cache miss/staleness."""
+    def try_load_cached_shim(self, check_staleness: bool = True):
+        """Honour an existing shim's local cache. With `check_staleness`, ls-remote
+        first and drop the marker on upstream advance. Returns the configured
+        BuildTarget, or None on cache miss/staleness."""
         from .artifactory import artifactory_load_target  # local import: avoid cycle
         from .build_target import BuildTarget
         from .types.git import Git
@@ -279,14 +277,15 @@ class BuildDependency:
         stored_hash = marker.get('hash', '')
         if not stored_hash: return None
 
-        git: Git = self.dep_source
-        # ls-remote is a cheap remote-ref probe, not a package fetch - allowed under noart.
-        current_hash = git.init_commit_hash(self, use_cache=False, fetch_remote=True)
-        if current_hash and current_hash != stored_hash:
-            if self.config.print:
-                warning(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}')
-            self.remove_shim_marker()
-            return None
+        if check_staleness:
+            git: Git = self.dep_source
+            # ls-remote is a cheap remote-ref probe, not a package fetch - allowed under noart.
+            current_hash = git.init_commit_hash(self, use_cache=False, fetch_remote=True)
+            if current_hash and current_hash != stored_hash:
+                if self.config.print:
+                    warning(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}')
+                self.remove_shim_marker()
+                return None
 
         probe_target = BuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
         fetched, dependencies = artifactory_load_target(probe_target, self.build_dir, num_files_copied=0)
@@ -338,13 +337,14 @@ class BuildDependency:
 
     def _try_artifactory_shim(self) -> bool:
         """Pre-clone artifactory load for non-root git deps. Either honours a
-        cached shim (under noart) or probes artifactory via ls-remote. Returns
-        True when the dep was satisfied without a clone."""
-        # noart + existing shim: use cached papa.txt; ls-remote still detects
-        # staleness, and a mismatch drops the marker so the caller's git path
-        # takes over (clone+build from source).
-        if self.config.disable_artifactory and self.is_artifactory_shim():
-            cached = self.try_load_cached_shim()
+        cached shim or probes artifactory via ls-remote. Returns True when the
+        dep was satisfied without a clone."""
+        # Existing shim: trust the local cache under plain `mama build`. Under
+        # noart, still ls-remote to catch upstream-advanced shims (a mismatch
+        # drops the marker so the caller's git path takes over). Under `update`
+        # the cached path is skipped entirely so the regular probe re-extracts.
+        if self.is_artifactory_shim() and not self.config.update:
+            cached = self.try_load_cached_shim(check_staleness=self.config.disable_artifactory)
             if cached is not None:
                 self.target = cached
                 self.did_check_artifactory = True

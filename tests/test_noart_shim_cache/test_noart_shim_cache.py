@@ -66,21 +66,7 @@ class TestNoartShimCacheMisses:
             assert dep.try_load_cached_shim() is None
 
 
-class TestNonNoartRegression:
-    def test_load_without_noart_does_not_call_cached_shim_path(self, tmp_path):
-        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=False)
-        with patch.object(BuildDependency, 'try_load_cached_shim') as mock_cached, \
-             patch('mama.build_dependency.try_load_artifactory_shim', return_value=(None, None)) as mock_probe, \
-             patch.object(BuildDependency, '_load_target'), \
-             patch.object(BuildDependency, '_should_build', return_value=False), \
-             patch.object(BuildDependency, 'can_fetch_artifactory', return_value=True), \
-             patch.object(BuildDependency, 'should_load_artifactory', return_value=False), \
-             patch.object(BuildDependency, 'load_build_products'):
-            dep.target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
-            dep._load()
-        mock_cached.assert_not_called()
-        mock_probe.assert_called_once()
-
+class TestNoartRouting:
     def test_noart_routes_to_cached_shim_path(self, tmp_path):
         dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
         fake_target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
