@@ -336,10 +336,23 @@ class BuildDependency:
         return False
 
 
+    def _force_source_clone(self) -> bool:
+        """`mama unshallow <target>` must materialize a real clone, even from a
+        cached shim - a shim has no source on disk to unshallow."""
+        return self.config.unshallow and self.is_current_target()
+
+
     def _try_artifactory_shim(self) -> bool:
         """Pre-clone artifactory load for non-root git deps. Either honours a
         cached shim or probes artifactory via ls-remote. Returns True when the
         dep was satisfied without a clone."""
+        # unshallow target: drop the shim marker so the git path clones source.
+        if self._force_source_clone():
+            if self.is_artifactory_shim():
+                if self.config.print:
+                    console(f'  - Target {self.name: <16} UNSHALLOW shim -> source clone', color=Color.BLUE)
+                self.remove_shim_marker()
+            return False
         # Existing shim: trust the local cache under plain `mama build`. Under
         # noart, still ls-remote to catch upstream-advanced shims (a mismatch
         # drops the marker so the caller's git path takes over). Under `update`
