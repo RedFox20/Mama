@@ -1,5 +1,6 @@
 """Self.version regex + sparse-mamafile probe + shim hash-then-version fallback."""
 
+import contextlib
 import subprocess
 from unittest.mock import Mock, patch
 
@@ -69,6 +70,36 @@ def _make_dep(branch='main', mamafile_field=''):
     return dep, git
 
 
+class _FakeClock:
+    def __init__(self, values):
+        self.values = iter(values)
+        self.last = 0.0
+
+    def __call__(self):
+        self.last = next(self.values, self.last)
+        return self.last
+
+
+def _run_filtered_progress_lines(lines, monotonic_values):
+    dep, git = _make_dep()
+    dep.config.print = True
+    printed = []
+
+    def fake_run(cmd, io_func=None, **_kwargs):
+        for line in lines:
+            io_func(Mock(), line)
+        return 0
+
+    with patch('mama.types.git.time.monotonic', new=_FakeClock(monotonic_values)), \
+         patch('mama.types.git.console', side_effect=lambda text, **_kw: printed.append(text)), \
+         patch('mama.types.git.SubProcess.run', side_effect=fake_run), \
+         patch('mama.types.git.ssh_multiplex.ensure_master_for_url'), \
+         patch('mama.types.git.ssh_multiplex.fetch_slot',
+               side_effect=lambda: contextlib.nullcontext()):
+        git._run_git_with_filtered_progress(dep, 'git clone fake target', label='PROBE')
+    return printed
+
+
 class TestFetchSelfVersionFromRemote:
     def _patch_clone(self, return_code=0):
         return patch.object(Git, '_run_git_with_filtered_progress',
@@ -136,6 +167,41 @@ class TestFetchSelfVersionFromRemote:
         assert '--no-checkout' in captured['cmd']
         assert '--depth=1' in captured['cmd']
         assert captured['label'] == 'PROBE'
+
+
+class TestFilteredGitProgress:
+    def test_progress_waits_five_ms_from_first_non_completion_report(self):
+        lines = [
+            'Receiving objects:   3% (1/30)',
+            'Receiving objects:   6% (2/30)',
+            'Receiving objects:   9% (3/30)',
+            'Receiving objects:  12% (4/30)',
+            'Receiving objects: 100% (30/30)',
+        ]
+
+        printed = _run_filtered_progress_lines(
+            lines,
+            [0.0, 1.000, 1.004, 1.006, 1.007, 1.008, 1.009])
+
+        assert len(printed) == 2
+        assert 'receiving objects' in printed[0] and '  9%' in printed[0]
+        assert 'receiving objects' in printed[1] and '100%' in printed[1]
+
+    def test_completion_is_reported_for_each_progress_stage_inside_delay(self):
+        lines = [
+            'remote: Counting objects: 100% (30/30), done.',
+            'remote: Compressing objects: 100% (22/22), done.',
+            'Receiving objects: 100% (30/30)',
+        ]
+
+        printed = _run_filtered_progress_lines(
+            lines,
+            [0.0, 0.001, 0.002, 0.003, 0.004])
+
+        assert len(printed) == 3
+        assert 'counting objects' in printed[0] and '100%' in printed[0]
+        assert 'compressing objects' in printed[1] and '100%' in printed[1]
+        assert 'receiving objects' in printed[2] and '100%' in printed[2]
 
 
 _PROBE_TARGET = lambda **kw: Mock(name='probe', version=None)

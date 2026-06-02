@@ -122,6 +122,23 @@ Call `mama help` for more usage information.
   deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
                                  When combined with a target name, applies to that target's dependencies only.
   unshallow                      Allow unshallowing shallow git clones.
+  https-override                 Rewrite all add_git() ssh urls (git@host:path) to https://host/path.
+  ssh-override                   Rewrite all add_git() https urls to ssh (git@host:path).
+```
+
+The `https-override` / `ssh-override` flags rewrite the git access protocol of every
+`add_git()` dependency at build time, without editing any mamafile. Use them when an
+environment can only reach git over one protocol: `https-override` for hosts that only
+allow https access tokens (no ssh keys), `ssh-override` for hosts where https is blocked
+and ssh keys are required. They work for GitHub, GitLab (including nested groups),
+Bitbucket and self-hosted/custom-port servers; local paths (`/srv/..`, `file://`, `C:/..`)
+are left untouched. Embedded https credentials and ssh custom ports are dropped on
+conversion, and an existing clone's `origin` remote is re-pointed so `fetch`/`pull` follow
+the chosen protocol.
+
+```
+  mama build https-override      git@github.com:KrattWorks/repo.git -> https://github.com/KrattWorks/repo.git
+  mama build ssh-override        https://github.com/RedFox20/ReCpp.git -> git@github.com:RedFox20/ReCpp.git
 ```
 
 ### Artifactory flags

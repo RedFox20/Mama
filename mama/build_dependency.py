@@ -50,6 +50,7 @@ class BuildDependency:
 
         if dep_source.is_git:
             git:Git = dep_source
+            git.apply_url_override(config)
             self.mamafile = git.mamafile # git.mamafile is the relative path
             if parent:
                 self.mamafile = parent.get_mamafile_path_relative_to_us(self.name, git.mamafile)

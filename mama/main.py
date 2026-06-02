@@ -82,6 +82,8 @@ def print_usage():
     console('    verbose    - Greatly increases verbosity for build dependencies and cmake')
     console('    parallel   - Load dependencies in parallel')
     console('    unshallow  - Allow unshallowing shallow git clones')
+    console('    https-override - rewrite add_git() ssh urls (git@host:path) to https://host/path')
+    console('    ssh-override   - rewrite add_git() https urls to ssh (git@host:path)')
     console('  examples:')
     console('    mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt')
     console('    mama build                     Update and build main project only. This only clones, but does not update!')

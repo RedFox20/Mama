@@ -15,6 +15,50 @@ if TYPE_CHECKING:
     from ..build_config import BuildConfig
     from ..build_dependency import BuildDependency
 
+
+# scp-like ssh syntax `user@host:path/to/repo.git` (no scheme, ':' splits host from path)
+_SCP_GIT_RE = re.compile(r'^(?P<user>[^@/]+)@(?P<host>[^:/]+):(?P<path>.+)$')
+_SCHEME_RE = re.compile(r'^(?P<scheme>[a-zA-Z][\w+.-]*)://(?P<rest>.*)$')
+_FILTERED_GIT_PROGRESS_REPORT_INTERVAL = 0.005
+
+def parse_git_url(url: str):
+    """Split a remote git url into (scheme, user, host, path). Returns None for
+    local paths or anything without a network host, which overrides leave untouched."""
+    m = _SCHEME_RE.match(url)
+    if m:
+        scheme = m.group('scheme').lower()
+        if scheme == 'file': return None
+        userhost, _, path = m.group('rest').partition('/')
+        user, _, hostport = userhost.rpartition('@')
+        host = hostport.split(':', 1)[0]  # drop any :port
+        return (scheme, user, host, path) if host else None
+    m = _SCP_GIT_RE.match(url)
+    if m: return ('ssh', m.group('user'), m.group('host'), m.group('path'))
+    return None  # local filesystem path
+
+def convert_git_url(url: str, target: str) -> str:
+    """Rewrite a git url to 'https' or 'ssh'. Same-protocol urls and local paths
+    return unchanged. SSH custom-ports and embedded https credentials are dropped."""
+    p = parse_git_url(url)
+    if not p: return url
+    scheme, _, host, path = p
+    path = path.lstrip('/')
+    if target == 'https':
+        return url if scheme in ('http', 'https') else f'https://{host}/{path}'
+    return url if scheme == 'ssh' else f'git@{host}:{path}'
+
+def same_git_remote(a: str, b: str) -> bool:
+    """True if two urls point at the same repo ignoring protocol, credentials,
+    trailing slashes and a .git suffix - so an ssh<->https override is not a url change."""
+    return _canonical_remote(a) == _canonical_remote(b)
+
+def _canonical_remote(url: str) -> str:
+    p = parse_git_url(url)
+    if not p: return url.rstrip('/')
+    _, _, host, path = p
+    return f'{host}/{path.strip("/").removesuffix(".git")}'.lower()
+
+
 class Git(DepSource):
     """
     For BuildDependency whose source is from a Git repository
@@ -32,12 +76,32 @@ class Git(DepSource):
 
         self.from_source = False  # if True, this must be built from source, not from artifactory
         self.commit_hash = None  # the git commit hash of this DepSource
+        self.url_overridden = False  # True once apply_url_override rewrote self.url
 
         self.missing_status = False
         self.url_changed = False
         self.tag_changed = False
         self.branch_changed = False
         self.commit_changed = False
+
+
+    def apply_url_override(self, config: BuildConfig):
+        """Rewrite self.url between ssh<->https per config.git_url_override (the
+        `https-override` / `ssh-override` build args). Idempotent; no-op for local
+        paths or urls already in the target protocol."""
+        if not config.git_url_override: return
+        new_url = convert_git_url(self.url, config.git_url_override)
+        if new_url != self.url:
+            if config.verbose: warning(f'  {self.name: <16} URL override: {self.url} -> {new_url}')
+            self.url = new_url
+            self.url_overridden = True
+
+
+    def _sync_remote_url(self, dep: BuildDependency):
+        """Point an existing clone's origin at the overridden url so fetch/pull use
+        the chosen protocol, not the one baked into .git/config at clone time."""
+        if self.url_overridden and dep.is_real_clone():
+            self.run_git(dep, f'remote set-url origin {self.url}', throw=False)
 
 
     def __repr__(self): return self.__str__()
@@ -300,7 +364,7 @@ class Git(DepSource):
             self.commit_changed = True
             return True
         # update basic flags before fetching origin, so we can detect tag/branch pin changes
-        self.url_changed = self.url != status[0]
+        self.url_changed = not same_git_remote(self.url, status[0])
         self.tag_changed = self.tag != status[1]
         self.branch_changed = self.branch != status[2]
         # fetch origin and then check the commit hash to detect upstream changes
@@ -353,10 +417,11 @@ class Git(DepSource):
         Used by full clone and by the sparse mamafile probe so both share the
         same nice UI instead of spewing git's raw remote: output."""
         output = ''
-        current_percent = -1
         start = time.monotonic()
+        last_progress_at = None
+        last_progress = (None, -1)
         def print_output(p:SubProcess, line:str):
-            nonlocal output, current_percent
+            nonlocal output, last_progress_at, last_progress
             if 'remote: Counting objects:' in line or \
                 'remote: Compressing objects:' in line or \
                 'Receiving objects:' in line or \
@@ -369,16 +434,23 @@ class Git(DepSource):
                         return
                     percent_string = parts[len(parts)-1].strip()
                     percent = int(percent_string) if percent_string else 0
-                    if current_percent != percent:
-                        current_percent = percent
-                        status = 'status             '
-                        if 'remote: Counting objects:' in line:      status = 'counting objects   '
-                        elif 'remote: Compressing objects:' in line: status = 'compressing objects'
-                        elif 'Receiving objects:' in line:           status = 'receiving objects  '
-                        elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
-                        elif 'Updating files:' in line:              status = 'updating files     '
-                        elapsed = get_time_str(time.monotonic() - start)
-                        console(f'\r  - Target {dep.name: <16} {label} {status} {current_percent:3}% ({elapsed})', end='')
+                    status = 'status             '
+                    if 'remote: Counting objects:' in line:      status = 'counting objects   '
+                    elif 'remote: Compressing objects:' in line: status = 'compressing objects'
+                    elif 'Receiving objects:' in line:           status = 'receiving objects  '
+                    elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
+                    elif 'Updating files:' in line:              status = 'updating files     '
+                    now = time.monotonic()
+                    progress = (status, percent)
+                    if last_progress_at is None:
+                        last_progress_at = now
+                    should_report = percent >= 100 or \
+                        (now - last_progress_at) >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL
+                    if last_progress != progress and should_report:
+                        last_progress = progress
+                        last_progress_at = now
+                        elapsed = get_time_str(now - start)
+                        console(f'\r  - Target {dep.name: <16} {label} {status} {percent:3}% ({elapsed})', end='')
             elif 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
@@ -493,6 +565,7 @@ class Git(DepSource):
             self.clone_or_pull(dep)
             return True
 
+        self._sync_remote_url(dep)
         is_target = dep.is_current_target()
         config = dep.config
         changed = False
@@ -520,4 +593,3 @@ class Git(DepSource):
 
         self.clone_or_pull(dep, wiped)
         return True
-
