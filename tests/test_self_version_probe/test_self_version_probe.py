@@ -91,7 +91,7 @@ def _run_filtered_progress_lines(lines, monotonic_values):
         return 0
 
     with patch('mama.types.git.time.monotonic', new=_FakeClock(monotonic_values)), \
-         patch('mama.types.git.console', side_effect=lambda text, **_kw: printed.append(text)), \
+         patch('mama.types.git.progress', side_effect=lambda text, **_kw: printed.append(text)), \
          patch('mama.types.git.SubProcess.run', side_effect=fake_run), \
          patch('mama.types.git.ssh_multiplex.ensure_master_for_url'), \
          patch('mama.types.git.ssh_multiplex.fetch_slot',

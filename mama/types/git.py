@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import os, shutil, stat, string, time, re, tempfile, subprocess
 from .dep_source import DepSource
-from ..utils.system import Color, System, console, error, warning
+from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
@@ -209,8 +209,8 @@ class Git(DepSource):
                 result, _, elapsed = self._run_git_with_filtered_progress(dep, clone_cmd, label='PROBE')
                 if result != 0:
                     if dep.config.print:
-                        console(f'\r  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}      ',
-                                color=Color.RED)
+                        progress(f'  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}',
+                                 color=Color.RED, final=True)
                     return None
                 # subprocess.run, not SubProcess.run: see docstring above.
                 # stderr=DEVNULL drops the lazy-fetch's `remote: ...` noise.
@@ -228,7 +228,8 @@ class Git(DepSource):
                     return None
                 version = Git.extract_self_version(content)
                 if dep.config.print and version:
-                    console(f'\r  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}', color=Color.BLUE)
+                    progress(f'  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}',
+                             color=Color.BLUE, final=True)
                 return version
         except Exception as e:
             if is_network_error(e):
@@ -441,16 +442,16 @@ class Git(DepSource):
                     elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
                     elif 'Updating files:' in line:              status = 'updating files     '
                     now = time.monotonic()
-                    progress = (status, percent)
+                    cur_progress = (status, percent)
                     if last_progress_at is None:
                         last_progress_at = now
                     should_report = percent >= 100 or \
                         (now - last_progress_at) >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL
-                    if last_progress != progress and should_report:
-                        last_progress = progress
+                    if last_progress != cur_progress and should_report:
+                        last_progress = cur_progress
                         last_progress_at = now
                         elapsed = get_time_str(now - start)
-                        console(f'\r  - Target {dep.name: <16} {label} {status} {percent:3}% ({elapsed})', end='')
+                        progress(f'  - Target {dep.name: <16} {label} {status} {percent:3}% ({elapsed})')
             elif 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
@@ -479,11 +480,11 @@ class Git(DepSource):
             dep.config.update_stats.record_clone()
         if dep.config.print:
             if result == 0:
-                console(f'\r  - Target {dep.name: <16} CLONE SUCCESS {elapsed}                  ', color=Color.BLUE)
+                progress(f'  - Target {dep.name: <16} CLONE SUCCESS {elapsed}', color=Color.BLUE, final=True)
                 if dep.config.verbose and output:
                     console(output, end='')
             else:
-                console(f'\r  - Target {dep.name: <16} CLONE FAILED ({result}) after {elapsed}              ', color=Color.RED)
+                progress(f'  - Target {dep.name: <16} CLONE FAILED ({result}) after {elapsed}', color=Color.RED, final=True)
                 if output:
                     console(output, end='')
                 raise RuntimeError(f'Target {self.name} clone failed after {elapsed}: {cmd}')
@@ -561,7 +562,10 @@ class Git(DepSource):
         Do a git repository checkout. Can be an expensive operation.
         If an existing artifactory package exists, then this step is skipped
         """
-        if not dep.source_dir_exists():  # we MUST pull here
+        # No valid working tree: nothing on disk, or a limbo dir (dropped shim / half-finished
+        # clone) that has files but no .git and so can't be pulled. Wipe leftovers, then clone.
+        if not dep.is_real_clone():
+            if dep.source_dir_exists(): self.reclone_wipe(dep)
             self.clone_or_pull(dep)
             return True
 

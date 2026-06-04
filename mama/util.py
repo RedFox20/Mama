@@ -1,7 +1,7 @@
 import os, stat, shutil, zipfile
 from typing import List
 import time, ssl, pathlib, random
-from .utils.system import System, console
+from .utils.system import System, console, progress
 from .utils.sub_process import execute
 from urllib import request
 from datetime import datetime
@@ -270,12 +270,12 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
                         right = '=' * n
                         left = ' ' * int(50 - n)
                         elapsed = time.time() - start
-                        console(f'\r{indent}|{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})', end='')
+                        progress(f'{indent}|{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})')
 
     # report actual percent here, just incase something goes wrong
     elapsed = time.time() - start
     percent = int((transferred / size) * 100.0)
-    console(f'\r{indent}|<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})')
+    progress(f'{indent}|<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})', final=True)
     return local_file
 
 

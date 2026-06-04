@@ -352,6 +352,9 @@ class BuildDependency:
                 if self.config.print:
                     console(f'  - Target {self.name: <16} UNSHALLOW shim -> source clone', color=Color.BLUE)
                 self.remove_shim_marker()
+            # Unshallow means "use this target's source": suppress the post-clone probe so it
+            # doesn't re-load the prebuilt pkg over the clone (true for an already-cloned target too).
+            self.did_check_artifactory = True
             return False
         # Existing shim: trust the local cache under plain `mama build`. Under
         # noart, still ls-remote to catch upstream-advanced shims (a mismatch

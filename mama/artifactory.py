@@ -7,7 +7,7 @@ from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
-from .utils.system import Color, System, console, error, warning
+from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
 from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
@@ -180,7 +180,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 n = int(percent / 2)
                 left = '=' * n
                 right = ' ' * int(50 - n)
-                console(f'\r{indent}|{left}>{right}| {percent:>3} %', end='')
+                progress(f'{indent}|{left}>{right}| {percent:>3} %')
         console(f'{indent}|>{" ":50}| {0:>3} %', end='')
         # chdir into FTP_ROOT/target_name/
         try:
@@ -189,7 +189,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
             ftp.mkd(target_name) # create subdirectory if needed
             ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
-        console(f'\r{indent}|{"="*50}>| 100 %')
+        progress(f'{indent}|{"="*50}>| 100 %', final=True)
 
 
 def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:str):

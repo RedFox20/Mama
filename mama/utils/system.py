@@ -52,6 +52,7 @@ def get_colored_text(text:str, color):
 # status print, so parallel redraws don't get glued to status lines.
 _console_lock = threading.Lock()
 _progress_active = False  # last write left cursor mid-row
+_ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
 
 
 def console(text:str, color=None, end="\n"):
@@ -63,8 +64,17 @@ def console(text:str, color=None, end="\n"):
     with _console_lock:
         if _progress_active and not is_redraw:
             print()
-        print(get_colored_text(text, color), end=end, flush=True)
+        text = get_colored_text(text, color)
+        # Erase to EOL so a shorter redraw fully clears a longer previous line (no stale tail chars).
+        if is_redraw: text += _ERASE_EOL
+        print(text, end=end, flush=True)
         _progress_active = (end != '\n')
+
+
+def progress(text:str, color=None, final=False):
+    """Redraw an in-place progress line, always cleared to end-of-line. `final=True`
+    commits it with a newline; otherwise the cursor stays put for the next redraw."""
+    console('\r' + text, color=color, end='\n' if final else '')
 
 
 def error(text:str):

@@ -20,25 +20,27 @@ class TestProgressFinalization:
         system.console('  - Target foo SHIM FETCHED')
         out = capsys.readouterr().out
         # The status line must start on its own row, not be glued to the bar.
-        assert '40% (1s)\n  - Target foo SHIM FETCHED\n' in out
+        assert f'40% (1s){system._ERASE_EOL}\n  - Target foo SHIM FETCHED\n' in out
 
     def test_progress_redraw_does_not_get_extra_newline(
             self, capsys, reset_progress_state):
         # Repeated \r-redraws of the same progress bar must overwrite each
         # other on the same row; we must NOT inject a newline between them.
+        k = system._ERASE_EOL
         system.console('\r    | 20% |', end='')
         system.console('\r    | 40% |', end='')
         system.console('\r    | 60% |', end='')
-        assert capsys.readouterr().out == '\r    | 20% |\r    | 40% |\r    | 60% |'
+        assert capsys.readouterr().out == f'\r    | 20% |{k}\r    | 40% |{k}\r    | 60% |{k}'
 
     def test_progress_final_newline_clears_state(
             self, capsys, reset_progress_state):
+        k = system._ERASE_EOL
         system.console('\r    | 50% |', end='')
         # 100% line ends with default '\n' - it commits the progress.
         system.console('\r    |100% |')
         # Subsequent normal status must NOT get a spurious extra newline.
         system.console('  - Target done')
-        assert capsys.readouterr().out == '\r    | 50% |\r    |100% |\n  - Target done\n'
+        assert capsys.readouterr().out == f'\r    | 50% |{k}\r    |100% |{k}\n  - Target done\n'
 
     def test_status_print_without_progress_active_is_unaffected(
             self, capsys, reset_progress_state):
@@ -55,6 +57,16 @@ class TestProgressFinalization:
         system.console('   |>          | 0 %', end='')
         system.console('  - Target X')
         assert capsys.readouterr().out == '   |>          | 0 %\n  - Target X\n'
+
+
+class TestProgressHelper:
+    def test_redraw_clears_to_eol(self, capsys, reset_progress_state):
+        system.progress('  50% |')
+        assert capsys.readouterr().out == f'\r  50% |{system._ERASE_EOL}'
+
+    def test_final_commits_with_newline(self, capsys, reset_progress_state):
+        system.progress('  done', final=True)
+        assert capsys.readouterr().out == f'\r  done{system._ERASE_EOL}\n'
 
 
 class TestThreadSafety:
