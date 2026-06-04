@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 def _append_files_recursive(zip: zipfile.ZipFile, rel_path:str, full_path:str):
     # add each file recursively
     if os.path.isdir(full_path):
-        root = os.path.dirname(full_path)
         for full_dir, _, files in os.walk(full_path):
-            rel_dir = full_dir[len(root):].lstrip('\\/')
+            nested_rel = os.path.relpath(full_dir, full_path)
+            rel_dir = rel_path if nested_rel == '.' else f'{rel_path}/{nested_rel}'
             # write the directory into the zip as well
             zip.write(full_dir, rel_dir)
             for file in files:
@@ -24,7 +24,7 @@ def _append_files_recursive(zip: zipfile.ZipFile, rel_path:str, full_path:str):
                 #print(f'src_file:{src_file} rel_file:{rel_file}')
                 zip.write(src_file, rel_file)
     else:
-        zip.write(full_path, os.path.basename(full_path))
+        zip.write(full_path, rel_path)
 
 
 def papa_upload_to(target:BuildTarget, package_full_path:str):
