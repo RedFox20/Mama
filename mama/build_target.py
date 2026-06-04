@@ -1508,7 +1508,7 @@ class BuildTarget:
         # by a re-deploy or re-upload. The artifactory already has the package.
         if self.dep.is_artifactory_shim():
             if self.config.print:
-                warning(f'  - Target {self.name: <16} DEPLOY skipped (artifactory shim)')
+                warning(f'  - Target {self.name: <16} DEPLOY/UPLOAD skipped (artifactory shim, already on artifactory)')
                 console(f'    To repackage from source, run: mama unshallow {self.name}')
             return
 
