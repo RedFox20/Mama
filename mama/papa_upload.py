@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
@@ -25,6 +26,50 @@ def _append_files_recursive(zip: zipfile.ZipFile, rel_path:str, full_path:str):
                 zip.write(src_file, rel_file)
     else:
         zip.write(full_path, rel_path)
+
+
+def _zip_path(path: str):
+    return path.replace('\\', '/')
+
+
+def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: str):
+    expected = Counter(['papa.txt'])
+
+    for include in papa.includes:
+        if os.path.isdir(include):
+            for full_dir, _, files in os.walk(include):
+                for file in files:
+                    src_file = os.path.join(full_dir, file)
+                    rel_file = os.path.relpath(src_file, package_full_path)
+                    expected[_zip_path(rel_file)] += 1
+        else:
+            rel_path = os.path.relpath(include, package_full_path)
+            expected[_zip_path(rel_path)] += 1
+
+    for lib in papa.libs:
+        rel_path = os.path.relpath(lib, package_full_path)
+        expected[_zip_path(rel_path)] += 1
+
+    for asset in papa.assets:
+        expected[_zip_path(asset.outpath)] += 1
+
+    with zipfile.ZipFile(archive_path) as zip:
+        actual = Counter(
+            _zip_path(info.filename)
+            for info in zip.infolist()
+            if not info.is_dir()
+        )
+
+    missing = sorted((expected - actual).elements())
+    unexpected = sorted((actual - expected).elements())
+    if missing or unexpected:
+        preview_missing = missing[:20]
+        preview_unexpected = unexpected[:20]
+        raise RuntimeError(
+            f'PAPA archive validation failed for {archive_path}\n'
+            f'missing={preview_missing}\n'
+            f'unexpected={preview_unexpected}'
+        )
 
 
 def papa_upload_to(target:BuildTarget, package_full_path:str):
@@ -76,6 +121,7 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     if os.path.exists(archive_path):
         os.remove(archive_path)
     shutil.move(temp_archive, archive_path)
+    validate_archive(package_full_path, papa, archive_path)
 
     if config.print:
         size = os.path.getsize(archive_path)
