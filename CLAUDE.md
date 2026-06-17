@@ -186,7 +186,12 @@ Concretely, every task ends with:
    reduction the skill targets; that is the success metric, not "all
    findings addressed".
 4. Re-run the suite, re-run the review. Loop until `REVIEW PASSED - 0 issues`.
-5. Only then commit.
+5. **Never commit until a human has reviewed the diff and explicitly approved.**
+   A green suite and a passed review are necessary but NOT sufficient. Small
+   quirks (a wrong guard clause, an over-broad `and not ...` condition) can pass
+   every test yet silently break the feature - exactly the class of bug tests
+   don't catch because the test was written with the same blind spot. Present
+   the diff, wait for the human's go-ahead, then commit.
 
 The skill checks: 130-col limit, no 3+ line single expressions, no break
 after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
