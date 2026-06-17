@@ -192,6 +192,10 @@ def _save_vscode_compile_commands(dep: BuildDependency):
         return
     if not dep.is_root:
         return
+    # ASAN/TSAN/coverage are temporary diagnostic builds living in a suffixed build dir
+    # (eg linux-asan). Don't repoint the IDE away from the canonical build on every such run.
+    if dep.config.sanitize or dep.config.coverage:
+        return
 
     cpp_props_path = f'{dep.src_dir}/.vscode/c_cpp_properties.json'
     if not os.path.exists(cpp_props_path):
