@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import os, shutil, stat, string, time, re, tempfile, subprocess
+import os, shutil, stat, string, time, re, tempfile, subprocess, hashlib
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
@@ -154,6 +154,30 @@ class Git(DepSource):
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
         """Check if the working tree has uncommitted modifications to tracked files"""
         return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
+
+
+    def working_tree_fingerprint(self, dep: BuildDependency) -> str:
+        """Cheap content-aware hash of uncommitted source: tracked `diff HEAD` plus untracked
+        file stats. '' for a clean tree. Lets `mama build` catch in-place source edits of a git
+        dep without a full status check or a reconfigure. Two git calls; near-free on a clean tree."""
+        if not dep.is_real_clone(): return ''
+        diff = execute_piped(['git', 'diff', 'HEAD'], cwd=dep.src_dir, throw=False) or ''
+        others = execute_piped(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=dep.src_dir, throw=False) or ''
+        if not diff and not others: return ''
+        h = hashlib.sha1(diff.encode('utf-8', 'replace'))
+        for rel in sorted(filter(None, others.split('\0'))):
+            try:
+                st = os.stat(path_join(dep.src_dir, rel))
+                h.update(f'\0{rel}\0{st.st_size}\0{st.st_mtime_ns}'.encode())
+            except OSError: pass
+        return h.hexdigest()[:16]
+
+
+    def source_tree_changed(self, dep: BuildDependency) -> bool:
+        """True when the working-tree source differs from the snapshot stored at the last build."""
+        status = self.read_stored_status(dep)
+        stored = status[4] if status and len(status) > 4 else ''
+        return self.working_tree_fingerprint(dep) != stored
 
 
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
@@ -324,12 +348,13 @@ class Git(DepSource):
         return path_join(dep.build_dir, 'git_status')
 
     @staticmethod
-    def format_git_status(url: str, tag: str, branch: str, commit: str):
-        return f"{url}\n{tag}\n{branch}\n{commit}\n"
+    def format_git_status(url: str, tag: str, branch: str, commit: str, tree: str = ''):
+        return f"{url}\n{tag}\n{branch}\n{commit}\n{tree}\n"
 
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
-        status = self.format_git_status(self.url, self.tag, self.branch, commit)
+        tree = self.working_tree_fingerprint(dep)
+        status = self.format_git_status(self.url, self.tag, self.branch, commit, tree)
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:
                 console(f'    {self.name}  write git status commit={commit}')
@@ -342,7 +367,8 @@ class Git(DepSource):
         tag = lines[1].rstrip()
         branch = lines[2].rstrip()
         commit = lines[3].rstrip()
-        return (url, tag, branch, commit)
+        tree = lines[4].rstrip() if len(lines) > 4 else ''
+        return (url, tag, branch, commit, tree)
 
 
     def reset_status(self, dep: BuildDependency):

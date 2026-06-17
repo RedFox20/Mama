@@ -519,6 +519,10 @@ class BuildDependency:
         if git_changed:              return build('git commit changed')
         if self.dep_source.is_pkg:   return build('artifactory pkg')
 
+        # in-place source edits of a git dep: fast working-tree fingerprint, no reconfigure
+        if self.dep_source.is_git and not self.from_artifactory and self.is_real_clone():
+            if self.dep_source.source_tree_changed(self): return build('source modified')
+
         # if we call `update this_target`
         if conf.update and conf.target == target.name:
             return build('update target='+conf.target)
