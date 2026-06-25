@@ -94,6 +94,8 @@ class TestOptionsToAdd:
         assert we_own is False
 
     def test_user_has_nothing(self, tmp_path, monkeypatch):
+        # Pin the multiplex-enabled path; native-Windows skip has its own tests.
+        monkeypatch.setattr(sm.System, 'windows', False)
         # Avoid mkdir on the user's actual ~/.ssh/cm.
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
@@ -107,6 +109,7 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
 
     def test_user_has_keepalives_only(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {
@@ -227,6 +230,7 @@ class TestEnsureMasterIdempotent:
         assert sm._warmed[('git', 'github.com', None)]['we_own_master'] is False
 
     def test_starts_master_when_user_lacks_config(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
@@ -368,6 +372,7 @@ class TestWrapperMain:
 
     def test_adds_multiplex_when_user_has_nothing(self, monkeypatch, tmp_path):
         from mama.utils import mama_ssh
+        monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         empty = "controlmaster no\ncontrolpath none\nserveraliveinterval 0\n"

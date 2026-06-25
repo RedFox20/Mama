@@ -1,4 +1,4 @@
-import os, shlex, shutil, threading
+import os, shlex, shutil, threading, queue
 import subprocess
 from .system import System, console, error
 
@@ -112,15 +112,28 @@ class SubProcess:
 
 
     def _read_loop_pipe(self):
-        """Windows path: blocking byte reads. select() does not work on Windows
-        pipes, so \\r at a chunk boundary delays until the next read."""
+        """Windows path: select() doesn't work on pipes, so a helper thread does the blocking
+        byte reads and hands chunks to a queue. The drain loop waits on the queue with
+        READER_IDLE_TIMEOUT, giving the same \\r-progress idle-flush as the PTY path. Without it
+        a \\r at a chunk boundary hangs until the next read, and a CRLF after it (the CRT turns
+        the child's \\n into \\r\\n) surfaces as a spurious empty line."""
         stdout = self.process.stdout
         if not stdout: return
         fd = stdout.fileno()
+        chunks: queue.Queue = queue.Queue()
+        def pump():
+            while True:
+                try: chunk = os.read(fd, READER_CHUNK)
+                except OSError: chunk = b''
+                chunks.put(chunk)
+                if not chunk: break
+        threading.Thread(target=pump, daemon=True).start()
         buf = bytearray()
         while True:
-            try: chunk = os.read(fd, READER_CHUNK)
-            except OSError: break
+            try:
+                chunk = chunks.get(timeout=READER_IDLE_TIMEOUT)
+            except queue.Empty:
+                self._drain_buffer(buf, idle=True); continue
             if not chunk: break
             buf.extend(chunk)
             self._drain_buffer(buf)
