@@ -77,6 +77,20 @@ def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
     return dep
 
 
+def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **config_overrides):
+    """Real BuildDependency wired to a mock BuildConfig + a LocalSource pointing at an existing
+    on-disk `src_dir`. build_dir is materialised so src_status round-trips."""
+    from mama.build_dependency import BuildDependency
+    from mama.types.local_source import LocalSource
+    config = make_mock_config(tmp_path, **config_overrides)
+    src = LocalSource(name=name, rel_path=str(src_dir), mamafile=None, always_build=always_build, args=[])
+    dep = BuildDependency(parent=None, config=config, workspace='packages', dep_source=src)
+    dep.is_root = False
+    dep._update_dep_name_and_dirs(name)
+    dep.create_build_dir_if_needed()
+    return dep
+
+
 def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **config_overrides):
     """make_mock_dep + a shim marker already written. Optionally seeds papa.txt
     so artifactory_load_target can parse it (for noart cache-hit tests)."""

@@ -1,13 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import os, shutil, stat, string, time, re, tempfile, subprocess, hashlib
+import os, shutil, stat, string, time, re, tempfile, subprocess
 from .dep_source import DepSource
 from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
-                    is_network_error, get_time_str, normalized_path)
+                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint)
 
 
 if TYPE_CHECKING:
@@ -157,20 +157,10 @@ class Git(DepSource):
 
 
     def working_tree_fingerprint(self, dep: BuildDependency) -> str:
-        """Cheap content-aware hash of uncommitted source: tracked `diff HEAD` plus untracked
-        file stats. '' for a clean tree. Lets `mama build` catch in-place source edits of a git
-        dep without a full status check or a reconfigure. Two git calls; near-free on a clean tree."""
-        if not dep.is_real_clone(): return ''
-        diff = execute_piped(['git', 'diff', 'HEAD'], cwd=dep.src_dir, throw=False) or ''
-        others = execute_piped(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=dep.src_dir, throw=False) or ''
-        if not diff and not others: return ''
-        h = hashlib.sha1(diff.encode('utf-8', 'replace'))
-        for rel in sorted(filter(None, others.split('\0'))):
-            try:
-                st = os.stat(path_join(dep.src_dir, rel))
-                h.update(f'\0{rel}\0{st.st_size}\0{st.st_mtime_ns}'.encode())
-            except OSError: pass
-        return h.hexdigest()[:16]
+        """'' for a clean tree, else a content-aware hash of uncommitted source. See
+        util.git_dir_fingerprint. Guarded on is_real_clone so a shim (no working tree on
+        disk) is treated as clean rather than probing an absent directory."""
+        return git_dir_fingerprint(dep.src_dir) if dep.is_real_clone() else ''
 
 
     def source_tree_changed(self, dep: BuildDependency) -> bool:

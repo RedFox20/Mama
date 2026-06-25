@@ -523,6 +523,11 @@ class BuildDependency:
         if self.dep_source.is_git and self.is_real_clone():
             if self.dep_source.source_tree_changed(self): return build('source modified')
 
+        # in-place edits of a local dep tracked by an enclosing git repo: same fast fingerprint
+        # path, so a large root build doesn't silently skip a modified subfolder.
+        if self.dep_source.is_src and self.dep_source.source_tree_changed(self):
+            return build('source modified')
+
         # if we call `update this_target`
         if conf.update and conf.target == target.name:
             return build('update target='+conf.target)
@@ -583,6 +588,8 @@ class BuildDependency:
         if self.dep_source.is_git:
             git:Git = self.dep_source
             git.save_status(self)
+        elif self.dep_source.is_src:
+            self.dep_source.save_status(self)
 
 
     def create_build_target(self):

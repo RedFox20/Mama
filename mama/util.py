@@ -1,4 +1,4 @@
-import os, stat, shutil, zipfile
+import os, stat, shutil, zipfile, subprocess, hashlib
 from typing import List
 import time, ssl, pathlib, random
 from .utils.system import System, console, progress
@@ -187,6 +187,39 @@ def read_lines_from(file: str) -> List[str]:
         return []
     with pathlib.Path(file).open(encoding='utf-8') as f:
         return f.readlines()
+
+
+def git_dir_fingerprint(src_dir: str) -> str:
+    """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD`
+    scoped to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or
+    a missing dir. Lets `mama build` catch in-place source edits - of a git dep clone, or of a
+    local dep tracked by an enclosing repo - without a full status check or reconfigure.
+
+    Uses subprocess.run with stderr=DEVNULL (not SubProcess.run / execute_piped): a local
+    source dir may not be under git at all, and we must swallow git's `fatal: not a git
+    repository` rather than surface it on every build. Scoping with `-- .` keeps a subfolder of
+    a larger repo from fingerprinting the parent's unrelated changes. Two git calls; near-free
+    on a clean tree."""
+    if not src_dir or not os.path.exists(src_dir):
+        return ''
+    def git(args) -> bytes:
+        try:
+            cp = subprocess.run(['git', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=src_dir, timeout=10)
+            return cp.stdout if cp.returncode == 0 else b''
+        except Exception:
+            return b''
+    diff = git(['diff', 'HEAD', '--', '.'])
+    others = git(['ls-files', '--others', '--exclude-standard', '-z']).decode('utf-8', 'replace')
+    if not diff and not others:
+        return ''
+    h = hashlib.sha1(diff)
+    for rel in sorted(filter(None, others.split('\0'))):
+        try:
+            st = os.stat(path_join(src_dir, rel))
+            h.update(f'\0{rel}\0{st.st_size}\0{st.st_mtime_ns}'.encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
 
 
 def get_file_size_str(size):

@@ -1,4 +1,6 @@
+import os
 from .dep_source import DepSource
+from ..util import git_dir_fingerprint, path_join, save_file_if_contents_changed, read_text_from
 
 class LocalSource(DepSource):
     """
@@ -14,6 +16,25 @@ class LocalSource(DepSource):
 
     def __str__(self):  return f'DepSource LocalSource {self.name} {self.rel_path} {self.mamafile} always_build={self.always_build}'
     def __repr__(self): return self.__str__()
+
+    # A local dep has no git_status of its own; the enclosing repo's working-tree state is what
+    # gates its cmake step. Snapshot lives beside the build, next to git's git_status.
+    def src_status_file(self, dep) -> str:
+        return path_join(dep.build_dir, 'src_status')
+
+    def working_tree_fingerprint(self, dep) -> str:
+        """Fingerprint of uncommitted edits inside this local dep's subfolder, as tracked by an
+        enclosing git repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint."""
+        return git_dir_fingerprint(dep.src_dir)
+
+    def source_tree_changed(self, dep) -> bool:
+        """True when the subfolder differs from the snapshot stored at the last build."""
+        f = self.src_status_file(dep)
+        stored = read_text_from(f) if os.path.exists(f) else ''
+        return self.working_tree_fingerprint(dep) != stored
+
+    def save_status(self, dep):
+        save_file_if_contents_changed(self.src_status_file(dep), self.working_tree_fingerprint(dep))
 
     @staticmethod
     def from_papa_string(s: str) -> "LocalSource":
