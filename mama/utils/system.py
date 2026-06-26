@@ -53,6 +53,15 @@ def get_colored_text(text:str, color):
 _console_lock = threading.Lock()
 _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
+_active_display = None  # duck-typed BuildDisplay; routes normal lines above its live region
+
+
+def set_active_display(display):
+    """While a parallel-build live display is active, normal `console()` lines are routed
+    above its region instead of tearing it. Pass None to detach. Duck-typed (has print_above)
+    to avoid importing build_display here."""
+    global _active_display
+    _active_display = display
 
 
 def console(text:str, color=None, end="\n"):
@@ -61,10 +70,15 @@ def console(text:str, color=None, end="\n"):
     # Cheap O(1) check: redraws start with \r to reset the cursor; only those
     # may overwrite an in-flight progress line. Anything else gets a leading \n.
     is_redraw = text.startswith('\r')
+    text = get_colored_text(text, color)
+    # A live build display owns the terminal: hand it whole status lines so they
+    # commit above the region. Redraws/partials fall through to the normal path.
+    if _active_display is not None and end == '\n' and not is_redraw:
+        _active_display.print_above(text)
+        return
     with _console_lock:
         if _progress_active and not is_redraw:
             print()
-        text = get_colored_text(text, color)
         # Erase to EOL so a shorter redraw fully clears a longer previous line (no stale tail chars).
         if is_redraw: text += _ERASE_EOL
         print(text, end=end, flush=True)

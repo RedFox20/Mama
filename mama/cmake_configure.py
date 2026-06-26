@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
 
 
-def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cmakecache:bool = False):
+def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cmakecache:bool = False, env=None, out=None):
     rerun = False
     error = ''
     if target.config.verbose: console(cmd)
@@ -21,7 +21,8 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
 
     def handle_output(p:SubProcess, line:str):
         nonlocal rerun, delete_cmakecache
-        print(line) # newline is not included
+        if out: out(line)
+        else:   print(line) # newline is not included
         if line.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
@@ -34,11 +35,11 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
             delete_cmakecache = True
 
     # run CMake configure and handle output
-    exit_status = SubProcess.run(cmd, cwd, io_func=handle_output)
+    exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
 
     if rerun and allow_rerun:
         if target.config.print: console('Rerunning CMake configure')
-        return _rerunnable_cmake_conf(cmd, cwd, False, target, delete_cmakecache=delete_cmakecache)
+        return _rerunnable_cmake_conf(cmd, cwd, False, target, delete_cmakecache=delete_cmakecache, env=env, out=out)
     if exit_status != 0:
         raise Exception(f'CMake configure error: {error}')
     target.dep.save_enabled_sanitizers()
@@ -48,21 +49,28 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
 def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     """
     Configures compilers for CMake, this needs to be done every time to prevent Ninja
-    or other backends incorrectly picking wrong compilers.
+    or other backends incorrectly picking wrong compilers. CC/CXX are stripped from the
+    subprocess env by `compute_env` (not the global os.environ), so this is thread-safe.
     """
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
     if cc:
-        cc_normalized = util.forward_slashes(cc)
-        opt.append(f'CMAKE_C_COMPILER={cc_normalized}')
-        if 'CC' in os.environ:
-            del os.environ['CC']  # remove CC env var to avoid conflicts, since CMake prioritizes this option
+        opt.append(f'CMAKE_C_COMPILER={util.forward_slashes(cc)}')
         if target.enable_cxx_build:
-            cxx_normalized = util.forward_slashes(cxx)
-            opt.append(f'CMAKE_CXX_COMPILER={cxx_normalized}')
-            if 'CXX' in os.environ:
-                del os.environ['CXX']  # remove CXX env var to avoid conflicts, since CMake prioritizes this option
+            opt.append(f'CMAKE_CXX_COMPILER={util.forward_slashes(cxx)}')
     elif 'CC' in os.environ or 'CXX' in os.environ:
         warning('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set')
+
+
+def compute_env(target:BuildTarget) -> dict:
+    """Per-job environment for a cmake invocation: a COPY of os.environ with CC/CXX removed
+    when we pass explicit -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX env otherwise). Returns
+    a fresh dict so parallel configure/build jobs never mutate the shared global env."""
+    env = os.environ.copy()
+    cc, cxx, _ = target.config.get_preferred_compiler_paths()
+    if cc:
+        env.pop('CC', None)
+        if target.enable_cxx_build: env.pop('CXX', None)
+    return env
 
 
 def _opts_to_defines(opts:list[str]) -> str:
@@ -71,7 +79,7 @@ def _opts_to_defines(opts:list[str]) -> str:
     return opts_defines
 
 
-def run_config(target:BuildTarget):
+def run_config(target:BuildTarget, out=None):
     must_configure = target.config.update or target.config.run_cmake_configure
     # also reconfigure if sanitizer flags changed
     if not must_configure:
@@ -95,7 +103,7 @@ def run_config(target:BuildTarget):
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
     cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
-    _rerunnable_cmake_conf(cmd, target.build_dir(), True, target)
+    _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
 
 
 def is_rerunnable_error(output:str):
@@ -104,16 +112,14 @@ def is_rerunnable_error(output:str):
     return 'Makefile: No such file or directory' in output
 
 
-def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
+def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=None):
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)
-    opt = []
-    _set_compiler_paths(target, opt) # only running this to clean the env vars
     cmd = f'{target.cmake_command} --build {build_dir} {flags} {extraflags}'
     if target.config.verbose:
         console(cmd, color=Color.GREEN)
-    status, output = execute_piped_echo(build_dir, cmd, echo=True)
+    status, output = execute_piped_echo(build_dir, cmd, echo=True, env=compute_env(target), out=out)
     if status != 0:
         if rerun and is_rerunnable_error(output):
             if target.config.verbose:
@@ -121,8 +127,8 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True):
             cmake_cache = target.build_dir('CMakeCache.txt')
             if os.path.exists(cmake_cache):
                 os.remove(cmake_cache)
-            run_config(target)
-            run_build(target, install, extraflags, rerun=False)
+            run_config(target, out=out)
+            run_build(target, install, extraflags, rerun=False, out=out)
         else:
             raise Exception(f'{cmd} failed with return code {status}')
 
@@ -339,14 +345,22 @@ def _build_config(target:BuildTarget, install:bool):
     return conf
 
 
+def _jobs(target:BuildTarget) -> int:
+    """Build parallelism for this target: a scheduler-sized `_build_jobs` (from the TU probe)
+    when set, else the global `config.jobs`. Per-target so concurrent builds never clobber
+    a shared `-j` value."""
+    return getattr(target, '_build_jobs', None) or target.config.jobs
+
+
 def _mp_flags(target:BuildTarget):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
-    if config.msvc:       return f'/maxcpucount:{config.jobs}'
-    if target.enable_unix_make:   return f'-j{config.jobs}'
-    if config.ios:         return f'-jobs {config.jobs}'
-    if config.macos:       return f'-jobs {config.jobs}'
-    return f'-j{config.jobs}'
+    jobs = _jobs(target)
+    if config.msvc:       return f'/maxcpucount:{jobs}'
+    if target.enable_unix_make:   return f'-j{jobs}'
+    if config.ios:         return f'-jobs {jobs}'
+    if config.macos:       return f'-jobs {jobs}'
+    return f'-j{jobs}'
 
 
 def _buildsys_flags(target:BuildTarget):

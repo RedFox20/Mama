@@ -63,6 +63,10 @@ class BuildDisplay:
         self._last_render = 0.0
         self._lock = threading.RLock()
 
+    @property
+    def isatty(self) -> bool:
+        return self._isatty
+
     # -- task lifecycle ----------------------------------------------------
 
     def start_task(self, id, kind: str, name: str) -> Task:

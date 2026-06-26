@@ -8,7 +8,8 @@ from .util import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
-from .dependency_chain import load_dependency_chain, execute_task_chain, find_dependency, get_flat_deps, get_deps_only_targets, get_deps_that_depend_on_target
+from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
+                               find_dependency, get_flat_deps, get_deps_only_targets, get_deps_that_depend_on_target)
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -336,7 +337,12 @@ def mamabuild(args, source_dir=os.getcwd()):
         chain = ' -> '.join([d.name for d in flat_deps_reverse])
         console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
 
-    execute_task_chain(flat_deps_reverse)
+    # Parallel by default: a DAG scheduler overlaps independent configure/build jobs.
+    # `serial` opts out; a trivial graph (<=1 dep) has nothing to overlap.
+    if config.serial_load or len(flat_deps_reverse) <= 1:
+        execute_task_chain(flat_deps_reverse)
+    else:
+        execute_task_chain_parallel(flat_deps_reverse)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]

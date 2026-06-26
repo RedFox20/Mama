@@ -90,6 +90,8 @@ class BuildTarget:
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
+        self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
+        self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
@@ -1338,17 +1340,37 @@ class BuildTarget:
         self.dep.clean()
 
 
+    def _cmake_configure_step(self, out=None):
+        """CMake configure half of a build: ensure CMakeLists, inject env, run config."""
+        self.dep.ensure_cmakelists_exists()
+        cmake.inject_env(self)
+        cmake.run_config(self, out=out) # THROWS on CMAKE failure
+
+    def _cmake_build_step(self, out=None):
+        """CMake build+install half. Sizes -j from a TU probe of compile_commands.json."""
+        self._build_jobs = self._probe_build_jobs()
+        cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
+
+    def _probe_build_jobs(self) -> int:
+        """Cheap parallelism estimate: number of translation units in compile_commands.json
+        (written by configure), capped at config.jobs. Falls back to config.jobs on any miss."""
+        try:
+            cc = self.build_dir('compile_commands.json')
+            if os.path.exists(cc):
+                n = util.read_text_from(cc).count('"file"')
+                if n > 0: return min(n, self.config.jobs)
+        except Exception: pass
+        return self.config.jobs
+
     def cmake_build(self):
         if self.config.print:
             console('\n\n#############################################################')
             console(f"CMakeBuild {self.name} ({self.cmake_build_type})")
         config_start = time.time()
-        self.dep.ensure_cmakelists_exists()
-        cmake.inject_env(self)
-        cmake.run_config(self) # THROWS on CMAKE failure
+        self._cmake_configure_step()
         config_stop = time.time()
         build_start = config_stop
-        cmake.run_build(self, install=True) # THROWS on CMAKE failure
+        self._cmake_build_step()
         build_stop = time.time()
         if self.config.print:
             e_config = util.get_time_str(config_stop - config_start)
@@ -1422,7 +1444,42 @@ class BuildTarget:
         return None
 
 
-    ## TODO: move all of this into a new utility
+    def _build_work_enabled(self) -> bool:
+        """True when this target has actual configure/build work (not a header-only,
+        not an artifactory package, and flagged for rebuild)."""
+        return not self.dep.nothing_to_build and self.dep.should_rebuild and not self.dep.from_artifactory
+
+    def _has_custom_build(self) -> bool:
+        """A mamafile overriding build() fuses cmake configure+build, so it can't be split;
+        the scheduler runs it whole in build_phase and skips the separate configure step."""
+        return type(self).build is not BuildTarget.build
+
+    def configure_phase(self, out=None):
+        """Scheduled CONFIGURE job: user configure() hook + cmake configure. No-op for a
+        no-work node or a custom build() (which owns its own configure inside build_phase)."""
+        if not self._build_work_enabled() or self._has_custom_build():
+            return
+        self.configure() # user customization
+        self._fetched = self.try_automatic_artifactory_fetch()
+        if not self._fetched:
+            self._cmake_configure_step(out=out)
+
+    def build_phase(self, out=None):
+        """Scheduled BUILD job: compile (if any) then ALWAYS package - so no-work nodes
+        still package their exports in dependency order. Mirrors _execute_build_tasks."""
+        if self._build_work_enabled():
+            if self._has_custom_build():
+                self.configure() # custom build's configure_phase was a no-op
+                self._fetched = self.try_automatic_artifactory_fetch()
+                if not self._fetched:
+                    self.build() # user override owns configure+build
+            elif not self._fetched:
+                self._cmake_build_step(out=out)
+            self.dep.successful_build()
+            if not self._fetched:
+                package.clean_intermediate_files(self)
+        self._run_packaging()
+
     def _execute_build_tasks(self):
         can_build = not self.dep.nothing_to_build
         if can_build and self.dep.should_rebuild and not self.dep.from_artifactory:
@@ -1435,7 +1492,9 @@ class BuildTarget:
                 self.dep.successful_build()
                 if not fetched:
                     package.clean_intermediate_files(self)
+        self._run_packaging()
 
+    def _run_packaging(self):
         # skip package() if we already fetched it as a package from artifactory()
         # unless user has specified for a local rebuild
         if self.dep.should_rebuild or not self.dep.from_artifactory:

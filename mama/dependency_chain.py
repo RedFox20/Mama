@@ -516,6 +516,81 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
             #     print_dependencies(dep) # TODO: different output for non-root targets
 
 
+def _make_display(config):
+    import sys, shutil, time
+    from .utils.build_display import BuildDisplay
+    out = sys.stdout
+    isatty = bool(getattr(out, 'isatty', lambda: False)())
+    return BuildDisplay(out, isatty=isatty, clock=time.monotonic,
+                        term_size=lambda: tuple(shutil.get_terminal_size((100, 24))),
+                        verbose=config.verbose)
+
+
+def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
+    """Parallel counterpart of execute_task_chain: a DAG scheduler runs each dep's configure
+    and build as separate jobs (a dep's configure waits on its children's builds), with a live
+    display. Deploy/run/test stay in a serial post-pass. Falls back to the serial path for
+    trivial graphs (see main)."""
+    import time, traceback, psutil
+    from .build_scheduler import Scheduler, build_dep_jobs
+    from .utils import system
+    deps = list(flat_deps_reverse)
+    config = deps[0].config
+    display = _make_display(config)
+
+    def run_phase(dep, kind, body):
+        tid = (dep.name, kind)
+        display.start_task(tid, kind, dep.name)
+        ok = False
+        try:
+            body(lambda line: display.feed(tid, line))
+            ok = True
+        finally:
+            display.finish_task(tid, ok)
+
+    def configure_fn(dep):
+        def body(sink):
+            _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
+            dep.target.configure_phase(out=sink)
+        run_phase(dep, 'configure', body)
+
+    def build_fn(dep):
+        def body(sink):
+            dep.target.build_phase(out=sink)
+            dep.already_executed = True
+            _save_vscode_compile_commands(dep)
+        run_phase(dep, 'build', body)
+
+    weight_fn = lambda d: (lambda d=d: getattr(d.target, '_build_jobs', None) or d.config.jobs)
+    jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn)
+
+    cpu = psutil.cpu_count() or 4
+    psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
+    sched = Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs,
+                      cpu_sampler=lambda: psutil.cpu_percent(interval=None))
+    system.set_active_display(display)
+    try:
+        failed = sched.run(jobs)
+    finally:
+        display.close()
+        system.set_active_display(None)
+
+    if failed is not None:
+        console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
+        if display.isatty:  # non-TTY already dumped the output on finish
+            display.replay((failed.node.name, failed.kind))
+        if failed.error:
+            console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
+        exit(-1)
+
+    # deploy/run/test are target-specific and cheap; keep them serial and ordered
+    for dep in flat_deps_reverse:
+        dep.target._execute_deploy_tasks()
+        dep.target._execute_run_tasks()
+        if dep.config.verbose and not dep.config.test and dep.is_root_or_config_target():
+            print_dependencies(dep)
+
+
 def find_dependency(root: BuildDependency, name: str) -> BuildDependency:
     """ This is mainly used for finding root target or specific command line target """
     if root.name.lower() == name.lower():

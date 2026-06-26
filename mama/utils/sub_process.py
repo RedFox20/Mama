@@ -328,13 +328,14 @@ def execute_echo(cwd, cmd, exit_on_fail=False, env=None):
             exit(exit_status)
 
 
-def execute_piped_echo(cwd, cmd, echo=True, env=None):
+def execute_piped_echo(cwd, cmd, echo=True, env=None, out=None):
     """
     Wrapper around SubProcess.run(), returns status code with piped output (status, output).
     - cwd: working dir for the subprocess
     - cmd: command string
     - echo: if True, also prints the output to console
     - env: overrrides the environment for the subprocess, default is os.environ
+    - out: optional `(line) -> None` sink; when set, lines go there instead of being printed
     - returns: (exit_status, output_string)
     """
     try:
@@ -342,7 +343,8 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None):
         output = ''
         def handle_output(p:SubProcess, line:str):
             nonlocal output
-            if echo: print(line)
+            if out:    out(line)
+            elif echo: print(line)
             output += line
             output += '\n' # newline is not included
         exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
