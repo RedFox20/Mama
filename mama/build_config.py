@@ -179,6 +179,7 @@ class BuildConfig:
         self._network_available = None  # None=untested, True/False=result
         self.unused_args = []
         self.loaded_dependencies : dict[str, BuildDependency] = {}
+        self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
         self.check_platform()
 

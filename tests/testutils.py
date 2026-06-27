@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Iterable, Optional
 from unittest.mock import Mock
 
@@ -20,6 +21,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.verbose = False
     cfg.print = False
     cfg.loaded_dependencies = {}
+    cfg.dep_registry_lock = threading.Lock()  # real lock so add_child works under the mock config
     cfg.target_matches.return_value = False
     cfg.force_artifactory = False
     cfg.disable_artifactory = False

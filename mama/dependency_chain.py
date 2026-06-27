@@ -434,7 +434,10 @@ def load_dependency_chain(root: BuildDependency):
     `serial` on the command line to disable parallel loading if you hit
     issues.
     """
-    if root.config.update and not root.config.serial_load:
+    # Parallel by default so clones don't run one-by-one and gate the whole build behind a serial
+    # clone wall. `serial` opts out. load() + add_child are now thread-safe (per-dep lock + registry
+    # lock); the idle-timeout (Phase A) keeps a stuck clone from freezing the wave.
+    if not root.config.serial_load:
         root.config.parallel_load = True
 
     ssh_multiplex.init_fetch_semaphore(root.config.parallel_max)

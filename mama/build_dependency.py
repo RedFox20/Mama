@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os, sys, shutil, time
+import os, sys, shutil, time, threading
 
 from .types.dep_source import DepSource
 from .types.git import Git
@@ -34,6 +34,7 @@ class BuildDependency:
         self.already_loaded = False
         self.already_executed = False
         self.currently_loading = False
+        self._load_lock = threading.Lock()  # serialises concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.did_check_artifactory = False # if true, artifactory was already checked and can be skipped
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
@@ -105,27 +106,28 @@ class BuildDependency:
 
     def add_child(self, dep_source: DepSource) -> BuildDependency:
         """
-        Adds a new child dependency to this BuildDependency
+        Adds a new child dependency to this BuildDependency. Thread-safe: under parallel_load two
+        parents can add the same-named child concurrently; the registry lock makes the dedup +
+        creation atomic so a shared (diamond) dep resolves to one instance.
         """
-        dep = None
-        if dep_source.name in self.config.loaded_dependencies:
-            dep = self.config.loaded_dependencies[dep_source.name]
-        if dep:
-            # reuse & update existing dep
-            dep.update_existing_dependency(dep_source)
-        else:
-            # add new
-            dep = BuildDependency(self, self.config, self.workspace, dep_source)
-            self.config.loaded_dependencies[dep_source.name] = dep
-            if self.config.verbose:
-                console(f'  - Target {self.name: <16} ADD {dep}', color=Color.BLUE)
+        with self.config.dep_registry_lock:
+            dep = self.config.loaded_dependencies.get(dep_source.name)
+            if dep:
+                # reuse & update existing dep
+                dep.update_existing_dependency(dep_source)
+            else:
+                # add new
+                dep = BuildDependency(self, self.config, self.workspace, dep_source)
+                self.config.loaded_dependencies[dep_source.name] = dep
+                if self.config.verbose:
+                    console(f'  - Target {self.name: <16} ADD {dep}', color=Color.BLUE)
 
-        if dep in self.children:
-            raise RuntimeError(f"BuildTarget {self.name} add dependency '{dep.name}'"\
-                                " failed because it has already been added")
+            if dep in self.children:
+                raise RuntimeError(f"BuildTarget {self.name} add dependency '{dep.name}'"\
+                                    " failed because it has already been added")
 
-        self.children.append(dep)
-        return dep
+            self.children.append(dep)
+            return dep
 
 
     def get_children(self) -> List[BuildDependency]:
@@ -305,19 +307,15 @@ class BuildDependency:
 
     ## @return True if dependency has changed
     def load(self):
-        if self.currently_loading:
-            #console(f'WAIT {self.name}')
-            while self.currently_loading:
-                time.sleep(0.1)
-            return self.should_rebuild
-        #console(f'LOAD {self.name}')
-        changed = False
-        try:
-            self.currently_loading = True
-            changed = self._load()
-        finally:
-            self.currently_loading = False
-        return changed
+        # Per-dep lock: under parallel_load the same dep can be a child of two parents and get two
+        # concurrent load() calls; without this they'd both clone (the old `currently_loading`
+        # busy-wait had a TOCTOU race). The lock serialises loads of THIS dep only - different deps
+        # still load (and clone) concurrently. The heavy clone happens inside, so this is the
+        # correct grain: exactly one thread clones a given repo.
+        with self._load_lock:
+            if self.already_loaded:
+                return self.should_rebuild
+            return self._load()
 
 
     def _load_target(self) -> BuildTarget:
