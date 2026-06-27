@@ -19,6 +19,7 @@ sys.path.insert(0, ROOT)
 from mama import cmake_compiler_cache as cc  # noqa: E402
 
 REPOS_DIR = os.path.join(HERE, 'repos')
+OUT_DIR = os.path.join(HERE, '_out')  # build dirs + seeds, repo-local + gitignored
 _DETECT = re.compile(r'identification is|compiler ABI info|compile features')
 
 
@@ -48,8 +49,8 @@ def configure(src, build, gen, extra=()):
 
 
 def fresh(prefix):
-    d = tempfile.mkdtemp(prefix=prefix)
-    return d
+    os.makedirs(OUT_DIR, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=OUT_DIR)  # repo-local, not system temp
 
 
 def bench_repo(name, src, gen, ver):

@@ -45,3 +45,6 @@ bin/
 # Local CMake config-overhead benchmark (clones + build dirs)
 bench/repos/
 bench/_out/
+
+# pytest tmp_path artifacts (repo-local, see tests/conftest.py)
+.pytest_tmp/
