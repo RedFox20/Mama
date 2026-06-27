@@ -85,6 +85,7 @@ def print_usage():
     console('    unshallow  - Allow unshallowing shallow git clones')
     console('    https-override - rewrite add_git() ssh urls (git@host:path) to https://host/path')
     console('    ssh-override   - rewrite add_git() https urls to ssh (git@host:path)')
+    console('    serial     - Disable parallel build of dependencies, useful for debugging')
     console('  examples:')
     console('    mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt')
     console('    mama build                     Update and build main project only. This only clones, but does not update!')
