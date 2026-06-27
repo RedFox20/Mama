@@ -3,6 +3,7 @@ primer-election Coordinator. inject reproduces cmake's warm state (PLATFORM_INFO
 + captured compiler files) so a fresh build dir skips ALL detection."""
 import os, threading
 from mama import cmake_compiler_cache as cc
+from mama.util import normalized_path
 
 
 def _fake_build_files(d, langs=('C', 'CXX', 'RC'), vs=True):
@@ -44,12 +45,13 @@ def test_publish_then_inject_reproduces_warm_state(tmp_path):
     assert m and set(m['langs']) == {'C', 'CXX', 'RC'} and m['cmake_files_ver'] == '4.2.3'
 
     build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
-    cc.inject(seed, build, bfd, src_dir='S:/proj/src')
+    src = str(tmp_path / 'proj_src')
+    cc.inject(seed, build, bfd, src_dir=src)
     for f in ('CMakeCXXCompiler.cmake', 'CMakeDetermineCompilerABI_CXX.bin', 'CMakeSystem.cmake', 'VCTargetsPath.txt'):
         assert os.path.exists(os.path.join(bfd, f))     # toolchain files copied into CMakeFiles/<ver>
     cache = open(os.path.join(build, 'CMakeCache.txt')).read()
     assert 'CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1' in cache       # the marker that skips detection
-    assert 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/proj/src' in cache        # must match the configured source
+    assert f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(src)}' in cache  # must match the configured source
 
 
 def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
@@ -58,9 +60,10 @@ def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
     bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed'); cc.publish(seed, bf)
     build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
-    cc.inject(seed, build, bfd, src_dir='S:/b')
+    src = str(tmp_path / 'b')
+    cc.inject(seed, build, bfd, src_dir=src)
     lines = [l.strip() for l in open(os.path.join(build, 'CMakeCache.txt')) if l.strip()]
-    assert lines == ['CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1', 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/b']
+    assert lines == ['CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1', f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(src)}']
     assert 'CMakeCache.txt' not in os.listdir(seed)  # we never capture a project's cache
 
 
@@ -104,10 +107,11 @@ def test_coordinator_first_primes_then_others_reuse(tmp_path):
     primer = _T(str(tmp_path / 'A'), with_files=True)
     assert co.prepare(primer) == 'prime'
     co.publish(primer)
-    consumer = _T(str(tmp_path / 'B'), src='S:/proj')
+    proj = str(tmp_path / 'proj'); consumer = _T(str(tmp_path / 'B'), src=proj)
     assert co.prepare(consumer) == 'use'
     assert os.path.exists(os.path.join(consumer.bfd, 'CMakeCXXCompiler.cmake'))   # seed injected
-    assert 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/proj' in open(os.path.join(consumer.build_dir, 'CMakeCache.txt')).read()
+    cache = open(os.path.join(consumer.build_dir, 'CMakeCache.txt')).read()
+    assert f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(proj)}' in cache       # B's own source, not A's
 
 
 def test_coordinator_waiter_blocks_until_primer_publishes(tmp_path):
