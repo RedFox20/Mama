@@ -169,6 +169,7 @@ class BuildConfig:
         self.parallel_load = False  ## Whether to load dependencies in parallel?
         self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
         self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
+        self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
@@ -216,6 +217,7 @@ class BuildConfig:
             elif arg == 'verbose':   self.verbose = True
             elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'serial':    self.serial_load = True
+            elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True
             elif arg.startswith('parallel_max='):
                 try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass

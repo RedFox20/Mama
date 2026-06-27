@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import os
+import os, shutil, threading
 from .utils.system import System, console, Color, warning
-from .utils.sub_process import SubProcess, execute_piped_echo
+from .utils.sub_process import SubProcess, execute_piped_echo, execute_piped
 from mama import util
+from mama import cmake_compiler_cache as seedcache
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -79,7 +80,59 @@ def _opts_to_defines(opts:list[str]) -> str:
     return opts_defines
 
 
-def run_config(target:BuildTarget, out=None):
+_seed_lock = threading.Lock()
+
+
+def _cmake_version_number(config) -> str:
+    """Parsed cmake version (e.g. '4.2.3'), which is also the CMakeFiles/<ver> dir name. Cached."""
+    v = getattr(config, '_cmake_ver_num', None)
+    if v is None:
+        out = execute_piped([config.cmake_command, '--version'], throw=False) or ''
+        nums = [ln.split()[-1] for ln in out.splitlines() if 'version' in ln.lower()]
+        v = nums[0] if nums else 'unknown'
+        config._cmake_ver_num = v
+    return v
+
+
+def _build_files_dir(target:BuildTarget) -> str:
+    return util.path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
+
+
+def _seed_inputs(target:BuildTarget) -> dict:
+    config = target.config
+    cc, cxx, ver = config.get_preferred_compiler_paths()
+    return {
+        'cmake': _cmake_version_number(config), 'gen': _generator(target),
+        'arch': getattr(config, 'arch', ''), 'platform': config.platform_build_dir_name(),
+        'cc': seedcache.compiler_stat(cc) if cc else {}, 'cxx': seedcache.compiler_stat(cxx) if cxx else {},
+        'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
+    }
+
+
+def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
+    """Lazily build the per-run, config-shared Coordinator. Seed lives in the workspace `packages`
+    dir (dirname(dirname(build_dir))) so deleting `packages/` purges it."""
+    config = target.config
+    co = getattr(config, '_seed_coord', None)
+    if co is not None: return co
+    with _seed_lock:
+        co = getattr(config, '_seed_coord', None)
+        if co is None:
+            root = util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+            co = seedcache.Coordinator(root, fp_fn=lambda t: seedcache.compute_fingerprint(_seed_inputs(t)),
+                                       bfd_fn=_build_files_dir, enabled=not getattr(config, 'no_compiler_cache', False))
+            config._seed_coord = co
+        return co
+
+
+def _wipe_build_dir(target:BuildTarget):
+    """Drop CMakeCache + CMakeFiles so a self-heal retry detects cleanly."""
+    cache = target.build_dir('CMakeCache.txt')
+    if os.path.exists(cache): os.remove(cache)
+    shutil.rmtree(util.path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
+
+
+def run_config(target:BuildTarget, out=None, _seed=True):
     must_configure = target.config.update or target.config.run_cmake_configure
     # also reconfigure if sanitizer flags changed
     if not must_configure:
@@ -102,8 +155,25 @@ def run_config(target:BuildTarget, out=None):
     install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
-    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
-    _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
+
+    # Reuse cached compiler/ABI detection on a fresh build dir (skips ~5s of cmake detection).
+    cache_exists = os.path.exists(target.build_dir('CMakeCache.txt'))
+    coord = _seed_coordinator(target)
+    seed_arg, role = coord.prepare(target) if (_seed and not cache_exists) else ('', 'none')
+
+    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {seed_arg} {install_prefix} "{src_dir}"'
+    try:
+        _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
+    except Exception:
+        if role == 'prime':
+            coord.fail_primer(target)
+        elif role == 'use':  # a stale seed can only cost one extra detection: drop it, retry clean
+            coord.heal(target)
+            _wipe_build_dir(target)
+            return run_config(target, out=out, _seed=False)
+        raise
+    if role == 'prime':
+        coord.publish(target)
 
 
 def is_rerunnable_error(output:str):

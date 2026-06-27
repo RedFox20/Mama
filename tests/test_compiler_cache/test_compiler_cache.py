@@ -10,7 +10,11 @@ def _fake_build_files(d, langs=('C', 'CXX', 'RC'), vs=True):
     open(os.path.join(d, 'CMakeSystem.cmake'), 'w').write('set(CMAKE_SYSTEM Windows)\n')
     for lang in langs:
         mod, abi = cc._LANG_FILES[lang]
-        open(os.path.join(d, mod), 'w').write(f'set(CMAKE_{lang}_COMPILER_ID "MSVC")\n')
+        open(os.path.join(d, mod), 'w').write(
+            f'set(CMAKE_{lang}_COMPILER "C:/bin/{lang.lower()}.exe")\n'
+            f'set(CMAKE_{lang}_COMPILER_ID "MSVC")\n'
+            f'set(CMAKE_{lang}_COMPILER_VERSION "19.50")\n'
+            f'set(CMAKE_{lang}_COMPILE_FEATURES "{lang.lower()}_std_11;{lang.lower()}_std_17")\n')
         if abi: open(os.path.join(d, abi), 'wb').write(b'\x00abi')
     if vs: open(os.path.join(d, 'VCTargetsPath.txt'), 'w').write('C:/VCTargets\n')
     return d
@@ -35,11 +39,19 @@ def test_detected_langs_from_files(tmp_path):
     assert cc.detected_langs(d) == ['CXX']
 
 
-def test_seed_cmake_text_sets_abi_and_works():
-    text = cc._seed_cmake_text(['C', 'CXX', 'RC'])
-    assert 'set(CMAKE_CXX_ABI_COMPILED TRUE' in text and 'set(CMAKE_C_COMPILER_WORKS TRUE' in text
-    assert 'set(CMAKE_RC_COMPILER_WORKS 1' in text
+def test_seed_cmake_text_emits_compiler_abi_and_works():
+    text = cc._seed_cmake_text(['CXX', 'RC'], {'CXX': {'CMAKE_CXX_COMPILER': '"c++"'}})
+    assert 'set(CMAKE_CXX_COMPILER "c++" CACHE INTERNAL' in text
+    assert 'set(CMAKE_CXX_ABI_COMPILED TRUE' in text and 'set(CMAKE_RC_COMPILER_WORKS 1' in text
     assert 'CMAKE_RC_ABI_COMPILED' not in text  # RC has no ABI step
+    # compile-features is intentionally NOT seeded (fatal-errors in CMakeCommonCompilerMacros)
+    assert 'COMPILE_FEATURES' not in text
+
+
+def test_read_compiler_vars_extracts_only_the_compiler_path(tmp_path):
+    bf = _fake_build_files(str(tmp_path / '4.2.3'), langs=('CXX',), vs=False)
+    v = cc._read_compiler_vars(bf, 'CXX')
+    assert v == {'CMAKE_CXX_COMPILER': '"C:/bin/cxx.exe"'}  # features/id deliberately excluded
 
 
 def test_publish_then_inject_round_trip(tmp_path):
@@ -54,6 +66,8 @@ def test_publish_then_inject_round_trip(tmp_path):
     assert arg.startswith('-C ') and cc._SEED_CMAKE in arg
     for f in ('CMakeCXXCompiler.cmake', 'CMakeDetermineCompilerABI_CXX.bin', 'CMakeSystem.cmake', 'VCTargetsPath.txt'):
         assert os.path.exists(os.path.join(fresh, f))  # detection artifacts seeded into the fresh dir
+    seed_cmake = open(os.path.join(seed, cc._SEED_CMAKE)).read()
+    assert 'set(CMAKE_CXX_COMPILER "C:/bin/cxx.exe" CACHE INTERNAL' in seed_cmake  # detected vars captured
 
 
 def test_publish_returns_false_without_compiler_files(tmp_path):

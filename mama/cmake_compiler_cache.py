@@ -15,7 +15,7 @@ Pure file/string ops with injected `clock` so it unit-tests with no cmake. Finge
 primer election and run_config wiring live in the caller."""
 
 from __future__ import annotations
-import os, shutil, hashlib, json, time, threading
+import os, re, shutil, hashlib, json, time, threading
 from .util import path_join, normalized_path
 
 # lang -> (compiler module file, ABI probe binary or None)
@@ -54,13 +54,38 @@ def detected_langs(build_files_dir: str) -> list:
             if os.path.exists(path_join(build_files_dir, mod))]
 
 
-def _seed_cmake_text(langs: list) -> str:
+# Only the compiler path is safe to pre-seed. Seeding COMPILE_FEATURES (or the standard vars)
+# without the compiler module's full standards context makes cmake fatal-error in
+# CMakeCommonCompilerMacros, and seeding COMPILER_ID/VERSION doesn't actually skip ID detection -
+# so we leave those to cmake and only skip the expensive ABI try_compile + working-compiler check.
+def _seed_vars(lang: str) -> list:
+    return [f'CMAKE_{lang}_COMPILER']
+
+
+def _read_compiler_vars(build_files_dir: str, lang: str) -> dict:
+    """Copy the detected `set(VAR ...)` values verbatim out of a captured CMake<LANG>Compiler.cmake."""
+    try:
+        text = open(path_join(build_files_dir, _LANG_FILES[lang][0]), encoding='utf-8').read()
+    except OSError:
+        return {}
+    out = {}
+    for var in _seed_vars(lang):
+        m = re.search(rf'^set\({var} (.+)\)\s*$', text, re.MULTILINE)
+        if m: out[var] = m.group(1).strip()
+    return out
+
+
+def _seed_cmake_text(langs: list, lang_vars: dict) -> str:
+    """Initial-cache that skips the slow ABI try_compile + working-compiler check: the seeded
+    compiler path + ABI_COMPILED/WORKS tell cmake the compiler is good. Values are cmake's own
+    detected output; the fingerprint keys on the compiler so they can't go stale silently, and a
+    failed seeded configure self-heals."""
     lines = []
     for lang in langs:
-        works = '1' if lang == 'RC' else 'TRUE'
-        if lang != 'RC':
-            lines.append(f'set(CMAKE_{lang}_ABI_COMPILED TRUE CACHE INTERNAL "")')
-        lines.append(f'set(CMAKE_{lang}_COMPILER_WORKS {works} CACHE INTERNAL "")')
+        for var, val in lang_vars.get(lang, {}).items():
+            lines.append(f'set({var} {val} CACHE INTERNAL "")')
+        if lang != 'RC': lines.append(f'set(CMAKE_{lang}_ABI_COMPILED TRUE CACHE INTERNAL "")')
+        lines.append(f'set(CMAKE_{lang}_COMPILER_WORKS {"1" if lang == "RC" else "TRUE"} CACHE INTERNAL "")')
     return '\n'.join(lines) + '\n'
 
 
@@ -85,8 +110,9 @@ def publish(seed_dir: str, build_files_dir: str, clock=time.time) -> bool:
         if os.path.exists(src):
             shutil.copy2(src, path_join(seed_dir, name))
             copied.append(name)
+    lang_vars = {lang: _read_compiler_vars(build_files_dir, lang) for lang in langs}
     with open(path_join(seed_dir, _SEED_CMAKE), 'w', encoding='utf-8') as f:
-        f.write(_seed_cmake_text(langs))
+        f.write(_seed_cmake_text(langs, lang_vars))
     manifest = {'created': int(clock()), 'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
                 'langs': langs, 'files': copied}
     with open(path_join(seed_dir, _MANIFEST), 'w', encoding='utf-8') as f:
