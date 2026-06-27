@@ -1,5 +1,6 @@
-"""Pins cmake_compiler_cache: fingerprint stability, seed publish/load/inject round-trip, TTL, purge,
-and the primer-election Coordinator."""
+"""Pins cmake_compiler_cache: fingerprint, publish/load/inject round-trip, TTL, purge, and the
+primer-election Coordinator. inject reproduces cmake's warm state (PLATFORM_INFO_INITIALIZED marker
++ captured compiler files) so a fresh build dir skips ALL detection."""
 import os, threading
 from mama import cmake_compiler_cache as cc
 
@@ -10,11 +11,7 @@ def _fake_build_files(d, langs=('C', 'CXX', 'RC'), vs=True):
     open(os.path.join(d, 'CMakeSystem.cmake'), 'w').write('set(CMAKE_SYSTEM Windows)\n')
     for lang in langs:
         mod, abi = cc._LANG_FILES[lang]
-        open(os.path.join(d, mod), 'w').write(
-            f'set(CMAKE_{lang}_COMPILER "C:/bin/{lang.lower()}.exe")\n'
-            f'set(CMAKE_{lang}_COMPILER_ID "MSVC")\n'
-            f'set(CMAKE_{lang}_COMPILER_VERSION "19.50")\n'
-            f'set(CMAKE_{lang}_COMPILE_FEATURES "{lang.lower()}_std_11;{lang.lower()}_std_17")\n')
+        open(os.path.join(d, mod), 'w').write(f'set(CMAKE_{lang}_COMPILER "C:/bin/{lang.lower()}.exe")\n')
         if abi: open(os.path.join(d, abi), 'wb').write(b'\x00abi')
     if vs: open(os.path.join(d, 'VCTargetsPath.txt'), 'w').write('C:/VCTargets\n')
     return d
@@ -39,35 +36,32 @@ def test_detected_langs_from_files(tmp_path):
     assert cc.detected_langs(d) == ['CXX']
 
 
-def test_seed_cmake_text_emits_compiler_abi_and_works():
-    text = cc._seed_cmake_text(['CXX', 'RC'], {'CXX': {'CMAKE_CXX_COMPILER': '"c++"'}})
-    assert 'set(CMAKE_CXX_COMPILER "c++" CACHE INTERNAL' in text
-    assert 'set(CMAKE_CXX_ABI_COMPILED TRUE' in text and 'set(CMAKE_RC_COMPILER_WORKS 1' in text
-    assert 'CMAKE_RC_ABI_COMPILED' not in text  # RC has no ABI step
-    # compile-features is intentionally NOT seeded (fatal-errors in CMakeCommonCompilerMacros)
-    assert 'COMPILE_FEATURES' not in text
-
-
-def test_read_compiler_vars_extracts_only_the_compiler_path(tmp_path):
-    bf = _fake_build_files(str(tmp_path / '4.2.3'), langs=('CXX',), vs=False)
-    v = cc._read_compiler_vars(bf, 'CXX')
-    assert v == {'CMAKE_CXX_COMPILER': '"C:/bin/cxx.exe"'}  # features/id deliberately excluded
-
-
-def test_publish_then_inject_round_trip(tmp_path):
+def test_publish_then_inject_reproduces_warm_state(tmp_path):
     bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed')
     assert cc.publish(seed, bf, clock=lambda: 1000)
     m = cc.load(seed, clock=lambda: 1000)
     assert m and set(m['langs']) == {'C', 'CXX', 'RC'} and m['cmake_files_ver'] == '4.2.3'
 
-    fresh = str(tmp_path / 'B' / '4.2.3')          # a new package's empty build dir
-    arg = cc.inject(seed, fresh)
-    assert arg.startswith('-C ') and cc._SEED_CMAKE in arg
+    build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
+    cc.inject(seed, build, bfd, src_dir='S:/proj/src')
     for f in ('CMakeCXXCompiler.cmake', 'CMakeDetermineCompilerABI_CXX.bin', 'CMakeSystem.cmake', 'VCTargetsPath.txt'):
-        assert os.path.exists(os.path.join(fresh, f))  # detection artifacts seeded into the fresh dir
-    seed_cmake = open(os.path.join(seed, cc._SEED_CMAKE)).read()
-    assert 'set(CMAKE_CXX_COMPILER "C:/bin/cxx.exe" CACHE INTERNAL' in seed_cmake  # detected vars captured
+        assert os.path.exists(os.path.join(bfd, f))     # toolchain files copied into CMakeFiles/<ver>
+    cache = open(os.path.join(build, 'CMakeCache.txt')).read()
+    assert 'CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1' in cache       # the marker that skips detection
+    assert 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/proj/src' in cache        # must match the configured source
+
+
+def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
+    # Regression: the seed must transplant ONLY compiler detection, never project flags/defines,
+    # so a cache from project A can't poison project B. The injected cache is exactly two markers.
+    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    seed = str(tmp_path / 'seed'); cc.publish(seed, bf)
+    build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
+    cc.inject(seed, build, bfd, src_dir='S:/b')
+    lines = [l.strip() for l in open(os.path.join(build, 'CMakeCache.txt')) if l.strip()]
+    assert lines == ['CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1', 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/b']
+    assert 'CMakeCache.txt' not in os.listdir(seed)  # we never capture a project's cache
 
 
 def test_publish_returns_false_without_compiler_files(tmp_path):
@@ -93,31 +87,35 @@ def test_purge_removes_seed(tmp_path):
 
 
 class _T:
-    def __init__(self, bfd): self.bfd = bfd
+    def __init__(self, build_dir, src='S:/src', with_files=False):
+        self.build_dir = build_dir
+        self.bfd = os.path.join(build_dir, 'CMakeFiles', '4.2.3')
+        self.src = src
+        if with_files: _fake_build_files(self.bfd)
 
 
 def _coord(tmp_path, **kw):
-    root = str(tmp_path / 'cache')
-    return cc.Coordinator(root, fp_fn=lambda t: 'FP', bfd_fn=lambda t: t.bfd, **kw)
+    return cc.Coordinator(str(tmp_path / 'cache'), fp_fn=lambda t: 'FP',
+                          paths_fn=lambda t: (t.build_dir, t.bfd, t.src), **kw)
 
 
 def test_coordinator_first_primes_then_others_reuse(tmp_path):
     co = _coord(tmp_path)
-    primer = _T(_fake_build_files(str(tmp_path / 'A' / '4.2.3')))
-    assert co.prepare(primer) == ('', 'prime')
+    primer = _T(str(tmp_path / 'A'), with_files=True)
+    assert co.prepare(primer) == 'prime'
     co.publish(primer)
-    consumer = _T(str(tmp_path / 'B' / '4.2.3'))
-    arg, role = co.prepare(consumer)
-    assert role == 'use' and arg.startswith('-C ')
-    assert os.path.exists(os.path.join(consumer.bfd, 'CMakeCXXCompiler.cmake'))
+    consumer = _T(str(tmp_path / 'B'), src='S:/proj')
+    assert co.prepare(consumer) == 'use'
+    assert os.path.exists(os.path.join(consumer.bfd, 'CMakeCXXCompiler.cmake'))   # seed injected
+    assert 'CMAKE_HOME_DIRECTORY:INTERNAL=S:/proj' in open(os.path.join(consumer.build_dir, 'CMakeCache.txt')).read()
 
 
 def test_coordinator_waiter_blocks_until_primer_publishes(tmp_path):
     co = _coord(tmp_path)
-    primer = _T(_fake_build_files(str(tmp_path / 'A' / '4.2.3')))
-    assert co.prepare(primer)[1] == 'prime'
+    assert co.prepare(_T(str(tmp_path / 'A'), with_files=True)) == 'prime'
+    primer = _T(str(tmp_path / 'A'), with_files=True)
     out = {}
-    w = threading.Thread(target=lambda: out.update(zip(['arg', 'role'], co.prepare(_T(str(tmp_path / 'B' / '4.2.3'))))))
+    w = threading.Thread(target=lambda: out.__setitem__('role', co.prepare(_T(str(tmp_path / 'B')))))
     w.start()
     w.join(0.2); assert w.is_alive()  # blocked: primer hasn't published yet
     co.publish(primer)
@@ -128,11 +126,11 @@ def test_coordinator_waiter_blocks_until_primer_publishes(tmp_path):
 def test_coordinator_elects_exactly_one_primer_under_race(tmp_path):
     co = _coord(tmp_path, wait_timeout=5.0)
     n = 12
-    targets = [_T(_fake_build_files(str(tmp_path / f't{i}' / '4.2.3'))) for i in range(n)]
+    targets = [_T(str(tmp_path / f't{i}'), with_files=True) for i in range(n)]
     barrier = threading.Barrier(n); roles = [None] * n
     def work(i):
         barrier.wait()
-        _, role = co.prepare(targets[i])
+        role = co.prepare(targets[i])
         if role == 'prime': co.publish(targets[i])
         roles[i] = role
     ts = [threading.Thread(target=work, args=(i,)) for i in range(n)]
@@ -143,16 +141,14 @@ def test_coordinator_elects_exactly_one_primer_under_race(tmp_path):
 
 def test_coordinator_failed_primer_lets_a_later_target_reelect(tmp_path):
     co = _coord(tmp_path)
-    t1 = _T(_fake_build_files(str(tmp_path / 'A' / '4.2.3')))
-    assert co.prepare(t1)[1] == 'prime'
-    co.fail_primer(t1)                       # primer configure failed, no seed published
-    t2 = _T(_fake_build_files(str(tmp_path / 'B' / '4.2.3')))
-    assert co.prepare(t2)[1] == 'prime'      # re-elected, not stuck waiting forever
+    assert co.prepare(_T(str(tmp_path / 'A'), with_files=True)) == 'prime'
+    co.fail_primer(_T(str(tmp_path / 'A')))           # primer configure failed, no seed published
+    assert co.prepare(_T(str(tmp_path / 'B'))) == 'prime'  # re-elected, not stuck waiting forever
 
 
 def test_coordinator_heal_purges_seed(tmp_path):
     co = _coord(tmp_path)
-    primer = _T(_fake_build_files(str(tmp_path / 'A' / '4.2.3')))
+    primer = _T(str(tmp_path / 'A'), with_files=True)
     co.prepare(primer); co.publish(primer)
     assert cc.load(co.seed_dir(primer)) is not None
     co.heal(primer)
@@ -161,4 +157,4 @@ def test_coordinator_heal_purges_seed(tmp_path):
 
 def test_coordinator_disabled_is_noop(tmp_path):
     co = _coord(tmp_path, enabled=False)
-    assert co.prepare(_T(str(tmp_path / 'x'))) == ('', 'none')
+    assert co.prepare(_T(str(tmp_path / 'x'))) == 'none'

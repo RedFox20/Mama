@@ -1,0 +1,7 @@
+# CMake config-overhead benchmark manifest: one "name url" per line (shallow-cloned into repos/).
+# Private repos clone via your own git SSH. Lines starting with # are ignored.
+# A 3rd field (optional) is the relative subdir holding the top CMakeLists.txt.
+ReCpp https://github.com/RedFox20/ReCpp.git
+rtpvideo git@github.com:KrattWorks/rtpvideo.git
+krattutil git@github.com:KrattWorks/Krattutil.git
+krattlink git@github.com:KrattWorks/krattlink.git develop

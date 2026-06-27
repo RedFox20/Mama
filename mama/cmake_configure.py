@@ -98,6 +98,16 @@ def _build_files_dir(target:BuildTarget) -> str:
     return util.path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
 
 
+def _seed_src_dir(target:BuildTarget) -> str:
+    """The dir cmake configures (the CMAKE_HOME_DIRECTORY the injected cache must match)."""
+    d = os.path.dirname(target.dep.cmakelists_path())
+    return d if d else target.source_dir()
+
+
+def _seed_paths(target:BuildTarget):
+    return (target.build_dir(), _build_files_dir(target), _seed_src_dir(target))
+
+
 def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
@@ -120,7 +130,7 @@ def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
         if co is None:
             root = util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
             co = seedcache.Coordinator(root, fp_fn=lambda t: seedcache.compute_fingerprint(_seed_inputs(t)),
-                                       bfd_fn=_build_files_dir, enabled=not getattr(config, 'no_compiler_cache', False))
+                                       paths_fn=_seed_paths, enabled=not getattr(config, 'no_compiler_cache', False))
             config._seed_coord = co
         return co
 
@@ -150,18 +160,18 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     options = target.cmake_opts + _default_options(target) + target.get_product_defines()
     cmake_defines = _opts_to_defines(options)
     generator = _generator(target)
-    src_dir = os.path.dirname(target.dep.cmakelists_path())
-    src_dir = src_dir if src_dir else target.source_dir()
+    src_dir = _seed_src_dir(target)
     install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
     # # use install prefix override for libraries, but for root target, leave it open-ended
     # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
 
-    # Reuse cached compiler/ABI detection on a fresh build dir (skips ~5s of cmake detection).
+    # Reuse cached compiler detection on a fresh build dir: prepare() injects a CMakeFiles seed +
+    # a PLATFORM_INFO_INITIALIZED CMakeCache so cmake skips ALL detection (~5s) (validated correct).
     cache_exists = os.path.exists(target.build_dir('CMakeCache.txt'))
     coord = _seed_coordinator(target)
-    seed_arg, role = coord.prepare(target) if (_seed and not cache_exists) else ('', 'none')
+    role = coord.prepare(target) if (_seed and not cache_exists) else 'none'
 
-    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {seed_arg} {install_prefix} "{src_dir}"'
+    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
     try:
         _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
     except Exception:
