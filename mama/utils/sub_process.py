@@ -1,4 +1,4 @@
-import os, shlex, shutil, threading, queue
+import os, shlex, shutil, threading, queue, time
 import subprocess
 from .system import System, console, error
 
@@ -42,6 +42,7 @@ class SubProcess:
         self._reader_exc = None        # exception raised inside io_func (re-raised in run())
         self._master_fd = None         # UNIX PTY master fd; None on Windows or no-io_func paths
         self._swallow_lf = False       # after \r-progress idle-flush, swallow a leading \n (or \r\n) in next chunk
+        self._last_output = time.monotonic()  # bumped on every chunk; drives the idle-timeout watchdog
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
@@ -104,6 +105,7 @@ class SubProcess:
                 try: chunk = os.read(self._master_fd, READER_CHUNK)
                 except OSError: break  # EIO on a closed slave end
                 if not chunk: break
+                self._last_output = time.monotonic()  # activity: resets the idle watchdog
                 buf.extend(chunk)
                 self._drain_buffer(buf)
             else:
@@ -135,6 +137,7 @@ class SubProcess:
             except queue.Empty:
                 self._drain_buffer(buf, idle=True); continue
             if not chunk: break
+            self._last_output = time.monotonic()  # activity: resets the idle watchdog
             buf.extend(chunk)
             self._drain_buffer(buf)
         self._drain_buffer(buf, eof=True)
@@ -243,8 +246,25 @@ class SubProcess:
         return self.status
 
 
+    def _wait_idle(self, timeout, idle_timeout):
+        """Wait for the child, killing it if it produces no output for `idle_timeout` seconds
+        (or exceeds the total `timeout`). The idle bound is what catches a git op blocked on an
+        auth/host-key prompt or a stalled server, WITHOUT aborting a slow-but-active large clone
+        (which keeps streaming progress). Raises TimeoutExpired on either bound."""
+        start = time.monotonic()
+        while True:
+            try:
+                return self.process.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            if timeout is not None and now - start > timeout:
+                self.kill(); raise subprocess.TimeoutExpired(self.process.args, timeout)
+            if now - self._last_output > idle_timeout:
+                self.kill(); raise subprocess.TimeoutExpired(self.process.args, idle_timeout)
+
     @staticmethod
-    def run(cmd, cwd=None, env=None, io_func=None, timeout=None):
+    def run(cmd, cwd=None, env=None, io_func=None, timeout=None, idle_timeout=None):
         """
         Runs `cmd` and returns its exit status.
         - cmd:     command string (shlex.split) or list of args.
@@ -252,13 +272,18 @@ class SubProcess:
         - env:     environment dict, defaults to os.environ.
         - io_func: callback `(SubProcess, line:str)` for each output line;
                    if None, child inherits parent's std streams.
-        - timeout: kill the child after this many seconds (raises
-                   subprocess.TimeoutExpired). Default: no timeout.
+        - timeout: kill the child after this many seconds total (raises TimeoutExpired).
+        - idle_timeout: kill if no output for this many seconds (raises TimeoutExpired). Needs
+                   io_func set so the reader is running. Use for network git ops that may hang on
+                   a prompt; a downloading clone keeps streaming so it's never wrongly killed.
         """
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
         try:
             try:
-                p.status = p.process.wait(timeout=timeout)
+                if idle_timeout is not None:
+                    p.status = p._wait_idle(timeout, idle_timeout)
+                else:
+                    p.status = p.process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 p.kill()
                 raise

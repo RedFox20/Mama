@@ -169,6 +169,7 @@ class BuildConfig:
         self.parallel_load = False  ## Whether to load dependencies in parallel?
         self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
         self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
+        self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
         self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
         if System.windows:
@@ -220,6 +221,9 @@ class BuildConfig:
             elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True
             elif arg.startswith('parallel_max='):
                 try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
+                except (ValueError, IndexError): pass
+            elif arg.startswith('git_timeout='):
+                try: self.git_timeout = max(5, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments

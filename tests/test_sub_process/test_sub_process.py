@@ -11,14 +11,14 @@ from mama.utils.sub_process import SubProcess
 PY = sys.executable
 
 
-def _py_run(code: str, io_func=None, cwd=None, env=None, timeout=None):
+def _py_run(code: str, io_func=None, cwd=None, env=None, timeout=None, idle_timeout=None):
     """Run `python -c "<code>"` via SubProcess. Returns (status, lines_seen)."""
     lines = []
     if io_func is None:
         def collect(p, line): lines.append(line)
         io_func = collect
     status = SubProcess.run([PY, '-c', code], cwd=cwd, env=env,
-                            io_func=io_func, timeout=timeout)
+                            io_func=io_func, timeout=timeout, idle_timeout=idle_timeout)
     return status, lines
 
 
@@ -92,6 +92,27 @@ class TestTimeout:
     def test_fast_command_does_not_time_out(self):
         assert SubProcess.run([PY, '-c', 'print("done")'],
                               io_func=lambda p, line: None, timeout=10.0) == 0
+
+
+class TestIdleTimeout:
+    def test_idle_timeout_kills_a_silent_child(self):
+        # A child producing no output (e.g. git blocked on an auth/host-key prompt) is killed
+        # shortly after idle_timeout, not after its full runtime - so a parallel clone can't freeze.
+        import time
+        t0 = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            SubProcess.run([PY, '-c', 'import time; time.sleep(30)'],
+                           io_func=lambda p, l: None, idle_timeout=0.4)
+        assert time.monotonic() - t0 < 5  # died ~0.4s, not 30s
+
+    def test_idle_timeout_spares_a_chatty_child(self):
+        # Output keeps resetting the idle clock, so a child that streams faster than the idle bound
+        # runs to completion even though total runtime (0.6s) exceeds idle_timeout (0.4s) - a real
+        # download (which streams progress) is never wrongly aborted.
+        status, lines = _py_run(
+            'import sys, time\nfor i in range(6): print(i); sys.stdout.flush(); time.sleep(0.1)',
+            idle_timeout=0.4)
+        assert status == 0 and lines == ['0', '1', '2', '3', '4', '5']
 
 
 class TestStdinWrite:

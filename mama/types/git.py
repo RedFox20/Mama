@@ -145,7 +145,13 @@ class Git(DepSource):
             if line: console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
-            result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed)
+            # idle_timeout: kill a fetch/pull stuck on an auth/host-key prompt (no output) so a
+            # parallel run never freezes; an actively-downloading op keeps streaming and survives.
+            try:
+                result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed, idle_timeout=dep.config.git_timeout)
+            except subprocess.TimeoutExpired:
+                error(f'  {dep.name: <16} git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                result = -1
         if result != 0 and throw:
             raise RuntimeError(f'{cmd} (in {dep.src_dir}) failed with return code {result}')
         return result
@@ -485,7 +491,14 @@ class Git(DepSource):
             console(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         with ssh_multiplex.fetch_slot():
-            result = SubProcess.run(cmd, io_func=print_output)
+            # idle_timeout: a clone blocked on a passphrase/username prompt produces no progress
+            # and is killed after git_timeout s, so a parallel clone wave never freezes. A real
+            # download streams progress and is never wrongly aborted.
+            try:
+                result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
+            except subprocess.TimeoutExpired:
+                output += f'\n[mama] git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)'
+                result = -1
         return result, output, get_time_str(time.monotonic() - start)
 
 
