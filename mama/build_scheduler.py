@@ -70,7 +70,7 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
 
 class Scheduler:
     def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
-                 load_threshold: float = 85.0, overprovision: float = 2.0,
+                 load_threshold: float = 85.0, overprovision: float = 1.5,
                  cpu_sampler: Callable[[], float] = None, poll_interval: float = 1.0, max_workers: int = 256):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
