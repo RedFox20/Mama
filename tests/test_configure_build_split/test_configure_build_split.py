@@ -115,7 +115,7 @@ def test_probe_build_jobs_counts_tus_across_generators_and_falls_back(tmp_path):
         open(p, 'w').close()
     assert t._probe_build_jobs() == 2                       # header + build/ tree skipped, only a.cpp + b.cc
     for rel in ('a.cpp', 'b.cc'): os.remove(os.path.join(t.source_dir(), rel))
-    assert t._probe_build_jobs() == 2                       # nothing countable -> tiny reserve, not all cores
+    assert t._probe_build_jobs() == 0                       # nothing countable -> 0 reserve (no budget slots)
 
 
 def _cmake_tu_count(t, generator):

@@ -603,18 +603,45 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
 _PHASE_LABEL = {'load': 'clone', 'configure': 'configure', 'build': 'build'}
 
 
-def _build_detail(dep) -> str:
-    return f'[{getattr(dep.target, "_build_jobs", None) or dep.config.jobs}]'  # full -j the build runs at
+def _effective_jobs(dep) -> int:
+    """The -j this build runs at: the TU probe result (capped at config.jobs), memoized into
+    target._build_jobs. Crucially this also sizes a CUSTOM-BUILD dep, whose configure_phase is a
+    no-op so it never probed - without this it defaulted to all of config.jobs (the [64] bug)."""
+    t = dep.target
+    if getattr(t, '_build_jobs', None) is None:
+        t._build_jobs = t._probe_build_jobs()
+    return t._build_jobs
 
 
 def _reserve_weight(dep) -> int:
     """Cores the scheduler RESERVES for a build (budget accounting), capped at HALF of config.jobs.
     A build almost never sustains its full -j (ramp-up, inter-TU deps, single-threaded linking - it
     often peaks at ~5 cores), so reserving the full count idled the budget. Capping at 50% lets 2+
-    big builds (still each at full -j) plus the small ones share the budget and saturate the CPU."""
-    jobs = dep.config.jobs
-    full = getattr(dep.target, '_build_jobs', None) or jobs
-    return min(full, max(1, jobs // 2))
+    big builds plus the small ones share the budget and saturate the CPU."""
+    return min(_effective_jobs(dep), max(1, dep.config.jobs // 2))
+
+
+def _build_detail(dep) -> str:
+    return f'[{_reserve_weight(dep)}]'  # the scheduler reservation (capped at jobs/2), shown after the kind
+
+
+def print_sched_debug(root: BuildDependency):
+    """TEMP diagnostic (CLI: sched_debug): print each target's build-weight calc WITHOUT building.
+    Reads existing build-dir artifacts, so it runs in seconds for fast iteration on the TU probe."""
+    deps = get_flat_deps(root)
+    console(f'  {"target":<22}{"TU":>6}  {"via":<16}{"probe":>6}{"reserve":>9}{"-j":>5}   flags', color=Color.BLUE)
+    for d in deps:
+        t = d.target
+        jobs = d.config.jobs
+        try: tu, via = t._count_tu()
+        except Exception as e: tu, via = -1, f'ERR:{type(e).__name__}'
+        probe = t._probe_build_jobs()
+        reserve = min(probe, max(1, jobs // 2))
+        flags = []
+        if t._has_custom_build(): flags.append('custom-build')   # -> configure skips probe -> -j=config.jobs
+        if getattr(d, 'nothing_to_build', False): flags.append('nothing_to_build')
+        if getattr(d, 'from_artifactory', False): flags.append('artifactory')
+        console(f'  {d.name:<22}{tu:>6}  {via:<16}{probe:>6}{reserve:>9}{probe:>5}   {" ".join(flags)}')
 
 
 def _print_build_summary(deps, elapsed: float):

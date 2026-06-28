@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
     from .build_dependency import BuildDependency
 
+# Dirs skipped by the source-file TU fallback: build output, vendored code, and test/sample/doc
+# trees that are not part of the library build (gtest's source tree is ~90% test/ + samples/).
+_NON_LIB_DIRS = ['build', 'packages', 'libs', 'out', '.git', 'test', 'tests', 'samples', 'example',
+                 'examples', 'benchmark', 'benchmarks', 'doc', 'docs', 'third_party', 'thirdparty',
+                 'extern', 'external', 'vendor']
+
 
 ######################################################################################
 
@@ -1354,37 +1360,42 @@ class BuildTarget:
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
-        """Cheap parallelism estimate: translation-unit count, capped at config.jobs. When nothing is
-        countable (header-only / probe miss) assume the target is tiny and reserve just 2 cores - NOT
-        all of them - so an unsizable no-op build can't hog the whole budget and serialize the rest."""
+        """Translation-unit count, capped at config.jobs. Returns 0 when nothing is countable
+        (header-only / artifactory / probe miss): an unsizable build then reserves NO budget slots
+        (weight 0) so it never blocks real builds - it's almost always a no-op or a cached fetch."""
         try:
-            n = self._count_translation_units()
+            n = self._count_tu()[0]
             if n > 0: return min(n, self.config.jobs)
         except Exception: pass
-        return min(2, self.config.jobs)
+        return 0
 
     def _count_translation_units(self) -> int:
-        """TU count, generator-agnostic, most-accurate first:
+        return self._count_tu()[0]
+
+    def _count_tu(self) -> tuple:
+        """(TU count, method) - generator-agnostic, most-accurate first:
           compile_commands.json          (Ninja, or Make/VS only when export is on) -> "file" entries
           *.vcxproj                       (Visual Studio generator)                  -> <ClCompile Include=>
           CMakeFiles/**/DependInfo.cmake  (Unix Makefiles, export off)               -> one object per TU
           C/C++ source files in the source tree                                      -> cross-platform fallback
-        Returns 0 only if none find anything (header-only / no sources). The source walk skips
-        build/vendored/output trees so generated or third-party sources don't inflate the weight."""
+        Count is 0 (-> caller uses the tiny default) when none find anything. The source walk skips
+        build/vendored/test/sample trees so non-library sources don't inflate the weight."""
         bd = self.build_dir()
         cc = util.path_join(bd, 'compile_commands.json')
         if os.path.exists(cc):
-            return util.read_text_from(cc).count('"file"')
+            return util.read_text_from(cc).count('"file"'), 'compile_commands'
         if os.path.isdir(bd):
             n = sum(util.read_text_from(util.path_join(bd, fn)).count('<ClCompile Include=')
                     for fn in os.listdir(bd) if fn.endswith('.vcxproj'))
-            if n == 0: n = self._count_makefile_tus(util.path_join(bd, 'CMakeFiles'))
-            if n > 0: return n
+            if n > 0: return n, 'vcxproj'
+            n = self._count_makefile_tus(util.path_join(bd, 'CMakeFiles'))
+            if n > 0: return n, 'makefile'
         src = self.source_dir()
         if os.path.isdir(src):
-            return len(util.glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
-                                                 exclude_dirs=['build', 'packages', 'libs', 'out', '.git']))
-        return 0
+            srcs = util.glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
+                                             exclude_dirs=_NON_LIB_DIRS)
+            return len(srcs), 'source'
+        return 0, 'none'
 
     @staticmethod
     def _count_makefile_tus(cmakefiles_dir: str) -> int:

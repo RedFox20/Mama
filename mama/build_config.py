@@ -90,6 +90,7 @@ class BuildConfig:
         self.reclone   = False
         self.dirty     = False # marks a target for rebuild on next build even if it's up to date
         self.deps_only = False # only execute build/rebuild/clean on dependencies, not the main target
+        self.sched_debug = False # TEMP: print each target's build-weight calc, then exit without building
         self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
         self.git_url_override = None  # 'https' or 'ssh': rewrite add_git() urls at build time
         self.run_cmake_configure = False # if True, forces running CMake configure step even if target doesn't need rebuild
@@ -211,6 +212,7 @@ class BuildConfig:
             elif arg == 'unshallow': self.unshallow = True
             elif arg == 'https-override': self.git_url_override = 'https'
             elif arg == 'ssh-override':   self.git_url_override = 'ssh'
+            elif arg == 'sched_debug': self.sched_debug = True  # TEMP: print build-weight calc, no build
             elif arg == 'configure':
                 self.run_cmake_configure = True
                 self.build = True # configure implies a build

@@ -137,7 +137,7 @@ def test_debug_log_reports_running_and_blocked_weights():
 def test_resolve_weight_handles_int_and_callable():
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=lambda: 4)) == 4
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=3)) == 3
-    assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=0)) == 1  # clamped
+    assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=0)) == 0  # unsizable -> no reserve
 
 
 def test_fail_fast_returns_failed_job_and_blocks_dependents():

@@ -142,7 +142,7 @@ class Scheduler:
     @staticmethod
     def _resolve_weight(job: Job) -> int:
         w = job.weight() if callable(job.weight) else job.weight
-        return max(1, int(w))
+        return max(0, int(w))  # 0 = unsizable build: reserves no budget, never blocks others
 
     def _can_launch(self, job: Job) -> bool:
         if self._n_running >= self._max_workers:

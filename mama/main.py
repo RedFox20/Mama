@@ -9,8 +9,8 @@ from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
-                               execute_unified, find_dependency, get_flat_deps, get_deps_only_targets,
-                               get_deps_that_depend_on_target)
+                               execute_unified, print_sched_debug, find_dependency, get_flat_deps,
+                               get_deps_only_targets, get_deps_that_depend_on_target)
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -305,6 +305,11 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     if config.clean and config.no_target() and not config.deps_only:
         root.clean()
+
+    if config.sched_debug:  # TEMP: load the tree, print the build-weight calc per target, then stop
+        load_dependency_chain(root)
+        print_sched_debug(root)
+        return
 
     # A plain full build/update uses the unified scheduler: one dynamic DAG that interleaves cloning
     # with configure+build, so leaf nodes build while deeper deps are still cloning. Targeted / list
