@@ -9,7 +9,8 @@ from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
-                               find_dependency, get_flat_deps, get_deps_only_targets, get_deps_that_depend_on_target)
+                               execute_unified, find_dependency, get_flat_deps, get_deps_only_targets,
+                               get_deps_that_depend_on_target)
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -165,6 +166,23 @@ def set_target_from_unused_args(config: BuildConfig):
         else:
             config.target = arg
 
+def _init_platform_compilers(config: BuildConfig):
+    """Cross-compile platform setup (NDK/sysroot paths) - config-derived, no dep tree needed."""
+    if config.android:     config.android.android_home()
+    if config.raspi:       config.raspi_bin()
+    if config.yocto_linux: config.yocto_linux.init_default()
+    if config.mips:        config.mips.init_default()
+
+
+def _can_unify(config: BuildConfig) -> bool:
+    """True for a plain full build/update that the unified clone+build scheduler handles. Targeted /
+    list / deps_only / dirty / mama_init / serial runs need the classic load->execute path (which
+    resolves the whole tree up front for target lookup and filtering)."""
+    return (not config.serial_load and (config.build or config.update)
+            and config.no_specific_target() and not config.list and not config.deps_only
+            and not config.dirty and not config.mama_init)
+
+
 def check_config_target(config: BuildConfig, root: BuildDependency):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
@@ -288,62 +306,67 @@ def mamabuild(args, source_dir=os.getcwd()):
     if config.clean and config.no_target() and not config.deps_only:
         root.clean()
 
-    load_dependency_chain(root)
-    check_config_target(config, root)
-
-    # get the main target dependency
-    if config.has_target():
-        dep = find_dependency(root, config.target)
-    else:
+    # A plain full build/update uses the unified scheduler: one dynamic DAG that interleaves cloning
+    # with configure+build, so leaf nodes build while deeper deps are still cloning. Targeted / list
+    # / deps_only / dirty / serial runs use the classic load->execute path, which needs the fully
+    # loaded tree up front for target lookup and filtering.
+    if _can_unify(config):
+        _init_platform_compilers(config)
+        execute_unified(root)
         dep = root
-
-    # target init
-    if config.mama_init and config.has_target():
-        if not dep:
-            console(f'init command failed: target {config.target} not found')
-            exit(-1)
-        mama_init_project(dep)
-        return
-
-    flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
-    flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
-
-    if config.deps_only:
-        if deps_only_target_name:
-            flat_deps, flat_deps_reverse = get_deps_only_targets(root, deps_only_target_name, config)
-            config.target = 'all'
-        else:
-            flat_deps.remove(root)
-            flat_deps_reverse.remove(root)
-
-    if config.list:
-        # if listing, then mark all deps for no-build
-        for d in flat_deps:
-            d.target.nothing_to_build()
-
-    if config.dirty:
-        if not dep:
-            console(f'dirty command failed: target {config.target} not found')
-            exit(-1)
-        mama_dirty(root, dep)
-        return
-
-    # initialize platform compiler config
-    if config.android: config.android.android_home()
-    if config.raspi:   config.raspi_bin()
-    if config.yocto_linux: config.yocto_linux.init_default()
-    if config.mips:        config.mips.init_default()
-
-    if config.verbose:
-        chain = ' -> '.join([d.name for d in flat_deps_reverse])
-        console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
-
-    # Parallel by default: a DAG scheduler overlaps independent configure/build jobs.
-    # `serial` opts out; a trivial graph (<=1 dep) has nothing to overlap.
-    if config.serial_load or len(flat_deps_reverse) <= 1:
-        execute_task_chain(flat_deps_reverse)
     else:
-        execute_task_chain_parallel(flat_deps_reverse)
+        load_dependency_chain(root)
+        check_config_target(config, root)
+
+        # get the main target dependency
+        if config.has_target():
+            dep = find_dependency(root, config.target)
+        else:
+            dep = root
+
+        # target init
+        if config.mama_init and config.has_target():
+            if not dep:
+                console(f'init command failed: target {config.target} not found')
+                exit(-1)
+            mama_init_project(dep)
+            return
+
+        flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
+        flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
+
+        if config.deps_only:
+            if deps_only_target_name:
+                flat_deps, flat_deps_reverse = get_deps_only_targets(root, deps_only_target_name, config)
+                config.target = 'all'
+            else:
+                flat_deps.remove(root)
+                flat_deps_reverse.remove(root)
+
+        if config.list:
+            # if listing, then mark all deps for no-build
+            for d in flat_deps:
+                d.target.nothing_to_build()
+
+        if config.dirty:
+            if not dep:
+                console(f'dirty command failed: target {config.target} not found')
+                exit(-1)
+            mama_dirty(root, dep)
+            return
+
+        _init_platform_compilers(config)
+
+        if config.verbose:
+            chain = ' -> '.join([d.name for d in flat_deps_reverse])
+            console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
+
+        # Parallel by default: a DAG scheduler overlaps independent configure/build jobs.
+        # `serial` opts out; a trivial graph (<=1 dep) has nothing to overlap.
+        if config.serial_load or len(flat_deps_reverse) <= 1:
+            execute_task_chain(flat_deps_reverse)
+        else:
+            execute_task_chain_parallel(flat_deps_reverse)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]

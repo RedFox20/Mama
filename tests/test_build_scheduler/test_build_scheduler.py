@@ -1,7 +1,7 @@
 """Pins the parallel scheduler: dep ordering, cycle detection, configure/build governors, fail-fast."""
 import threading, time
 import pytest
-from mama.build_scheduler import Job, Scheduler, build_dep_jobs, CONFIGURE, BUILD
+from mama.build_scheduler import Job, Scheduler, build_dep_jobs, LOAD, CONFIGURE, BUILD
 
 
 def _wait_until(pred, timeout=2.0):
@@ -63,16 +63,28 @@ def test_configure_governor_caps_concurrency():
     assert p.max == 2
 
 
-def test_build_governor_high_load_runs_one_at_a_time():
+def test_build_governor_high_load_blocks_overprovision():
     p = Probe()
-    jobs = [Job(i, BUILD, p.body, weight=1) for i in range(4)]
-    sched = _sched(cpu_sampler=lambda: 100.0, load_threshold=85.0)  # always "busy"
+    jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]  # each fills half the budget
+    sched = _sched(cpu_sampler=lambda: 100.0, core_budget=4, overprovision=2.0)  # busy
     t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 1)
+    assert _wait_until(lambda: p.cur == 1)   # one fills the budget; busy CPU blocks over-provisioning
     time.sleep(0.05)
-    assert p.cur == 1            # always-allow-one, but load blocks a second
+    assert p.cur == 1
     p.gate.set(); t.join(2.0)
     assert p.max == 1
+
+
+def test_build_governor_low_load_overprovisions_past_budget():
+    p = Probe()
+    jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]
+    sched = _sched(cpu_sampler=lambda: 0.0, core_budget=4, overprovision=2.0)  # idle -> overprovision
+    t, _ = _run_bg(sched, jobs)
+    assert _wait_until(lambda: p.cur == 2)   # 4+4 = budget*2; a third (12) exceeds even that
+    time.sleep(0.05)
+    assert p.cur == 2
+    p.gate.set(); t.join(2.0)
+    assert p.max == 2
 
 
 def test_build_governor_low_load_runs_many():
@@ -97,6 +109,18 @@ def test_build_governor_respects_core_budget():
     assert p.max == 2
 
 
+def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
+    # krattgcs has ~20 small leaf deps; with the old CPU gate they ran one-at-a-time. Small TU
+    # weights must fill the core budget concurrently even while the sampler reads saturated.
+    p = Probe()
+    jobs = [Job(i, BUILD, p.body, weight=2) for i in range(12)]
+    sched = _sched(cpu_sampler=lambda: 99.0, core_budget=16)  # 16/2 = 8 fit at once
+    t, _ = _run_bg(sched, jobs)
+    assert _wait_until(lambda: p.cur == 8)
+    p.gate.set(); t.join(2.0)
+    assert p.max == 8
+
+
 def test_resolve_weight_handles_int_and_callable():
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=lambda: 4)) == 4
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=3)) == 3
@@ -112,6 +136,50 @@ def test_fail_fast_returns_failed_job_and_blocks_dependents():
     assert failed is a and isinstance(a.error, RuntimeError)
     assert not b.started and not b.done   # never released after a failed
     assert c.done                         # independent job still completed
+
+
+def test_load_governor_caps_concurrency():
+    p = Probe()
+    jobs = [Job(i, LOAD, p.body) for i in range(5)]
+    sched = _sched(max_load=2)
+    t, _ = _run_bg(sched, jobs)
+    assert _wait_until(lambda: p.cur == 2)
+    time.sleep(0.05)
+    assert p.cur == 2            # capped at max_load
+    p.gate.set(); t.join(2.0)
+    assert p.max == 2
+
+
+def test_dynamic_grow_runs_child_jobs_after_parent_load():
+    log, lock = [], threading.Lock()
+    def rec(x):
+        with lock: log.append(x)
+    sched = _sched()
+    parent_cfg = Job(('p', 'c'), CONFIGURE, lambda: rec('cfg-p'))
+    parent_bld = Job(('p', 'b'), BUILD, lambda: rec('bld-p'), deps={parent_cfg})
+    def parent_load():
+        rec('load-p')
+        def grow():
+            cl = Job(('c', 'L'), LOAD, lambda: rec('load-c'))
+            cc = Job(('c', 'c'), CONFIGURE, lambda: rec('cfg-c'), deps={cl})
+            cb = Job(('c', 'b'), BUILD, lambda: rec('bld-c'), deps={cc})
+            parent_cfg.deps.add(cb)   # parent configure must now wait for the discovered child's build
+            return [cl, cc, cb]
+        sched.grow(grow)
+    pl = Job(('p', 'L'), LOAD, parent_load)
+    parent_cfg.deps.add(pl)
+    assert sched.run([pl, parent_cfg, parent_bld]) is None
+    assert set(log) == {'load-p', 'load-c', 'cfg-c', 'bld-c', 'cfg-p', 'bld-p'}
+    assert log.index('load-c') > log.index('load-p')   # child discovered during parent load
+    assert log.index('cfg-p') > log.index('bld-c')     # parent configure waited for the child build
+    assert log.index('bld-p') > log.index('cfg-p')
+
+
+def test_unsatisfiable_dep_is_reported_not_hung():
+    a = Job('a', BUILD, lambda: None)
+    a.deps.add(Job('missing', BUILD, lambda: None))   # dep never added to the run set
+    failed = _sched(poll_interval=0.02).run([a])
+    assert failed is a   # deadlock guard returns it instead of looping forever
 
 
 class _Dep:

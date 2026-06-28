@@ -14,6 +14,7 @@ from __future__ import annotations
 import threading, concurrent.futures
 from typing import Callable, Iterable, List, Optional
 
+LOAD = 'load'        # clone + parse mamafile + discover deps (network/IO bound)
 CONFIGURE = 'configure'
 BUILD = 'build'
 
@@ -68,41 +69,59 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
 
 
 class Scheduler:
-    def __init__(self, *, max_configure: int, core_budget: int, load_threshold: float = 85.0,
-                 overprovision: float = 1.25, cpu_sampler: Callable[[], float] = None,
-                 poll_interval: float = 1.0, max_workers: int = 256):
+    def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
+                 load_threshold: float = 85.0, overprovision: float = 2.0,
+                 cpu_sampler: Callable[[], float] = None, poll_interval: float = 1.0, max_workers: int = 256):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
+        self._max_load = max(1, max_load)
         self._load_threshold = load_threshold
         self._overprovision = overprovision
         self._cpu_sampler = cpu_sampler or (lambda: 0.0)
         self._poll_interval = poll_interval
         self._max_workers = max_workers
         self._cond = threading.Condition()
+        self._pending: List[Job] = []  # jobs not yet launched (grows dynamically via grow())
+        self._n_load = 0         # running LOAD jobs
         self._n_config = 0       # running CONFIGURE jobs
         self._reserved = 0       # reserved cores of running BUILD jobs
         self._n_running = 0      # total running jobs
         self._error: Optional[Job] = None  # first failed job
 
+    def grow(self, build_fn: Callable[[], List[Job]]):
+        """Atomically extend the graph at runtime: `build_fn()` (run under the scheduler lock so it
+        can safely mutate caller registries and add edges to existing jobs) returns new jobs to add.
+        Used by a LOAD job that just discovered a dep's children. The add happens before the LOAD
+        job is marked done, so a parent's CONFIGURE never launches before its children's edges exist."""
+        with self._cond:
+            self._pending.extend(build_fn())
+            self._cond.notify_all()
+
     def run(self, jobs: List[Job]) -> Optional[Job]:
-        """Execute all jobs honoring deps + governors. Returns the failed job, or None."""
-        jobs = list(jobs)
-        _check_acyclic(jobs)
-        pending = list(jobs)
+        """Execute all jobs honoring deps + governors. Returns the failed job, or None. The graph may
+        grow during the run via grow(); the loop ends only when nothing is pending AND nothing runs."""
+        _check_acyclic(list(jobs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as ex:
             with self._cond:
-                while pending or self._n_running:
+                self._pending = list(jobs)
+                while self._pending or self._n_running:
                     if self._error and not self._n_running:
                         break  # failed and drained
                     progressed = False
                     if not self._error:
-                        for job in [j for j in pending if self._deps_done(j)]:
+                        for job in [j for j in self._pending if self._deps_done(j)]:
                             if self._can_launch(job):
-                                pending.remove(job)
+                                self._pending.remove(job)
                                 self._launch(job, ex)
                                 progressed = True
                     if not progressed:
-                        # nothing launchable now: wait for a completion or to re-sample CPU
+                        if self._n_running == 0 and self._pending and not self._error:
+                            # nothing running and nothing launchable: the remaining jobs have unmet
+                            # deps that no running job can satisfy -> a dependency cycle. Don't hang.
+                            self._error = self._pending[0]
+                            self._error.error = RuntimeError(f'Cyclical dependency at {self._error}')
+                            break
+                        # otherwise wait for a completion, a grow(), or a CPU re-sample
                         self._cond.wait(timeout=self._poll_interval)
         return self._error
 
@@ -119,19 +138,29 @@ class Scheduler:
     def _can_launch(self, job: Job) -> bool:
         if self._n_running >= self._max_workers:
             return False
+        if job.kind == LOAD:
+            return self._n_load < self._max_load   # network/IO bound: simple count cap
         if job.kind == CONFIGURE:
             return self._n_config < self._max_configure
-        # BUILD: always allow at least one; otherwise gate on CPU load + core budget.
+        # BUILD: the core budget is the real parallelism limit. Launch freely while reserved cores
+        # stay within budget, REGARDLESS of momentary CPU load - a single compile saturates the CPU
+        # sampler, and gating on that stalled every other build while cores sat idle (the krattgcs
+        # serial-build bug). The CPU sampler only gates EXTRA over-provisioning beyond the budget.
         if self._reserved == 0:
+            return True
+        need = self._reserved + self._resolve_weight(job)
+        if need <= self._core_budget:
             return True
         if self._cpu_sampler() >= self._load_threshold:
             return False
-        return self._reserved + self._resolve_weight(job) <= self._core_budget * self._overprovision
+        return need <= self._core_budget * self._overprovision
 
     def _launch(self, job: Job, ex: concurrent.futures.ThreadPoolExecutor):
         job.started = True
         self._n_running += 1
-        if job.kind == CONFIGURE:
+        if job.kind == LOAD:
+            self._n_load += 1
+        elif job.kind == CONFIGURE:
             self._n_config += 1
         else:
             job._rweight = self._resolve_weight(job)
@@ -146,8 +175,9 @@ class Scheduler:
         with self._cond:
             job.done = True
             self._n_running -= 1
-            if job.kind == CONFIGURE: self._n_config -= 1
-            else:                     self._reserved -= job._rweight
+            if job.kind == LOAD:        self._n_load -= 1
+            elif job.kind == CONFIGURE: self._n_config -= 1
+            else:                       self._reserved -= job._rweight
             if job.error is not None and self._error is None:
                 self._error = job  # first failure wins; stops further launches
             self._cond.notify_all()

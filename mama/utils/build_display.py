@@ -26,9 +26,10 @@ def _fmt_secs(s: float) -> str:
 
 
 class Task:
-    def __init__(self, id, kind: str, name: str, start: float):
+    def __init__(self, id, kind: str, name: str, start: float, detail: str = ''):
         self.id = id
         self.kind = kind            # 'configure' | 'build' | ...
+        self.detail = detail        # e.g. '[16]' = cores this build uses, shown after the kind
         self.name = name
         self.start = start
         self.end = None
@@ -70,12 +71,12 @@ class BuildDisplay:
 
     # -- task lifecycle ----------------------------------------------------
 
-    def start_task(self, id, kind: str, name: str) -> Task:
+    def start_task(self, id, kind: str, name: str, detail: str = '') -> Task:
         # A task is recorded but stays INVISIBLE until it has run longer than reveal_delay, so an
         # instant no-op (cached/nothing-to-build dep, ~0.0s) never clutters the output. No start
         # line off-TTY either - we only emit a summary at finish, and only if it was slow enough.
         with self._lock:
-            t = Task(id, kind, name, self._clock())
+            t = Task(id, kind, name, self._clock(), detail)
             self._tasks[id] = t
             self._active.append(id)
             if self._isatty: self.render()
@@ -170,15 +171,19 @@ class BuildDisplay:
             return shown
         return [self._task_line(self._tasks[i], now, cols) for i in ids]
 
+    @staticmethod
+    def _kind_field(t: Task) -> str:
+        return f'{t.kind} {t.detail}'.rstrip()  # 'build [16]' / 'configure' / 'clone'
+
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
         preview = _ANSI_RE.sub('', t.current)  # strip colours so width math is correct
-        head = f'{icon} {t.kind:<9} {t.name:<22} {_fmt_secs(t.elapsed(now))}  '
+        head = f'{icon} {self._kind_field(t):<14}{t.name:<22} {_fmt_secs(t.elapsed(now))}  '
         return self._truncate(head + preview, cols)
 
     def _summary_line(self, t: Task) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
-        return f'{icon} {t.kind:<9} {t.name:<22} {_fmt_secs(t.elapsed(t.end))}'
+        return f'{icon} {self._kind_field(t):<14}{t.name:<22} {_fmt_secs(t.elapsed(t.end))}'
 
     def _truncate(self, text: str, cols: int) -> str:
         # Cap to cols-1 to avoid wrapping that would break the cursor math. If it

@@ -91,6 +91,14 @@ def test_tty_preview_strips_ansi_but_buffer_keeps_it():
     assert d._tasks[1].lines == [colored]  # raw output preserved for replay
 
 
+def test_build_detail_shows_core_count_after_kind():
+    d, _, clk = _disp(isatty=True)
+    d.start_task(1, 'build', 'compression', detail='[16]'); clk.tick(0.5)
+    assert 'build [16]' in strip(d._task_line(d._tasks[1], clk(), 80))
+    d.finish_task(1, ok=True)
+    assert 'build [16]' in strip(d._summary_line(d._tasks[1]))
+
+
 def test_replay_dumps_raw_colored_buffer():
     d, out, _ = _disp(isatty=True)
     d.start_task(1, 'build', 'x'); d.feed(1, '\x1b[31mboom\x1b[0m')

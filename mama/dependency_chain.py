@@ -541,10 +541,10 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     config = deps[0].config
     display = _make_display(config)
 
-    def run_phase(dep, kind, body):
+    def run_phase(dep, kind, body, detail=''):
         tid = (dep.name, kind)
         sink = lambda line: display.feed(tid, line)
-        display.start_task(tid, kind, dep.name)
+        display.start_task(tid, kind, dep.name, detail)
         ok = False
         try:
             with system.capture_to(sink):  # capture this job thread's console() into its task line too
@@ -564,7 +564,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             dep.target.build_phase(out=sink)
             dep.already_executed = True
             _save_vscode_compile_commands(dep)
-        run_phase(dep, 'build', body)
+        run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
 
     weight_fn = lambda d: (lambda d=d: getattr(d.target, '_build_jobs', None) or d.config.jobs)
     jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn)
@@ -593,6 +593,102 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         dep.target._execute_deploy_tasks()
         dep.target._execute_run_tasks()
         if dep.config.verbose and not dep.config.test and dep.is_root_or_config_target():
+            print_dependencies(dep)
+
+
+_PHASE_LABEL = {'load': 'clone', 'configure': 'configure', 'build': 'build'}
+
+
+def _build_detail(dep) -> str:
+    return f'[{getattr(dep.target, "_build_jobs", None) or dep.config.jobs}]'  # cores this build uses
+
+
+def execute_unified(root: BuildDependency):
+    """One dynamic DAG scheduler that interleaves cloning with configure+build: each dep is a LOAD
+    job (clone + parse mamafile + discover deps) whose completion GROWS the graph with its children's
+    LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits on its own LOAD and its children's BUILDs, its
+    BUILD on its CONFIGURE. So leaf nodes configure+build while deeper deps are still cloning. Replaces
+    the load->flatten->execute split for a plain full build (main() falls back to the old path for
+    targeted/list/deps_only/serial runs). Deploy/run/test remain a serial post-pass."""
+    import time, traceback, psutil
+    from .build_scheduler import Scheduler, Job, LOAD, CONFIGURE, BUILD
+    from .utils import system, ssh_multiplex
+    config = root.config
+    ssh_multiplex.init_fetch_semaphore(config.parallel_max)
+    config.update_stats.start()
+    display = _make_display(config)
+    load_jobs: dict = {}; cfg_jobs: dict = {}; bld_jobs: dict = {}  # dep -> Job (mutated under sched lock)
+
+    def run_phase(dep, label, body, detail=''):
+        tid = (dep.name, label)
+        sink = lambda line: display.feed(tid, line)
+        display.start_task(tid, label, dep.name, detail)
+        ok = False
+        try:
+            with system.capture_to(sink):
+                body(sink)
+            ok = True
+        finally:
+            display.finish_task(tid, ok)
+
+    def make_jobs(dep, parent_load):
+        L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
+        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), deps={L}, node=dep)
+        B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
+                weight=(lambda d=dep: getattr(d.target, '_build_jobs', None) or d.config.jobs))
+        load_jobs[dep] = L; cfg_jobs[dep] = C; bld_jobs[dep] = B
+        return [L, C, B]
+
+    def _do_load(dep):
+        def body(sink):
+            dep.load()  # clone + parse mamafile + dependencies() -> populates dep.children (no recursion)
+            def grow():  # runs under the scheduler lock: safe to mutate registries + add edges
+                new = []
+                for child in dep.get_children():
+                    if child not in load_jobs:
+                        new += make_jobs(child, load_jobs[dep])
+                cfg_jobs[dep].deps.update(bld_jobs[c] for c in dep.get_children())  # configure waits on child builds
+                return new
+            sched.grow(grow)
+        run_phase(dep, 'clone', body)
+
+    def _do_configure(dep):
+        def body(sink):
+            _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
+            dep.target.configure_phase(out=sink)
+        run_phase(dep, 'configure', body)
+
+    def _do_build(dep):
+        def body(sink):
+            dep.target.build_phase(out=sink)
+            dep.already_executed = True
+            _save_vscode_compile_commands(dep)
+        run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
+
+    cpu = psutil.cpu_count() or 4
+    psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
+    sched = Scheduler(max_load=config.parallel_max, max_configure=min(cpu * 2, 32),
+                      core_budget=config.jobs, cpu_sampler=lambda: psutil.cpu_percent(interval=None))
+    system.set_active_display(display)
+    try:
+        failed = sched.run(make_jobs(root, None))
+    finally:
+        display.close()
+        system.set_active_display(None)
+        config.update_stats.stop()
+
+    if failed is not None:
+        console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
+        if display.isatty:  # non-TTY already dumped the output on finish
+            display.replay((failed.node.name, _PHASE_LABEL.get(failed.kind, failed.kind)))
+        if failed.error:
+            console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
+        exit(-1)
+
+    for dep in reversed(get_flat_deps(root)):  # deploy/run/test: serial, children-first, target-gated
+        dep.target._execute_deploy_tasks()
+        dep.target._execute_run_tasks()
+        if config.verbose and not config.test and dep.is_root_or_config_target():
             print_dependencies(dep)
 
 
