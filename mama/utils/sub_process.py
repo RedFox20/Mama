@@ -1,6 +1,6 @@
 import os, shlex, shutil, threading, queue, time
 import subprocess
-from .system import System, console, error
+from .system import System, console, error, report_subprocess
 
 
 # Linux/macOS: we allocate a PTY for the child so git etc. still see a TTY
@@ -278,6 +278,8 @@ class SubProcess:
                    a prompt; a downloading clone keeps streaming so it's never wrongly killed.
         """
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
+        pid = p.process.pid if p.process else None
+        if pid is not None: report_subprocess(pid, True)  # live CPU sampling for the owning display task
         try:
             try:
                 if idle_timeout is not None:
@@ -288,6 +290,7 @@ class SubProcess:
                 p.kill()
                 raise
         finally:
+            if pid is not None: report_subprocess(pid, False)
             p.close()
             if p._reader_exc is not None:
                 raise p._reader_exc

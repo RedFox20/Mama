@@ -66,16 +66,31 @@ def set_active_display(display):
 
 
 @contextlib.contextmanager
-def capture_to(sink):
+def capture_to(sink, display=None, tid=None):
     """Route THIS thread's console() lines to `sink` (a display task feed) for the duration, so a
     configure/build job's banners / 'Cleaning ...' / mamafile prints land in its display line
-    instead of tearing the live region. Restores the previous sink on exit (workers are reused)."""
-    prev = getattr(_capture, 'sink', None)
-    _capture.sink = sink
+    instead of tearing the live region. Restores the previous sink on exit (workers are reused).
+    `display`/`tid` let SubProcess report its child pids for live CPU sampling of this task."""
+    prev = (getattr(_capture, 'sink', None), getattr(_capture, 'display', None), getattr(_capture, 'tid', None))
+    _capture.sink, _capture.display, _capture.tid = sink, display, tid
     try:
         yield
     finally:
-        _capture.sink = prev
+        _capture.sink, _capture.display, _capture.tid = prev
+
+
+def report_subprocess(pid: int, started: bool):
+    """SubProcess calls this on child start/exit so the live display can sample that build's
+    process-tree CPU. Routes the pid to the current thread's display task (set by capture_to).
+    Best-effort: a CPU readout must never break a build."""
+    display = getattr(_capture, 'display', None)
+    tid = getattr(_capture, 'tid', None)
+    if display is None or tid is None: return
+    try:
+        if started: display.attach_pid(tid, pid)
+        else:       display.detach_pid(tid, pid)
+    except Exception:
+        pass
 
 
 def console(text:str, color=None, end="\n"):

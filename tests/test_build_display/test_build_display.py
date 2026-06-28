@@ -1,5 +1,6 @@
 """Pins BuildDisplay: TTY live-region rendering + non-TTY fallback, capture/replay, throttle."""
 import io, re
+from types import SimpleNamespace
 from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task
 
@@ -97,6 +98,44 @@ def test_build_detail_shows_core_count_after_kind():
     assert 'build [16]' in strip(d._task_line(d._tasks[1], clk(), 80))
     d.finish_task(1, ok=True)
     assert 'build [16]' in strip(d._summary_line(d._tasks[1]))
+
+
+def test_cpu_sampling_updates_task_and_renders_percent():
+    d, _, clk = _disp(isatty=True, cpu_sampler=lambda pids: 597.0, sample_interval=999)
+    d.start_task(1, 'build', 'compression', detail='[16]')
+    d.attach_pid(1, 4242)
+    d._sample_once()
+    assert d._tasks[1].cpu == 597.0
+    assert 'build [16] [597%]' in strip(d._task_line(d._tasks[1], clk(), 120))
+    d.detach_pid(1, 4242)
+    assert d._tasks[1].cpu == 0.0  # subprocess gone -> CPU cleared, not left stale
+    d.close()
+
+
+def test_report_subprocess_attaches_pid_to_current_task():
+    d, _, _ = _disp(isatty=True, cpu_sampler=lambda pids: 100.0, sample_interval=999)
+    tid = ('x', 'build'); d.start_task(tid, 'build', 'x')
+    with system.capture_to(lambda line: None, d, tid):
+        system.report_subprocess(999, True)
+        assert d._pids[tid] == {999}
+        system.report_subprocess(999, False)
+        assert tid not in d._pids
+    d.close()
+
+
+def test_psutil_tree_cpu_first_sight_averages_over_lifetime(monkeypatch):
+    import mama.utils.build_display as bd
+    monkeypatch.setattr(bd.time, 'time', lambda: 100.0)
+    class E(Exception): pass
+    class P:
+        pid = 1
+        def cpu_times(self): return SimpleNamespace(user=12.0, system=0.0)  # 12 cpu-sec
+        def create_time(self): return 96.0                                  # alive 4s -> 300%
+        def children(self, recursive=True): return []
+    class Ps:
+        Error = E
+        def Process(self, pid): return P()
+    assert bd._PsutilTreeCpu(Ps())({1}) == 300.0
 
 
 def test_replay_dumps_raw_colored_buffer():

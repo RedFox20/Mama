@@ -9,7 +9,7 @@ Pure logic with injected seams (out / isatty / term_size / clock) so it unit-tes
 no real terminal, threads, or subprocesses."""
 
 from __future__ import annotations
-import re, threading
+import re, time, threading
 from .system import Color, get_colored_text
 
 
@@ -34,6 +34,7 @@ class Task:
         self.start = start
         self.end = None
         self.state = 'run'          # 'run' | 'ok' | 'fail'
+        self.cpu = 0.0              # live subprocess-tree CPU% (Linux-style: 8 busy cores ~ 800%)
         self.lines: list[str] = []  # full raw output, colours intact (for replay)
         self.current = ''           # last non-empty line, shown live
 
@@ -47,8 +48,8 @@ class Task:
 
 
 class BuildDisplay:
-    def __init__(self, out, isatty: bool, term_size, clock,
-                 verbose=False, color=True, min_interval=0.1, margin=1, reveal_delay=0.15):
+    def __init__(self, out, isatty: bool, term_size, clock, verbose=False, color=True,
+                 min_interval=0.1, margin=1, reveal_delay=0.15, cpu_sampler=None, sample_interval=0.7):
         self._out = out
         self._isatty = isatty
         self._term_size = term_size  # () -> (cols, rows)
@@ -64,6 +65,12 @@ class BuildDisplay:
         self._drawn = 0                  # active region lines drawn last frame
         self._last_render = 0.0
         self._lock = threading.RLock()
+        self._cpu_sampler = cpu_sampler  # (set[int]) -> float total tree CPU%; None -> auto (psutil)
+        self._cpu_auto = cpu_sampler is None
+        self._pids: dict[object, set] = {}  # tid -> live child pids, for CPU sampling
+        self._sampler = None             # daemon thread, lazily started on first attach_pid
+        self._stop = threading.Event()
+        self._sample_interval = sample_interval
 
     @property
     def isatty(self) -> bool:
@@ -143,7 +150,9 @@ class BuildDisplay:
             self._flush()
 
     def close(self):
-        """Finalize: flush any pending permanent lines, drop the live region."""
+        """Finalize: stop the CPU sampler, flush any pending permanent lines, drop the live region."""
+        self._stop.set()
+        if self._sampler is not None: self._sampler.join(timeout=1.0)  # join off-lock: sampler takes it
         with self._lock:
             if self._isatty:
                 self._clear_region()
@@ -173,17 +182,62 @@ class BuildDisplay:
 
     @staticmethod
     def _kind_field(t: Task) -> str:
-        return f'{t.kind} {t.detail}'.rstrip()  # 'build [16]' / 'configure' / 'clone'
+        s = f'{t.kind} {t.detail}'.rstrip()        # 'build [16]' / 'configure' / 'clone'
+        if t.cpu >= 1.0: s += f' [{t.cpu:.0f}%]'   # live tree CPU, e.g. 'build [16] [597%]'
+        return s
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
         preview = _ANSI_RE.sub('', t.current)  # strip colours so width math is correct
-        head = f'{icon} {self._kind_field(t):<14}{t.name:<22} {_fmt_secs(t.elapsed(now))}  '
+        head = f'{icon} {self._kind_field(t):<24}{t.name:<22} {_fmt_secs(t.elapsed(now))}  '
         return self._truncate(head + preview, cols)
 
     def _summary_line(self, t: Task) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
-        return f'{icon} {self._kind_field(t):<14}{t.name:<22} {_fmt_secs(t.elapsed(t.end))}'
+        return f'{icon} {self._kind_field(t):<24}{t.name:<22} {_fmt_secs(t.elapsed(t.end))}'
+
+    # -- live CPU sampling -------------------------------------------------
+
+    def attach_pid(self, tid, pid: int):
+        """Register a running child pid so the sampler can attribute its process-tree CPU to `tid`."""
+        with self._lock:
+            self._pids.setdefault(tid, set()).add(pid)
+        self._ensure_sampler()
+
+    def detach_pid(self, tid, pid: int):
+        with self._lock:
+            pids = self._pids.get(tid)
+            if not pids: return
+            pids.discard(pid)
+            if not pids:
+                del self._pids[tid]
+                t = self._tasks.get(tid)
+                if t is not None: t.cpu = 0.0  # subprocess gone -> stop showing stale CPU
+
+    def _ensure_sampler(self):
+        if self._sampler is not None or not self._isatty: return
+        with self._lock:
+            if self._sampler is not None: return
+            if self._cpu_auto:
+                self._cpu_sampler = _make_tree_cpu_sampler(); self._cpu_auto = False
+            if self._cpu_sampler is None: return  # psutil unavailable -> feature off
+            self._sampler = threading.Thread(target=self._sample_loop, daemon=True)
+            self._sampler.start()
+
+    def _sample_loop(self):
+        while not self._stop.wait(self._sample_interval):
+            try: self._sample_once()
+            except Exception: pass  # CPU readout is best-effort, never break the display
+            self.render()  # reflect updated CPU numbers (throttled by min_interval)
+
+    def _sample_once(self):
+        with self._lock:
+            snapshot = {tid: set(pids) for tid, pids in self._pids.items() if pids}
+        cpus = {tid: self._cpu_sampler(pids) for tid, pids in snapshot.items()}  # psutil work off-lock
+        with self._lock:
+            for tid, cpu in cpus.items():
+                t = self._tasks.get(tid)
+                if t is not None: t.cpu = cpu
 
     def _truncate(self, text: str, cols: int) -> str:
         # Cap to cols-1 to avoid wrapping that would break the cursor math. If it
@@ -201,3 +255,40 @@ class BuildDisplay:
     def _flush(self):
         flush = getattr(self._out, 'flush', None)
         if flush: flush()
+
+
+def _make_tree_cpu_sampler():
+    try: import psutil
+    except ImportError: return None
+    return _PsutilTreeCpu(psutil)
+
+
+class _PsutilTreeCpu:
+    """Sums CPU% of each build's subprocess tree (cmake -> ninja/make/msbuild -> compilers). Per
+    process it's the cpu-time delta over wall-clock, so a tree saturating N cores reads ~N*100%."""
+    def __init__(self, psutil):
+        self._ps = psutil
+        self._state: dict[int, tuple] = {}  # pid -> (cpu_seconds, wallclock_ts), for the delta
+
+    def __call__(self, root_pids) -> float:
+        ps, now, total, seen = self._ps, time.time(), 0.0, set()
+        for rp in root_pids:
+            try:
+                root = ps.Process(rp)
+                tree = [root] + root.children(recursive=True)
+            except ps.Error:
+                continue
+            for proc in tree:
+                seen.add(proc.pid)
+                try: t = proc.cpu_times()
+                except ps.Error: continue
+                cur = t.user + t.system
+                base_cpu, base_ts = self._state.get(proc.pid, (0.0, None))
+                if base_ts is None:  # first sight: average over the process' lifetime so far
+                    try: base_ts = proc.create_time()
+                    except ps.Error: base_ts = now
+                self._state[proc.pid] = (cur, now)
+                dt = now - base_ts
+                if dt > 0: total += max(0.0, (cur - base_cpu) / dt * 100.0)
+        for pid in [p for p in self._state if p not in seen]: del self._state[pid]  # drop dead procs
+        return total

@@ -547,7 +547,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         display.start_task(tid, kind, dep.name, detail)
         ok = False
         try:
-            with system.capture_to(sink):  # capture this job thread's console() into its task line too
+            with system.capture_to(sink, display, tid):  # capture console() + this task's subprocess CPU
                 body(sink)
             ok = True
         finally:
@@ -625,7 +625,7 @@ def execute_unified(root: BuildDependency):
         display.start_task(tid, label, dep.name, detail)
         ok = False
         try:
-            with system.capture_to(sink):
+            with system.capture_to(sink, display, tid):  # capture console() + this task's subprocess CPU
                 body(sink)
             ok = True
         finally:
