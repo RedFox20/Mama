@@ -3,7 +3,7 @@ from typing import List
 
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
-from .util import read_text_from, write_text_to, save_file_if_contents_changed
+from .util import read_text_from, write_text_to, save_file_if_contents_changed, get_time_str
 from .utils import ssh_multiplex
 from .utils.system import Color, console, error
 
@@ -566,7 +566,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             _save_vscode_compile_commands(dep)
         run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
 
-    weight_fn = lambda d: (lambda d=d: getattr(d.target, '_build_jobs', None) or d.config.jobs)
+    weight_fn = lambda d: (lambda d=d: _reserve_weight(d))
     jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn)
 
     cpu = psutil.cpu_count() or 4
@@ -575,6 +575,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
                       cpu_sampler=lambda: psutil.cpu_percent(interval=None),
                       debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
     system.set_active_display(display)
+    start = time.monotonic()
     try:
         failed = sched.run(jobs)
     finally:
@@ -589,6 +590,8 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
         exit(-1)
 
+    _print_build_summary(deps, time.monotonic() - start)
+
     # deploy/run/test are target-specific and cheap; keep them serial and ordered
     for dep in flat_deps_reverse:
         dep.target._execute_deploy_tasks()
@@ -601,7 +604,24 @@ _PHASE_LABEL = {'load': 'clone', 'configure': 'configure', 'build': 'build'}
 
 
 def _build_detail(dep) -> str:
-    return f'[{getattr(dep.target, "_build_jobs", None) or dep.config.jobs}]'  # cores this build uses
+    return f'[{getattr(dep.target, "_build_jobs", None) or dep.config.jobs}]'  # full -j the build runs at
+
+
+def _reserve_weight(dep) -> int:
+    """Cores the scheduler RESERVES for a build (budget accounting), capped at HALF of config.jobs.
+    A build almost never sustains its full -j (ramp-up, inter-TU deps, single-threaded linking - it
+    often peaks at ~5 cores), so reserving the full count idled the budget. Capping at 50% lets 2+
+    big builds (still each at full -j) plus the small ones share the budget and saturate the CPU."""
+    jobs = dep.config.jobs
+    full = getattr(dep.target, '_build_jobs', None) or jobs
+    return min(full, max(1, jobs // 2))
+
+
+def _print_build_summary(deps, elapsed: float):
+    """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded)."""
+    built = sum(1 for d in deps if getattr(d, 'should_rebuild', False)
+                and not getattr(d, 'from_artifactory', False) and not getattr(d, 'nothing_to_build', False))
+    console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
 
 
 def execute_unified(root: BuildDependency):
@@ -636,7 +656,7 @@ def execute_unified(root: BuildDependency):
         L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
         C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), deps={L}, node=dep)
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
-                weight=(lambda d=dep: getattr(d.target, '_build_jobs', None) or d.config.jobs))
+                weight=(lambda d=dep: _reserve_weight(d)))
         load_jobs[dep] = L; cfg_jobs[dep] = C; bld_jobs[dep] = B
         return [L, C, B]
 
@@ -672,6 +692,7 @@ def execute_unified(root: BuildDependency):
                       cpu_sampler=lambda: psutil.cpu_percent(interval=None),
                       debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
     system.set_active_display(display)
+    start = time.monotonic()
     try:
         failed = sched.run(make_jobs(root, None))
     finally:
@@ -686,6 +707,8 @@ def execute_unified(root: BuildDependency):
         if failed.error:
             console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
         exit(-1)
+
+    _print_build_summary(get_flat_deps(root), time.monotonic() - start)
 
     for dep in reversed(get_flat_deps(root)):  # deploy/run/test: serial, children-first, target-gated
         dep.target._execute_deploy_tasks()

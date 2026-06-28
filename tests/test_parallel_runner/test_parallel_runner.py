@@ -53,3 +53,21 @@ def test_parallel_runner_fails_fast_and_blocks_dependents(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert 'BUILD FAILED' in out and 'child' in out
     assert ('build', 'parent') not in ev   # parent build depends on failed child, never released
+
+
+def test_reserve_weight_caps_at_half_jobs():
+    mk = lambda tu, jobs: SimpleNamespace(config=SimpleNamespace(jobs=jobs), target=SimpleNamespace(_build_jobs=tu))
+    assert dc._reserve_weight(mk(40, 32)) == 16    # big build capped at jobs // 2
+    assert dc._reserve_weight(mk(5, 32)) == 5      # small build keeps its real weight
+    assert dc._reserve_weight(mk(None, 32)) == 16  # custom build (no TU probe) capped too
+    assert dc._reserve_weight(mk(40, 1)) == 1      # never below 1
+
+
+def test_build_summary_counts_only_real_builds(capsys):
+    d = lambda **k: SimpleNamespace(**k)
+    deps = [d(should_rebuild=True, from_artifactory=False, nothing_to_build=False),    # compiled
+            d(should_rebuild=True, from_artifactory=True, nothing_to_build=False),     # artifactory fetch
+            d(should_rebuild=False, from_artifactory=False, nothing_to_build=False),   # up to date
+            d(should_rebuild=True, from_artifactory=False, nothing_to_build=True)]     # header-only no-op
+    dc._print_build_summary(deps, 72.0)
+    assert 'Built 1 target(s) in 1m 12s' in capsys.readouterr().out
