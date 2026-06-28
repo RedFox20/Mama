@@ -107,9 +107,11 @@ def normalized_join(path1: str, *pathsN) -> str:
     return normalized_path(os.path.join(path1, *pathsN))
 
 
-def glob_with_extensions(rootdir: str, extensions: List[str]) -> List[str]:
+def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List[str] = None) -> List[str]:
     results = []
-    for dirpath, _, dirfiles in os.walk(rootdir):
+    exclude = set(exclude_dirs) if exclude_dirs else None
+    for dirpath, dirnames, dirfiles in os.walk(rootdir):
+        if exclude: dirnames[:] = [d for d in dirnames if d not in exclude]  # prune generated/vendored trees
         for file in dirfiles:
             _, fext = os.path.splitext(file)
             if fext in extensions:

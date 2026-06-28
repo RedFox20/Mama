@@ -1354,15 +1354,46 @@ class BuildTarget:
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
-        """Cheap parallelism estimate: number of translation units in compile_commands.json
-        (written by configure), capped at config.jobs. Falls back to config.jobs on any miss."""
+        """Cheap parallelism estimate: translation-unit count, capped at config.jobs. Falls back to
+        config.jobs on any miss."""
         try:
-            cc = self.build_dir('compile_commands.json')
-            if os.path.exists(cc):
-                n = util.read_text_from(cc).count('"file"')
-                if n > 0: return min(n, self.config.jobs)
+            n = self._count_translation_units()
+            if n > 0: return min(n, self.config.jobs)
         except Exception: pass
         return self.config.jobs
+
+    def _count_translation_units(self) -> int:
+        """TU count, generator-agnostic, most-accurate first:
+          compile_commands.json          (Ninja, or Make/VS only when export is on) -> "file" entries
+          *.vcxproj                       (Visual Studio generator)                  -> <ClCompile Include=>
+          CMakeFiles/**/DependInfo.cmake  (Unix Makefiles, export off)               -> one object per TU
+          C/C++ source files in the source tree                                      -> cross-platform fallback
+        Returns 0 only if none find anything (header-only / no sources). The source walk skips
+        build/vendored/output trees so generated or third-party sources don't inflate the weight."""
+        bd = self.build_dir()
+        cc = util.path_join(bd, 'compile_commands.json')
+        if os.path.exists(cc):
+            return util.read_text_from(cc).count('"file"')
+        if os.path.isdir(bd):
+            n = sum(util.read_text_from(util.path_join(bd, fn)).count('<ClCompile Include=')
+                    for fn in os.listdir(bd) if fn.endswith('.vcxproj'))
+            if n == 0: n = self._count_makefile_tus(util.path_join(bd, 'CMakeFiles'))
+            if n > 0: return n
+        src = self.source_dir()
+        if os.path.isdir(src):
+            return len(util.glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
+                                                 exclude_dirs=['build', 'packages', 'libs', 'out', '.git']))
+        return 0
+
+    @staticmethod
+    def _count_makefile_tus(cmakefiles_dir: str) -> int:
+        """Unix Makefiles generator: each target's DependInfo.cmake lists one object ('...o"') per TU."""
+        if not os.path.isdir(cmakefiles_dir): return 0
+        total = 0
+        for dirpath, _, files in os.walk(cmakefiles_dir):
+            if 'DependInfo.cmake' in files:
+                total += util.read_text_from(util.path_join(dirpath, 'DependInfo.cmake')).count('.o"')
+        return total
 
     def cmake_build(self):
         if self.config.print:

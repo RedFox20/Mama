@@ -1,6 +1,7 @@
 """Pins the configure/build split: phase ordering, no-op packaging, custom-build collapse,
-thread-safe env, per-target -j."""
-import os, contextlib
+thread-safe env, per-target -j, and generator-agnostic TU counting."""
+import os, sys, contextlib, shutil, subprocess
+import pytest
 from unittest.mock import patch
 from testutils import make_mock_local_dep
 from mama import cmake_configure as cc
@@ -90,12 +91,52 @@ def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
     assert t._build_jobs == 3   # small package -> small weight -> many such builds run concurrently
 
 
-def test_probe_build_jobs_counts_tus_caps_and_falls_back(tmp_path):
-    t, _ = _target(tmp_path)  # config.jobs = 8
-    cc_json = t.build_dir('compile_commands.json')
-    with open(cc_json, 'w') as f: f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
-    assert t._probe_build_jobs() == 3
-    with open(cc_json, 'w') as f: f.write('"file"' * 100)
-    assert t._probe_build_jobs() == 8  # capped at config.jobs
-    os.remove(cc_json)
-    assert t._probe_build_jobs() == 8  # missing file -> fallback to config.jobs
+def test_probe_build_jobs_counts_tus_across_generators_and_falls_back(tmp_path):
+    t, _ = _target(tmp_path)  # config.jobs = 8, source tree empty
+    ccj, vcx = t.build_dir('compile_commands.json'), t.build_dir('app.vcxproj')
+    with open(ccj, 'w') as f: f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
+    assert t._probe_build_jobs() == 3                       # Ninja/Make: compile_commands.json
+    with open(ccj, 'w') as f: f.write('"file"' * 100)
+    assert t._probe_build_jobs() == 8                       # capped at config.jobs
+    os.remove(ccj)
+    with open(vcx, 'w') as f:
+        f.write('<ClCompile Include="a"/>\n<ClCompile Include="b"/>\n<ClCompile>settings</ClCompile>')
+    assert t._probe_build_jobs() == 2                       # Visual Studio: .vcxproj (settings block not counted)
+    os.remove(vcx)
+    di = t.build_dir('CMakeFiles/t.dir'); os.makedirs(di)   # Unix Makefiles: DependInfo.cmake, one object per TU
+    with open(os.path.join(di, 'DependInfo.cmake'), 'w') as f:
+        f.write('"/s/a.cpp" "CMakeFiles/t.dir/a.cpp.o" "gcc" "CMakeFiles/t.dir/a.cpp.o.d"\n'
+                '"/s/b.cpp" "CMakeFiles/t.dir/b.cpp.o" "gcc" "CMakeFiles/t.dir/b.cpp.o.d"\n')
+    assert t._probe_build_jobs() == 2                       # .o.d depfile entries must NOT be double-counted
+    shutil.rmtree(t.build_dir('CMakeFiles'))
+    for rel in ('a.cpp', 'b.cc', 'h.hpp', 'build/gen.cpp'):  # cross-platform fallback: count C/C++ sources
+        p = os.path.join(t.source_dir(), rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, 'w').close()
+    assert t._probe_build_jobs() == 2                       # header + build/ tree skipped, only a.cpp + b.cc
+    for rel in ('a.cpp', 'b.cc'): os.remove(os.path.join(t.source_dir(), rel))
+    assert t._probe_build_jobs() == 8                       # nothing countable -> config.jobs
+
+
+def _cmake_tu_count(t, generator):
+    """Generate a real 3-TU CMake project with `generator` (no export -> no compile_commands.json)
+    so the probe must use the generator's native artifacts (.vcxproj / DependInfo.cmake)."""
+    src, bld = t.source_dir(), t.build_dir()
+    with open(os.path.join(src, 'CMakeLists.txt'), 'w') as f:
+        f.write('cmake_minimum_required(VERSION 3.16)\nproject(t CXX)\nadd_library(t a.cpp b.cpp c.cpp)\n')
+    for n in ('a', 'b', 'c'): open(os.path.join(src, f'{n}.cpp'), 'w').write(f'int {n}(){{return 0;}}\n')
+    gen = [] if generator is None else ['-G', generator]
+    subprocess.run(['cmake', '-S', src, '-B', bld, *gen], check=True, capture_output=True, timeout=180)
+    return t._probe_build_jobs()
+
+
+@pytest.mark.skipif(not shutil.which('cmake'), reason='needs cmake')
+@pytest.mark.skipif(sys.platform != 'linux', reason='Unix Makefiles is the Linux default generator')
+def test_probe_counts_real_unix_makefiles_tus(tmp_path):
+    assert _cmake_tu_count(_target(tmp_path)[0], 'Unix Makefiles') == 3  # via DependInfo.cmake
+
+
+@pytest.mark.skipif(not shutil.which('cmake'), reason='needs cmake')
+@pytest.mark.skipif(sys.platform != 'win32', reason='Visual Studio generator is Windows-only')
+def test_probe_counts_real_visualstudio_tus(tmp_path):
+    assert _cmake_tu_count(_target(tmp_path)[0], None) == 3  # default Windows generator (VS) -> .vcxproj
