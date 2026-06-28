@@ -1354,13 +1354,14 @@ class BuildTarget:
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
-        """Cheap parallelism estimate: translation-unit count, capped at config.jobs. Falls back to
-        config.jobs on any miss."""
+        """Cheap parallelism estimate: translation-unit count, capped at config.jobs. When nothing is
+        countable (header-only / probe miss) assume the target is tiny and reserve just 2 cores - NOT
+        all of them - so an unsizable no-op build can't hog the whole budget and serialize the rest."""
         try:
             n = self._count_translation_units()
             if n > 0: return min(n, self.config.jobs)
         except Exception: pass
-        return self.config.jobs
+        return min(2, self.config.jobs)
 
     def _count_translation_units(self) -> int:
         """TU count, generator-agnostic, most-accurate first:
