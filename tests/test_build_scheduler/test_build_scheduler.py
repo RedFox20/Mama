@@ -1,5 +1,6 @@
 """Pins the parallel scheduler: dep ordering, cycle detection, configure/build governors, fail-fast."""
 import threading, time
+from types import SimpleNamespace
 import pytest
 from mama.build_scheduler import Job, Scheduler, build_dep_jobs, LOAD, CONFIGURE, BUILD
 
@@ -119,6 +120,18 @@ def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
     assert _wait_until(lambda: p.cur == 8)
     p.gate.set(); t.join(2.0)
     assert p.max == 8
+
+
+def test_debug_log_reports_running_and_blocked_weights():
+    logs, p = [], Probe()
+    jobs = [Job(f'b{i}', BUILD, p.body, weight=4, node=SimpleNamespace(name=f'b{i}')) for i in range(3)]
+    sched = _sched(core_budget=4, overprovision=2.0, cpu_sampler=lambda: 100.0, debug_log=logs.append)  # busy
+    t, _ = _run_bg(sched, jobs)
+    assert _wait_until(lambda: any('blocked:' in l for l in logs))
+    p.gate.set(); t.join(2.0)
+    line = next(l for l in logs if 'building[1]' in l)
+    assert 'reserved=4/8' in line and 'cpu=100%' in line   # budget 4 * overprovision 2.0
+    assert '(4)' in line.split('blocked:')[1]              # blocked builds report their weight
 
 
 def test_resolve_weight_handles_int_and_callable():

@@ -11,7 +11,7 @@ then return the failed job. Generic over `Job.run`, so it unit-tests with fake j
 the cmake wiring lives in the caller (build_target/dependency_chain)."""
 
 from __future__ import annotations
-import threading, concurrent.futures
+import time, threading, concurrent.futures
 from typing import Callable, Iterable, List, Optional
 
 LOAD = 'load'        # clone + parse mamafile + discover deps (network/IO bound)
@@ -70,8 +70,8 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
 
 class Scheduler:
     def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
-                 load_threshold: float = 85.0, overprovision: float = 1.5,
-                 cpu_sampler: Callable[[], float] = None, poll_interval: float = 1.0, max_workers: int = 256):
+                 load_threshold: float = 85.0, overprovision: float = 2.0, cpu_sampler: Callable[[], float] = None,
+                 poll_interval: float = 1.0, max_workers: int = 256, debug_log: Callable[[str], None] = None):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
         self._max_load = max(1, max_load)
@@ -80,12 +80,16 @@ class Scheduler:
         self._cpu_sampler = cpu_sampler or (lambda: 0.0)
         self._poll_interval = poll_interval
         self._max_workers = max_workers
+        self._debug_log = debug_log   # optional (str)->None sink for per-second scheduler state
         self._cond = threading.Condition()
         self._pending: List[Job] = []  # jobs not yet launched (grows dynamically via grow())
+        self._running: set = set()    # running jobs, for debug status
         self._n_load = 0         # running LOAD jobs
         self._n_config = 0       # running CONFIGURE jobs
         self._reserved = 0       # reserved cores of running BUILD jobs
         self._n_running = 0      # total running jobs
+        self._cpu_now = 0.0      # system CPU%, sampled once per scheduler pass (reused by gate + debug)
+        self._last_debug = 0.0
         self._error: Optional[Job] = None  # first failed job
 
     def grow(self, build_fn: Callable[[], List[Job]]):
@@ -107,13 +111,18 @@ class Scheduler:
                 while self._pending or self._n_running:
                     if self._error and not self._n_running:
                         break  # failed and drained
+                    self._cpu_now = self._cpu_sampler()  # one sample per pass: reused by every gate check + debug
                     progressed = False
+                    blocked: List[Job] = []
                     if not self._error:
                         for job in [j for j in self._pending if self._deps_done(j)]:
                             if self._can_launch(job):
                                 self._pending.remove(job)
                                 self._launch(job, ex)
                                 progressed = True
+                            else:
+                                blocked.append(job)  # deps ready but a governor held it back
+                    self._maybe_debug(blocked)
                     if not progressed:
                         if self._n_running == 0 and self._pending and not self._error:
                             # nothing running and nothing launchable: the remaining jobs have unmet
@@ -151,13 +160,29 @@ class Scheduler:
         need = self._reserved + self._resolve_weight(job)
         if need <= self._core_budget:
             return True
-        if self._cpu_sampler() >= self._load_threshold:
+        if self._cpu_now >= self._load_threshold:
             return False
         return need <= self._core_budget * self._overprovision
+
+    def _maybe_debug(self, blocked: List[Job]):
+        """Once per second, emit reserved/budget, the running builds + their weights, the builds held
+        back by a governor + their weights, and the sampled CPU - so parallelism can be observed."""
+        if self._debug_log is None: return
+        now = time.monotonic()
+        if now - self._last_debug < 1.0: return
+        self._last_debug = now
+        name = lambda j: getattr(j.node, 'name', None) or j.key
+        running = [j for j in self._running if j.kind == BUILD]
+        run_s = ' '.join(f'{name(j)}({j._rweight})' for j in running) or '-'
+        blk_s = ' '.join(f'{name(j)}({self._resolve_weight(j)})' for j in blocked if j.kind == BUILD) or '-'
+        self._debug_log(f'[sched] cpu={self._cpu_now:>3.0f}% reserved={self._reserved}/'
+                        f'{self._core_budget * self._overprovision:.0f} building[{len(running)}]: {run_s} '
+                        f'| blocked: {blk_s}')
 
     def _launch(self, job: Job, ex: concurrent.futures.ThreadPoolExecutor):
         job.started = True
         self._n_running += 1
+        self._running.add(job)
         if job.kind == LOAD:
             self._n_load += 1
         elif job.kind == CONFIGURE:
@@ -175,6 +200,7 @@ class Scheduler:
         with self._cond:
             job.done = True
             self._n_running -= 1
+            self._running.discard(job)
             if job.kind == LOAD:        self._n_load -= 1
             elif job.kind == CONFIGURE: self._n_config -= 1
             else:                       self._reserved -= job._rweight

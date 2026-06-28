@@ -572,7 +572,8 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
     sched = Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs,
-                      cpu_sampler=lambda: psutil.cpu_percent(interval=None))
+                      cpu_sampler=lambda: psutil.cpu_percent(interval=None),
+                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
     system.set_active_display(display)
     try:
         failed = sched.run(jobs)
@@ -667,8 +668,9 @@ def execute_unified(root: BuildDependency):
 
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
-    sched = Scheduler(max_load=config.parallel_max, max_configure=min(cpu * 2, 32),
-                      core_budget=config.jobs, cpu_sampler=lambda: psutil.cpu_percent(interval=None))
+    sched = Scheduler(max_load=config.parallel_max, max_configure=min(cpu * 2, 32), core_budget=config.jobs,
+                      cpu_sampler=lambda: psutil.cpu_percent(interval=None),
+                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
     system.set_active_display(display)
     try:
         failed = sched.run(make_jobs(root, None))
