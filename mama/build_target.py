@@ -1348,8 +1348,9 @@ class BuildTarget:
         cmake.run_config(self, out=out) # THROWS on CMAKE failure
 
     def _cmake_build_step(self, out=None):
-        """CMake build+install half. Sizes -j from a TU probe of compile_commands.json."""
-        self._build_jobs = self._probe_build_jobs()
+        """CMake build+install half. -j was sized from the TU probe in configure_phase; size it
+        here too for the serial path (where configure_phase didn't run)."""
+        if self._build_jobs is None: self._build_jobs = self._probe_build_jobs()
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
@@ -1465,6 +1466,10 @@ class BuildTarget:
         self._fetched = self.try_automatic_artifactory_fetch()
         if not self._fetched:
             self._cmake_configure_step(out=out)
+            # Size this dep's build weight NOW (compile_commands.json exists), so the scheduler knows
+            # at BUILD launch how many cores it needs. Without this _build_jobs is None at launch ->
+            # weight falls back to all cores -> every build reserves the whole budget -> serial builds.
+            self._build_jobs = self._probe_build_jobs()
 
     def build_phase(self, out=None):
         """Scheduled BUILD job: compile (if any) then ALWAYS package - so no-work nodes

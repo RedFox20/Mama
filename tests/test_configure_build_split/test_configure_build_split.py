@@ -77,6 +77,19 @@ def test_per_target_jobs_flow_into_j_flag_without_touching_config(tmp_path):
     assert cc._mp_flags(t) == '-j8'  # falls back to config.jobs
 
 
+def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
+    # Regression: the build weight (cores the scheduler reserves) must be known at BUILD launch.
+    # configure_phase sets _build_jobs from the TU probe; if it stayed None, every build would
+    # fall back to all cores and reserve the whole budget -> builds run one-at-a-time (low CPU).
+    t, dep = _target(tmp_path)  # config.jobs = 8
+    with open(t.build_dir('compile_commands.json'), 'w') as f:
+        f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
+    es, _ = _wire(t, dep)
+    with es:
+        t.configure_phase()
+    assert t._build_jobs == 3   # small package -> small weight -> many such builds run concurrently
+
+
 def test_probe_build_jobs_counts_tus_caps_and_falls_back(tmp_path):
     t, _ = _target(tmp_path)  # config.jobs = 8
     cc_json = t.build_dir('compile_commands.json')
