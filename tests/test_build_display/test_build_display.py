@@ -1,5 +1,6 @@
 """Pins BuildDisplay: TTY live-region rendering + non-TTY fallback, capture/replay, throttle."""
 import io, re
+from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task
 
 _STRIP = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # all ANSI (SGR + cursor), for plain assertions
@@ -18,13 +19,21 @@ def _disp(isatty, cols=80, rows=24, **kw):
     return d, out, clk
 
 
-def test_non_tty_start_and_finish_lines():
+def test_non_tty_emits_one_summary_line_per_slow_task():
     d, out, clk = _disp(isatty=False)
     d.start_task(1, 'configure', 'foo'); clk.tick(2.0); d.finish_task(1, ok=True)
     text = out.getvalue()
-    assert '> configure foo' in text and 'configure' in text and 'foo' in text
-    assert '2.0s' in text
+    assert 'configure' in text and 'foo' in text and '2.0s' in text  # one finish summary, no start line
     assert '\x1b[' not in text  # never emit ANSI when not a TTY
+
+
+def test_instant_success_tasks_are_hidden_failures_are_not():
+    d, out, clk = _disp(isatty=False)
+    d.start_task(1, 'build', 'instant'); d.finish_task(1, ok=True)        # ~0.0s success -> hidden
+    d.start_task(2, 'build', 'slow'); clk.tick(0.5); d.finish_task(2, ok=True)   # slow -> shown
+    d.start_task(3, 'build', 'boom'); d.finish_task(3, ok=False)          # instant FAIL -> still shown
+    text = out.getvalue()
+    assert 'instant' not in text and 'slow' in text and 'boom' in text
 
 
 def test_non_tty_verbose_dumps_full_output():
@@ -51,9 +60,11 @@ def test_tty_region_shows_running_task():
 
 def test_tty_finish_commits_summary_and_empties_region():
     d, out, clk = _disp(isatty=True)
-    d.start_task(1, 'build', 'foo'); clk.tick(3.0); d.finish_task(1, ok=True)
+    d.start_task(1, 'build', 'foo'); clk.tick(0.5); d.render(force=True)  # draw the live line first
+    assert d._drawn == 1
+    clk.tick(2.5); d.finish_task(1, ok=True)  # total 3.0s
     assert d._drawn == 0  # only task done -> region empty
-    assert '\x1b[1A' in out.getvalue()  # region was cleared via cursor-up
+    assert '\x1b[1A' in out.getvalue()  # the drawn line was cleared via cursor-up
     plain = strip(out.getvalue())
     assert 'build' in plain and 'foo' in plain and '3.0s' in plain
 
@@ -61,7 +72,7 @@ def test_tty_finish_commits_summary_and_empties_region():
 def test_tty_caps_region_to_height_with_more_summary():
     d, _, _ = _disp(isatty=True, rows=4)  # cap = rows - margin(1) = 3
     for i in range(5): d.start_task(i, 'build', f't{i}')
-    lines = d._region_lines(0.0)
+    lines = d._region_lines(1.0)  # now=1.0 so all 5 are past the reveal delay
     assert len(lines) == 3 and '+3 more' in strip(lines[-1])
 
 
@@ -99,11 +110,24 @@ def test_render_throttle_skips_within_min_interval():
 
 
 def test_close_clears_region():
-    d, _, _ = _disp(isatty=True)
-    d.start_task(1, 'build', 'x')
+    d, _, clk = _disp(isatty=True)
+    d.start_task(1, 'build', 'x'); clk.tick(0.2); d.render(force=True)  # past reveal -> 1 line drawn
     assert d._drawn == 1
     d.close()
     assert d._drawn == 0
+
+
+def test_capture_to_routes_console_to_sink_and_restores():
+    # A running job's console() output (cmake banners, "Cleaning ...", mamafile prints) must land in
+    # its display task, not tear the live region. capture_to redirects this thread's console() lines.
+    outer, inner = [], []
+    with system.capture_to(outer.append):
+        system.console('a')
+        with system.capture_to(inner.append):   # nested job sink
+            system.console('b')
+        system.console('c')                      # back to the outer sink after the nested block
+    assert 'a' in outer[0] and 'c' in outer[1] and inner == ['b']
+    assert getattr(system._capture, 'sink', None) is None  # fully restored
 
 
 def test_task_feed_tracks_current_and_full_buffer():

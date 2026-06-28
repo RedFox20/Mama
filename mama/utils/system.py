@@ -1,4 +1,4 @@
-import sys, subprocess, platform, threading
+import sys, subprocess, platform, threading, contextlib
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -54,6 +54,7 @@ _console_lock = threading.Lock()
 _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
 _active_display = None  # duck-typed BuildDisplay; routes normal lines above its live region
+_capture = threading.local()  # per-thread sink: a running job's console() lines go to its display task
 
 
 def set_active_display(display):
@@ -64,6 +65,19 @@ def set_active_display(display):
     _active_display = display
 
 
+@contextlib.contextmanager
+def capture_to(sink):
+    """Route THIS thread's console() lines to `sink` (a display task feed) for the duration, so a
+    configure/build job's banners / 'Cleaning ...' / mamafile prints land in its display line
+    instead of tearing the live region. Restores the previous sink on exit (workers are reused)."""
+    prev = getattr(_capture, 'sink', None)
+    _capture.sink = sink
+    try:
+        yield
+    finally:
+        _capture.sink = prev
+
+
 def console(text:str, color=None, end="\n"):
     """ Always flush to support most build environments """
     global _progress_active
@@ -71,11 +85,14 @@ def console(text:str, color=None, end="\n"):
     # may overwrite an in-flight progress line. Anything else gets a leading \n.
     is_redraw = text.startswith('\r')
     text = get_colored_text(text, color)
-    # A live build display owns the terminal: hand it whole status lines so they
-    # commit above the region. Redraws/partials fall through to the normal path.
-    if _active_display is not None and end == '\n' and not is_redraw:
-        _active_display.print_above(text)
-        return
+    # A running job captures its own thread's output into its display task; otherwise a live
+    # display takes whole status lines above its region. Redraws/partials use the normal path.
+    if end == '\n' and not is_redraw:
+        sink = getattr(_capture, 'sink', None)
+        if sink is not None:
+            sink(text); return
+        if _active_display is not None:
+            _active_display.print_above(text); return
     with _console_lock:
         if _progress_active and not is_redraw:
             print()

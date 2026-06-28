@@ -92,6 +92,7 @@ class BuildTarget:
         self.packaging_result = '' # how we performed the package() step?
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
+        self._out_sink = None # display sink for cmake output during a scheduled phase (None -> print)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
@@ -1457,6 +1458,7 @@ class BuildTarget:
     def configure_phase(self, out=None):
         """Scheduled CONFIGURE job: user configure() hook + cmake configure. No-op for a
         no-work node or a custom build() (which owns its own configure inside build_phase)."""
+        self._out_sink = out  # so a custom build()'s cmake output is captured too, not just the default path
         if not self._build_work_enabled() or self._has_custom_build():
             return
         self.configure() # user customization
@@ -1467,6 +1469,7 @@ class BuildTarget:
     def build_phase(self, out=None):
         """Scheduled BUILD job: compile (if any) then ALWAYS package - so no-work nodes
         still package their exports in dependency order. Mirrors _execute_build_tasks."""
+        self._out_sink = out  # captures cmake output from a custom build()->cmake_build() too
         if self._build_work_enabled():
             if self._has_custom_build():
                 self.configure() # custom build's configure_phase was a no-op

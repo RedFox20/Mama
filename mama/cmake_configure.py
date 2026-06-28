@@ -143,6 +143,7 @@ def _wipe_build_dir(target:BuildTarget):
 
 
 def run_config(target:BuildTarget, out=None, _seed=True):
+    out = out if out is not None else getattr(target, '_out_sink', None)  # capture even custom build()s
     must_configure = target.config.update or target.config.run_cmake_configure
     # also reconfigure if sanitizer flags changed
     if not must_configure:
@@ -193,6 +194,7 @@ def is_rerunnable_error(output:str):
 
 
 def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=None):
+    out = out if out is not None else getattr(target, '_out_sink', None)  # capture even custom build()s
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)

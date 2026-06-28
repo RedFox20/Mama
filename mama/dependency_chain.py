@@ -543,10 +543,12 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
 
     def run_phase(dep, kind, body):
         tid = (dep.name, kind)
+        sink = lambda line: display.feed(tid, line)
         display.start_task(tid, kind, dep.name)
         ok = False
         try:
-            body(lambda line: display.feed(tid, line))
+            with system.capture_to(sink):  # capture this job thread's console() into its task line too
+                body(sink)
             ok = True
         finally:
             display.finish_task(tid, ok)

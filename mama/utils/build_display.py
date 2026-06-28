@@ -47,7 +47,7 @@ class Task:
 
 class BuildDisplay:
     def __init__(self, out, isatty: bool, term_size, clock,
-                 verbose=False, color=True, min_interval=0.1, margin=1):
+                 verbose=False, color=True, min_interval=0.1, margin=1, reveal_delay=0.15):
         self._out = out
         self._isatty = isatty
         self._term_size = term_size  # () -> (cols, rows)
@@ -56,6 +56,7 @@ class BuildDisplay:
         self._color = color
         self._min_interval = min_interval
         self._margin = margin
+        self._reveal = reveal_delay  # hide tasks that start+finish faster than this (instant no-ops)
         self._tasks: dict[object, Task] = {}
         self._active: list[object] = []  # ids in start order
         self._pending: list[str] = []    # permanent lines to flush above the region
@@ -70,14 +71,14 @@ class BuildDisplay:
     # -- task lifecycle ----------------------------------------------------
 
     def start_task(self, id, kind: str, name: str) -> Task:
+        # A task is recorded but stays INVISIBLE until it has run longer than reveal_delay, so an
+        # instant no-op (cached/nothing-to-build dep, ~0.0s) never clutters the output. No start
+        # line off-TTY either - we only emit a summary at finish, and only if it was slow enough.
         with self._lock:
             t = Task(id, kind, name, self._clock())
             self._tasks[id] = t
             self._active.append(id)
-            if not self._isatty:
-                self._writeln(f'> {kind} {name}')
-            else:
-                self.render(force=True)
+            if self._isatty: self.render()
             return t
 
     def feed(self, id, line: str):
@@ -94,12 +95,12 @@ class BuildDisplay:
             t.end = self._clock()
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
-            summary = self._summary_line(t)
+            hide = ok and not self._verbose and t.elapsed(t.end) < self._reveal  # instant success
             if self._isatty:
-                self._pending.append(summary)
+                if not hide: self._pending.append(self._summary_line(t))
                 self.render(force=True)
-            else:
-                self._writeln(summary)
+            elif not hide:
+                self._writeln(self._summary_line(t))
                 if self._verbose or not ok:
                     for line in t.lines: self._writeln(line)
 
@@ -162,7 +163,7 @@ class BuildDisplay:
     def _region_lines(self, now: float) -> list[str]:
         cols, rows = self._term_size()
         cap = max(1, rows - self._margin)
-        ids = self._active
+        ids = [i for i in self._active if self._tasks[i].elapsed(now) >= self._reveal]  # past reveal delay
         if len(ids) > cap:
             shown = [self._task_line(self._tasks[i], now, cols) for i in ids[:cap - 1]]
             shown.append(self._truncate(f'  ... (+{len(ids) - (cap - 1)} more)', cols))
