@@ -665,7 +665,7 @@ def print_sched_debug(root: BuildDependency):
         try: tu, via = t._count_tu()
         except Exception as e: tu, via = -1, f'ERR:{type(e).__name__}'
         probe = t._probe_build_jobs()
-        reserve = min(probe, max(1, d.config.jobs // 2))
+        reserve = t._reserved_cores()  # canonical reserve (== actual -j); was a stale jobs//2 formula
         flags = []
         if t._has_custom_build(): flags.append('custom-build')   # -> configure skips probe -> -j=config.jobs
         if getattr(d, 'nothing_to_build', False): flags.append('nothing_to_build')
