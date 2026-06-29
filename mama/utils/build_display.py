@@ -13,6 +13,7 @@ from .system import Color, get_colored_text
 
 _CURSOR_UP = '\x1b[1A'
 _ERASE_EOL = '\x1b[K'  # erase to end of line (colorama enables it on Windows)
+_ERASE_EOL_LF = _ERASE_EOL + '\n'  # clear-to-EOL then newline: one written task/permanent line
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct previews
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
@@ -70,6 +71,8 @@ class BuildDisplay:
         self._sampler = None             # daemon thread, lazily started on first attach_pid
         self._stop = threading.Event()
         self._sample_interval = sample_interval
+        self._cpu_sample_secs = 0.0      # total wall-time spent in psutil CPU sampling (diagnostic)
+        self._cpu_sample_count = 0
 
     @property
     def isatty(self) -> bool:
@@ -148,9 +151,8 @@ class BuildDisplay:
                 pending, self._pending = self._pending, []
                 region = self._region_lines(now)
                 prev_drawn, self._drawn = self._drawn, len(region)
-            nl = _ERASE_EOL + '\n'
             frame = (_CURSOR_UP + '\r' + _ERASE_EOL) * prev_drawn
-            frame += ''.join(line + nl for line in pending + region)
+            frame += ''.join(line + _ERASE_EOL_LF for line in pending + region)
             self._out.write(frame)
             self._flush()
         finally:
@@ -240,11 +242,21 @@ class BuildDisplay:
     def _sample_once(self):
         with self._lock:
             snapshot = {tid: set(pids) for tid, pids in self._pids.items() if pids}
+        if not snapshot: return
+        t0 = self._clock()
         cpus = {tid: self._cpu_sampler(pids) for tid, pids in snapshot.items()}  # psutil work off-lock
+        self._cpu_sample_secs += self._clock() - t0   # diagnostic: how costly is the per-tree psutil walk
+        self._cpu_sample_count += len(snapshot)
         with self._lock:
             for tid, cpu in cpus.items():
                 t = self._tasks.get(tid)
                 if t is not None: t.cpu = cpu
+
+    def cpu_sampler_report(self):
+        """One-line diagnostic on total time spent fetching process-tree CPU%, or None if never sampled."""
+        if self._cpu_sample_count <= 0: return None
+        avg_ms = self._cpu_sample_secs / self._cpu_sample_count * 1000
+        return f'[cpu-sampler] {self._cpu_sample_secs:.1f}s across {self._cpu_sample_count} tree walks ({avg_ms:.0f}ms avg)'
 
     def _truncate(self, text: str, cols: int) -> str:
         # Cap to cols-1 to avoid wrapping that would break the cursor math. If it
@@ -257,7 +269,7 @@ class BuildDisplay:
         return get_colored_text(text, color) if self._color else text
 
     def _writeln(self, text: str):
-        self._out.write(text + _ERASE_EOL + '\n' if self._isatty else text + '\n')
+        self._out.write(text + _ERASE_EOL_LF if self._isatty else text + '\n')
 
     def _flush(self):
         flush = getattr(self._out, 'flush', None)

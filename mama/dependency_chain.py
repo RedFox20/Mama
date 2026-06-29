@@ -618,7 +618,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         system.set_active_display(None)
         SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
-    _print_build_summary(deps, time.monotonic() - start)
+    _print_build_summary(deps, time.monotonic() - start, display.cpu_sampler_report())
     _deploy_run_postpass(flat_deps_reverse, config)
 
 
@@ -657,11 +657,13 @@ def print_sched_debug(root: BuildDependency):
         console(f'  {d.name:<22}{tu:>6}  {via:<16}{probe:>6}{reserve:>9}{probe:>5}   {" ".join(flags)}')
 
 
-def _print_build_summary(deps, elapsed: float):
-    """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded)."""
+def _print_build_summary(deps, elapsed: float, cpu_report: str = None):
+    """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded),
+    plus the optional CPU-sampler cost diagnostic."""
     built = sum(1 for d in deps if getattr(d, 'should_rebuild', False)
                 and not getattr(d, 'from_artifactory', False) and not getattr(d, 'nothing_to_build', False))
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
+    if cpu_report: console(cpu_report, color=Color.BLUE)
 
 
 def execute_unified(root: BuildDependency):
@@ -713,7 +715,7 @@ def execute_unified(root: BuildDependency):
         SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
-    _print_build_summary(flat, time.monotonic() - start)
+    _print_build_summary(flat, time.monotonic() - start, display.cpu_sampler_report())
     _deploy_run_postpass(reversed(flat), config)
 
 
