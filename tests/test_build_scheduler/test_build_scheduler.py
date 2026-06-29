@@ -133,6 +133,16 @@ def test_pending_hint_reports_blocked_build_then_waiting_dep():
     assert sched._pending_hint([]) is None            # nothing waiting -> no hint
 
 
+def test_pending_hint_lists_up_to_three_waiting_deps():
+    mk = lambda n: Job(n, BUILD, lambda: None, node=SimpleNamespace(name=n))
+    waiter = lambda deps: Job('w', BUILD, lambda: None, deps=deps, node=SimpleNamespace(name='app'))
+    sched = _sched()
+    sched._pending = [waiter([mk(n) for n in 'dbeac'])]  # 5 unfinished deps
+    assert sched._pending_hint([]) == ('app', 'waiting for a, b, c (+2)')  # first 3 sorted + overflow
+    sched._pending = [waiter([mk('y'), mk('x')])]        # <=3 deps -> no (+N) suffix
+    assert sched._pending_hint([]) == ('app', 'waiting for x, y')
+
+
 def test_build_dep_jobs_marks_root_build_ungated():
     leaf = _Dep('leaf'); root = _Dep('root'); root.is_root = True
     jobs = build_dep_jobs([leaf, root], configure_fn=lambda d: None, build_fn=lambda d: None)

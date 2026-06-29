@@ -228,13 +228,15 @@ class Scheduler:
 
     def _pending_hint(self, blocked: List[Job]):
         """The single next task waiting to launch + why, for the live display: a governor-held job
-        (deps ready, gated by CPU/budget/slots) if any, else a job still waiting on a dep. None if
-        nothing's waiting (the scheduler is keeping up)."""
+        (deps ready, gated by CPU/budget/slots) if any, else a job still waiting on its deps (up to
+        3 named + a (+N) overflow). None if nothing's waiting (the scheduler is keeping up)."""
         if blocked:
             return (self._name(blocked[0]), self._block_reason(blocked[0]))
         for job in self._pending:
-            undone = [d for d in job.deps if not d.done]
-            if undone: return (self._name(job), f'waiting for {self._name(undone[0])}')
+            undone = sorted(self._name(d) for d in job.deps if not d.done)  # stable, alpha-ordered display
+            if undone:
+                more = f' (+{len(undone) - 3})' if len(undone) > 3 else ''
+                return (self._name(job), f'waiting for {", ".join(undone[:3])}{more}')
         return None
 
     def _block_reason(self, job: Job) -> str:
