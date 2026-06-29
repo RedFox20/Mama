@@ -257,7 +257,6 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     config = BuildConfig(args)
     if config.print:
-        print_title()
         if config.verbose:
             console(f'Build jobs={config.jobs}')
 
