@@ -108,7 +108,8 @@ class SubProcess:
             while True:
                 try: chunk = os.read(fd, READER_CHUNK)
                 except OSError: chunk = b''  # EIO on a closed PTY slave / closed pipe = EOF
-                chunks.put(chunk)
+                if chunk: self._last_output = time.monotonic()  # reset idle watchdog AS DATA ARRIVES, not
+                chunks.put(chunk)                                # when the drain processes it (drain can lag under load)
                 if not chunk: break
         threading.Thread(target=pump, daemon=True).start()
         buf = bytearray()
@@ -118,7 +119,6 @@ class SubProcess:
             except queue.Empty:
                 self._drain_buffer(buf, idle=True); continue
             if not chunk: break
-            self._last_output = time.monotonic()  # activity: resets the idle watchdog
             buf.extend(chunk)
             self._drain_buffer(buf)
         self._drain_buffer(buf, eof=True)
