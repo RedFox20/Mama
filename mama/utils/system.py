@@ -64,14 +64,22 @@ def set_active_display(display):
     _active_display = display
 
 
+def capture_context():
+    """Snapshot this thread's console-capture state as a (sink, display, tid, build_slot) tuple. A
+    helper thread that runs io_func - SubProcess's reader thread - re-establishes it via
+    capture_to(*ctx); without that, io_func's console() lines have no sink and leak above the live
+    region instead of feeding the owning display task."""
+    return (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
+            getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
+
+
 @contextlib.contextmanager
 def capture_to(sink, display=None, tid=None, build_slot=None):
     """Route THIS thread's console() lines to `sink` (a display task feed) so a job's banners land
     in its display line instead of tearing the live region; restores the previous sink on exit.
     `display`/`tid` let SubProcess report child pids for CPU sampling; `build_slot` is the
     scheduler barrier so a custom build()'s cmake_build() can self-gate."""
-    prev = (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
-            getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
+    prev = capture_context()
     _capture.sink, _capture.display, _capture.tid, _capture.build_slot = sink, display, tid, build_slot
     try:
         yield

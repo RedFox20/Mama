@@ -1,6 +1,6 @@
 import os, shlex, shutil, threading, queue, time, signal
 import subprocess
-from .system import System, console, error, report_subprocess
+from .system import System, console, error, report_subprocess, capture_to, capture_context
 
 
 # Linux/macOS: we allocate a PTY for the child so git etc. still see a TTY
@@ -89,15 +89,19 @@ class SubProcess:
             finally:
                 os.close(slave) # parent doesn't need the slave once Popen has it
 
+        # io_func runs on the reader thread; carry the caller's console-capture context onto it so its
+        # console() lines feed the owning display task instead of leaking above the live region.
+        self._capture_ctx = capture_context()
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()
 
 
     def _read_loop(self):
         try:
-            fd = self._master_fd if self._master_fd is not None else \
-                 (self.process.stdout.fileno() if self.process.stdout else None)
-            if fd is not None: self._read_loop_queued(fd)
+            with capture_to(*self._capture_ctx):  # io_func's console() -> owning task, not above the region
+                fd = self._master_fd if self._master_fd is not None else \
+                     (self.process.stdout.fileno() if self.process.stdout else None)
+                if fd is not None: self._read_loop_queued(fd)
         except Exception as e:
             self._reader_exc = e  # captured so run() can surface it; don't crash the reader thread
 

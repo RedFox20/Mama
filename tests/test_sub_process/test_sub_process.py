@@ -5,6 +5,7 @@ import subprocess
 
 import pytest
 
+from mama.utils import system
 from mama.utils.sub_process import SubProcess
 
 
@@ -58,6 +59,17 @@ class TestIoFunc:
         def broken(p, line): raise RuntimeError(f'callback boom on line={line!r}')
         with pytest.raises(RuntimeError, match='callback boom'):
             SubProcess.run([PY, '-c', 'print("hi")'], io_func=broken)
+
+
+class TestCaptureContextPropagation:
+    def test_io_func_console_routes_to_callers_capture_sink(self):
+        # io_func fires on the reader thread; without the capture context carried over, its console()
+        # would miss the caller's sink and leak above the live region (the parallel-build checkout leak).
+        sink = []
+        def echo(p, line): system.console(f'got:{line}')  # mirrors run_git's prefixed() callback
+        with system.capture_to(sink.append):
+            SubProcess.run([PY, '-c', 'print("checkout")'], io_func=echo)
+        assert 'got:checkout' in sink
 
 
 class TestCwd:
