@@ -12,7 +12,6 @@ from .system import System, console, error, report_subprocess
 # the threaded-deadlock risk.
 if not System.windows:
     import pty
-    import select
 
 
 READER_IDLE_TIMEOUT = 0.1  # seconds; how long to wait before flushing a \r-progress partial
@@ -91,47 +90,24 @@ class SubProcess:
 
     def _read_loop(self):
         try:
-            if self._master_fd is not None:
-                self._read_loop_pty()
-            else:
-                self._read_loop_pipe()
+            fd = self._master_fd if self._master_fd is not None else \
+                 (self.process.stdout.fileno() if self.process.stdout else None)
+            if fd is not None: self._read_loop_queued(fd)
         except Exception as e:
-            # Capture so run() can surface it. Don't crash the reader thread.
-            self._reader_exc = e
+            self._reader_exc = e  # captured so run() can surface it; don't crash the reader thread
 
 
-    def _read_loop_pty(self):
-        """Drain PTY master with select-based idle detection so \\r-terminated
-        progress (ninja/cmake/git) surfaces without waiting for a \\n."""
-        buf = bytearray()
-        while True:
-            ready, _, _ = select.select([self._master_fd], [], [], READER_IDLE_TIMEOUT)
-            if ready:
-                try: chunk = os.read(self._master_fd, READER_CHUNK)
-                except OSError: break  # EIO on a closed slave end
-                if not chunk: break
-                self._last_output = time.monotonic()  # activity: resets the idle watchdog
-                buf.extend(chunk)
-                self._drain_buffer(buf)
-            else:
-                self._drain_buffer(buf, idle=True)
-        self._drain_buffer(buf, eof=True)
-
-
-    def _read_loop_pipe(self):
-        """Windows path: select() doesn't work on pipes, so a helper thread does the blocking
-        byte reads and hands chunks to a queue. The drain loop waits on the queue with
-        READER_IDLE_TIMEOUT, giving the same \\r-progress idle-flush as the PTY path. Without it
-        a \\r at a chunk boundary hangs until the next read, and a CRLF after it (the CRT turns
-        the child's \\n into \\r\\n) surfaces as a spurious empty line."""
-        stdout = self.process.stdout
-        if not stdout: return
-        fd = stdout.fileno()
+    def _read_loop_queued(self, fd):
+        """One reader for both PTY (UNIX) and pipe (Windows): a pump thread does the blocking
+        os.read(fd) and hands chunks to a queue; this drain loop turns them into lines with the
+        \\r-progress idle-flush (queue.get timeout). Decoupling the read from io_func means a slow
+        consumer (or GIL contention from CPU sampling) never stalls os.read, so the child's PTY/pipe
+        can't fill and block it - the footgun that made big library output trickle in slowly."""
         chunks: queue.Queue = queue.Queue()
         def pump():
             while True:
                 try: chunk = os.read(fd, READER_CHUNK)
-                except OSError: chunk = b''
+                except OSError: chunk = b''  # EIO on a closed PTY slave / closed pipe = EOF
                 chunks.put(chunk)
                 if not chunk: break
         threading.Thread(target=pump, daemon=True).start()
