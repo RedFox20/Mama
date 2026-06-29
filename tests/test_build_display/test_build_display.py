@@ -1,6 +1,5 @@
 """Pins BuildDisplay: TTY live-region rendering + non-TTY fallback, capture/replay, throttle."""
 import io, re
-from types import SimpleNamespace
 from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task
 
@@ -139,21 +138,13 @@ def test_report_subprocess_attaches_pid_to_current_task():
     d.close()
 
 
-def test_psutil_tree_cpu_sums_each_build_tree(monkeypatch):
-    # cpu_times is read per build tree only (root pid 1 -> child pid 2); each first-seen, alive 4s with
-    # 12 cpu-sec -> 300% per process -> 600% for the tree. Returns {tid: cpu%}.
-    import mama.utils.build_display as bd
-    monkeypatch.setattr(bd.time, 'time', lambda: 100.0)
-    class E(Exception): pass
-    class P:
-        def __init__(self, pid=1): self.pid = pid
-        def cpu_times(self): return SimpleNamespace(user=12.0, system=0.0)
-        def create_time(self): return 96.0
-        def children(self, recursive=True): return [P(2)] if self.pid == 1 else []
-    class Ps:
-        Error = E
-        def Process(self, pid): return P(pid)
-    assert bd._PsutilTreeCpu(Ps())({'t': {1}}) == {'t': 600.0}
+def test_attach_pid_only_samples_build_tasks():
+    d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {}, sample_interval=999)
+    d.start_task(('c', 'configure'), 'configure', 'c'); d.attach_pid(('c', 'configure'), 11)
+    d.start_task(('l', 'load'), 'clone', 'l'); d.attach_pid(('l', 'load'), 12)
+    d.start_task(('b', 'build'), 'build', 'b'); d.attach_pid(('b', 'build'), 13)
+    assert d._pids == {('b', 'build'): {13}}   # configure/clone not sampled, only build
+    d.close()
 
 
 def test_replay_dumps_raw_colored_buffer():

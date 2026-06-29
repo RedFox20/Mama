@@ -8,6 +8,7 @@ no real terminal/threads/subprocesses."""
 
 from __future__ import annotations
 import re, time, threading
+from . import proc_cpu
 from .system import Color, get_colored_text
 
 
@@ -208,8 +209,11 @@ class BuildDisplay:
     # -- live CPU sampling -------------------------------------------------
 
     def attach_pid(self, tid, pid: int):
-        """Register a running child pid so the sampler can attribute its process-tree CPU to `tid`."""
+        """Register a running child pid so the sampler can attribute its process-tree CPU to `tid`.
+        Only build tasks are sampled - a CPU% on a configure/clone/update step is noise and wasted work."""
         with self._lock:
+            t = self._tasks.get(tid)
+            if t is None or t.kind != 'build': return
             self._pids.setdefault(tid, set()).add(pid)
         self._ensure_sampler()
 
@@ -228,7 +232,7 @@ class BuildDisplay:
         with self._lock:
             if self._sampler is not None: return
             if self._cpu_auto:
-                self._cpu_sampler = _make_tree_cpu_sampler(); self._cpu_auto = False
+                self._cpu_sampler = proc_cpu.make_sampler(); self._cpu_auto = False
             if self._cpu_sampler is None: return  # psutil unavailable -> feature off
             self._sampler = threading.Thread(target=self._sample_loop, daemon=True)
             self._sampler.start()
@@ -282,45 +286,3 @@ class BuildDisplay:
     def _flush(self):
         flush = getattr(self._out, 'flush', None)
         if flush: flush()
-
-
-def _make_tree_cpu_sampler():
-    try: import psutil
-    except ImportError: return None
-    return _PsutilTreeCpu(psutil)
-
-
-class _PsutilTreeCpu:
-    """Sums CPU% of each build's subprocess tree (cmake -> ninja/make/msbuild -> compilers): per-process
-    cpu-time delta over wall-clock, so a tree saturating N cores reads ~N*100%. Reads cpu_times ONLY for
-    each build's own tree (NOT every system process - that walked thousands of /proc entries per sample)."""
-    def __init__(self, psutil):
-        self._ps = psutil
-        self._state: dict[int, tuple] = {}  # pid -> (cpu_seconds, wallclock_ts), for the delta
-
-    def __call__(self, snapshot) -> dict:
-        """snapshot: {tid: set(root_pids)} -> {tid: cpu%}."""
-        ps, now, result, seen = self._ps, time.time(), {}, set()
-        for tid, roots in snapshot.items():
-            total = 0.0
-            for rp in roots:
-                try:
-                    root = ps.Process(rp)
-                    tree = [root] + root.children(recursive=True)
-                except ps.Error:
-                    continue
-                for proc in tree:
-                    seen.add(proc.pid)
-                    try: t = proc.cpu_times()
-                    except ps.Error: continue
-                    cur = t.user + t.system
-                    base_cpu, base_ts = self._state.get(proc.pid, (0.0, None))
-                    if base_ts is None:  # first sight: average over the process' lifetime so far
-                        try: base_ts = proc.create_time()
-                        except ps.Error: base_ts = now
-                    self._state[proc.pid] = (cur, now)
-                    dt = now - base_ts
-                    if dt > 0: total += max(0.0, (cur - base_cpu) / dt * 100.0)
-            result[tid] = total
-        for pid in [p for p in self._state if p not in seen]: del self._state[pid]  # drop dead procs
-        return result
