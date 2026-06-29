@@ -134,6 +134,9 @@ def test_reserved_cores_caps_at_half_jobs(tmp_path):
     t._build_jobs = 40; assert t._reserved_cores() == 4   # big build capped at jobs // 2
     t._build_jobs = 3;  assert t._reserved_cores() == 3   # small build keeps its weight
     t._build_jobs = 0;  assert t._reserved_cores() == 0   # unsizable -> reserves nothing
+    t._build_jobs = None                                  # unset (serial path / sched_debug): probe once + memoize
+    with open(t.build_dir('compile_commands.json'), 'w') as f: f.write('[{"file":"a"},{"file":"b"}]')
+    assert t._reserved_cores() == 2 and t._build_jobs == 2
 
 
 def _cmake_tu_count(t, generator):

@@ -1357,7 +1357,7 @@ class BuildTarget:
     def _cmake_build_step(self, out=None):
         """CMake build+install half. -j was sized from the TU probe in configure_phase; size it
         here too for the serial path (where configure_phase didn't run)."""
-        if self._build_jobs is None: self._build_jobs = self._probe_build_jobs()
+        self._ensure_build_jobs()
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
@@ -1370,13 +1370,17 @@ class BuildTarget:
         except Exception: pass
         return 0
 
+    def _ensure_build_jobs(self) -> int:
+        """Lazily memoize the TU-probed -j. configure_phase sets it authoritatively post-configure;
+        this fills it in for the serial path / sched_debug where configure_phase never ran."""
+        if self._build_jobs is None: self._build_jobs = self._probe_build_jobs()
+        return self._build_jobs
+
     def _reserved_cores(self) -> int:
         """Budget cores this build occupies in the scheduler: the TU probe (memoized into
         _build_jobs), capped at HALF of config.jobs because a build rarely sustains its full -j
         (ramp-up, inter-TU deps, single-threaded link). 0 when unsizable -> reserves nothing."""
-        if self._build_jobs is None:
-            self._build_jobs = self._probe_build_jobs()
-        if not self._build_jobs: return 0
+        if not self._ensure_build_jobs(): return 0
         return min(self._build_jobs, max(1, self.config.jobs // 2))
 
     def _count_tu(self) -> tuple:
@@ -1549,17 +1553,14 @@ class BuildTarget:
         self._run_packaging()
 
     def _execute_build_tasks(self):
-        can_build = not self.dep.nothing_to_build
-        if can_build and self.dep.should_rebuild and not self.dep.from_artifactory:
+        if self._build_work_enabled():
             self._run_configure_once() # user customization
-            if can_build:
-                fetched = self.try_automatic_artifactory_fetch()
-                if not fetched:
-                    self.build() # user build customization
-
-                self.dep.successful_build()
-                if not fetched:
-                    package.clean_intermediate_files(self)
+            fetched = self.try_automatic_artifactory_fetch()
+            if not fetched:
+                self.build() # user build customization
+            self.dep.successful_build()
+            if not fetched:
+                package.clean_intermediate_files(self)
         self._run_packaging()
 
     def _run_packaging(self):
