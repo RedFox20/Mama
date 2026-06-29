@@ -97,6 +97,7 @@ class BuildTarget:
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
+        self._did_configure = False # guards configure() to run once (configure_phase for normal, build_phase for custom build())
         self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
         self._out_sink = None # display sink for cmake output during a scheduled phase (None -> print)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
@@ -1508,13 +1509,20 @@ class BuildTarget:
         the scheduler runs it whole in build_phase and skips the separate configure step."""
         return type(self).build is not BuildTarget.build
 
+    def _run_configure_once(self):
+        """User configure() hook, guarded to run at most once per target: a normal build runs it in
+        configure_phase, a custom build() in build_phase, and the serial path runs it directly."""
+        if self._did_configure: return
+        self._did_configure = True
+        self.configure() # user customization
+
     def configure_phase(self, out=None):
         """Scheduled CONFIGURE job: user configure() hook + cmake configure. No-op for a
         no-work node or a custom build() (which owns its own configure inside build_phase)."""
         self._out_sink = out  # so a custom build()'s cmake output is captured too, not just the default path
         if not self._build_work_enabled() or self._has_custom_build():
             return
-        self.configure() # user customization
+        self._run_configure_once()
         self._fetched = self.try_automatic_artifactory_fetch()
         if not self._fetched:
             self._cmake_configure_step(out=out)
@@ -1529,7 +1537,7 @@ class BuildTarget:
         self._out_sink = out  # captures cmake output from a custom build()->cmake_build() too
         if self._build_work_enabled():
             if self._has_custom_build():
-                self.configure() # custom build's configure_phase was a no-op
+                self._run_configure_once() # custom build's configure_phase was a no-op
                 self._fetched = self.try_automatic_artifactory_fetch()
                 if not self._fetched:
                     self.build() # user override owns configure+build
@@ -1543,7 +1551,7 @@ class BuildTarget:
     def _execute_build_tasks(self):
         can_build = not self.dep.nothing_to_build
         if can_build and self.dep.should_rebuild and not self.dep.from_artifactory:
-            self.configure() # user customization
+            self._run_configure_once() # user customization
             if can_build:
                 fetched = self.try_automatic_artifactory_fetch()
                 if not fetched:

@@ -61,6 +61,17 @@ def test_custom_build_collapses_into_build_phase(tmp_path):
     assert 'run_config' not in ev and 'run_build' not in ev
 
 
+def test_configure_runs_once_across_phases(tmp_path):
+    t, dep = _target(tmp_path)
+    es, _ = _wire(t, dep)
+    calls = []
+    es.enter_context(patch.object(t, 'configure', side_effect=lambda: calls.append(1)))
+    with es:
+        t.configure_phase(); t.build_phase()  # normal build configures in configure_phase
+        t._run_configure_once()               # guard blocks any further configure()
+    assert calls == [1]
+
+
 def test_compute_env_strips_cc_cxx_without_mutating_global(tmp_path, monkeypatch):
     t, _ = _target(tmp_path)
     t.config.get_preferred_compiler_paths = lambda: ('gcc', 'g++', '11')
