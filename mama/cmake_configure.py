@@ -107,15 +107,33 @@ def _seed_paths(target:BuildTarget):
     return (target.build_dir(), _build_files_dir(target), _seed_src_dir(target))
 
 
+_TOOLCHAIN_KEYS = ('CMAKE_TOOLCHAIN_FILE', 'CMAKE_SYSTEM_NAME', 'CMAKE_SYSTEM_PROCESSOR',
+                   'CMAKE_OSX_SYSROOT', 'CMAKE_OSX_ARCHITECTURES', 'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER')
+
+
+def _toolchain_inputs(target:BuildTarget) -> dict:
+    """Cross-compile inputs that change compiler detection but aren't caught by cc/cxx stat: the
+    toolchain file (stat) + system/sysroot/explicit-compiler opts. Empty dict for a native build."""
+    out = {}
+    for opt in target.cmake_opts + _default_options(target):
+        k, _, v = opt.partition('=')
+        if k in _TOOLCHAIN_KEYS:
+            out[k] = seedcache.compiler_stat(v.strip('"')) if k == 'CMAKE_TOOLCHAIN_FILE' else v
+    return out
+
+
 def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
-    return {
+    inputs = {
         'cmake': _cmake_version_number(config), 'gen': _generator(target),
         'arch': getattr(config, 'arch', ''), 'platform': config.platform_build_dir_name(),
         'cc': seedcache.compiler_stat(cc) if cc else {}, 'cxx': seedcache.compiler_stat(cxx) if cxx else {},
-        'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
+        'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''), 'toolchain': _toolchain_inputs(target),
     }
+    if not cc:  # no explicit compiler -> CC/CXX env selects it, so they belong in the fingerprint
+        inputs['env_cc'] = os.environ.get('CC', ''); inputs['env_cxx'] = os.environ.get('CXX', '')
+    return inputs
 
 
 def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:

@@ -1,6 +1,7 @@
 """Pins the configure/build split: phase ordering, no-op packaging, custom-build collapse,
 thread-safe env, per-target -j, and generator-agnostic TU counting."""
 import os, sys, contextlib, shutil, subprocess
+from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
 from testutils import make_mock_local_dep
@@ -138,6 +139,17 @@ def test_reserved_cores_is_full_build_jobs_capped_at_total(tmp_path):
     t._build_jobs = None                                  # unset (serial path / sched_debug): probe once + memoize
     with open(t.build_dir('compile_commands.json'), 'w') as f: f.write('[{"file":"a"},{"file":"b"}]')
     assert t._reserved_cores() == 2 and t._build_jobs == 2
+
+
+def test_toolchain_inputs_extracts_detection_keys_not_project_flags(tmp_path, monkeypatch):
+    # The seed fingerprint must invalidate on a toolchain/sysroot change (cross-compile) but NOT on
+    # project flags - else a flag tweak redoes detection, or a sysroot swap reuses a stale seed.
+    tc = tmp_path / 'arm.toolchain.cmake'; tc.write_bytes(b'set(SYSROOT /opt/arm)\n')
+    opts = [f'CMAKE_TOOLCHAIN_FILE="{tc}"', 'CMAKE_SYSTEM_NAME=Linux', 'CMAKE_CXX_FLAGS="-DX"', 'FOO=bar']
+    monkeypatch.setattr(cc, '_default_options', lambda t: opts)
+    out = cc._toolchain_inputs(SimpleNamespace(cmake_opts=[]))
+    assert out['CMAKE_SYSTEM_NAME'] == 'Linux' and out['CMAKE_TOOLCHAIN_FILE']['size'] == tc.stat().st_size
+    assert 'CMAKE_CXX_FLAGS' not in out and 'FOO' not in out  # project flags never enter the fingerprint
 
 
 def _cmake_tu_count(t, generator):
