@@ -63,6 +63,13 @@ def test_node_marker_root_leaf_trunk():
     assert dc._node_marker(mk(True, [1])) == '[R]'    # root wins regardless of children
 
 
+def test_phase_label_load_is_clone_when_fresh_else_update():
+    fresh = SimpleNamespace(is_real_clone=lambda: False)
+    existing = SimpleNamespace(is_real_clone=lambda: True)
+    assert dc._phase_label(fresh, 'load') == 'clone' and dc._phase_label(existing, 'load') == 'update'
+    assert dc._phase_label(fresh, 'configure') == 'configure'  # non-load kinds verbatim
+
+
 def test_reserve_weight_is_zero_for_custom_build_else_reserved_cores():
     def mk(custom, cores):
         t = SimpleNamespace(_has_custom_build=lambda: custom, _reserved_cores=lambda: cores)

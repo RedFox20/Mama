@@ -529,7 +529,10 @@ def _make_display(config):
 
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
-_DISPLAY_LABEL = {'load': 'clone'}  # task kind -> friendlier display label; others verbatim
+def _phase_label(dep, kind) -> str:
+    # 'load' is a clone for a fresh dep, an update for an existing working tree; others show verbatim.
+    if kind == 'load': return 'update' if dep.is_real_clone() else 'clone'
+    return kind
 
 
 def _run_phase(display, dep, kind, body, build_slot, detail=''):
@@ -537,7 +540,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail=''):
     output + subprocess CPU + build barrier into it, then run `body(sink)`."""
     tid = (dep.name, kind)
     sink = lambda line: display.feed(tid, line)
-    display.start_task(tid, _DISPLAY_LABEL.get(kind, kind), f'{_node_marker(dep)} {dep.name}', detail)
+    display.start_task(tid, _phase_label(dep, kind), f'{_node_marker(dep)} {dep.name}', detail)
     ok = False
     try:
         with system.capture_to(sink, display, tid, build_slot):  # console + CPU + build barrier

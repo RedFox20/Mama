@@ -29,6 +29,7 @@ class _Dep:
                           for n, cs in self._child_specs]
     def get_children(self): return self._children
     def is_root_or_config_target(self): return False
+    def is_real_clone(self): return False  # load label resolves to 'clone'
 
 
 def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
