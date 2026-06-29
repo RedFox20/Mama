@@ -38,9 +38,9 @@ def test_instant_success_tasks_are_hidden_failures_are_not():
 
 
 def test_non_tty_verbose_dumps_full_output():
-    d, out, _ = _disp(isatty=False, verbose=True)
+    d, out, clk = _disp(isatty=False, verbose=True)
     d.start_task(1, 'build', 'bar'); d.feed(1, 'compiling x.cpp'); d.feed(1, 'linking')
-    d.finish_task(1, ok=True)
+    clk.tick(0.2); d.finish_task(1, ok=True)   # past reveal: a real build that emitted output isn't instant
     assert 'compiling x.cpp' in out.getvalue() and 'linking' in out.getvalue()
 
 

@@ -57,6 +57,13 @@ def test_parallel_runner_fails_fast_and_blocks_dependents(monkeypatch, capsys):
     assert ('build', 'parent') not in ev   # parent build depends on failed child, never released
 
 
+def test_node_marker_root_leaf_trunk():
+    mk = lambda root, kids: SimpleNamespace(is_root=root, get_children=lambda: kids)
+    assert dc._node_marker(mk(False, [])) == '[L]'    # no deps of its own
+    assert dc._node_marker(mk(False, [1])) == '[T]'   # has deps
+    assert dc._node_marker(mk(True, [1])) == '[R]'    # root wins regardless of children
+
+
 def test_reserve_weight_is_zero_for_custom_build_else_reserved_cores():
     def mk(custom, cores):
         t = SimpleNamespace(_has_custom_build=lambda: custom, _reserved_cores=lambda: cores)

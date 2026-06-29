@@ -49,7 +49,7 @@ class Task:
 
 class BuildDisplay:
     def __init__(self, out, isatty: bool, term_size, clock, verbose=False, color=True,
-                 min_interval=0.1, margin=1, reveal_delay=0.15, cpu_sampler=None, sample_interval=0.7):
+                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=0.7):
         self._out = out
         self._isatty = isatty
         self._term_size = term_size  # () -> (cols, rows)
@@ -103,7 +103,7 @@ class BuildDisplay:
             t.end = self._clock()
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
-            hide = ok and not self._verbose and t.elapsed(t.end) < self._reveal  # instant success
+            hide = ok and t.elapsed(t.end) < self._reveal  # instant no-op (cached/<0.1s): prune even in verbose
             if self._isatty:
                 if not hide: self._pending.append(self._summary_line(t))
                 self.render(force=True)

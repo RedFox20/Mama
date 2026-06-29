@@ -544,7 +544,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     def run_phase(dep, kind, body, detail=''):
         tid = (dep.name, kind)
         sink = lambda line: display.feed(tid, line)
-        display.start_task(tid, kind, dep.name, detail)
+        display.start_task(tid, kind, f'{_node_marker(dep)} {dep.name}', detail)
         ok = False
         try:
             with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
@@ -615,6 +615,12 @@ def _build_detail(dep) -> str:
     return f'[{dep.target._reserved_cores()}]'  # budget cores this build occupies (capped at jobs/2)
 
 
+def _node_marker(dep) -> str:
+    """[R]oot / [L]eaf (no deps of its own) / [T]runk (has deps) - quick visual of tree position."""
+    if getattr(dep, 'is_root', False): return '[R]'
+    return '[L]' if not dep.get_children() else '[T]'
+
+
 def print_sched_debug(root: BuildDependency):
     """TEMP diagnostic (CLI: sched_debug): print each target's build-weight calc WITHOUT building.
     Reads existing build-dir artifacts, so it runs in seconds for fast iteration on the TU probe."""
@@ -660,7 +666,7 @@ def execute_unified(root: BuildDependency):
     def run_phase(dep, label, body, detail=''):
         tid = (dep.name, label)
         sink = lambda line: display.feed(tid, line)
-        display.start_task(tid, label, dep.name, detail)
+        display.start_task(tid, label, f'{_node_marker(dep)} {dep.name}', detail)
         ok = False
         try:
             with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
