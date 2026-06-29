@@ -134,6 +134,24 @@ def test_debug_log_reports_running_and_blocked_weights():
     assert '(4)' in line.split('blocked:')[1]              # blocked builds report their weight
 
 
+def test_build_slot_barrier_blocks_until_budget_frees():
+    # A custom build()'s cmake_build() acquires a slot mid-job; it must wait while a full-budget
+    # build holds the budget, then proceed once it frees - and always proceed when nothing's reserved.
+    sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)
+    p = Probe()
+    hog = Job('hog', BUILD, p.body, weight=8)
+    acquired = []
+    def runner():
+        with sched.build_slot(8):   # needs the whole budget; blocked while hog holds it
+            acquired.append(time.monotonic())
+    t, _ = _run_bg(sched, [hog, Job('runner', BUILD, runner, weight=0)])
+    assert _wait_until(lambda: p.cur == 1)   # hog running, holds budget=8
+    time.sleep(0.05)
+    assert not acquired                       # the slot is blocked behind the hog
+    p.gate.set(); t.join(2.0)
+    assert acquired                           # released once the hog freed the budget
+
+
 def test_resolve_weight_handles_int_and_callable():
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=lambda: 4)) == 4
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=3)) == 3

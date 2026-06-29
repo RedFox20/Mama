@@ -11,7 +11,7 @@ then return the failed job. Generic over `Job.run`, so it unit-tests with fake j
 the cmake wiring lives in the caller (build_target/dependency_chain)."""
 
 from __future__ import annotations
-import time, threading, concurrent.futures
+import time, threading, concurrent.futures, contextlib
 from typing import Callable, Iterable, List, Optional
 
 LOAD = 'load'        # clone + parse mamafile + discover deps (network/IO bound)
@@ -86,7 +86,8 @@ class Scheduler:
         self._running: set = set()    # running jobs, for debug status
         self._n_load = 0         # running LOAD jobs
         self._n_config = 0       # running CONFIGURE jobs
-        self._reserved = 0       # reserved cores of running BUILD jobs
+        self._n_slot = 0         # active build_slot() barriers (custom build()s compiling)
+        self._reserved = 0       # reserved cores of running BUILD jobs + acquired build_slots
         self._n_running = 0      # total running jobs
         self._cpu_now = 0.0      # system CPU%, sampled once per scheduler pass (reused by gate + debug)
         self._last_debug = 0.0
@@ -151,18 +152,43 @@ class Scheduler:
             return self._n_load < self._max_load   # network/IO bound: simple count cap
         if job.kind == CONFIGURE:
             return self._n_config < self._max_configure
-        # BUILD: the core budget is the real parallelism limit. Launch freely while reserved cores
-        # stay within budget, REGARDLESS of momentary CPU load - a single compile saturates the CPU
-        # sampler, and gating on that stalled every other build while cores sat idle (the krattgcs
-        # serial-build bug). The CPU sampler only gates EXTRA over-provisioning beyond the budget.
+        return self._build_admits(self._resolve_weight(job))  # BUILD
+
+    def _build_admits(self, weight: int) -> bool:
+        """Budget gate shared by BUILD-job launch and build_slot() barriers: launch freely while
+        reserved cores stay within budget REGARDLESS of momentary CPU (one compile saturates the
+        sampler - gating on that stalled every build while cores sat idle, the krattgcs bug); the
+        CPU sampler only gates EXTRA over-provisioning beyond the budget. reserved==0 always admits
+        so at least one build always proceeds (and a barrier is always released - no deadlock)."""
         if self._reserved == 0:
             return True
-        need = self._reserved + self._resolve_weight(job)
+        need = self._reserved + weight
         if need <= self._core_budget:
             return True
         if self._cpu_now >= self._load_threshold:
             return False
         return need <= self._core_budget * self._overprovision
+
+    @contextlib.contextmanager
+    def build_slot(self, weight: int):
+        """Acquire `weight` budget cores for a compile running INSIDE a job - a custom build()'s
+        cmake_build(), reached transparently via system.build_barrier(). The worker thread suspends
+        here (coroutine-style) until the budget admits it, reserves, runs the compile, then releases
+        on exit. always-admit-when-idle guarantees the barrier is released and can't deadlock."""
+        weight = max(0, int(weight))
+        with self._cond:
+            while not self._build_admits(weight):
+                self._cond.wait(timeout=self._poll_interval)
+            self._reserved += weight
+            self._n_slot += 1
+            self._cond.notify_all()
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._reserved -= weight
+                self._n_slot -= 1
+                self._cond.notify_all()
 
     def _maybe_debug(self, blocked: List[Job]):
         """Once per second, emit reserved/budget, the running builds + their weights, the builds held
@@ -175,8 +201,9 @@ class Scheduler:
         running = [j for j in self._running if j.kind == BUILD]
         run_s = ' '.join(f'{name(j)}({j._rweight})' for j in running) or '-'
         blk_s = ' '.join(f'{name(j)}({self._resolve_weight(j)})' for j in blocked if j.kind == BUILD) or '-'
+        slots = f' slots={self._n_slot}' if self._n_slot else ''
         self._debug_log(f'[sched] cpu={self._cpu_now:>3.0f}% reserved={self._reserved}/'
-                        f'{self._core_budget * self._overprovision:.0f} building[{len(running)}]: {run_s} '
+                        f'{self._core_budget * self._overprovision:.0f}{slots} building[{len(running)}]: {run_s} '
                         f'| blocked: {blk_s}')
 
     def _launch(self, job: Job, ex: concurrent.futures.ThreadPoolExecutor):

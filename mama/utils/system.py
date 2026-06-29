@@ -66,17 +66,28 @@ def set_active_display(display):
 
 
 @contextlib.contextmanager
-def capture_to(sink, display=None, tid=None):
+def capture_to(sink, display=None, tid=None, build_slot=None):
     """Route THIS thread's console() lines to `sink` (a display task feed) for the duration, so a
     configure/build job's banners / 'Cleaning ...' / mamafile prints land in its display line
     instead of tearing the live region. Restores the previous sink on exit (workers are reused).
-    `display`/`tid` let SubProcess report its child pids for live CPU sampling of this task."""
-    prev = (getattr(_capture, 'sink', None), getattr(_capture, 'display', None), getattr(_capture, 'tid', None))
-    _capture.sink, _capture.display, _capture.tid = sink, display, tid
+    `display`/`tid` let SubProcess report its child pids for live CPU sampling of this task;
+    `build_slot` is the scheduler's budget barrier so a custom build()'s cmake_build() can self-gate."""
+    prev = (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
+            getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
+    _capture.sink, _capture.display, _capture.tid, _capture.build_slot = sink, display, tid, build_slot
     try:
         yield
     finally:
-        _capture.sink, _capture.display, _capture.tid = prev
+        _capture.sink, _capture.display, _capture.tid, _capture.build_slot = prev
+
+
+def build_barrier(weight: int):
+    """Context manager wrapping a heavy compile (cmake_build's build step) so it occupies `weight`
+    budget cores in the active parallel scheduler - suspending the worker thread until the budget
+    admits it. A no-op (null context) on the serial path or in tests where no scheduler is active,
+    so call sites (mamafile build()s) need no changes and keep working unchanged."""
+    factory = getattr(_capture, 'build_slot', None)
+    return factory(weight) if factory is not None else contextlib.nullcontext()
 
 
 def report_subprocess(pid: int, started: bool):

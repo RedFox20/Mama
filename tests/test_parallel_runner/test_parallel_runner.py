@@ -9,7 +9,8 @@ from mama import dependency_chain as dc
 class _T:
     def __init__(self, dep, ev, lock, fail=False):
         self.dep = dep; self.ev = ev; self.lock = lock; self.fail = fail; self._build_jobs = None
-    def _probe_build_jobs(self): return 4   # _reserve_weight probes when _build_jobs is None
+    def _has_custom_build(self): return False
+    def _reserved_cores(self): return 4
     def _rec(self, name):
         with self.lock: self.ev.append(name)
     def configure_phase(self, out=None): self._rec(('configure', self.dep.name))
@@ -56,15 +57,12 @@ def test_parallel_runner_fails_fast_and_blocks_dependents(monkeypatch, capsys):
     assert ('build', 'parent') not in ev   # parent build depends on failed child, never released
 
 
-def test_reserve_weight_caps_at_half_jobs():
-    def mk(jobs, build_jobs=None, probe=0):
-        t = SimpleNamespace(_build_jobs=build_jobs, _probe_build_jobs=lambda: probe)
-        return SimpleNamespace(config=SimpleNamespace(jobs=jobs), target=t)
-    assert dc._reserve_weight(mk(32, build_jobs=40)) == 16  # big build capped at jobs // 2
-    assert dc._reserve_weight(mk(32, build_jobs=5)) == 5    # small build keeps its real weight
-    assert dc._reserve_weight(mk(32, probe=10)) == 10       # unconfigured -> probes (e.g. custom build)
-    assert dc._reserve_weight(mk(32, probe=0)) == 0         # undetected -> reserves nothing
-    assert dc._reserve_weight(mk(1, build_jobs=40)) == 1    # never below 1 when jobs >= 1
+def test_reserve_weight_is_zero_for_custom_build_else_reserved_cores():
+    def mk(custom, cores):
+        t = SimpleNamespace(_has_custom_build=lambda: custom, _reserved_cores=lambda: cores)
+        return SimpleNamespace(target=t)
+    assert dc._reserve_weight(mk(custom=False, cores=12)) == 12  # default build reserves at launch
+    assert dc._reserve_weight(mk(custom=True, cores=12)) == 0    # custom build self-reserves via the barrier
 
 
 def test_build_summary_counts_only_real_builds(capsys):

@@ -8,7 +8,7 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console, Color, warning
+from .utils.system import System, console, Color, warning, build_barrier
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -1369,6 +1369,15 @@ class BuildTarget:
         except Exception: pass
         return 0
 
+    def _reserved_cores(self) -> int:
+        """Budget cores this build occupies in the scheduler: the TU probe (memoized into
+        _build_jobs), capped at HALF of config.jobs because a build rarely sustains its full -j
+        (ramp-up, inter-TU deps, single-threaded link). 0 when unsizable -> reserves nothing."""
+        if self._build_jobs is None:
+            self._build_jobs = self._probe_build_jobs()
+        if not self._build_jobs: return 0
+        return min(self._build_jobs, max(1, self.config.jobs // 2))
+
     def _count_translation_units(self) -> int:
         return self._count_tu()[0]
 
@@ -1415,7 +1424,10 @@ class BuildTarget:
         self._cmake_configure_step()
         config_stop = time.time()
         build_start = config_stop
-        self._cmake_build_step()
+        # Barrier: a custom build() reaches here on a worker thread; suspend until the parallel
+        # scheduler grants budget for the compile (no-op on the serial path / no active scheduler).
+        with build_barrier(self._reserved_cores()):
+            self._cmake_build_step()
         build_stop = time.time()
         if self.config.print:
             e_config = util.get_time_str(config_stop - config_start)

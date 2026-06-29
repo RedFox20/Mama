@@ -164,6 +164,18 @@ def test_close_clears_region():
     assert d._drawn == 0
 
 
+def test_build_barrier_is_noop_without_scheduler_else_uses_slot():
+    import contextlib
+    with system.build_barrier(8):                       # no active scheduler -> null context, never blocks
+        pass
+    calls = []
+    slot = lambda w: contextlib.nullcontext(calls.append(w))   # records the requested weight
+    with system.capture_to(lambda l: None, build_slot=slot):
+        with system.build_barrier(5):
+            pass
+    assert calls == [5]                                  # routed the compile's weight to the scheduler slot
+
+
 def test_capture_to_routes_console_to_sink_and_restores():
     # A running job's console() output (cmake banners, "Cleaning ...", mamafile prints) must land in
     # its display task, not tear the live region. capture_to redirects this thread's console() lines.

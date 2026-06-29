@@ -547,7 +547,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         display.start_task(tid, kind, dep.name, detail)
         ok = False
         try:
-            with system.capture_to(sink, display, tid):  # capture console() + this task's subprocess CPU
+            with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
                 body(sink)
             ok = True
         finally:
@@ -603,26 +603,16 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
 _PHASE_LABEL = {'load': 'clone', 'configure': 'configure', 'build': 'build'}
 
 
-def _effective_jobs(dep) -> int:
-    """The -j this build runs at: the TU probe result (capped at config.jobs), memoized into
-    target._build_jobs. Crucially this also sizes a CUSTOM-BUILD dep, whose configure_phase is a
-    no-op so it never probed - without this it defaulted to all of config.jobs (the [64] bug)."""
-    t = dep.target
-    if getattr(t, '_build_jobs', None) is None:
-        t._build_jobs = t._probe_build_jobs()
-    return t._build_jobs
-
-
 def _reserve_weight(dep) -> int:
-    """Cores the scheduler RESERVES for a build (budget accounting), capped at HALF of config.jobs.
-    A build almost never sustains its full -j (ramp-up, inter-TU deps, single-threaded linking - it
-    often peaks at ~5 cores), so reserving the full count idled the budget. Capping at 50% lets 2+
-    big builds plus the small ones share the budget and saturate the CPU."""
-    return min(_effective_jobs(dep), max(1, dep.config.jobs // 2))
+    """Cores the scheduler reserves for a build job AT LAUNCH. A custom build() reserves its compile
+    dynamically from inside cmake_build() (the build_barrier), so launch its runner free (0) and let
+    the barrier account it; a default build reserves its capped cores up front."""
+    if dep.target._has_custom_build(): return 0
+    return dep.target._reserved_cores()
 
 
 def _build_detail(dep) -> str:
-    return f'[{_reserve_weight(dep)}]'  # the scheduler reservation (capped at jobs/2), shown after the kind
+    return f'[{dep.target._reserved_cores()}]'  # budget cores this build occupies (capped at jobs/2)
 
 
 def print_sched_debug(root: BuildDependency):
@@ -673,7 +663,7 @@ def execute_unified(root: BuildDependency):
         display.start_task(tid, label, dep.name, detail)
         ok = False
         try:
-            with system.capture_to(sink, display, tid):  # capture console() + this task's subprocess CPU
+            with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
                 body(sink)
             ok = True
         finally:
