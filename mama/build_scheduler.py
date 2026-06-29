@@ -12,11 +12,17 @@ the cmake wiring lives in the caller (build_target/dependency_chain)."""
 
 from __future__ import annotations
 import time, threading, concurrent.futures, contextlib
+from types import SimpleNamespace
 from typing import Callable, Iterable, List, Optional
 
 LOAD = 'load'        # clone + parse mamafile + discover deps (network/IO bound)
 CONFIGURE = 'configure'
 BUILD = 'build'
+
+
+class BuildInterrupted(RuntimeError):
+    """Raised in a build_slot barrier when the build is already failing/aborting, so a custom build()
+    waiting for budget bails instead of starting a new compile."""
 
 
 class Job:
@@ -34,6 +40,14 @@ class Job:
         self._rweight = 1      # weight resolved at launch, reused at completion
 
     def __repr__(self): return f'Job({self.kind} {self.key})'
+
+
+def _make_abort_job() -> Job:
+    """Synthetic job run() returns on Ctrl+C so the caller reports an interrupted (failed) build."""
+    job = Job(('<interrupted>',), BUILD, run=(lambda: None), node=SimpleNamespace(name='<interrupted>'))
+    job.error = KeyboardInterrupt('build interrupted by Ctrl+C')
+    job.done = True
+    return job
 
 
 def _check_acyclic(jobs: List[Job]):
@@ -72,7 +86,8 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
 class Scheduler:
     def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
                  load_threshold: float = 85.0, overprovision: float = 2.0, cpu_sampler: Callable[[], float] = None,
-                 poll_interval: float = 1.0, max_workers: int = 256, debug_log: Callable[[str], None] = None):
+                 poll_interval: float = 1.0, max_workers: int = 256, debug_log: Callable[[str], None] = None,
+                 abort_hook: Callable[[], None] = None):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
         self._max_load = max(1, max_load)
@@ -82,6 +97,8 @@ class Scheduler:
         self._poll_interval = poll_interval
         self._max_workers = max_workers
         self._debug_log = debug_log   # optional (str)->None sink for per-second scheduler state
+        self._abort_hook = abort_hook # optional ()->None called on Ctrl+C to kill in-flight child processes
+        self._aborted = False
         self._cond = threading.Condition()
         self._pending: List[Job] = []  # jobs not yet launched (grows dynamically via grow())
         self._running: set = set()    # running jobs, for debug status
@@ -108,33 +125,49 @@ class Scheduler:
         grow during the run via grow(); the loop ends only when nothing is pending AND nothing runs."""
         _check_acyclic(list(jobs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as ex:
-            with self._cond:
-                self._pending = list(jobs)
-                while self._pending or self._n_running:
-                    if self._error and not self._n_running:
-                        break  # failed and drained
-                    self._cpu_now = self._cpu_sampler()  # one sample per pass: reused by every gate check + debug
-                    progressed = False
-                    blocked: List[Job] = []
-                    if not self._error:
-                        for job in [j for j in self._pending if self._deps_done(j)]:
-                            if self._can_launch(job):
-                                self._pending.remove(job)
-                                self._launch(job, ex)
-                                progressed = True
-                            else:
-                                blocked.append(job)  # deps ready but a governor held it back
-                    self._maybe_debug(blocked)
-                    if not progressed:
-                        if self._n_running == 0 and self._pending and not self._error:
-                            # nothing running and nothing launchable: the remaining jobs have unmet
-                            # deps that no running job can satisfy -> a dependency cycle. Don't hang.
-                            self._error = self._pending[0]
-                            self._error.error = RuntimeError(f'Cyclical dependency at {self._error}')
-                            break
-                        # otherwise wait for a completion, a grow(), or a CPU re-sample
-                        self._cond.wait(timeout=self._poll_interval)
+            try:
+                self._run_loop(ex, jobs)
+            except KeyboardInterrupt:
+                self._abort()  # Ctrl+C: kill children + wake barriers so the pool drains fast
         return self._error
+
+    def _run_loop(self, ex, jobs: List[Job]):
+        """The scheduler pass loop. A KeyboardInterrupt here propagates to run()'s abort handler."""
+        with self._cond:
+            self._pending = list(jobs)
+            while self._pending or self._n_running:
+                if self._error and not self._n_running:
+                    break  # failed and drained
+                self._cpu_now = self._cpu_sampler()  # one sample per pass: reused by every gate check + debug
+                progressed = False
+                blocked: List[Job] = []
+                if not self._error:
+                    for job in [j for j in self._pending if self._deps_done(j)]:
+                        if self._can_launch(job):
+                            self._pending.remove(job)
+                            self._launch(job, ex)
+                            progressed = True
+                        else:
+                            blocked.append(job)  # deps ready but a governor held it back
+                self._maybe_debug(blocked)
+                if not progressed:
+                    if self._n_running == 0 and self._pending and not self._error:
+                        # nothing running and nothing launchable: the remaining jobs have unmet
+                        # deps that no running job can satisfy -> a dependency cycle. Don't hang.
+                        self._error = self._pending[0]
+                        self._error.error = RuntimeError(f'Cyclical dependency at {self._error}')
+                        break
+                    # otherwise wait for a completion, a grow(), or a CPU re-sample
+                    self._cond.wait(timeout=self._poll_interval)
+
+    def _abort(self):
+        """Ctrl+C: stop launching, set a synthetic interrupted error, wake barrier waiters, then kill
+        in-flight children (outside the lock - kill() blocks up to ~1s each) so the pool drains fast."""
+        with self._cond:
+            self._aborted = True
+            if self._error is None: self._error = _make_abort_job()
+            self._cond.notify_all()
+        if self._abort_hook: self._abort_hook()
 
     # -- governors ---------------------------------------------------------
 
@@ -178,7 +211,9 @@ class Scheduler:
         on exit. always-admit-when-idle guarantees the barrier is released and can't deadlock."""
         weight = max(0, int(weight))
         with self._cond:
-            while not self._build_admits(weight):
+            while True:
+                if self._error is not None: raise BuildInterrupted()  # build failing/aborting: don't start a new compile
+                if self._build_admits(weight): break
                 self._cond.wait(timeout=self._poll_interval)
             self._reserved += weight
             self._n_slot += 1

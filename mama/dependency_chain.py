@@ -5,6 +5,7 @@ from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from .util import read_text_from, write_text_to, save_file_if_contents_changed, get_time_str
 from .utils import ssh_multiplex, system
+from .utils.sub_process import SubProcess
 from .utils.system import Color, console, error
 
 
@@ -561,19 +562,24 @@ def _build_body(dep, sink):
 
 
 def _make_scheduler(config, **extra):
-    """The build Scheduler with a primed psutil CPU sampler and (verbose) the [sched] debug log."""
+    """The build Scheduler with a primed psutil CPU sampler, the Ctrl+C child-killer, and (verbose)
+    the [sched] debug log."""
     import psutil
     from .build_scheduler import Scheduler
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
-    return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs,
+    return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs, abort_hook=SubProcess.terminate_all,
                      cpu_sampler=lambda: psutil.cpu_percent(interval=None),
                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None, **extra)
 
 
 def _handle_failure(display, failed):
-    """First failed job -> replay its captured output (TTY) + traceback, then exit nonzero."""
+    """First failed job -> replay its captured output (TTY) + traceback, then exit nonzero. A Ctrl+C
+    abort prints a terse interrupted line (no replay/traceback) and still exits nonzero."""
     import traceback
+    if isinstance(failed.error, KeyboardInterrupt):
+        console('  [BUILD INTERRUPTED]  stopped by Ctrl+C', color=Color.RED)
+        exit(-1)
     console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
     if display.isatty:  # non-TTY already dumped the output on finish
         display.replay((failed.node.name, failed.kind))
@@ -611,6 +617,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     finally:
         display.close()
         system.set_active_display(None)
+        SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
     _deploy_run_postpass(flat_deps_reverse, config)
@@ -708,6 +715,7 @@ def execute_unified(root: BuildDependency):
         display.close()
         system.set_active_display(None)
         config.update_stats.stop()
+        SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)

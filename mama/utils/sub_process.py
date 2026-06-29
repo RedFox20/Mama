@@ -19,6 +19,11 @@ READER_IDLE_TIMEOUT = 0.1  # seconds; how long to wait before flushing a \r-prog
 READER_CHUNK = 8192
 
 
+_procs_lock = threading.Lock()
+_live_procs = set()   # live SubProcess instances; killed en masse by terminate_all() on Ctrl+C
+_aborting = False     # set by terminate_all(): blocks new spawns so an interrupted build can't relaunch
+
+
 class SubProcess:
     """
     Subprocess wrapper with optional line-by-line output capture.
@@ -204,6 +209,23 @@ class SubProcess:
                 pass
 
 
+    @staticmethod
+    def terminate_all():
+        """Ctrl+C handler: block new spawns and kill every live child so a parallel build unwinds
+        fast instead of the thread pool blocking on in-flight compiles. Idempotent."""
+        global _aborting
+        _aborting = True
+        with _procs_lock: procs = list(_live_procs)
+        for p in procs:
+            try: p.kill()
+            except Exception: pass
+
+    @staticmethod
+    def clear_abort():
+        """Re-arm spawning after a terminated build (so a later run in the same process starts clean)."""
+        global _aborting
+        _aborting = False
+
     def kill(self):
         if self.process and self.process.poll() is None:
             try:
@@ -277,9 +299,11 @@ class SubProcess:
                    io_func set so the reader is running. Use for network git ops that may hang on
                    a prompt; a downloading clone keeps streaming so it's never wrongly killed.
         """
+        if _aborting: raise KeyboardInterrupt('build aborted')  # don't spawn after Ctrl+C
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
         pid = p.process.pid if p.process else None
         if pid is not None: report_subprocess(pid, True)  # live CPU sampling for the owning display task
+        with _procs_lock: _live_procs.add(p)             # so terminate_all() can kill it on Ctrl+C
         try:
             try:
                 if idle_timeout is not None:
@@ -290,6 +314,7 @@ class SubProcess:
                 p.kill()
                 raise
         finally:
+            with _procs_lock: _live_procs.discard(p)
             if pid is not None: report_subprocess(pid, False)
             p.close()
             if p._reader_exc is not None:

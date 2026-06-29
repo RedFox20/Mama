@@ -2,7 +2,7 @@
 import threading, time
 from types import SimpleNamespace
 import pytest
-from mama.build_scheduler import Job, Scheduler, build_dep_jobs, LOAD, CONFIGURE, BUILD
+from mama.build_scheduler import Job, Scheduler, build_dep_jobs, BuildInterrupted, LOAD, CONFIGURE, BUILD
 
 
 def _wait_until(pred, timeout=2.0):
@@ -236,3 +236,26 @@ def test_build_dep_jobs_resolves_weight_lazily_per_dep():
     jobs = build_dep_jobs([d], configure_fn=lambda d: None, build_fn=lambda d: None, weight_fn=lambda d: 7)
     build = next(j for j in jobs if j.kind == BUILD)
     assert Scheduler._resolve_weight(build) == 7
+
+
+def test_keyboard_interrupt_aborts_build_kills_children_and_returns_interrupted():
+    # Ctrl+C lands in the scheduler loop: abort_hook fires (kills children), the in-flight job is
+    # released, and run() returns a synthetic KeyboardInterrupt job so the caller fails the build.
+    released, hook, n = threading.Event(), [], {'i': 0}
+    def sampler():
+        n['i'] += 1
+        if n['i'] >= 2: raise KeyboardInterrupt   # 2nd pass = user hits Ctrl+C
+        return 0.0
+    sched = _sched(cpu_sampler=sampler, abort_hook=lambda: (hook.append(1), released.set()))
+    failed = sched.run([Job('blocker', BUILD, lambda: released.wait(2.0), weight=0)])
+    assert hook == [1] and sched._aborted
+    assert failed is not None and isinstance(failed.error, KeyboardInterrupt)
+    assert released.is_set()   # the worker was unblocked -> the pool drained
+
+
+def test_build_slot_bails_when_build_already_failing():
+    # A custom build()'s barrier must not start a new compile once the build is aborting/failing.
+    sched = _sched()
+    sched._error = Job('boom', BUILD, lambda: None)
+    with pytest.raises(BuildInterrupted):
+        with sched.build_slot(4): pass

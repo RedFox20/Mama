@@ -283,6 +283,34 @@ class TestDrainBuffer:
         assert lines == ['x'] * 5000 and d.buf == b''
 
 
+class TestCtrlCTermination:
+    @pytest.fixture(autouse=True)
+    def _disarm(self):
+        SubProcess.clear_abort(); yield; SubProcess.clear_abort()
+
+    def test_terminate_all_blocks_new_spawns_then_clear_re_arms(self):
+        SubProcess.terminate_all()
+        with pytest.raises(KeyboardInterrupt):
+            SubProcess.run([PY, '-c', 'pass'])
+        SubProcess.clear_abort()
+        assert SubProcess.run([PY, '-c', 'pass'], io_func=lambda p, l: None) == 0
+
+    def test_terminate_all_kills_a_running_child(self):
+        import threading, time
+        from mama.utils import sub_process
+        result = {}
+        def run_child():
+            try: result['s'] = SubProcess.run([PY, '-c', 'import time; time.sleep(30)'], io_func=lambda p, l: None)
+            except BaseException as e: result['exc'] = e
+        t = threading.Thread(target=run_child); t.start()
+        end = time.monotonic() + 5
+        while time.monotonic() < end and not sub_process._live_procs: time.sleep(0.01)
+        SubProcess.terminate_all()
+        t.join(10)
+        assert not t.is_alive()         # killed promptly, not blocked for the full 30s
+        assert result.get('s', 0) != 0  # nonzero status from the kill
+
+
 class TestNoForkptyDeprecationWarning:
     # The whole point of the Popen+pty.openpty rewrite was to kill this warning
     # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).
