@@ -27,6 +27,13 @@ def test_non_tty_emits_one_summary_line_per_slow_task():
     assert '\x1b[' not in text  # never emit ANSI when not a TTY
 
 
+def test_elapsed_over_a_minute_uses_the_shared_mm_ss_formatter():
+    d, out, clk = _disp(isatty=False)
+    d.start_task(1, 'build', 'krattgcs', detail='J32'); clk.tick(164.3); d.finish_task(1, ok=True)
+    text = out.getvalue()
+    assert '2m 44s' in text and '164' not in text  # get_time_str, not raw 164.3s
+
+
 def test_instant_success_tasks_are_hidden_failures_are_not():
     d, out, clk = _disp(isatty=False)
     d.start_task(1, 'build', 'instant'); d.finish_task(1, ok=True)        # ~0.0s success -> hidden

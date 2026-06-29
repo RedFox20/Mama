@@ -10,6 +10,7 @@ from __future__ import annotations
 import re, time, threading
 from . import proc_cpu
 from .system import Color, get_colored_text
+from ..util import get_time_str
 
 
 _CURSOR_UP = '\x1b[1A'
@@ -22,7 +23,7 @@ _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
 
 
 def _fmt_secs(s: float) -> str:
-    return f'{s:5.1f}s'
+    return get_time_str(s).rjust(6)  # shared formatter: 200ms / 12.3s / 2m 44s, right-aligned column
 
 
 class Task:
