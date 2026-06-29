@@ -176,18 +176,21 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     role = coord.prepare(target) if (_seed and not cache_exists) else 'none'
 
     cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
+    ok = False
     try:
         _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
+        ok = True
     except Exception:
-        if role == 'prime':
-            coord.fail_primer(target)
-        elif role == 'use':  # a stale seed can only cost one extra detection: drop it, retry clean
+        if role == 'use':  # a stale seed can only cost one extra detection: drop it, retry clean
             coord.heal(target)
             _wipe_build_dir(target)
             return run_config(target, out=out, _seed=False)
         raise
-    if role == 'prime':
-        coord.publish(target)
+    finally:
+        # A primer MUST release its waiters - even on Ctrl+C (a BaseException the except above skips)
+        # - or sibling configures block on the event for wait_timeout (180s).
+        if role == 'prime':
+            coord.publish(target) if ok else coord.fail_primer(target)
 
 
 def is_rerunnable_error(output:str):

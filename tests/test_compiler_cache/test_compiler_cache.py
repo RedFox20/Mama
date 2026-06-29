@@ -70,6 +70,16 @@ def test_publish_returns_false_without_compiler_files(tmp_path):
     assert cc.publish(str(tmp_path / 'seed'), empty) is False
 
 
+def test_inject_writes_no_marker_when_seed_has_no_files(tmp_path):
+    # A vanished/empty seed must NOT leave a PLATFORM_INFO marker with zero compiler files - cmake
+    # would then trust detection that isn't there. inject bails (False); the caller redetects.
+    seed = str(tmp_path / 'seed'); os.makedirs(seed)
+    open(os.path.join(seed, cc._MANIFEST), 'w').write('{"files": [], "langs": []}')
+    build = str(tmp_path / 'B')
+    assert cc.inject(seed, build, os.path.join(build, 'CMakeFiles', '4.2.3'), 'S:/src') is False
+    assert not os.path.exists(os.path.join(build, 'CMakeCache.txt'))
+
+
 def test_load_honors_backstop_ttl(tmp_path):
     bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed')
@@ -160,3 +170,30 @@ def test_coordinator_heal_purges_seed(tmp_path):
 def test_coordinator_disabled_is_noop(tmp_path):
     co = _coord(tmp_path, enabled=False)
     assert co.prepare(_T(str(tmp_path / 'x'))) == 'none'
+
+
+def test_coordinator_redetects_when_seed_files_vanished(tmp_path):
+    # A concurrent heal can remove the toolchain files while the manifest lingers; prepare must fall
+    # through to 'prime'/detect, never a doomed 'use' that would hard-fail the configure.
+    co = _coord(tmp_path)
+    primer = _T(str(tmp_path / 'A'), with_files=True)
+    co.prepare(primer); co.publish(primer)
+    sd = co.seed_dir(primer)
+    for f in os.listdir(sd):
+        if f != cc._MANIFEST: os.remove(os.path.join(sd, f))   # files gone, manifest stays
+    assert co.prepare(_T(str(tmp_path / 'B'))) == 'prime'
+
+
+def test_coordinator_publish_wakes_waiters_even_if_capture_raises(tmp_path, monkeypatch):
+    # A publish that raises (disk full mid-capture) must still release blocked waiters, or they hang
+    # for the full wait_timeout.
+    co = _coord(tmp_path)
+    assert co.prepare(_T(str(tmp_path / 'A'), with_files=True)) == 'prime'
+    def _raise(*a, **k): raise OSError('disk full')
+    monkeypatch.setattr(cc, 'publish', _raise)
+    out = {}
+    w = threading.Thread(target=lambda: out.__setitem__('role', co.prepare(_T(str(tmp_path / 'B')))))
+    w.start(); w.join(0.2); assert w.is_alive()   # blocked on the primer's event
+    co.publish(_T(str(tmp_path / 'A')))            # capture raises internally, but must still wake them
+    w.join(3.0)
+    assert not w.is_alive() and out['role'] == 'none'

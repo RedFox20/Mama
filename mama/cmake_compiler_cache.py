@@ -57,7 +57,8 @@ def _seed_file_names(langs: list) -> list:
 
 def publish(seed_dir: str, build_files_dir: str, clock=time.time) -> bool:
     """Capture detection artifacts from a freshly-configured `build_files_dir`
-    (`<build>/CMakeFiles/<ver>`) into `seed_dir`. Returns False if nothing usable was found."""
+    (`<build>/CMakeFiles/<ver>`) into `seed_dir`. Returns False if nothing usable was found. Each
+    file lands via a temp + os.replace so a concurrent reader never copies a half-written file."""
     langs = detected_langs(build_files_dir)
     if not langs: return False
     os.makedirs(seed_dir, exist_ok=True)
@@ -65,12 +66,14 @@ def publish(seed_dir: str, build_files_dir: str, clock=time.time) -> bool:
     for name in _seed_file_names(langs):
         src = path_join(build_files_dir, name)
         if os.path.exists(src):
-            shutil.copy2(src, path_join(seed_dir, name))
+            dst = path_join(seed_dir, name)
+            shutil.copy2(src, dst + '.tmp'); os.replace(dst + '.tmp', dst)  # atomic: no partial reads
             copied.append(name)
     manifest = {'created': int(clock()), 'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
                 'langs': langs, 'files': copied}
-    with open(path_join(seed_dir, _MANIFEST), 'w', encoding='utf-8') as f:
-        json.dump(manifest, f)
+    mtmp = path_join(seed_dir, _MANIFEST + '.tmp')
+    with open(mtmp, 'w', encoding='utf-8') as f: json.dump(manifest, f)
+    os.replace(mtmp, path_join(seed_dir, _MANIFEST))  # manifest last + atomic (load() gates on it)
     return True
 
 
@@ -87,20 +90,28 @@ def load(seed_dir: str, ttl=BACKSTOP_TTL, clock=time.time):
     return manifest
 
 
-def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str):
+def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str) -> bool:
     """Make a fresh `build_dir` look already-configured so cmake skips ALL detection: copy the
     captured toolchain files into CMakeFiles/<ver> + write a CMakeCache.txt with the
-    PLATFORM_INFO_INITIALIZED marker + CMAKE_HOME_DIRECTORY. Caller guarantees a valid seed."""
+    PLATFORM_INFO_INITIALIZED marker + CMAKE_HOME_DIRECTORY. Returns False writing NO marker when the
+    seed is empty or vanished mid-copy (a concurrent heal), so the caller detects normally instead of
+    trusting a marker with no compiler files."""
+    manifest = load(seed_dir, ttl=float('inf'))
     os.makedirs(build_files_dir, exist_ok=True)
-    manifest = load(seed_dir, ttl=float('inf')) or {}
-    for name in manifest.get('files', []):
+    copied = 0
+    for name in (manifest.get('files', []) if manifest else []):
         src = path_join(seed_dir, name)
-        if os.path.exists(src):
-            shutil.copy2(src, path_join(build_files_dir, name))
+        if not os.path.exists(src): continue
+        try:
+            shutil.copy2(src, path_join(build_files_dir, name)); copied += 1
+        except OSError:
+            return False  # seed file vanished under us (a concurrent purge): bail, don't trust it
+    if not copied: return False
     cache = (f'CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1\n'
              f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(src_dir)}\n')
     with open(path_join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f:
         f.write(cache)
+    return True
 
 
 def purge(seed_dir: str):
@@ -131,8 +142,8 @@ class Coordinator:
         cmake will skip detection), 'prime' (this caller publishes on success), or 'none'."""
         if not self._enabled: return 'none'
         sd = self.seed_dir(target)
-        if load(sd, clock=self._clock):
-            inject(sd, *self._paths(target)); return 'use'
+        if load(sd, clock=self._clock) and inject(sd, *self._paths(target)):
+            return 'use'  # inject bails (False) if the seed vanished/empty -> fall through to detect
         fp = self._fp(target)
         with self._lock:
             if fp not in self._states:
@@ -140,13 +151,17 @@ class Coordinator:
                 return 'prime'
             st = self._states[fp]
         st['event'].wait(self._wait)  # another job is priming - wait for it
-        if st['ok'] and load(sd, clock=self._clock):
-            inject(sd, *self._paths(target)); return 'use'
-        return 'none'  # primer failed/timed out: detect normally
+        if st['ok'] and load(sd, clock=self._clock) and inject(sd, *self._paths(target)):
+            return 'use'
+        return 'none'  # primer failed/timed out, or the seed vanished: detect normally
 
     def publish(self, target):
-        """Primer succeeded: capture its detection artifacts and wake the waiters."""
-        ok = publish(self.seed_dir(target), self._paths(target)[1], clock=self._clock)
+        """Primer succeeded: capture its detection artifacts and wake the waiters. ALWAYS wakes them
+        (even if the capture itself raises) so a publish error can't strand waiters for wait_timeout."""
+        try:
+            ok = publish(self.seed_dir(target), self._paths(target)[1], clock=self._clock)
+        except Exception:
+            ok = False
         self._finish(self._fp(target), ok)
 
     def fail_primer(self, target):
