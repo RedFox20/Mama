@@ -1,22 +1,12 @@
-"""Cross-build-dir reuse of CMake compiler detection (the slow part of configure).
+"""Cross-build-dir reuse of CMake compiler detection (~5s of a ~6.5s cold configure, cut to ~1.7s).
 
-Each package configures in its own build dir, so CMake re-runs the full C/CXX compiler ID + ABI +
-compile-feature detection from scratch every time even though the toolchain is identical. Measured
-on a real project: ~5s of a ~6.5s cold configure is pure detection; reusing it cut configure to
-~1.7s end to end.
-
-Mechanism (this is exactly how a warm reconfigure of the same dir skips detection, reproduced in a
-fresh dir, validated to build+link correctly cross-project): capture the toolchain detection files
-`CMakeFiles/<ver>/CMake{C,CXX,RC}Compiler.cmake`, `CMakeSystem.cmake`, the ABI `.bin` and the VS
-`VCTargetsPath.txt`; then in a fresh build dir copy them back AND write a `CMakeCache.txt` carrying
-the `CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1` marker (the master guard that makes cmake trust
-the cached compiler info) plus `CMAKE_HOME_DIRECTORY`. ONLY toolchain detection is transplanted -
-never project flags/defines (those stay on cmake's command line per package), so a seed from one
-project cannot poison another. The fingerprint keys on the toolchain so a compiler/SDK change
-auto-invalidates, and a failed seeded configure self-heals.
-
-Pure file/string ops with injected `clock` so it unit-tests with no cmake. Fingerprinting, primer
-election and run_config wiring live in the caller."""
+Mechanism (a warm reconfigure of the same dir reproduced in a fresh dir, validated cross-project):
+capture the toolchain detection files (`CMakeFiles/<ver>/CMake{C,CXX,RC}Compiler.cmake`,
+`CMakeSystem.cmake`, the ABI `.bin`, VS `VCTargetsPath.txt`); inject them into a fresh build dir +
+write a `CMakeCache.txt` with the `CMAKE_PLATFORM_INFO_INITIALIZED` marker (makes cmake trust the
+cached info) + `CMAKE_HOME_DIRECTORY`. ONLY toolchain detection is transplanted, never project
+flags - so a seed can't poison another project. The fingerprint auto-invalidates on toolchain
+change; a failed seeded configure self-heals. Pure file/string ops + injected clock -> no-cmake tests."""
 
 from __future__ import annotations
 import os, shutil, hashlib, json, time, threading
@@ -35,9 +25,8 @@ BACKSTOP_TTL = 7 * 24 * 3600  # seconds; fingerprint is the real gate, this is j
 
 
 def compute_fingerprint(inputs: dict) -> str:
-    """Stable 16-hex hash of every toolchain input that changes detection output. Caller passes
-    cmake version, generator+arch+toolset, compiler path+version+mtime+size, SDK, platform, langs.
-    A toolchain change (e.g. compiler update -> new mtime/size) flips the hash -> auto-invalidate."""
+    """Stable 16-hex hash of every toolchain input that affects detection (cmake version, generator,
+    compiler path+mtime+size, SDK, ...). A toolchain change flips the hash -> auto-invalidate."""
     blob = json.dumps(inputs, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode('utf-8')).hexdigest()[:16]
 
@@ -99,10 +88,9 @@ def load(seed_dir: str, ttl=BACKSTOP_TTL, clock=time.time):
 
 
 def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str):
-    """Make a fresh `build_dir` look already-configured so cmake skips ALL compiler detection
-    (ID + ABI + features): copy the captured toolchain files into CMakeFiles/<ver> and write a
-    CMakeCache.txt carrying the `CMAKE_PLATFORM_INFO_INITIALIZED` marker + `CMAKE_HOME_DIRECTORY`.
-    Validated to build+link correctly cross-project. Caller guarantees a valid seed."""
+    """Make a fresh `build_dir` look already-configured so cmake skips ALL detection: copy the
+    captured toolchain files into CMakeFiles/<ver> + write a CMakeCache.txt with the
+    PLATFORM_INFO_INITIALIZED marker + CMAKE_HOME_DIRECTORY. Caller guarantees a valid seed."""
     os.makedirs(build_files_dir, exist_ok=True)
     manifest = load(seed_dir, ttl=float('inf')) or {}
     for name in manifest.get('files', []):
@@ -121,11 +109,9 @@ def purge(seed_dir: str):
 
 
 class Coordinator:
-    """Elects ONE configure job per fingerprint to pay detection and publish the seed; the rest
-    block until it lands, then reuse it. In-process election (the parallel scheduler's threads);
-    cross-process races just cause redundant detection - harmless, since publish is idempotent and
-    content-identical. `fp_fn(target)->str` and `paths_fn(target)->(build_dir, build_files_dir,
-    src_dir)` are injected so this unit-tests with no cmake."""
+    """Elects ONE configure job per fingerprint to pay detection + publish the seed; the rest block
+    until it lands, then reuse it. In-process election only (cross-process races just redo detection -
+    harmless, publish is idempotent). Injected `fp_fn(target)` + `paths_fn(target)` -> no-cmake tests."""
 
     def __init__(self, seed_root, fp_fn, paths_fn, enabled=True, clock=time.time, wait_timeout=180.0):
         self._root = seed_root

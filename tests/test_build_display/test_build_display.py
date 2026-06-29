@@ -177,8 +177,6 @@ def test_build_barrier_is_noop_without_scheduler_else_uses_slot():
 
 
 def test_capture_to_routes_console_to_sink_and_restores():
-    # A running job's console() output (cmake banners, "Cleaning ...", mamafile prints) must land in
-    # its display task, not tear the live region. capture_to redirects this thread's console() lines.
     outer, inner = [], []
     with system.capture_to(outer.append):
         system.console('a')

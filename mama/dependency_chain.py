@@ -435,9 +435,7 @@ def load_dependency_chain(root: BuildDependency):
     `serial` on the command line to disable parallel loading if you hit
     issues.
     """
-    # Parallel by default so clones don't run one-by-one and gate the whole build behind a serial
-    # clone wall. `serial` opts out. load() + add_child are now thread-safe (per-dep lock + registry
-    # lock); the idle-timeout (Phase A) keeps a stuck clone from freezing the wave.
+    # Parallel by default (`serial` opts out): load() + add_child are now thread-safe.
     if not root.config.serial_load:
         root.config.parallel_load = True
 
@@ -530,14 +528,13 @@ def _make_display(config):
                         verbose=config.verbose)
 
 
-# The two parallel runners (execute_task_chain_parallel, execute_unified) share these: one job phase,
-# the configure/build bodies, scheduler construction, failure handling, and the deploy post-pass.
-_DISPLAY_LABEL = {'load': 'clone'}  # task kind -> friendlier display label; others show the kind verbatim
+# Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
+_DISPLAY_LABEL = {'load': 'clone'}  # task kind -> friendlier display label; others verbatim
 
 
 def _run_phase(display, dep, kind, body, build_slot, detail=''):
-    """Run one scheduler phase (load/configure/build) for `dep`: open its display task, route this
-    thread's console output + subprocess CPU + the build barrier into it, then run `body(sink)`."""
+    """Run one scheduler phase for `dep`: open its display task, route this thread's console
+    output + subprocess CPU + build barrier into it, then run `body(sink)`."""
     tid = (dep.name, kind)
     sink = lambda line: display.feed(tid, line)
     display.start_task(tid, _DISPLAY_LABEL.get(kind, kind), f'{_node_marker(dep)} {dep.name}', detail)
@@ -599,8 +596,7 @@ def _deploy_run_postpass(deps, config):
 
 def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     """Parallel counterpart of execute_task_chain: a DAG scheduler runs each dep's configure and
-    build as separate jobs (a dep's configure waits on its children's builds), with a live display.
-    Deploy/run/test stay in a serial post-pass. Falls back to serial for trivial graphs (see main)."""
+    build as separate jobs (configure waits on children's builds). Deploy/run/test stay serial."""
     import time
     from .build_scheduler import build_dep_jobs
     deps = list(flat_deps_reverse)
@@ -624,9 +620,8 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
 
 
 def _reserve_weight(dep) -> int:
-    """Cores the scheduler reserves for a build job AT LAUNCH. A custom build() reserves its compile
-    dynamically from inside cmake_build() (the build_barrier), so launch its runner free (0) and let
-    the barrier account it; a default build reserves its capped cores up front."""
+    """Cores reserved for a build job AT LAUNCH. A custom build() reserves from inside cmake_build()
+    (the build_barrier), so launch its runner free (0); a default build reserves its capped cores."""
     if dep.target._has_custom_build(): return 0
     return dep.target._reserved_cores()
 
@@ -648,11 +643,10 @@ def print_sched_debug(root: BuildDependency):
     console(f'  {"target":<22}{"TU":>6}  {"via":<16}{"probe":>6}{"reserve":>9}{"-j":>5}   flags', color=Color.BLUE)
     for d in deps:
         t = d.target
-        jobs = d.config.jobs
         try: tu, via = t._count_tu()
         except Exception as e: tu, via = -1, f'ERR:{type(e).__name__}'
         probe = t._probe_build_jobs()
-        reserve = min(probe, max(1, jobs // 2))
+        reserve = min(probe, max(1, d.config.jobs // 2))
         flags = []
         if t._has_custom_build(): flags.append('custom-build')   # -> configure skips probe -> -j=config.jobs
         if getattr(d, 'nothing_to_build', False): flags.append('nothing_to_build')
@@ -668,12 +662,10 @@ def _print_build_summary(deps, elapsed: float):
 
 
 def execute_unified(root: BuildDependency):
-    """One dynamic DAG scheduler that interleaves cloning with configure+build: each dep is a LOAD
-    job (clone + parse mamafile + discover deps) whose completion GROWS the graph with its children's
-    LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits on its own LOAD and its children's BUILDs, its
-    BUILD on its CONFIGURE. So leaf nodes configure+build while deeper deps are still cloning. Replaces
-    the load->flatten->execute split for a plain full build (main() falls back to the old path for
-    targeted/list/deps_only/serial runs). Deploy/run/test remain a serial post-pass."""
+    """Dynamic DAG scheduler interleaving cloning with configure+build: each dep is a LOAD job whose
+    completion GROWS the graph with its children's LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits
+    on its own LOAD + its children's BUILDs. So leaf nodes build while deeper deps still clone. Used
+    for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial."""
     import time
     from .build_scheduler import Job, LOAD, CONFIGURE, BUILD
     config = root.config

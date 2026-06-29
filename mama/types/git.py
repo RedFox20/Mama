@@ -145,8 +145,7 @@ class Git(DepSource):
             if line: console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
-            # idle_timeout: kill a fetch/pull stuck on an auth/host-key prompt (no output) so a
-            # parallel run never freezes; an actively-downloading op keeps streaming and survives.
+            # idle_timeout: kill a fetch stuck on an auth prompt so a parallel run never freezes.
             try:
                 result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
@@ -491,9 +490,8 @@ class Git(DepSource):
             console(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         with ssh_multiplex.fetch_slot():
-            # idle_timeout: a clone blocked on a passphrase/username prompt produces no progress
-            # and is killed after git_timeout s, so a parallel clone wave never freezes. A real
-            # download streams progress and is never wrongly aborted.
+            # idle_timeout: kill a clone stuck on a passphrase prompt so a parallel wave never
+            # freezes; a real download streams progress and is never wrongly aborted.
             try:
                 result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:

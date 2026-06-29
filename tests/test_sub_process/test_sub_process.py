@@ -96,8 +96,6 @@ class TestTimeout:
 
 class TestIdleTimeout:
     def test_idle_timeout_kills_a_silent_child(self):
-        # A child producing no output (e.g. git blocked on an auth/host-key prompt) is killed
-        # shortly after idle_timeout, not after its full runtime - so a parallel clone can't freeze.
         import time
         t0 = time.monotonic()
         with pytest.raises(subprocess.TimeoutExpired):
@@ -106,9 +104,7 @@ class TestIdleTimeout:
         assert time.monotonic() - t0 < 5  # died ~0.4s, not 30s
 
     def test_idle_timeout_spares_a_chatty_child(self):
-        # Output keeps resetting the idle clock, so a child that streams faster than the idle bound
-        # runs to completion even though total runtime (0.6s) exceeds idle_timeout (0.4s) - a real
-        # download (which streams progress) is never wrongly aborted.
+        # Streaming output keeps resetting the idle clock, so total runtime (0.6s) > idle (0.4s) is fine.
         status, lines = _py_run(
             'import sys, time\nfor i in range(6): print(i); sys.stdout.flush(); time.sleep(0.1)',
             idle_timeout=0.4)

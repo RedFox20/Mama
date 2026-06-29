@@ -269,10 +269,9 @@ class SubProcess:
 
 
     def _wait_idle(self, timeout, idle_timeout):
-        """Wait for the child, killing it if it produces no output for `idle_timeout` seconds
-        (or exceeds the total `timeout`). The idle bound is what catches a git op blocked on an
-        auth/host-key prompt or a stalled server, WITHOUT aborting a slow-but-active large clone
-        (which keeps streaming progress). Raises TimeoutExpired on either bound."""
+        """Wait for the child, killing it if it's silent for `idle_timeout` s (or exceeds total
+        `timeout`). The idle bound catches a git op stuck on an auth prompt / hung server without
+        aborting a slow-but-streaming clone. Raises TimeoutExpired on either bound."""
         start = time.monotonic()
         while True:
             try:
@@ -295,9 +294,8 @@ class SubProcess:
         - io_func: callback `(SubProcess, line:str)` for each output line;
                    if None, child inherits parent's std streams.
         - timeout: kill the child after this many seconds total (raises TimeoutExpired).
-        - idle_timeout: kill if no output for this many seconds (raises TimeoutExpired). Needs
-                   io_func set so the reader is running. Use for network git ops that may hang on
-                   a prompt; a downloading clone keeps streaming so it's never wrongly killed.
+        - idle_timeout: kill if silent this many seconds (raises TimeoutExpired). Needs io_func set.
+                   For network git ops that may hang on a prompt; a streaming clone is never killed.
         """
         if _aborting: raise KeyboardInterrupt('build aborted')  # don't spawn after Ctrl+C
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)

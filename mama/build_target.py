@@ -24,8 +24,7 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
     from .build_dependency import BuildDependency
 
-# Dirs skipped by the source-file TU fallback: build output, vendored code, and test/sample/doc
-# trees that are not part of the library build (gtest's source tree is ~90% test/ + samples/).
+# Non-library trees skipped by the source-file TU fallback (e.g. gtest is ~90% test/ + samples/).
 _NON_LIB_DIRS = ['build', 'packages', 'libs', 'out', '.git', 'test', 'tests', 'samples', 'example',
                  'examples', 'benchmark', 'benchmarks', 'doc', 'docs', 'third_party', 'thirdparty',
                  'extern', 'external', 'vendor']
@@ -97,7 +96,7 @@ class BuildTarget:
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
-        self._did_configure = False # guards configure() to run once (configure_phase for normal, build_phase for custom build())
+        self._did_configure = False # guards configure() to run once across configure/build phases
         self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
         self._out_sink = None # display sink for cmake output during a scheduled phase (None -> print)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
@@ -1361,9 +1360,8 @@ class BuildTarget:
         cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
 
     def _probe_build_jobs(self) -> int:
-        """Translation-unit count, capped at config.jobs. Returns 0 when nothing is countable
-        (header-only / artifactory / probe miss): an unsizable build then reserves NO budget slots
-        (weight 0) so it never blocks real builds - it's almost always a no-op or a cached fetch."""
+        """TU count capped at config.jobs. 0 when nothing's countable (header-only / artifactory /
+        probe miss) -> weight 0, reserves no budget, never blocks real builds (it's a no-op anyway)."""
         try:
             n = self._count_tu()[0]
             if n > 0: return min(n, self.config.jobs)
@@ -1377,9 +1375,8 @@ class BuildTarget:
         return self._build_jobs
 
     def _reserved_cores(self) -> int:
-        """Budget cores this build occupies in the scheduler: the TU probe (memoized into
-        _build_jobs), capped at HALF of config.jobs because a build rarely sustains its full -j
-        (ramp-up, inter-TU deps, single-threaded link). 0 when unsizable -> reserves nothing."""
+        """Budget cores this build occupies: the memoized TU probe, capped at HALF of config.jobs
+        (a build rarely sustains full -j: ramp-up, inter-TU deps, serial link). 0 when unsizable."""
         if not self._ensure_build_jobs(): return 0
         return min(self._build_jobs, max(1, self.config.jobs // 2))
 
@@ -1389,8 +1386,7 @@ class BuildTarget:
           *.vcxproj                       (Visual Studio generator)                  -> <ClCompile Include=>
           CMakeFiles/**/DependInfo.cmake  (Unix Makefiles, export off)               -> one object per TU
           C/C++ source files in the source tree                                      -> cross-platform fallback
-        Count is 0 (-> caller uses the tiny default) when none find anything. The source walk skips
-        build/vendored/test/sample trees so non-library sources don't inflate the weight."""
+        0 when none match. The source walk skips build/vendored/test trees (see _NON_LIB_DIRS)."""
         bd = self.build_dir()
         cc = util.path_join(bd, 'compile_commands.json')
         if os.path.exists(cc):
@@ -1504,8 +1500,7 @@ class BuildTarget:
 
 
     def _build_work_enabled(self) -> bool:
-        """True when this target has actual configure/build work (not a header-only,
-        not an artifactory package, and flagged for rebuild)."""
+        """True when this target has real build work (not header-only, not artifactory, flagged for rebuild)."""
         return not self.dep.nothing_to_build and self.dep.should_rebuild and not self.dep.from_artifactory
 
     def _has_custom_build(self) -> bool:
@@ -1514,8 +1509,7 @@ class BuildTarget:
         return type(self).build is not BuildTarget.build
 
     def _run_configure_once(self):
-        """User configure() hook, guarded to run at most once per target: a normal build runs it in
-        configure_phase, a custom build() in build_phase, and the serial path runs it directly."""
+        """User configure() hook, guarded to run at most once (configure_phase / build_phase / serial)."""
         if self._did_configure: return
         self._did_configure = True
         self.configure() # user customization
@@ -1530,9 +1524,8 @@ class BuildTarget:
         self._fetched = self.try_automatic_artifactory_fetch()
         if not self._fetched:
             self._cmake_configure_step(out=out)
-            # Size this dep's build weight NOW (compile_commands.json exists), so the scheduler knows
-            # at BUILD launch how many cores it needs. Without this _build_jobs is None at launch ->
-            # weight falls back to all cores -> every build reserves the whole budget -> serial builds.
+            # Size build weight NOW (compile_commands.json exists) so the scheduler knows the core
+            # count at BUILD launch; left None it falls back to all cores -> serial builds.
             self._build_jobs = self._probe_build_jobs()
 
     def build_phase(self, out=None):

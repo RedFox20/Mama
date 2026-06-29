@@ -1,12 +1,10 @@
 """Unified live display for parallel configure/build jobs.
 
-TTY: a live region of one line per running task, capped to terminal height, redrawn
-in place (Buck2/Bazel "superconsole" style). Finished tasks commit a permanent summary
-line above the region. Non-TTY: plain start/end lines, with a full output dump per task
-when verbose. Every task keeps its full raw (colour-preserving) output for failure replay.
-
-Pure logic with injected seams (out / isatty / term_size / clock) so it unit-tests with
-no real terminal, threads, or subprocesses."""
+TTY: a live region of one line per running task, capped to terminal height, redrawn in place
+(superconsole style); finished tasks commit a permanent summary line above it. Non-TTY: plain
+summary lines + a full output dump per task when verbose. Every task keeps its raw colour-preserving
+output for failure replay. Injected seams (out / isatty / term_size / clock) -> unit-testable with
+no real terminal/threads/subprocesses."""
 
 from __future__ import annotations
 import re, time, threading
@@ -79,9 +77,8 @@ class BuildDisplay:
     # -- task lifecycle ----------------------------------------------------
 
     def start_task(self, id, kind: str, name: str, detail: str = '') -> Task:
-        # A task is recorded but stays INVISIBLE until it has run longer than reveal_delay, so an
-        # instant no-op (cached/nothing-to-build dep, ~0.0s) never clutters the output. No start
-        # line off-TTY either - we only emit a summary at finish, and only if it was slow enough.
+        # Recorded but INVISIBLE until it outlives reveal_delay, so an instant no-op (~0.0s cached
+        # dep) never clutters output. Off-TTY emits only a finish summary, and only if slow enough.
         with self._lock:
             t = Task(id, kind, name, self._clock(), detail)
             self._tasks[id] = t
@@ -264,8 +261,8 @@ def _make_tree_cpu_sampler():
 
 
 class _PsutilTreeCpu:
-    """Sums CPU% of each build's subprocess tree (cmake -> ninja/make/msbuild -> compilers). Per
-    process it's the cpu-time delta over wall-clock, so a tree saturating N cores reads ~N*100%."""
+    """Sums CPU% of a build's subprocess tree (cmake -> ninja/make/msbuild -> compilers): per-process
+    cpu-time delta over wall-clock, so a tree saturating N cores reads ~N*100%."""
     def __init__(self, psutil):
         self._ps = psutil
         self._state: dict[int, tuple] = {}  # pid -> (cpu_seconds, wallclock_ts), for the delta

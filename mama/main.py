@@ -311,10 +311,8 @@ def mamabuild(args, source_dir=os.getcwd()):
         print_sched_debug(root)
         return
 
-    # A plain full build/update uses the unified scheduler: one dynamic DAG that interleaves cloning
-    # with configure+build, so leaf nodes build while deeper deps are still cloning. Targeted / list
-    # / deps_only / dirty / serial runs use the classic load->execute path, which needs the fully
-    # loaded tree up front for target lookup and filtering.
+    # Plain full build/update -> unified clone+configure+build scheduler; everything else (which
+    # needs the fully-loaded tree up front for lookup/filtering) -> classic load->execute path.
     if _can_unify(config):
         _init_platform_compilers(config)
         execute_unified(root)
@@ -366,8 +364,7 @@ def mamabuild(args, source_dir=os.getcwd()):
             chain = ' -> '.join([d.name for d in flat_deps_reverse])
             console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
 
-        # Parallel by default: a DAG scheduler overlaps independent configure/build jobs.
-        # `serial` opts out; a trivial graph (<=1 dep) has nothing to overlap.
+        # Parallel by default (`serial` opts out); a trivial graph (<=1 dep) has nothing to overlap.
         if config.serial_load or len(flat_deps_reverse) <= 1:
             execute_task_chain(flat_deps_reverse)
         else:

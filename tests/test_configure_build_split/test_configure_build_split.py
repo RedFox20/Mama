@@ -90,9 +90,8 @@ def test_per_target_jobs_flow_into_j_flag_without_touching_config(tmp_path):
 
 
 def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
-    # Regression: the build weight (cores the scheduler reserves) must be known at BUILD launch.
-    # configure_phase sets _build_jobs from the TU probe; if it stayed None, every build would
-    # fall back to all cores and reserve the whole budget -> builds run one-at-a-time (low CPU).
+    # Regression: configure_phase must set _build_jobs from the TU probe; left None every build
+    # would reserve the whole budget and run one-at-a-time.
     t, dep = _target(tmp_path)  # config.jobs = 8
     with open(t.build_dir('compile_commands.json'), 'w') as f:
         f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')

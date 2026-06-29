@@ -307,11 +307,9 @@ class BuildDependency:
 
     ## @return True if dependency has changed
     def load(self):
-        # Per-dep lock: under parallel_load the same dep can be a child of two parents and get two
-        # concurrent load() calls; without this they'd both clone (the old `currently_loading`
-        # busy-wait had a TOCTOU race). The lock serialises loads of THIS dep only - different deps
-        # still load (and clone) concurrently. The heavy clone happens inside, so this is the
-        # correct grain: exactly one thread clones a given repo.
+        # Per-dep lock: under parallel_load a shared (diamond) dep can get two concurrent load()
+        # calls; serialise loads of THIS dep so exactly one thread clones it (the old
+        # `currently_loading` busy-wait had a TOCTOU race). Different deps still clone concurrently.
         with self._load_lock:
             if self.already_loaded:
                 return self.should_rebuild

@@ -58,20 +58,18 @@ _capture = threading.local()  # per-thread sink: a running job's console() lines
 
 
 def set_active_display(display):
-    """While a parallel-build live display is active, normal `console()` lines are routed
-    above its region instead of tearing it. Pass None to detach. Duck-typed (has print_above)
-    to avoid importing build_display here."""
+    """While a live display is active, normal console() lines route above its region instead of
+    tearing it. None detaches. Duck-typed (has print_above) to avoid importing build_display."""
     global _active_display
     _active_display = display
 
 
 @contextlib.contextmanager
 def capture_to(sink, display=None, tid=None, build_slot=None):
-    """Route THIS thread's console() lines to `sink` (a display task feed) for the duration, so a
-    configure/build job's banners / 'Cleaning ...' / mamafile prints land in its display line
-    instead of tearing the live region. Restores the previous sink on exit (workers are reused).
-    `display`/`tid` let SubProcess report its child pids for live CPU sampling of this task;
-    `build_slot` is the scheduler's budget barrier so a custom build()'s cmake_build() can self-gate."""
+    """Route THIS thread's console() lines to `sink` (a display task feed) so a job's banners land
+    in its display line instead of tearing the live region; restores the previous sink on exit.
+    `display`/`tid` let SubProcess report child pids for CPU sampling; `build_slot` is the
+    scheduler barrier so a custom build()'s cmake_build() can self-gate."""
     prev = (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
             getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
     _capture.sink, _capture.display, _capture.tid, _capture.build_slot = sink, display, tid, build_slot
@@ -82,18 +80,16 @@ def capture_to(sink, display=None, tid=None, build_slot=None):
 
 
 def build_barrier(weight: int):
-    """Context manager wrapping a heavy compile (cmake_build's build step) so it occupies `weight`
-    budget cores in the active parallel scheduler - suspending the worker thread until the budget
-    admits it. A no-op (null context) on the serial path or in tests where no scheduler is active,
-    so call sites (mamafile build()s) need no changes and keep working unchanged."""
+    """Wrap a heavy compile (cmake_build's build step) so it occupies `weight` budget cores in the
+    active scheduler, suspending the worker until admitted. A no-op (null context) on the serial
+    path / in tests, so mamafile build() call sites need no changes."""
     factory = getattr(_capture, 'build_slot', None)
     return factory(weight) if factory is not None else contextlib.nullcontext()
 
 
 def report_subprocess(pid: int, started: bool):
-    """SubProcess calls this on child start/exit so the live display can sample that build's
-    process-tree CPU. Routes the pid to the current thread's display task (set by capture_to).
-    Best-effort: a CPU readout must never break a build."""
+    """SubProcess calls this on child start/exit, routing the pid to this thread's display task
+    (set by capture_to) for process-tree CPU sampling. Best-effort: never breaks a build."""
     display = getattr(_capture, 'display', None)
     tid = getattr(_capture, 'tid', None)
     if display is None or tid is None: return
@@ -111,8 +107,8 @@ def console(text:str, color=None, end="\n"):
     # may overwrite an in-flight progress line. Anything else gets a leading \n.
     is_redraw = text.startswith('\r')
     text = get_colored_text(text, color)
-    # A running job captures its own thread's output into its display task; otherwise a live
-    # display takes whole status lines above its region. Redraws/partials use the normal path.
+    # A running job's output goes to its display task; else a live display takes whole lines above
+    # its region. Redraws/partials use the normal path.
     if end == '\n' and not is_redraw:
         sink = getattr(_capture, 'sink', None)
         if sink is not None:

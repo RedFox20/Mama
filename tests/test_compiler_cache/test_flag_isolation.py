@@ -1,6 +1,5 @@
-"""Regression (real cmake): a compiler seed captured from project A must only transplant compiler
-detection, never project flags - so it speeds up project B without poisoning B's compilation.
-Skipped where no real cmake is available."""
+"""Regression (real cmake): a seed from project A transplants only compiler detection, never project
+flags - speeds up B without poisoning it. Skipped without cmake."""
 import os, glob, shutil, subprocess
 import pytest
 from mama import cmake_compiler_cache as cc

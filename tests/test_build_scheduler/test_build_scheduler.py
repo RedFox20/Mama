@@ -135,8 +135,6 @@ def test_debug_log_reports_running_and_blocked_weights():
 
 
 def test_build_slot_barrier_blocks_until_budget_frees():
-    # A custom build()'s cmake_build() acquires a slot mid-job; it must wait while a full-budget
-    # build holds the budget, then proceed once it frees - and always proceed when nothing's reserved.
     sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)
     p = Probe()
     hog = Job('hog', BUILD, p.body, weight=8)

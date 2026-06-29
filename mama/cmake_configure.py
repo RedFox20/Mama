@@ -63,9 +63,8 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
 
 
 def compute_env(target:BuildTarget) -> dict:
-    """Per-job environment for a cmake invocation: a COPY of os.environ with CC/CXX removed
-    when we pass explicit -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX env otherwise). Returns
-    a fresh dict so parallel configure/build jobs never mutate the shared global env."""
+    """Per-job cmake env: a COPY of os.environ with CC/CXX removed when we pass explicit
+    -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX otherwise). Fresh dict -> thread-safe."""
     env = os.environ.copy()
     cc, cxx, _ = target.config.get_preferred_compiler_paths()
     if cc:

@@ -46,10 +46,9 @@ _DEFAULT_KEEPALIVE_INTERVAL = '60'
 _DEFAULT_KEEPALIVE_COUNT    = '3'
 _DEFAULT_CONTROL_PERSIST    = '10m'
 
-# Always-on safety options so a parallel clone never freezes on an SSH prompt: bound the TCP
-# connect, and auto-accept NEW host keys (still rejects CHANGED keys) instead of the y/n freeze.
-# We intentionally do NOT force BatchMode - that would break users whose keys need an interactive
-# passphrase with no agent; the SubProcess idle-timeout is the backstop for stuck auth prompts.
+# Always-on so a parallel clone never freezes on an SSH prompt: bound the TCP connect + auto-accept
+# NEW host keys (still rejects CHANGED). NOT BatchMode (would break interactive-passphrase keys);
+# the SubProcess idle-timeout is the backstop for stuck auth prompts.
 _SAFETY_OPTS = ['-oConnectTimeout=30', '-oStrictHostKeyChecking=accept-new']
 
 

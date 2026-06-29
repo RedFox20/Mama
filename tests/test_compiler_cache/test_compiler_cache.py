@@ -1,6 +1,5 @@
 """Pins cmake_compiler_cache: fingerprint, publish/load/inject round-trip, TTL, purge, and the
-primer-election Coordinator. inject reproduces cmake's warm state (PLATFORM_INFO_INITIALIZED marker
-+ captured compiler files) so a fresh build dir skips ALL detection."""
+primer-election Coordinator."""
 import os, threading
 from mama import cmake_compiler_cache as cc
 from mama.util import normalized_path
@@ -55,8 +54,7 @@ def test_publish_then_inject_reproduces_warm_state(tmp_path):
 
 
 def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
-    # Regression: the seed must transplant ONLY compiler detection, never project flags/defines,
-    # so a cache from project A can't poison project B. The injected cache is exactly two markers.
+    # Regression: the injected cache is exactly two toolchain markers - no project flags to leak.
     bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed'); cc.publish(seed, bf)
     build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')

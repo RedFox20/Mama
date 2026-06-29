@@ -1,14 +1,8 @@
-"""Parallel DAG scheduler for configure/build jobs.
-
-Runs a graph of `Job`s respecting dependency edges, with two governors:
-- CONFIGURE jobs are cheap (compiler probes) -> bounded by a simple count.
-- BUILD jobs each spawn `cmake --build -jN`, so they're gated by a CPU-load sample
-  plus a core budget: always allow at least one build, then launch more only while
-  load is below threshold and the reserved-core sum leaves room.
-
-Fail-fast: on the first job error, stop releasing new jobs, let in-flight jobs finish,
-then return the failed job. Generic over `Job.run`, so it unit-tests with fake jobs;
-the cmake wiring lives in the caller (build_target/dependency_chain)."""
+"""Parallel DAG scheduler for configure/build jobs: runs a graph of `Job`s honoring dep edges.
+Governors: CONFIGURE jobs (cheap probes) are count-bounded; BUILD jobs (each spawns `cmake
+--build -jN`) are gated by a core budget + CPU-load sample. Fail-fast: first error stops new
+launches, drains in-flight, returns the failed job. Generic over `Job.run` (the cmake wiring
+lives in the caller), so it unit-tests with fake jobs."""
 
 from __future__ import annotations
 import time, threading, concurrent.futures, contextlib
@@ -66,11 +60,9 @@ def _check_acyclic(jobs: List[Job]):
 
 
 def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None) -> List[Job]:
-    """Wire a configure + build job per dep. A dep's configure waits on every in-set
-    child's build (its dependencies.cmake embeds child build outputs); its build waits
-    on its own configure. `weight_fn(dep)` returns the build's core weight, called lazily
-    at launch (after configure, when the TU count is known). `children_fn(dep)` defaults
-    to `dep.get_children()`."""
+    """Wire a configure + build job per dep: a dep's configure waits on every in-set child's build
+    (its dependencies.cmake embeds child outputs), its build on its own configure. `weight_fn(dep)`
+    gives the build's core weight, resolved lazily at launch. `children_fn` defaults to get_children."""
     children_fn = children_fn or (lambda d: d.get_children())
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
@@ -112,17 +104,17 @@ class Scheduler:
         self._error: Optional[Job] = None  # first failed job
 
     def grow(self, build_fn: Callable[[], List[Job]]):
-        """Atomically extend the graph at runtime: `build_fn()` (run under the scheduler lock so it
-        can safely mutate caller registries and add edges to existing jobs) returns new jobs to add.
-        Used by a LOAD job that just discovered a dep's children. The add happens before the LOAD
-        job is marked done, so a parent's CONFIGURE never launches before its children's edges exist."""
+        """Atomically extend the graph at runtime: `build_fn()` runs under the scheduler lock (so it
+        can safely mutate caller registries + add edges) and returns new jobs. Used by a LOAD job
+        that discovered children; the add happens before LOAD is marked done, so a parent's
+        CONFIGURE never launches before its children's edges exist."""
         with self._cond:
             self._pending.extend(build_fn())
             self._cond.notify_all()
 
     def run(self, jobs: List[Job]) -> Optional[Job]:
-        """Execute all jobs honoring deps + governors. Returns the failed job, or None. The graph may
-        grow during the run via grow(); the loop ends only when nothing is pending AND nothing runs."""
+        """Execute all jobs honoring deps + governors; returns the failed job or None. The graph may
+        grow via grow(); the loop ends only when nothing is pending AND nothing runs."""
         _check_acyclic(list(jobs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as ex:
             try:
@@ -189,11 +181,10 @@ class Scheduler:
         return self._build_admits(self._resolve_weight(job))  # BUILD
 
     def _build_admits(self, weight: int) -> bool:
-        """Budget gate shared by BUILD-job launch and build_slot() barriers: launch freely while
-        reserved cores stay within budget REGARDLESS of momentary CPU (one compile saturates the
-        sampler - gating on that stalled every build while cores sat idle, the krattgcs bug); the
-        CPU sampler only gates EXTRA over-provisioning beyond the budget. reserved==0 always admits
-        so at least one build always proceeds (and a barrier is always released - no deadlock)."""
+        """Budget gate shared by BUILD launch + build_slot() barriers: admit freely while reserved
+        cores stay within budget REGARDLESS of momentary CPU (one compile saturates the sampler;
+        gating on that stalled every build - the krattgcs bug). CPU only gates over-provisioning
+        beyond budget. reserved==0 always admits, so one build always proceeds and no barrier deadlocks."""
         if self._reserved == 0:
             return True
         need = self._reserved + weight
@@ -205,10 +196,9 @@ class Scheduler:
 
     @contextlib.contextmanager
     def build_slot(self, weight: int):
-        """Acquire `weight` budget cores for a compile running INSIDE a job - a custom build()'s
-        cmake_build(), reached transparently via system.build_barrier(). The worker thread suspends
-        here (coroutine-style) until the budget admits it, reserves, runs the compile, then releases
-        on exit. always-admit-when-idle guarantees the barrier is released and can't deadlock."""
+        """Acquire `weight` budget cores for a compile running INSIDE a job (a custom build()'s
+        cmake_build(), reached via system.build_barrier()): the worker thread suspends until the
+        budget admits, reserves, runs, then releases on exit. always-admit-when-idle = no deadlock."""
         weight = max(0, int(weight))
         with self._cond:
             while True:
@@ -227,8 +217,8 @@ class Scheduler:
                 self._cond.notify_all()
 
     def _maybe_debug(self, blocked: List[Job]):
-        """Once per second, emit reserved/budget, the running builds + their weights, the builds held
-        back by a governor + their weights, and the sampled CPU - so parallelism can be observed."""
+        """Once per second, emit reserved/budget, running + governor-blocked builds (with weights),
+        and the sampled CPU - so parallelism can be observed."""
         if self._debug_log is None: return
         now = time.monotonic()
         if now - self._last_debug < 1.0: return
