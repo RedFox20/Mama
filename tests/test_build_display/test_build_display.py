@@ -55,10 +55,10 @@ def test_phases_merge_into_one_summary_with_breakdown():
     assert 'G 3.7s' in text and 'C 0.3s' in text and 'B 0.5s' in text  # G=git pull, C=configure, B=build
 
 
-def test_single_phase_summary_is_bare_time_no_letter():
+def test_lone_phase_still_shows_its_letter():
     d, out, clk = _disp(isatty=False)
-    d.start_task('x', 'configure', 'x'); clk.tick(2.0); d.finish_task('x', ok=True)  # final defaults True
-    assert '2.0s' in out.getvalue() and 'C 2.0s' not in out.getvalue()
+    d.start_task('x', 'build', 'x', detail='J4'); clk.tick(2.0); d.finish_task('x', ok=True)  # build-only dep
+    assert 'B 2.0s' in out.getvalue()  # the letter shows even for a lone phase, for a consistent column
 
 
 def test_instant_phase_dropped_and_live_line_shows_prior_phases():

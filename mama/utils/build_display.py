@@ -3,8 +3,9 @@
 TTY: a live region of one line per ACTIVELY-running task, capped to terminal height, redrawn in
 place (superconsole style). A dep flows through phases (load -> configure -> build) on ONE task that
 stays put across them; when its whole workflow finishes it commits a single summary line above the
-region, with a per-phase timing breakdown (`P 3.7s  C 363ms  B 415ms`) when more than one phase did
-real work. Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
+region with a per-phase timing breakdown - `G 3.7s  C 0.4s  B 0.4s` (G git load / L local / A
+artifactory, C configure, B build), every phase always lettered so the column stays consistent.
+Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
 Every task keeps its raw colour-preserving output for failure replay. Injected seams (out / isatty /
 term_size / clock) -> unit-testable with no real terminal/threads/subprocesses."""
 
@@ -240,9 +241,9 @@ class BuildDisplay:
         return _PHASE_LETTER.get(kind, (kind[:1] or '?').upper())
 
     def _time_field(self, t: Task, now: float) -> str:
+        # Always letter every phase (even a lone build -> 'B 4.0s'), so the timing column stays
+        # consistent whether or not configure/load did visible work.
         phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
-        if len(phases) == 1:
-            return get_time_str(phases[0][0])  # single phase: bare time (no letter), the classic look
         return '  '.join(f'{self._letter(k)} {get_time_str(d)}' for d, k, _ in phases)
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
