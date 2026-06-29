@@ -86,7 +86,7 @@ class TestEnv:
 class TestTimeout:
     def test_long_running_command_times_out(self):
         with pytest.raises(subprocess.TimeoutExpired):
-            SubProcess.run([PY, '-c', 'import time; time.sleep(30)'],
+            SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
                            io_func=lambda p, line: None, timeout=0.3)
 
     def test_fast_command_does_not_time_out(self):
@@ -99,7 +99,7 @@ class TestIdleTimeout:
         import time
         t0 = time.monotonic()
         with pytest.raises(subprocess.TimeoutExpired):
-            SubProcess.run([PY, '-c', 'import time; time.sleep(30)'],
+            SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
                            io_func=lambda p, l: None, idle_timeout=0.4)
         assert time.monotonic() - t0 < 5  # died ~0.4s, not 30s
 
@@ -296,7 +296,7 @@ class TestCtrlCTermination:
         from mama.utils import sub_process
         result = {}
         def run_child():
-            try: result['s'] = SubProcess.run([PY, '-c', 'import time; time.sleep(30)'], io_func=lambda p, l: None)
+            try: result['s'] = SubProcess.run([PY, '-c', 'import time; time.sleep(5)'], io_func=lambda p, l: None)
             except BaseException as e: result['exc'] = e
         t = threading.Thread(target=run_child); t.start()
         end = time.monotonic() + 5
