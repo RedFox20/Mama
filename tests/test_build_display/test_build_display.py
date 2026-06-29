@@ -111,6 +111,20 @@ def test_cpu_sampling_updates_task_and_renders_percent():
     d.close()
 
 
+def test_late_cpu_sample_does_not_resurrect_a_detached_task():
+    # The sampler runs off-lock; if the task detaches during that window, the stale CPU it computed
+    # must NOT be written back - else a dead subprocess shows as busy until the task finishes.
+    d, _, _ = _disp(isatty=True, sample_interval=999)
+    d.start_task(1, 'build', 'x'); d.attach_pid(1, 7)
+    def sampler(snap):
+        d.detach_pid(1, 7)   # subprocess exits mid-scan: tid dropped, cpu zeroed
+        return {1: 888.0}    # a stale reading computed just before the detach
+    d._cpu_sampler = sampler
+    d._sample_once()
+    assert d._tasks[1].cpu == 0.0   # stale 888% dropped, not resurrected
+    d.close()
+
+
 def test_sampler_backoff_caps_cost_at_tenth_of_walltime():
     d, _, _ = _disp(isatty=True, sample_interval=1.5)
     assert d._next_wait(0.01) == 1.5      # cheap sample -> base interval

@@ -277,6 +277,7 @@ class BuildDisplay:
         cpus = self._cpu_sampler(snapshot)  # ONE process scan for ALL build trees -> {tid: cpu%}; off-lock
         with self._lock:
             for tid, cpu in cpus.items():
+                if tid not in self._pids: continue  # detached mid-scan: don't resurrect a dead task's CPU
                 t = self._tasks.get(tid)
                 if t is not None: t.cpu = cpu
 
