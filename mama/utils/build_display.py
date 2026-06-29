@@ -4,7 +4,7 @@ TTY: a live region of one line per ACTIVELY-running task, capped to terminal hei
 place (superconsole style). A dep flows through phases (load -> configure -> build) on ONE task that
 stays put across them; when its whole workflow finishes it commits a single summary line above the
 region with a per-phase timing breakdown - `Git 3.7s  Cfg 0.4s  Bld 0.4s` (Git/Loc/Art load, Cfg
-configure, Bld build), every phase always tagged so the column stays consistent.
+configure, Bld build), every step shown + tagged (even an instant configure) for a consistent column.
 Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
 Every task keeps its raw colour-preserving output for failure replay. Injected seams (out / isatty /
 term_size / clock) -> unit-testable with no real terminal/threads/subprocesses."""
@@ -129,18 +129,18 @@ class BuildDisplay:
 
     def finish_task(self, id, ok: bool, final: bool = True):
         # End the current phase. A non-final success stays DORMANT (no summary yet); the dep's last
-        # phase (final=True) or any failure commits ONE merged summary for the whole dep.
+        # phase (final=True) or any failure commits ONE merged summary for the whole dep. Every phase
+        # is recorded so the table shows all steps (incl. an instant 0ms configure); only a dep whose
+        # every phase was instant (a pure cached no-op) is hidden.
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
             t.end = self._clock()
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
-            dur = t.elapsed(t.end)
-            if dur >= self._reveal or not ok:  # skip instant phases; always keep a failure
-                t.phases.append((dur, t.kind, t.detail))
+            t.phases.append((t.elapsed(t.end), t.kind, t.detail))
             done = final or not ok                        # workflow over -> emit; else dormant, resume later
-            show = done and (not ok or bool(t.phases))    # all-instant success -> hide (cached no-op)
+            show = done and (not ok or any(d >= self._reveal for d, _, _ in t.phases))  # hide a wholly-instant dep
             if not self._isatty:
                 if show:
                     self._writeln(self._summary_line(t))

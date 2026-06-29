@@ -55,19 +55,27 @@ def test_phases_merge_into_one_summary_with_breakdown():
     assert 'Git 3.7s' in text and 'Cfg 0.3s' in text and 'Bld 0.5s' in text  # git pull, configure, build
 
 
+def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
+    d, out, clk = _disp(isatty=False)
+    d.start_task('z', 'pulling', 'z'); clk.tick(2.0); d.finish_task('z', ok=True, final=False)  # real load
+    d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure (0ms)
+    d.start_task('z', 'build', 'z', detail='J4'); clk.tick(0.5); d.finish_task('z', ok=True, final=True)
+    assert 'Cfg 0ms' in strip(out.getvalue())  # the 0ms configure is shown, not hidden - "did Cfg run?"
+
+
 def test_lone_phase_still_shows_its_tag():
     d, out, clk = _disp(isatty=False)
     d.start_task('x', 'build', 'x', detail='J4'); clk.tick(2.0); d.finish_task('x', ok=True)  # build-only dep
     assert 'Bld 2.0s' in out.getvalue()  # the tag shows even for a lone phase, for a consistent column
 
 
-def test_instant_phase_dropped_and_live_line_shows_prior_phases():
+def test_live_line_shows_all_prior_phases_including_an_instant_one():
     d, _, clk = _disp(isatty=True)
-    d.start_task('g', 'pulling', 'g'); clk.tick(3.7); d.finish_task('g', ok=True, final=False)  # 3.7s pull recorded
-    d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure -> dropped
+    d.start_task('g', 'pulling', 'g'); clk.tick(3.7); d.finish_task('g', ok=True, final=False)  # 3.7s pull
+    d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure (0ms)
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
     line = strip(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'Git 3.7s' in line and 'Bld 0.5s' in line and 'Cfg' not in line  # prior pull shown; instant cfg absent
+    assert 'Git 3.7s' in line and 'Cfg 0ms' in line and 'Bld 0.5s' in line  # every step shown, even the 0ms cfg
 
 
 def test_phase_tags_collapse_git_loads_and_label_each_source():
