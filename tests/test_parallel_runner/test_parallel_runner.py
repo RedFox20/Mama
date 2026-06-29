@@ -63,6 +63,27 @@ def test_node_marker_root_leaf_trunk():
     assert dc._node_marker(mk(True, [1])) == '[R]'    # root wins regardless of children
 
 
+def test_build_detail_is_fixed_width_j_cores():
+    d = lambda cores: SimpleNamespace(target=SimpleNamespace(_reserved_cores=lambda: cores))
+    assert dc._build_detail(d(4)) == 'J4 ' and dc._build_detail(d(12)) == 'J12'  # same width, aligns
+
+
+def test_run_phase_shows_tree_marker_only_in_verbose(monkeypatch):
+    import contextlib
+    monkeypatch.setattr(dc, '_phase_label', lambda d, k: 'build')
+    monkeypatch.setattr(dc.system, 'capture_to', lambda *a, **k: contextlib.nullcontext())
+    seen = {}
+    disp = SimpleNamespace(start_task=lambda tid, label, name, detail: seen.__setitem__('n', name),
+                           feed=lambda *a: None, finish_task=lambda *a: None)
+    dep = SimpleNamespace(name='ReCpp', is_root=False, get_children=lambda: [],
+                          config=SimpleNamespace(verbose=False))
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert seen['n'] == 'ReCpp'                 # no [L]/[T]/[R] noise in normal output
+    dep.config.verbose = True
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert seen['n'] == '[L] ReCpp'             # markers only in verbose
+
+
 def test_phase_label_load_is_clone_when_fresh_else_update():
     fresh = SimpleNamespace(is_real_clone=lambda: False)
     existing = SimpleNamespace(is_real_clone=lambda: True)

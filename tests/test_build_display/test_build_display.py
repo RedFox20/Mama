@@ -93,19 +93,19 @@ def test_tty_preview_strips_ansi_but_buffer_keeps_it():
 
 def test_build_detail_shows_core_count_after_kind():
     d, _, clk = _disp(isatty=True)
-    d.start_task(1, 'build', 'compression', detail='[16]'); clk.tick(0.5)
-    assert 'build [16]' in strip(d._task_line(d._tasks[1], clk(), 80))
+    d.start_task(1, 'build', 'compression', detail='J16'); clk.tick(0.5)
+    assert 'build J16' in strip(d._task_line(d._tasks[1], clk(), 80))
     d.finish_task(1, ok=True)
-    assert 'build [16]' in strip(d._summary_line(d._tasks[1]))
+    assert 'build J16' in strip(d._summary_line(d._tasks[1]))
 
 
 def test_cpu_sampling_updates_task_and_renders_percent():
     d, _, clk = _disp(isatty=True, cpu_sampler=lambda snap: {t: 597.0 for t in snap}, sample_interval=999)
-    d.start_task(1, 'build', 'compression', detail='[16]')
+    d.start_task(1, 'build', 'compression', detail='J16')
     d.attach_pid(1, 4242)
     d._sample_once()
     assert d._tasks[1].cpu == 597.0
-    assert 'build [16] [597%]' in strip(d._task_line(d._tasks[1], clk(), 120))
+    assert 'build J16 cpu:597%' in strip(d._task_line(d._tasks[1], clk(), 120))
     d.detach_pid(1, 4242)
     assert d._tasks[1].cpu == 0.0  # subprocess gone -> CPU cleared, not left stale
     d.close()

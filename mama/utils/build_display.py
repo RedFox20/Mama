@@ -192,8 +192,8 @@ class BuildDisplay:
 
     @staticmethod
     def _kind_field(t: Task) -> str:
-        s = f'{t.kind} {t.detail}'.rstrip()        # 'build [16]' / 'configure' / 'clone'
-        if t.cpu >= 1.0: s += f' [{t.cpu:.0f}%]'   # live tree CPU, e.g. 'build [16] [597%]'
+        s = f'{t.kind} {t.detail}' if t.detail else t.kind   # 'build J12' / 'build J8 ' / 'configure'
+        if t.cpu >= 1.0: s += ' cpu:' + f'{t.cpu:.0f}%'.ljust(5)  # fixed-width slot: 'cpu:132% ' / 'cpu:2790%'
         return s
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:

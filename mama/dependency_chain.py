@@ -538,7 +538,8 @@ def _run_phase(display, dep, kind, body, build_slot, detail=''):
     output + subprocess CPU + build barrier into it, then run `body(sink)`."""
     tid = (dep.name, kind)
     sink = lambda line: display.feed(tid, line)
-    display.start_task(tid, _phase_label(dep, kind), f'{_node_marker(dep)} {dep.name}', detail)
+    name = f'{_node_marker(dep)} {dep.name}' if dep.config.verbose else dep.name  # tree markers: verbose only
+    display.start_task(tid, _phase_label(dep, kind), name, detail)
     ok = False
     try:
         with system.capture_to(sink, display, tid, build_slot):  # console + CPU + build barrier
@@ -628,7 +629,7 @@ def _reserve_weight(dep) -> int:
 
 
 def _build_detail(dep) -> str:
-    return f'[{dep.target._reserved_cores()}]'  # budget cores this build occupies (capped at jobs/2)
+    return f'J{dep.target._reserved_cores():<2}'  # -j cores this build occupies (capped at jobs/2); fixed width
 
 
 def _node_marker(dep) -> str:
