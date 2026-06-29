@@ -24,7 +24,7 @@ _FILTERED_GIT_PROGRESS_REPORT_INTERVAL = 0.005
 # Benign post-op chatter from git reset/checkout/pull - pure noise outside verbose mode. The
 # "merge with the ref ... no such ref was fetched" pair is the expected pull-then-fetch fallback.
 _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to date',
-              'Already on ', 'Switched to branch ', 'Switched to a new branch ',
+              'Already on ', 'Switched to branch ', 'Switched to a new branch ', 'HEAD is now at ',
               'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
               'There is no tracking information for the current branch')
 

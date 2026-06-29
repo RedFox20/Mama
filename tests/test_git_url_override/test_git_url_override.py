@@ -56,6 +56,7 @@ def test_no_override_leaves_url(tmp_path):
 @pytest.mark.parametrize('line', [
     "Reset branch 'main'", "branch 'main' set up to track 'origin/main'.",
     "Your branch is up to date with 'origin/main'.", 'Already up to date.', "Switched to branch 'main'",
+    'HEAD is now at 98f23d8 QCoro 0.13.0',  # post reset/checkout chatter from a parallel-mode git checkout
     "Your configuration specifies to merge with the ref 'refs/heads/x'", 'from the remote, but no such ref was fetched.'])
 def test_update_noise_is_filtered(line):
     assert _is_git_status_noise(line)
