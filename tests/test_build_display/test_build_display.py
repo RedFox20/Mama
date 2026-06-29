@@ -52,13 +52,13 @@ def test_phases_merge_into_one_summary_with_breakdown():
     d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
     text = strip(out.getvalue())
     assert text.count('geo') == 1 and 'build J32' in text  # one merged line; kind = last phase that did work
-    assert 'G 3.7s' in text and 'C 0.3s' in text and 'B 0.5s' in text  # G=git pull, C=configure, B=build
+    assert 'Git 3.7s' in text and 'Cfg 0.3s' in text and 'Bld 0.5s' in text  # git pull, configure, build
 
 
-def test_lone_phase_still_shows_its_letter():
+def test_lone_phase_still_shows_its_tag():
     d, out, clk = _disp(isatty=False)
     d.start_task('x', 'build', 'x', detail='J4'); clk.tick(2.0); d.finish_task('x', ok=True)  # build-only dep
-    assert 'B 2.0s' in out.getvalue()  # the letter shows even for a lone phase, for a consistent column
+    assert 'Bld 2.0s' in out.getvalue()  # the tag shows even for a lone phase, for a consistent column
 
 
 def test_instant_phase_dropped_and_live_line_shows_prior_phases():
@@ -67,14 +67,14 @@ def test_instant_phase_dropped_and_live_line_shows_prior_phases():
     d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure -> dropped
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
     line = strip(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'G 3.7s' in line and 'B 0.5s' in line and 'C ' not in line  # prior git pull shown; instant cfg absent
+    assert 'Git 3.7s' in line and 'Bld 0.5s' in line and 'Cfg' not in line  # prior pull shown; instant cfg absent
 
 
-def test_phase_letters_collapse_git_and_tag_local_artifactory():
-    L = BuildDisplay._letter
-    assert L('check') == L('clone') == L('pulling') == 'G'  # all git loads share one letter
-    assert L('local') == 'L' and L('artifactory') == 'A'
-    assert L('configure') == 'C' and L('build') == 'B'
+def test_phase_tags_collapse_git_loads_and_label_each_source():
+    tag = BuildDisplay._tag
+    assert tag('check') == tag('clone') == tag('pulling') == 'Git'  # all git loads share one tag
+    assert tag('local') == 'Loc' and tag('artifactory') == 'Art'
+    assert tag('configure') == 'Cfg' and tag('build') == 'Bld'
 
 
 def test_non_tty_verbose_dumps_full_output():
