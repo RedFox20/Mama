@@ -48,3 +48,6 @@ bench/_out/
 
 # pytest tmp_path artifacts (repo-local, see tests/conftest.py)
 .pytest_tmp/
+
+# Claude Code agent worktrees (transient)
+.claude/worktrees/
