@@ -111,23 +111,24 @@ def report_subprocess(pid: int, started: bool):
 def console(text:str, color=None, end="\n"):
     """ Always flush to support most build environments """
     global _progress_active
-    # Cheap O(1) check: redraws start with \r to reset the cursor; only those
-    # may overwrite an in-flight progress line. Anything else gets a leading \n.
-    is_redraw = text.startswith('\r')
+    is_redraw = text.startswith('\r')        # redraws start with \r (cursor reset); see progress()
+    clean = text[1:] if is_redraw else text  # \r stripped: line-based sinks/region want a clean line
+    # While a display owns the screen, route EVERYTHING through it - any direct stdout write (even a
+    # \r-redraw or a partial) desyncs the region's cursor math and walks it down the screen. Owned
+    # output feeds the job's task preview; an ownerless full line goes above the region; an ownerless
+    # mid-progress redraw is dropped (can't place it in the line-based region without corrupting it).
+    sink = getattr(_capture, 'sink', None)
+    if sink is not None or _active_display is not None:
+        colored = get_colored_text(clean, color)
+        if sink is not None: sink(colored)
+        elif end == '\n': _active_display.print_above(colored)
+        return
     text = get_colored_text(text, color)
-    # A running job's output goes to its display task; else a live display takes whole lines above
-    # its region. Redraws/partials use the normal path.
-    if end == '\n' and not is_redraw:
-        sink = getattr(_capture, 'sink', None)
-        if sink is not None:
-            sink(text); return
-        if _active_display is not None:
-            _active_display.print_above(text); return
     with _console_lock:
+        # a status line right after an in-flight \r-progress needs a leading \n so it isn't overwritten
         if _progress_active and not is_redraw:
             print()
-        # Erase to EOL so a shorter redraw fully clears a longer previous line (no stale tail chars).
-        if is_redraw: text += _ERASE_EOL
+        if is_redraw: text += _ERASE_EOL  # erase-to-EOL so a shorter redraw clears the longer prev line
         print(text, end=end, flush=True)
         _progress_active = (end != '\n')
 

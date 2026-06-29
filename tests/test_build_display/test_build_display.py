@@ -1,5 +1,6 @@
 """Pins BuildDisplay: TTY live-region rendering + non-TTY fallback, capture/replay, throttle."""
 import io, re
+from types import SimpleNamespace
 from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task
 
@@ -233,6 +234,27 @@ def test_capture_to_routes_console_to_sink_and_restores():
         system.console('c')                      # back to the outer sink after the nested block
     assert 'a' in outer[0] and 'c' in outer[1] and inner == ['b']
     assert getattr(system._capture, 'sink', None) is None  # fully restored
+
+
+def test_progress_redraw_feeds_sink_as_clean_line(capsys):
+    sink = []
+    with system.capture_to(sink.append):
+        system.progress('cloning 42%')          # \r-progress while a job owns the screen
+    assert sink == ['cloning 42%']               # clean preview line: \r stripped, nothing to stdout
+    assert capsys.readouterr().out == ''
+
+
+def test_active_display_routes_status_above_region_and_drops_bare_redraw(capsys):
+    calls = []
+    system.set_active_display(SimpleNamespace(print_above=calls.append))
+    try:
+        system.console('status line')           # ownerless line-complete -> above the region
+        system.progress('downloading 10%')      # ownerless mid-progress redraw -> dropped, not stdout
+        system.progress('done', final=True)     # final commit -> above the region, \r stripped
+    finally:
+        system.set_active_display(None)
+    assert calls == ['status line', 'done']
+    assert capsys.readouterr().out == ''         # display owns the screen: no direct stdout writes
 
 
 def test_task_feed_tracks_current_and_full_buffer():
