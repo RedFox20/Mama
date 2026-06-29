@@ -73,6 +73,21 @@ def test_configure_runs_once_across_phases(tmp_path):
     assert calls == [1]
 
 
+def test_custom_build_configures_exactly_once_in_build_phase(tmp_path):
+    # Custom build(): configure_phase is a no-op, so the once-guard must let build_phase's
+    # _run_configure_once() call configure() exactly once (and block any later call).
+    t, dep = _target(tmp_path)
+    es, _ = _wire(t, dep)
+    es.enter_context(patch.object(t, '_has_custom_build', return_value=True))
+    es.enter_context(patch.object(t, 'build', side_effect=lambda: None))
+    calls = []
+    es.enter_context(patch.object(t, 'configure', side_effect=lambda: calls.append(1)))
+    with es:
+        t.configure_phase(); assert calls == []  # custom build must NOT configure in configure_phase
+        t.build_phase(); t._run_configure_once()
+    assert calls == [1]
+
+
 def test_compute_env_strips_cc_cxx_without_mutating_global(tmp_path, monkeypatch):
     t, _ = _target(tmp_path)
     t.config.get_preferred_compiler_paths = lambda: ('gcc', 'g++', '11')

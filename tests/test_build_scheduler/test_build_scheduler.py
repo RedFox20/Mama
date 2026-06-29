@@ -197,6 +197,15 @@ def test_fail_fast_returns_failed_job_and_blocks_dependents():
     assert c.done                         # independent job still completed
 
 
+def test_normal_failure_does_not_fire_abort_hook():
+    # Deliberate asymmetry: the child-killer (abort_hook) fires ONLY on Ctrl+C. A plain job failure
+    # stops new launches but lets in-flight compiles finish, so the hook must stay silent.
+    hook = []
+    def boom(): raise RuntimeError('kaboom')
+    failed = _sched(abort_hook=lambda: hook.append(1)).run([Job('a', BUILD, boom)])
+    assert failed is not None and not hook
+
+
 def test_load_governor_caps_concurrency():
     p = Probe()
     jobs = [Job(i, LOAD, p.body) for i in range(5)]
