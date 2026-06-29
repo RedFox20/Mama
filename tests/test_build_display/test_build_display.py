@@ -52,7 +52,7 @@ def test_phases_merge_into_one_summary_with_breakdown():
     d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
     text = strip(out.getvalue())
     assert text.count('geo') == 1 and 'build J32' in text  # one merged line; kind = last phase that did work
-    assert 'Git 3.7s' in text and 'Cfg 0.3s' in text and 'Bld 0.5s' in text  # git pull, configure, build
+    assert 'git 3.7s' in text and 'cfg 0.3s' in text and 'bld 0.5s' in text  # git pull, configure, build
 
 
 def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
@@ -60,13 +60,13 @@ def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
     d.start_task('z', 'pulling', 'z'); clk.tick(2.0); d.finish_task('z', ok=True, final=False)  # real load
     d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure (0ms)
     d.start_task('z', 'build', 'z', detail='J4'); clk.tick(0.5); d.finish_task('z', ok=True, final=True)
-    assert 'Cfg 0ms' in strip(out.getvalue())  # the 0ms configure is shown, not hidden - "did Cfg run?"
+    assert 'cfg 0ms' in strip(out.getvalue())  # the 0ms configure is shown, not hidden - "did cfg run?"
 
 
 def test_lone_phase_still_shows_its_tag():
     d, out, clk = _disp(isatty=False)
     d.start_task('x', 'build', 'x', detail='J4'); clk.tick(2.0); d.finish_task('x', ok=True)  # build-only dep
-    assert 'Bld 2.0s' in out.getvalue()  # the tag shows even for a lone phase, for a consistent column
+    assert 'bld 2.0s' in out.getvalue()  # the tag shows even for a lone phase, for a consistent column
 
 
 def test_live_line_shows_all_prior_phases_including_an_instant_one():
@@ -75,14 +75,14 @@ def test_live_line_shows_all_prior_phases_including_an_instant_one():
     d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure (0ms)
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
     line = strip(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'Git 3.7s' in line and 'Cfg 0ms' in line and 'Bld 0.5s' in line  # every step shown, even the 0ms cfg
+    assert 'git 3.7s' in line and 'cfg 0ms' in line and 'bld 0.5s' in line  # every step shown, even the 0ms cfg
 
 
 def test_phase_tags_collapse_git_loads_and_label_each_source():
     tag = BuildDisplay._tag
-    assert tag('check') == tag('clone') == tag('pulling') == 'Git'  # all git loads share one tag
-    assert tag('local') == 'Loc' and tag('artifactory') == 'Art'
-    assert tag('configure') == 'Cfg' and tag('build') == 'Bld'
+    assert tag('check') == tag('clone') == tag('pulling') == 'git'  # all git loads share one tag
+    assert tag('local') == 'loc' and tag('artifactory') == 'art'
+    assert tag('configure') == 'cfg' and tag('build') == 'bld'
 
 
 def test_non_tty_verbose_dumps_full_output():

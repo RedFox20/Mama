@@ -3,8 +3,8 @@
 TTY: a live region of one line per ACTIVELY-running task, capped to terminal height, redrawn in
 place (superconsole style). A dep flows through phases (load -> configure -> build) on ONE task that
 stays put across them; when its whole workflow finishes it commits a single summary line above the
-region with a per-phase timing breakdown - `Git 3.7s  Cfg 0.4s  Bld 0.4s` (Git/Loc/Art load, Cfg
-configure, Bld build), every step shown + tagged (even an instant configure) for a consistent column.
+region with a per-phase timing breakdown - `git 3.7s  cfg 0.4s  bld 0.4s` (git/loc/art load, cfg
+configure, bld build), every step shown + tagged (even an instant configure) for a consistent column.
 Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
 Every task keeps its raw colour-preserving output for failure replay. Injected seams (out / isatty /
 term_size / clock) -> unit-testable with no real terminal/threads/subprocesses."""
@@ -23,10 +23,10 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct 
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
 _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
-# Short tag per phase for the timing breakdown: Git for any git load (check/clone/pull), Loc local
-# source, Art artifactory, Cfg configure, Bld build.
-_PHASE_TAG = {'check': 'Git', 'clone': 'Git', 'pulling': 'Git', 'local': 'Loc', 'artifactory': 'Art',
-              'configure': 'Cfg', 'build': 'Bld'}
+# Short lowercase tag per phase for the timing breakdown (lowercase stands out between the times):
+# git for any git load (check/clone/pull), loc local source, art artifactory, cfg configure, bld build.
+_PHASE_TAG = {'check': 'git', 'clone': 'git', 'pulling': 'git', 'local': 'loc', 'artifactory': 'art',
+              'configure': 'cfg', 'build': 'bld'}
 
 
 class Task:
@@ -238,10 +238,10 @@ class BuildDisplay:
 
     @staticmethod
     def _tag(kind: str) -> str:
-        return _PHASE_TAG.get(kind, (kind[:3] or '?').capitalize())
+        return _PHASE_TAG.get(kind, (kind[:3] or '?').lower())
 
     def _time_field(self, t: Task, now: float) -> str:
-        # Always tag every phase (even a lone build -> 'Bld 4.0s'), so the timing column stays
+        # Always tag every phase (even a lone build -> 'bld 4.0s'), so the timing column stays
         # consistent whether or not configure/load did visible work.
         phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
         return '  '.join(f'{self._tag(k)} {get_time_str(d)}' for d, k, _ in phases)
