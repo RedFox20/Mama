@@ -306,6 +306,30 @@ class TestCtrlCTermination:
         assert not t.is_alive()         # killed promptly, not blocked for the full 30s
         assert result.get('s', 0) != 0  # nonzero status from the kill
 
+    def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
+        # The point of tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not
+        # just the spawned pid. Stand-in: a child that spawns a long-sleeping grandchild.
+        import threading, time
+        from mama.utils import sub_process
+        psutil = pytest.importorskip('psutil')
+        pidfile = str(tmp_path / 'gc.pid').replace('\\', '/')
+        code = (f'import subprocess, sys, time\n'
+                f'gc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+                f'open("{pidfile}", "w").write(str(gc.pid)); time.sleep(60)\n')
+        threading.Thread(target=lambda: SubProcess.run([PY, '-c', code], io_func=lambda p, l: None),
+                         daemon=True).start()
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not os.path.exists(pidfile): time.sleep(0.02)
+        gc_pid = int(open(pidfile).read())
+        SubProcess.terminate_all()
+        end = time.monotonic() + 5
+        while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
+        alive = psutil.pid_exists(gc_pid)
+        if alive:
+            try: psutil.Process(gc_pid).kill()  # don't leak a 60s sleeper if the assert fails
+            except Exception: pass
+        assert not alive  # grandchild died with the tree
+
 
 class TestNoForkptyDeprecationWarning:
     # The whole point of the Popen+pty.openpty rewrite was to kill this warning

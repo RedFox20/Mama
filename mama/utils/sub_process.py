@@ -1,4 +1,4 @@
-import os, shlex, shutil, threading, queue, time
+import os, shlex, shutil, threading, queue, time, signal
 import subprocess
 from .system import System, console, error, report_subprocess
 
@@ -47,6 +47,7 @@ class SubProcess:
         self._master_fd = None         # UNIX PTY master fd; None on Windows or no-io_func paths
         self._swallow_lf = False       # after \r-progress idle-flush, swallow a leading \n (or \r\n) in next chunk
         self._last_output = time.monotonic()  # bumped on every chunk; drives the idle-timeout watchdog
+        self._group = False            # True: child leads its own group/session -> kill() tears down its whole tree
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
@@ -75,12 +76,16 @@ class SubProcess:
             # reader can byte-level split on \r as well as \n (ninja/cmake progress).
             self.process = subprocess.Popen(args, cwd=cwd, env=env,
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            self._group = True  # kill() uses taskkill /T to take down cmake's ninja/compiler subtree
         else:
             # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
             self._master_fd, slave = pty.openpty()
             try:
-                self.process = subprocess.Popen(args, cwd=cwd, env=env,
-                                                stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+                # start_new_session: child leads its own session so kill() can killpg the whole tree
+                # (cmake -> ninja -> compilers), not just the spawned pid.
+                self.process = subprocess.Popen(args, cwd=cwd, env=env, stdin=slave, stdout=slave,
+                                                stderr=slave, close_fds=True, start_new_session=True)
+                self._group = True
             finally:
                 os.close(slave) # parent doesn't need the slave once Popen has it
 
@@ -142,19 +147,19 @@ class SubProcess:
             cr = buf.find(b'\r', pos)
             if cr >= 0:
                 if cr + 1 < n and buf[cr + 1] != 0x0a:
-                    self._emit_io_out(buf[pos:cr]);
-                    pos = cr + 1;
+                    self._emit_io_out(buf[pos:cr])
+                    pos = cr + 1
                     continue
                 if cr + 1 == n and (idle or eof):
-                    self._emit_io_out(buf[pos:cr]);
-                    pos = cr + 1;
-                    self._swallow_lf = True;
+                    self._emit_io_out(buf[pos:cr])
+                    pos = cr + 1
+                    self._swallow_lf = True
                     continue
             nl = buf.find(b'\n', pos)
             if nl >= 0:
                 end = nl - 1 if nl > pos and buf[nl - 1] == 0x0d else nl
-                self._emit_io_out(buf[pos:end]);
-                pos = nl + 1;
+                self._emit_io_out(buf[pos:end])
+                pos = nl + 1
                 continue
             break
         if eof and pos < n:
@@ -190,8 +195,9 @@ class SubProcess:
         """Ctrl+C handler: block new spawns and kill every live child so a parallel build unwinds
         fast instead of the thread pool blocking on in-flight compiles. Idempotent."""
         global _aborting
-        _aborting = True
-        with _procs_lock: procs = list(_live_procs)
+        with _procs_lock:  # set the flag + snapshot atomically so a concurrent run() can't slip a
+            _aborting = True  # child past us (it re-checks _aborting under the same lock after spawning)
+            procs = list(_live_procs)
         for p in procs:
             try: p.kill()
             except Exception: pass
@@ -203,22 +209,50 @@ class SubProcess:
         _aborting = False
 
     def kill(self):
-        if self.process and self.process.poll() is None:
+        p = self.process
+        if not p or p.poll() is not None:
+            return
+        if self._group:
+            self._kill_tree(p)  # build/clone child: take down its whole subtree, not just the pid
+            return
+        try:
+            p.terminate()
+            p.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
             try:
-                self.process.terminate()
-                self.process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                try:
-                    self.process.kill()
-                    self.process.wait(timeout=1.0)
-                except Exception:
-                    pass
+                p.kill()
+                p.wait(timeout=1.0)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _kill_tree(self, p):
+        """Kill the child AND its descendants (ninja + compilers). A plain terminate()/kill() hits
+        only the spawned cmake/git pid; on Windows TerminateProcess and on UNIX a single SIGKILL both
+        leave the compiler grandchildren running. taskkill /T walks the child tree; killpg signals the
+        whole session. Falls back to a single-process kill if the tree call fails."""
+        try:
+            if System.windows:
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            else:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except Exception:
+            try: p.kill()
+            except Exception: pass
+        try: p.wait(timeout=2.0)
+        except Exception: pass
 
 
     def close(self):
         self.kill()
+        # Windows has no master_fd: close the child's stdout pipe so a pump thread blocked in os.read
+        # unblocks (a killed cmake's grandchildren may still hold the write end). UNIX EOFs via the
+        # master_fd close below.
+        if System.windows and self.process and self.process.stdout:
+            try: self.process.stdout.close()
+            except OSError: pass
         # Reader thread exits when the PTY master sees EOF (slave closed by
         # the child or by Popen's __exit__). Join briefly to drain any
         # trailing buffered output the io_func hasn't seen yet.
@@ -273,11 +307,14 @@ class SubProcess:
         - idle_timeout: kill if silent this many seconds (raises TimeoutExpired). Needs io_func set.
                    For network git ops that may hang on a prompt; a streaming clone is never killed.
         """
-        if _aborting: raise KeyboardInterrupt('build aborted')  # don't spawn after Ctrl+C
+        if _aborting: raise KeyboardInterrupt('build aborted')  # fast path: don't even spawn after Ctrl+C
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
         pid = p.process.pid if p.process else None
+        with _procs_lock:
+            if _aborting:  # aborted mid-spawn: kill this child now instead of leaking it past terminate_all
+                p.close(); raise KeyboardInterrupt('build aborted')
+            _live_procs.add(p)  # registered so terminate_all() can kill it on Ctrl+C
         if pid is not None: report_subprocess(pid, True)  # live CPU sampling for the owning display task
-        with _procs_lock: _live_procs.add(p)             # so terminate_all() can kill it on Ctrl+C
         try:
             try:
                 if idle_timeout is not None:
