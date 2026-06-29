@@ -1,10 +1,12 @@
 """Unified live display for parallel configure/build jobs.
 
-TTY: a live region of one line per running task, capped to terminal height, redrawn in place
-(superconsole style); finished tasks commit a permanent summary line above it. Non-TTY: plain
-summary lines + a full output dump per task when verbose. Every task keeps its raw colour-preserving
-output for failure replay. Injected seams (out / isatty / term_size / clock) -> unit-testable with
-no real terminal/threads/subprocesses."""
+TTY: a live region of one line per ACTIVELY-running task, capped to terminal height, redrawn in
+place (superconsole style). A dep flows through phases (load -> configure -> build) on ONE task that
+stays put across them; when its whole workflow finishes it commits a single summary line above the
+region, with a per-phase timing breakdown (`P 3.7s  C 363ms  B 415ms`) when more than one phase did
+real work. Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
+Every task keeps its raw colour-preserving output for failure replay. Injected seams (out / isatty /
+term_size / clock) -> unit-testable with no real terminal/threads/subprocesses."""
 
 from __future__ import annotations
 import re, time, threading
@@ -20,24 +22,33 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct 
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
 _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
-
-
-def _fmt_secs(s: float) -> str:
-    return get_time_str(s).rjust(6)  # shared formatter: 200ms / 12.3s / 2m 44s, right-aligned column
+# Single-letter tag per phase for the multi-phase breakdown: G for any Git load (check/clone/pull),
+# L local source, A artifactory, C configure, B build.
+_PHASE_LETTER = {'check': 'G', 'clone': 'G', 'pulling': 'G', 'local': 'L', 'artifactory': 'A',
+                 'configure': 'C', 'build': 'B'}
 
 
 class Task:
+    """One dep across its whole workflow. `kind`/`detail`/`start` track the CURRENT phase; `phases`
+    accumulates (duration, kind, detail) for each completed phase that did real work, so the final
+    summary can show the breakdown. `lines` accumulates across phases for failure replay."""
     def __init__(self, id, kind: str, name: str, start: float, detail: str = ''):
         self.id = id
-        self.kind = kind            # 'configure' | 'build' | ...
-        self.detail = detail        # e.g. '[16]' = cores this build uses, shown after the kind
+        self.kind = kind            # current phase: 'check' | 'configure' | 'build' | ...
+        self.detail = detail        # e.g. 'J16' = cores this build uses, shown after the kind
         self.name = name
-        self.start = start
+        self.start = start          # current phase start
         self.end = None
         self.state = 'run'          # 'run' | 'ok' | 'fail'
         self.cpu = 0.0              # live subprocess-tree CPU% (Linux-style: 8 busy cores ~ 800%)
         self.lines: list[str] = []  # full raw output, colours intact (for replay)
         self.current = ''           # last non-empty line, shown live
+        self.phases: list = []      # completed (duration, kind, detail), interesting phases only
+
+    def begin(self, kind: str, start: float, detail: str = ''):
+        """Resume this task on a new phase (keeps phases/lines, resets the live preview + timer)."""
+        self.kind = kind; self.detail = detail; self.start = start
+        self.end = None; self.state = 'run'; self.current = ''
 
     def feed(self, line: str):
         self.lines.append(line)
@@ -82,12 +93,14 @@ class BuildDisplay:
     # -- task lifecycle ----------------------------------------------------
 
     def start_task(self, id, kind: str, name: str, detail: str = '') -> Task:
-        # Recorded but INVISIBLE until it outlives reveal_delay, so an instant no-op (~0.0s cached
-        # dep) never clutters output. Off-TTY emits only a finish summary, and only if slow enough.
+        # Create on the first phase, else RESUME the existing dep task on a new phase (so check ->
+        # configure -> build stay one line). Either way INVISIBLE until it outlives reveal_delay, so
+        # an instant no-op (~0.0s cached dep) never clutters output.
         with self._lock:
-            t = Task(id, kind, name, self._clock(), detail)
-            self._tasks[id] = t
-            self._active.append(id)
+            t = self._tasks.get(id)
+            if t is None: t = self._tasks[id] = Task(id, kind, name, self._clock(), detail)
+            else:         t.begin(kind, self._clock(), detail)
+            if id not in self._active: self._active.append(id)
         if self._isatty: self.render()  # render OUTSIDE the state lock (terminal I/O must not block feeders)
         return t
 
@@ -113,21 +126,27 @@ class BuildDisplay:
             t.feed(line)
         if self._isatty: self.render()  # state lock released first: a slow draw can't stall the subprocess reader
 
-    def finish_task(self, id, ok: bool):
+    def finish_task(self, id, ok: bool, final: bool = True):
+        # End the current phase. A non-final success stays DORMANT (no summary yet); the dep's last
+        # phase (final=True) or any failure commits ONE merged summary for the whole dep.
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
             t.end = self._clock()
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
-            hide = ok and t.elapsed(t.end) < self._reveal  # instant no-op (cached/<0.1s): prune even in verbose
+            dur = t.elapsed(t.end)
+            if dur >= self._reveal or not ok:  # skip instant phases; always keep a failure
+                t.phases.append((dur, t.kind, t.detail))
+            done = final or not ok                        # workflow over -> emit; else dormant, resume later
+            show = done and (not ok or bool(t.phases))    # all-instant success -> hide (cached no-op)
             if not self._isatty:
-                if not hide:
+                if show:
                     self._writeln(self._summary_line(t))
                     if self._verbose or not ok:
                         for line in t.lines: self._writeln(line)
                 return
-            if not hide: self._pending.append(self._summary_line(t))
+            if show: self._pending.append(self._summary_line(t))
         self.render(force=True)  # commit the summary + redraw the shrunken region, off the state lock
 
     # -- permanent output (above the live region) --------------------------
@@ -211,20 +230,31 @@ class BuildDisplay:
         return self._truncate(f'{icon} {"pending":<24}{name:<22} {reason}', cols)
 
     @staticmethod
-    def _kind_field(t: Task) -> str:
-        s = f'{t.kind} {t.detail}' if t.detail else t.kind   # 'build J12' / 'build J8 ' / 'configure'
-        if t.cpu >= 1.0: s += ' cpu:' + f'{t.cpu:.0f}%'.ljust(5)  # fixed-width slot: 'cpu:132% ' / 'cpu:2790%'
+    def _kind_field(kind: str, detail: str, cpu: float = 0.0) -> str:
+        s = f'{kind} {detail}' if detail else kind   # 'build J12' / 'build J8 ' / 'configure'
+        if cpu >= 1.0: s += ' cpu:' + f'{cpu:.0f}%'.ljust(5)  # fixed-width slot: 'cpu:132% ' / 'cpu:2790%'
         return s
+
+    @staticmethod
+    def _letter(kind: str) -> str:
+        return _PHASE_LETTER.get(kind, (kind[:1] or '?').upper())
+
+    def _time_field(self, t: Task, now: float) -> str:
+        phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
+        if len(phases) == 1:
+            return get_time_str(phases[0][0])  # single phase: bare time (no letter), the classic look
+        return '  '.join(f'{self._letter(k)} {get_time_str(d)}' for d, k, _ in phases)
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
         preview = _ANSI_RE.sub('', t.current)  # strip colours so width math is correct
-        head = f'{icon} {self._kind_field(t):<24}{t.name:<22} {_fmt_secs(t.elapsed(now))}  '
+        head = f'{icon} {self._kind_field(t.kind, t.detail, t.cpu):<24}{t.name:<22} {self._time_field(t, now)}  '
         return self._truncate(head + preview, cols)
 
     def _summary_line(self, t: Task) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
-        return f'{icon} {self._kind_field(t):<24}{t.name:<22} {_fmt_secs(t.elapsed(t.end))}'
+        _, kind, detail = t.phases[-1] if t.phases else (0, t.kind, t.detail)  # kind = last phase that did work
+        return f'{icon} {self._kind_field(kind, detail):<24}{t.name:<22} {self._time_field(t, t.end)}'
 
     # -- live CPU sampling -------------------------------------------------
 

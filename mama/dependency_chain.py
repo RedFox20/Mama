@@ -534,10 +534,11 @@ def _phase_label(dep, kind) -> str:
     return kind
 
 
-def _run_phase(display, dep, kind, body, build_slot, detail=''):
-    """Run one scheduler phase for `dep`: open its display task, route this thread's console
-    output + subprocess CPU + build barrier into it, then run `body(sink)`."""
-    tid = (dep.name, kind)
+def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
+    """Run one scheduler phase for `dep` on its single dep-level display task (keyed by name so all
+    phases share one line): route this thread's console output + subprocess CPU + build barrier into
+    it, run `body(sink)`, then end the phase. `final=True` (the build) commits the merged summary."""
+    tid = dep.name
     sink = lambda line: display.feed(tid, line)
     name = f'{_node_marker(dep)} {dep.name}' if dep.config.verbose else dep.name  # tree markers: verbose only
     display.start_task(tid, _phase_label(dep, kind), name, detail)
@@ -548,7 +549,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail=''):
         ok = True
     finally:
         if kind == 'load': display.relabel(tid, dep.load_action)  # reflect what load() actually did
-        display.finish_task(tid, ok)
+        display.finish_task(tid, ok, final)
 
 
 def _configure_body(dep, sink):
@@ -596,7 +597,7 @@ def _handle_failure(display, failed):
         exit(-1)
     console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
     if display.isatty:  # non-TTY already dumped the output on finish
-        display.replay((failed.node.name, failed.kind))
+        display.replay(failed.node.name)
     if failed.error:
         console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
     exit(-1)
@@ -621,7 +622,8 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     display = _make_display(config)
     sched = _make_scheduler(config, pending_log=display.set_pending)
     cfg = lambda d: _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
-    bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d))
+    bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot,
+                               _build_detail(d), final=True)  # build is the dep's last phase -> commit its summary
     jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
     system.set_active_display(display)
     start = time.monotonic()
@@ -716,7 +718,8 @@ def execute_unified(root: BuildDependency):
         _run_phase(display, dep, 'load', body, sched.build_slot)
 
     def _do_configure(d): _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
-    def _do_build(d): _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d))
+    def _do_build(d):
+        _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d), final=True)
 
     system.set_active_display(display)
     start = time.monotonic()

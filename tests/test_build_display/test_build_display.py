@@ -44,6 +44,39 @@ def test_instant_success_tasks_are_hidden_failures_are_not():
     assert 'instant' not in text and 'slow' in text and 'boom' in text
 
 
+def test_phases_merge_into_one_summary_with_breakdown():
+    d, out, clk = _disp(isatty=False)
+    d.start_task('geo', 'pulling', 'geo'); clk.tick(3.7); d.finish_task('geo', ok=True, final=False)
+    assert out.getvalue() == ''   # an intermediate phase commits nothing - the dep is still working
+    d.start_task('geo', 'configure', 'geo'); clk.tick(0.3); d.finish_task('geo', ok=True, final=False)
+    d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
+    text = strip(out.getvalue())
+    assert text.count('geo') == 1 and 'build J32' in text  # one merged line; kind = last phase that did work
+    assert 'G 3.7s' in text and 'C 0.3s' in text and 'B 0.5s' in text  # G=git pull, C=configure, B=build
+
+
+def test_single_phase_summary_is_bare_time_no_letter():
+    d, out, clk = _disp(isatty=False)
+    d.start_task('x', 'configure', 'x'); clk.tick(2.0); d.finish_task('x', ok=True)  # final defaults True
+    assert '2.0s' in out.getvalue() and 'C 2.0s' not in out.getvalue()
+
+
+def test_instant_phase_dropped_and_live_line_shows_prior_phases():
+    d, _, clk = _disp(isatty=True)
+    d.start_task('g', 'pulling', 'g'); clk.tick(3.7); d.finish_task('g', ok=True, final=False)  # 3.7s pull recorded
+    d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure -> dropped
+    d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
+    line = strip(d._task_line(d._tasks['g'], clk(), 120))
+    assert 'G 3.7s' in line and 'B 0.5s' in line and 'C ' not in line  # prior git pull shown; instant cfg absent
+
+
+def test_phase_letters_collapse_git_and_tag_local_artifactory():
+    L = BuildDisplay._letter
+    assert L('check') == L('clone') == L('pulling') == 'G'  # all git loads share one letter
+    assert L('local') == 'L' and L('artifactory') == 'A'
+    assert L('configure') == 'C' and L('build') == 'B'
+
+
 def test_non_tty_verbose_dumps_full_output():
     d, out, clk = _disp(isatty=False, verbose=True)
     d.start_task(1, 'build', 'bar'); d.feed(1, 'compiling x.cpp'); d.feed(1, 'linking')

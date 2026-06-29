@@ -1,7 +1,7 @@
 """Pins thread-safety of parallel dependency loading: concurrent add_child dedups a shared (diamond)
 dep to one instance; concurrent load() runs the dep's body exactly once."""
 import threading, time
-from testutils import make_mock_config
+from testutils import make_mock_config, make_mock_dep, make_mock_local_dep
 from mama.build_dependency import BuildDependency
 from mama.types.local_source import LocalSource
 from mama.types.git import Git
@@ -40,3 +40,12 @@ def test_concurrent_load_runs_body_once(tmp_path, monkeypatch):
     for t in ts: t.start()
     for t in ts: t.join(5)
     assert len(calls) == 1   # 3 concurrent load() calls -> _load body ran exactly once
+
+
+def test_display_load_action_labels_by_source(tmp_path):
+    git = make_mock_dep(tmp_path, name='gitdep'); git.load_action = 'pulling'
+    assert git._display_load_action(loaded_from_pkg=False) == 'pulling'     # git keeps its action -> G
+    assert git._display_load_action(loaded_from_pkg=True) == 'artifactory'  # served from artifactory -> A
+    src = tmp_path / 'localsrc'; src.mkdir()
+    local = make_mock_local_dep(tmp_path, str(src), name='localdep')
+    assert local._display_load_action(loaded_from_pkg=False) == 'local'     # local source -> L

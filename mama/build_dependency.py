@@ -34,7 +34,7 @@ class BuildDependency:
         self.already_loaded = False
         self.already_executed = False
         self.currently_loading = False
-        self.load_action = 'check'  # what load() did, for the display: 'check' | 'clone' | 'pulling'
+        self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self._load_lock = threading.Lock()  # serialises concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.did_check_artifactory = False # if true, artifactory was already checked and can be skipped
@@ -440,10 +440,19 @@ class BuildDependency:
                 git:Git = self.dep_source
                 git.save_status(self)
 
+        self.load_action = self._display_load_action(loaded_from_pkg)  # refine the breakdown letter (G/L/A)
         self.already_loaded = True
         self.should_rebuild = build
         if conf.list: self._print_list(conf, target)
         return build
+
+
+    def _display_load_action(self, loaded_from_pkg: bool) -> str:
+        """The load label for the display breakdown letter: artifactory (A) / local (L), else the
+        git action (check/clone/pulling -> G) already recorded during checkout."""
+        if loaded_from_pkg:        return 'artifactory'
+        if self.dep_source.is_src: return 'local'
+        return self.load_action
 
 
     def can_fetch_artifactory(self, print: bool, which: str):
