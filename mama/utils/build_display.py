@@ -48,7 +48,7 @@ class Task:
 
 class BuildDisplay:
     def __init__(self, out, isatty: bool, term_size, clock, verbose=False, color=True,
-                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.0):
+                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.5):
         self._out = out
         self._isatty = isatty
         self._term_size = term_size  # () -> (cols, rows)
@@ -233,10 +233,18 @@ class BuildDisplay:
             self._sampler = threading.Thread(target=self._sample_loop, daemon=True)
             self._sampler.start()
 
+    def _next_wait(self, sample_cost: float) -> float:
+        # back off when a sample is expensive (busy host, huge process table) so CPU sampling can never
+        # exceed ~10% of wall-time - a hard cap against starving the build threads (cost*9 -> 1-in-10).
+        return max(self._sample_interval, sample_cost * 9)
+
     def _sample_loop(self):
-        while not self._stop.wait(self._sample_interval):
+        wait = self._sample_interval
+        while not self._stop.wait(wait):
+            t0 = self._clock()
             try: self._sample_once()
             except Exception: pass  # CPU readout is best-effort, never break the display
+            wait = self._next_wait(self._clock() - t0)
             self.render()  # reflect updated CPU numbers (throttled by min_interval)
 
     def _sample_once(self):
@@ -283,40 +291,36 @@ def _make_tree_cpu_sampler():
 
 
 class _PsutilTreeCpu:
-    """Sums CPU% of each build's subprocess tree (cmake -> ninja/make/msbuild -> compilers) from ONE
-    process scan per sample: per-process cpu-time delta over wall-clock, so a tree saturating N cores
-    reads ~N*100%. The single scan replaced per-build children(recursive=True) - a full process-table
-    walk EACH - which dominated sampling cost when many builds ran at once."""
+    """Sums CPU% of each build's subprocess tree (cmake -> ninja/make/msbuild -> compilers): per-process
+    cpu-time delta over wall-clock, so a tree saturating N cores reads ~N*100%. Reads cpu_times ONLY for
+    each build's own tree (NOT every system process - that walked thousands of /proc entries per sample)."""
     def __init__(self, psutil):
         self._ps = psutil
         self._state: dict[int, tuple] = {}  # pid -> (cpu_seconds, wallclock_ts), for the delta
 
     def __call__(self, snapshot) -> dict:
-        """snapshot: {tid: set(root_pids)} -> {tid: cpu%}. One process_iter builds the ppid tree +
-        cpu times for every process; each build's CPU is then summed from those in-memory maps."""
-        ps, now = self._ps, time.time()
-        kids: dict = {}    # ppid -> [child pids]
-        cpu_at: dict = {}  # pid -> (cpu_seconds, create_time)
-        for p in ps.process_iter(['pid', 'ppid', 'cpu_times', 'create_time']):
-            d = p.info
-            t = d['cpu_times']
-            if t is None: continue
-            cpu_at[d['pid']] = (t.user + t.system, d['create_time'] or now)
-            kids.setdefault(d['ppid'], []).append(d['pid'])
-        result, seen = {}, set()
+        """snapshot: {tid: set(root_pids)} -> {tid: cpu%}."""
+        ps, now, result, seen = self._ps, time.time(), {}, set()
         for tid, roots in snapshot.items():
-            tree, stack, total = set(), list(roots), 0.0
-            while stack:
-                pid = stack.pop()
-                if pid in tree or pid not in cpu_at: continue
-                tree.add(pid); stack.extend(kids.get(pid, ()))
-            for pid in tree:
-                seen.add(pid)
-                cur, ctime = cpu_at[pid]
-                base_cpu, base_ts = self._state.get(pid, (0.0, ctime))  # first sight: avg over lifetime so far
-                self._state[pid] = (cur, now)
-                dt = now - base_ts
-                if dt > 0: total += max(0.0, (cur - base_cpu) / dt * 100.0)
+            total = 0.0
+            for rp in roots:
+                try:
+                    root = ps.Process(rp)
+                    tree = [root] + root.children(recursive=True)
+                except ps.Error:
+                    continue
+                for proc in tree:
+                    seen.add(proc.pid)
+                    try: t = proc.cpu_times()
+                    except ps.Error: continue
+                    cur = t.user + t.system
+                    base_cpu, base_ts = self._state.get(proc.pid, (0.0, None))
+                    if base_ts is None:  # first sight: average over the process' lifetime so far
+                        try: base_ts = proc.create_time()
+                        except ps.Error: base_ts = now
+                    self._state[proc.pid] = (cur, now)
+                    dt = now - base_ts
+                    if dt > 0: total += max(0.0, (cur - base_cpu) / dt * 100.0)
             result[tid] = total
         for pid in [p for p in self._state if p not in seen]: del self._state[pid]  # drop dead procs
         return result

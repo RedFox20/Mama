@@ -112,6 +112,13 @@ def test_cpu_sampling_updates_task_and_renders_percent():
     d.close()
 
 
+def test_sampler_backoff_caps_cost_at_tenth_of_walltime():
+    d, _, _ = _disp(isatty=True, sample_interval=1.5)
+    assert d._next_wait(0.01) == 1.5      # cheap sample -> base interval
+    assert d._next_wait(5.7) == 5.7 * 9   # a 5.7s sample -> wait ~51s, so it stays ~10% of wall-time
+    d.close()
+
+
 def test_cpu_sampler_report_counts_samples():
     d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {t: 100.0 for t in snap}, sample_interval=999)
     assert d.cpu_sampler_report() is None              # nothing sampled yet -> no diagnostic
@@ -132,16 +139,21 @@ def test_report_subprocess_attaches_pid_to_current_task():
     d.close()
 
 
-def test_psutil_tree_cpu_one_scan_sums_each_tree(monkeypatch):
-    # One process_iter feeds every build tree: pid 1 (cmake) -> pid 2 (cc); both first-seen, alive 4s
-    # with 12 cpu-sec each -> 300% per process -> 600% summed for the tree rooted at pid 1.
+def test_psutil_tree_cpu_sums_each_build_tree(monkeypatch):
+    # cpu_times is read per build tree only (root pid 1 -> child pid 2); each first-seen, alive 4s with
+    # 12 cpu-sec -> 300% per process -> 600% for the tree. Returns {tid: cpu%}.
     import mama.utils.build_display as bd
     monkeypatch.setattr(bd.time, 'time', lambda: 100.0)
-    def proc(pid, ppid):
-        return SimpleNamespace(info={'pid': pid, 'ppid': ppid,
-                                     'cpu_times': SimpleNamespace(user=12.0, system=0.0), 'create_time': 96.0})
-    Ps = SimpleNamespace(process_iter=lambda attrs: [proc(1, 0), proc(2, 1), proc(9, 9)])  # pid 9 unrelated
-    assert bd._PsutilTreeCpu(Ps)({'t': {1}}) == {'t': 600.0}
+    class E(Exception): pass
+    class P:
+        def __init__(self, pid=1): self.pid = pid
+        def cpu_times(self): return SimpleNamespace(user=12.0, system=0.0)
+        def create_time(self): return 96.0
+        def children(self, recursive=True): return [P(2)] if self.pid == 1 else []
+    class Ps:
+        Error = E
+        def Process(self, pid): return P(pid)
+    assert bd._PsutilTreeCpu(Ps())({'t': {1}}) == {'t': 600.0}
 
 
 def test_replay_dumps_raw_colored_buffer():
