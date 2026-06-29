@@ -1,11 +1,11 @@
-"""Pins `https-override` / `ssh-override`: ssh<->https url rewriting and that a
-protocol-only override is not treated as a url change (no spurious wipe)."""
+"""Pins git.py helpers: ssh<->https url rewriting (protocol-only override is not a url change, no
+spurious wipe) and the update-output noise filter."""
 from unittest.mock import patch
 
 import pytest
 from testutils import make_mock_dep
 
-from mama.types.git import Git, convert_git_url, same_git_remote
+from mama.types.git import Git, convert_git_url, same_git_remote, _is_git_status_noise
 
 GH_SSH = 'git@github.com:KrattWorks/mavlink-headers.git'
 GH_HTTPS = 'https://github.com/KrattWorks/mavlink-headers.git'
@@ -51,6 +51,20 @@ def test_no_override_leaves_url(tmp_path):
     dep = make_mock_dep(tmp_path, url=GH_SSH, git_url_override=None)
     assert dep.dep_source.url == GH_SSH
     assert not dep.dep_source.url_overridden
+
+
+@pytest.mark.parametrize('line', [
+    "Reset branch 'main'", "branch 'main' set up to track 'origin/main'.",
+    "Your branch is up to date with 'origin/main'.", 'Already up to date.', "Switched to branch 'main'",
+    "Your configuration specifies to merge with the ref 'refs/heads/x'", 'from the remote, but no such ref was fetched.'])
+def test_update_noise_is_filtered(line):
+    assert _is_git_status_noise(line)
+
+
+@pytest.mark.parametrize('line', [
+    'error: pathspec broke', 'remote: Enumerating objects: 12, done.', "fatal: couldn't find remote ref x"])
+def test_real_git_output_is_kept(line):
+    assert not _is_git_status_noise(line)
 
 
 def test_check_status_override_is_not_url_change(tmp_path):

@@ -21,6 +21,16 @@ _SCP_GIT_RE = re.compile(r'^(?P<user>[^@/]+)@(?P<host>[^:/]+):(?P<path>.+)$')
 _SCHEME_RE = re.compile(r'^(?P<scheme>[a-zA-Z][\w+.-]*)://(?P<rest>.*)$')
 _FILTERED_GIT_PROGRESS_REPORT_INTERVAL = 0.005
 
+# Benign post-op chatter from git reset/checkout/pull - pure noise outside verbose mode. The
+# "merge with the ref ... no such ref was fetched" pair is the expected pull-then-fetch fallback.
+_GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to date',
+              'Already on ', 'Switched to branch ', 'Switched to a new branch ',
+              'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
+              'There is no tracking information for the current branch')
+
+def _is_git_status_noise(line: str) -> bool:
+    return line.startswith(_GIT_NOISE) or 'set up to track ' in line
+
 def parse_git_url(url: str):
     """Split a remote git url into (scheme, user, host, path). Returns None for
     local paths or anything without a network host, which overrides leave untouched."""
@@ -142,7 +152,9 @@ class Git(DepSource):
         # user can see which target said what (e.g. 'remote: Enumerating ...').
         def prefixed(p:SubProcess, line:str):
             line = line.rstrip()
-            if line: console(f'  {dep.name: <16} {line}')
+            if not line: return
+            if not dep.config.verbose and _is_git_status_noise(line): return  # drop benign reset/track/up-to-date chatter
+            console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
             # idle_timeout: kill a fetch stuck on an auth prompt so a parallel run never freezes.
