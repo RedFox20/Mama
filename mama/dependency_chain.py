@@ -566,8 +566,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             _save_vscode_compile_commands(dep)
         run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
 
-    weight_fn = lambda d: (lambda d=d: _reserve_weight(d))
-    jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn)
+    jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn=_reserve_weight)  # resolved lazily at launch
 
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
@@ -731,9 +730,10 @@ def execute_unified(root: BuildDependency):
             console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
         exit(-1)
 
-    _print_build_summary(get_flat_deps(root), time.monotonic() - start)
+    flat = get_flat_deps(root)
+    _print_build_summary(flat, time.monotonic() - start)
 
-    for dep in reversed(get_flat_deps(root)):  # deploy/run/test: serial, children-first, target-gated
+    for dep in reversed(flat):  # deploy/run/test: serial, children-first, target-gated
         dep.target._execute_deploy_tasks()
         dep.target._execute_run_tasks()
         if config.verbose and not config.test and dep.is_root_or_config_target():

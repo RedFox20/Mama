@@ -54,13 +54,14 @@ def _check_acyclic(jobs: List[Job]):
 def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None) -> List[Job]:
     """Wire a configure + build job per dep. A dep's configure waits on every in-set
     child's build (its dependencies.cmake embeds child build outputs); its build waits
-    on its own configure. `weight_fn(dep)` may return an int or a zero-arg callable for a
-    lazy TU probe. `children_fn(dep)` defaults to `dep.get_children()`."""
+    on its own configure. `weight_fn(dep)` returns the build's core weight, called lazily
+    at launch (after configure, when the TU count is known). `children_fn(dep)` defaults
+    to `dep.get_children()`."""
     children_fn = children_fn or (lambda d: d.get_children())
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
     cfg = {d: Job((d, 'c'), CONFIGURE, (lambda x=d: configure_fn(x)), node=d) for d in deps}
-    bld = {d: Job((d, 'b'), BUILD, (lambda x=d: build_fn(x)), weight=weight_fn(d), node=d) for d in deps}
+    bld = {d: Job((d, 'b'), BUILD, (lambda x=d: build_fn(x)), weight=(lambda x=d: weight_fn(x)), node=d) for d in deps}
     for d in deps:
         bld[d].deps.add(cfg[d])
         for child in children_fn(d):
@@ -206,17 +207,18 @@ class Scheduler:
                         f'{self._core_budget * self._overprovision:.0f}{slots} building[{len(running)}]: {run_s} '
                         f'| blocked: {blk_s}')
 
+    def _account(self, job: Job, sign: int):
+        """Adjust the per-kind running counters (and reserved cores for BUILD) by +1/-1 in one place."""
+        self._n_running += sign
+        if job.kind == LOAD:        self._n_load += sign
+        elif job.kind == CONFIGURE: self._n_config += sign
+        else:                       self._reserved += sign * job._rweight
+
     def _launch(self, job: Job, ex: concurrent.futures.ThreadPoolExecutor):
         job.started = True
-        self._n_running += 1
         self._running.add(job)
-        if job.kind == LOAD:
-            self._n_load += 1
-        elif job.kind == CONFIGURE:
-            self._n_config += 1
-        else:
-            job._rweight = self._resolve_weight(job)
-            self._reserved += job._rweight
+        if job.kind == BUILD: job._rweight = self._resolve_weight(job)  # fixed at launch, reused at completion
+        self._account(job, +1)
         ex.submit(self._exec, job)
 
     def _exec(self, job: Job):
@@ -226,11 +228,8 @@ class Scheduler:
             job.error = e
         with self._cond:
             job.done = True
-            self._n_running -= 1
             self._running.discard(job)
-            if job.kind == LOAD:        self._n_load -= 1
-            elif job.kind == CONFIGURE: self._n_config -= 1
-            else:                       self._reserved -= job._rweight
+            self._account(job, -1)
             if job.error is not None and self._error is None:
                 self._error = job  # first failure wins; stops further launches
             self._cond.notify_all()

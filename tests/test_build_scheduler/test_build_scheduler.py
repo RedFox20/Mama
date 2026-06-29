@@ -231,9 +231,8 @@ def test_build_dep_jobs_orders_parent_configure_after_child_build():
     assert log.index(('cfg', 'parent')) < log.index(('bld', 'parent'))  # own configure before own build
 
 
-def test_build_dep_jobs_lazy_weight_is_resolved_per_dep():
+def test_build_dep_jobs_resolves_weight_lazily_per_dep():
     d = _Dep('x')
-    jobs = build_dep_jobs([d], configure_fn=lambda d: None, build_fn=lambda d: None,
-                          weight_fn=lambda d: (lambda: 7))
+    jobs = build_dep_jobs([d], configure_fn=lambda d: None, build_fn=lambda d: None, weight_fn=lambda d: 7)
     build = next(j for j in jobs if j.kind == BUILD)
     assert Scheduler._resolve_weight(build) == 7

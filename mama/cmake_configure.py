@@ -142,8 +142,12 @@ def _wipe_build_dir(target:BuildTarget):
     shutil.rmtree(util.path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
 
 
+def _sink(target, out):
+    return out if out is not None else getattr(target, '_out_sink', None)  # capture even custom build()s
+
+
 def run_config(target:BuildTarget, out=None, _seed=True):
-    out = out if out is not None else getattr(target, '_out_sink', None)  # capture even custom build()s
+    out = _sink(target, out)
     must_configure = target.config.update or target.config.run_cmake_configure
     # also reconfigure if sanitizer flags changed
     if not must_configure:
@@ -194,7 +198,7 @@ def is_rerunnable_error(output:str):
 
 
 def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=None):
-    out = out if out is not None else getattr(target, '_out_sink', None)  # capture even custom build()s
+    out = _sink(target, out)
     build_dir = target.build_dir()
     flags = _build_config(target, install)
     extraflags = _buildsys_flags(target)

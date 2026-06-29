@@ -1378,9 +1378,6 @@ class BuildTarget:
         if not self._build_jobs: return 0
         return min(self._build_jobs, max(1, self.config.jobs // 2))
 
-    def _count_translation_units(self) -> int:
-        return self._count_tu()[0]
-
     def _count_tu(self) -> tuple:
         """(TU count, method) - generator-agnostic, most-accurate first:
           compile_commands.json          (Ninja, or Make/VS only when export is on) -> "file" entries
