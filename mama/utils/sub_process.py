@@ -365,16 +365,14 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None, out=None):
     - out: optional `(line) -> None` sink; when set, lines go there instead of being printed
     - returns: (exit_status, output_string)
     """
+    lines = []  # list + join, NOT output += line: the latter is O(n^2) over a big build's output
+    def handle_output(p:SubProcess, line:str):
+        if out:    out(line)
+        elif echo: print(line)
+        lines.append(line)
     try:
-        exit_status = -1
-        output = ''
-        def handle_output(p:SubProcess, line:str):
-            nonlocal output
-            if out:    out(line)
-            elif echo: print(line)
-            output += line
-            output += '\n' # newline is not included
         exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
-        return (exit_status, output)
+        return (exit_status, '\n'.join(lines))
     except Exception as e:
-        return (-1, f'{output}{e}')
+        lines.append(str(e))
+        return (-1, '\n'.join(lines))

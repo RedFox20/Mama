@@ -450,12 +450,12 @@ class Git(DepSource):
         Returns (exit_code, captured_output, elapsed_str). Does not raise.
         Used by full clone and by the sparse mamafile probe so both share the
         same nice UI instead of spewing git's raw remote: output."""
-        output = ''
+        output = []  # list + join, not output += line (O(n^2) over a big checkout's file list)
         start = time.monotonic()
         last_progress_at = None
         last_progress = (None, -1)
         def print_output(p:SubProcess, line:str):
-            nonlocal output, last_progress_at, last_progress
+            nonlocal last_progress_at, last_progress
             if 'remote: Counting objects:' in line or \
                 'remote: Compressing objects:' in line or \
                 'Receiving objects:' in line or \
@@ -493,8 +493,7 @@ class Git(DepSource):
                 console(line)
                 p.write('yes\n') # get us unstuck
             elif line:
-                output += line
-                output += '\n'
+                output.append(line)
                 if dep.config.verbose:
                     console(line)
 
@@ -507,9 +506,9 @@ class Git(DepSource):
             try:
                 result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
-                output += f'\n[mama] git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)'
+                output.append(f'[mama] git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
                 result = -1
-        return result, output, get_time_str(time.monotonic() - start)
+        return result, '\n'.join(output), get_time_str(time.monotonic() - start)
 
 
     def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):

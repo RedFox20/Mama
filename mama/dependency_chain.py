@@ -10,9 +10,7 @@ from .utils.system import Color, console, error
 
 
 def _get_cmake_path_list(paths):
-    pathlist = '' 
-    for path in paths: pathlist += f'\n    "{path}"'
-    return pathlist
+    return ''.join(f'\n    "{path}"' for path in paths)
 
 
 def _get_exported_libs(target):
