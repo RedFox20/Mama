@@ -235,7 +235,7 @@ def get_file_size_str(size):
 
 
 def get_time_str(seconds: float):
-    if seconds < 1: return f'{int(seconds*1000)}ms'
+    if seconds < 0.1: return f'{int(seconds*1000)}ms'  # ms only below 0.1s, else 0.0s; 0.2s beats 200ms
     if seconds < 60: return f'{seconds:.1f}s'
     if seconds < 60*60: return f'{int(seconds/60)}m {int(seconds%60)}s'
     if seconds < 24*60*60: return f'{int(seconds/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
