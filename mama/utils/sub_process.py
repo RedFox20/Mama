@@ -231,7 +231,9 @@ class SubProcess:
         """Kill the child AND its descendants (ninja + compilers). A plain terminate()/kill() hits
         only the spawned cmake/git pid; on Windows TerminateProcess and on UNIX a single SIGKILL both
         leave the compiler grandchildren running. taskkill /T walks the child tree; killpg signals the
-        whole session. Falls back to a single-process kill if the tree call fails."""
+        whole session. Falls back to a single-process kill if the tree call fails.
+        Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs nor be
+        blocked by the _aborting guard (it runs precisely while aborting)."""
         try:
             if System.windows:
                 subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)],
