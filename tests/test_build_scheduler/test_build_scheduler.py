@@ -119,6 +119,20 @@ def test_ungated_build_bypasses_cpu_and_budget_gate():
     assert sched._can_launch(Job('root', BUILD, lambda: None, weight=8, ungated=True)) is True
 
 
+def test_pending_hint_reports_blocked_build_then_waiting_dep():
+    sched = _sched(core_budget=8, overprovision=1.0)
+    sched._reserved = 8; sched._cpu_now = 100.0  # budget full + CPU pegged
+    blocked = Job('b', BUILD, lambda: None, weight=8, node=SimpleNamespace(name='geo'))
+    name, reason = sched._pending_hint([blocked])
+    assert name == 'geo' and 'cpu' in reason          # a governor-held build -> CPU reason
+    undone = Job('d', BUILD, lambda: None, node=SimpleNamespace(name='ReCpp'))   # not done
+    waiter = Job('w', BUILD, lambda: None, deps=[undone], node=SimpleNamespace(name='app'))
+    sched._pending = [waiter]
+    assert sched._pending_hint([]) == ('app', 'waiting for ReCpp')  # nothing gated -> waiting on a dep
+    sched._pending = []
+    assert sched._pending_hint([]) is None            # nothing waiting -> no hint
+
+
 def test_build_dep_jobs_marks_root_build_ungated():
     leaf = _Dep('leaf'); root = _Dep('root'); root.is_root = True
     jobs = build_dep_jobs([leaf, root], configure_fn=lambda d: None, build_fn=lambda d: None)

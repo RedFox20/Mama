@@ -62,6 +62,7 @@ class BuildDisplay:
         self._tasks: dict[object, Task] = {}
         self._active: list[object] = []  # ids in start order
         self._pending: list[str] = []    # permanent lines to flush above the region
+        self._pending_hint = None        # (name, reason) of the single next blocked task, shown live
         self._drawn = 0                  # active region lines drawn last frame
         self._last_render = 0.0
         self._lock = threading.RLock()        # guards task/region state (held only briefly)
@@ -94,6 +95,15 @@ class BuildDisplay:
         with self._lock:
             t = self._tasks.get(id)
             if t is not None: t.kind = kind
+
+    def set_pending(self, hint):
+        """Show the single next blocked task `(name, reason)` below the live region, or clear it (None).
+        Renders on change so the line updates even when nothing else draws - the stalled-scheduler case
+        the user most wants to see."""
+        with self._lock:
+            if hint == self._pending_hint: return
+            self._pending_hint = hint
+        if self._isatty: self.render()
 
     def feed(self, id, line: str):
         with self._lock:
@@ -188,11 +198,16 @@ class BuildDisplay:
         cols, rows = self._term_size()
         cap = max(1, rows - self._margin)
         ids = [i for i in self._active if self._tasks[i].elapsed(now) >= self._reveal]  # past reveal delay
-        if len(ids) > cap:
-            shown = [self._task_line(self._tasks[i], now, cols) for i in ids[:cap - 1]]
-            shown.append(self._truncate(f'  ... (+{len(ids) - (cap - 1)} more)', cols))
-            return shown
-        return [self._task_line(self._tasks[i], now, cols) for i in ids]
+        lines = [self._task_line(self._tasks[i], now, cols) for i in ids]
+        if self._pending_hint:  # the single next blocked task + why, so a stall is visible at a glance
+            lines.append(self._pending_line(self._pending_hint[0], self._pending_hint[1], cols))
+        if len(lines) > cap:
+            lines[cap - 1:] = [self._truncate(f'  ... (+{len(lines) - (cap - 1)} more)', cols)]
+        return lines
+
+    def _pending_line(self, name: str, reason: str, cols: int) -> str:
+        icon = self._colored('~', Color.BLUE)
+        return self._truncate(f'{icon} {"pending":<24}{name:<22} {reason}', cols)
 
     @staticmethod
     def _kind_field(t: Task) -> str:

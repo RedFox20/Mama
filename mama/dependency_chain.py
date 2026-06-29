@@ -606,7 +606,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     deps = list(flat_deps_reverse)
     config = deps[0].config
     display = _make_display(config)
-    sched = _make_scheduler(config)
+    sched = _make_scheduler(config, pending_log=display.set_pending)
     cfg = lambda d: _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
     bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d))
     jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
@@ -678,7 +678,7 @@ def execute_unified(root: BuildDependency):
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
     config.update_stats.start()
     display = _make_display(config)
-    sched = _make_scheduler(config, max_load=config.parallel_max)
+    sched = _make_scheduler(config, max_load=config.parallel_max, pending_log=display.set_pending)
     load_jobs: dict = {}; cfg_jobs: dict = {}; bld_jobs: dict = {}  # dep -> Job (mutated under sched lock)
 
     def make_jobs(dep, parent_load):

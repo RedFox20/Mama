@@ -156,6 +156,17 @@ def test_render_throttle_skips_within_min_interval():
     assert len(out.getvalue()) > n
 
 
+def test_set_pending_shows_then_clears_the_blocked_task_line():
+    d, _, _ = _disp(isatty=True, rows=24)
+    d.start_task(1, 'build', 'krattlink', detail='J12')
+    d.set_pending(('geo', 'cpu 92% >= 85%'))
+    region = strip('\n'.join(d._region_lines(1.0)))
+    assert 'pending' in region and 'geo' in region and 'cpu 92%' in region
+    d.set_pending(None)
+    assert 'pending' not in strip('\n'.join(d._region_lines(1.0)))
+    d.close()
+
+
 def test_render_skips_when_another_thread_is_drawing():
     # A non-forced render must not block while another thread holds the render lock (that block would
     # stall the subprocess reader -> fill the pipe -> stall the compiler). It skips; a later draw covers it.

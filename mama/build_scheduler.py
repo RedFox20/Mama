@@ -81,7 +81,7 @@ class Scheduler:
     def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
                  load_threshold: float = 85.0, overprovision: float = 2.0, cpu_sampler: Callable[[], float] = None,
                  poll_interval: float = 1.0, max_workers: int = 256, debug_log: Callable[[str], None] = None,
-                 abort_hook: Callable[[], None] = None):
+                 abort_hook: Callable[[], None] = None, pending_log: Callable[[Optional[tuple]], None] = None):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
         self._max_load = max(1, max_load)
@@ -92,6 +92,7 @@ class Scheduler:
         self._max_workers = max_workers
         self._debug_log = debug_log   # optional (str)->None sink for per-second scheduler state
         self._abort_hook = abort_hook # optional ()->None called on Ctrl+C to kill in-flight child processes
+        self._pending_log = pending_log # optional ((name,reason)|None)->None: the single next blocked task
         self._aborted = False
         self._cond = threading.Condition()
         self._pending: List[Job] = []  # jobs not yet launched (grows dynamically via grow())
@@ -144,6 +145,7 @@ class Scheduler:
                         else:
                             blocked.append(job)  # deps ready but a governor held it back
                 self._maybe_debug(blocked)
+                if self._pending_log is not None: self._pending_log(self._pending_hint(blocked))
                 if not progressed:
                     if self._n_running == 0 and self._pending and not self._error:
                         # nothing running and nothing launchable: the remaining jobs have unmet
@@ -220,6 +222,28 @@ class Scheduler:
                 self._n_slot -= 1
                 self._cond.notify_all()
 
+    @staticmethod
+    def _name(job: Job):
+        return getattr(job.node, 'name', None) or str(job.key)
+
+    def _pending_hint(self, blocked: List[Job]):
+        """The single next task waiting to launch + why, for the live display: a governor-held job
+        (deps ready, gated by CPU/budget/slots) if any, else a job still waiting on a dep. None if
+        nothing's waiting (the scheduler is keeping up)."""
+        if blocked:
+            return (self._name(blocked[0]), self._block_reason(blocked[0]))
+        for job in self._pending:
+            undone = [d for d in job.deps if not d.done]
+            if undone: return (self._name(job), f'waiting for {self._name(undone[0])}')
+        return None
+
+    def _block_reason(self, job: Job) -> str:
+        if job.kind == LOAD:      return f'clone slots full ({self._n_load}/{self._max_load})'
+        if job.kind == CONFIGURE: return f'configure slots full ({self._n_config}/{self._max_configure})'
+        w = self._resolve_weight(job)  # BUILD: held by _build_admits (CPU gate or budget exhausted)
+        if self._cpu_now >= self._load_threshold: return f'cpu {self._cpu_now:.0f}% >= {self._load_threshold:.0f}%'
+        return f'budget {self._reserved}+{w} > {self._core_budget * self._overprovision:.0f}'
+
     def _maybe_debug(self, blocked: List[Job]):
         """Once per second, emit reserved/budget, running + governor-blocked builds (with weights),
         and the sampled CPU - so parallelism can be observed."""
@@ -227,7 +251,7 @@ class Scheduler:
         now = time.monotonic()
         if now - self._last_debug < 1.0: return
         self._last_debug = now
-        name = lambda j: getattr(j.node, 'name', None) or j.key
+        name = self._name
         running = [j for j in self._running if j.kind == BUILD]
         run_s = ' '.join(f'{name(j)}({j._rweight})' for j in running) or '-'
         blk_s = ' '.join(f'{name(j)}({self._resolve_weight(j)})' for j in blocked if j.kind == BUILD) or '-'
