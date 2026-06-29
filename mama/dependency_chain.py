@@ -4,7 +4,7 @@ from typing import List
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from .util import read_text_from, write_text_to, save_file_if_contents_changed, get_time_str
-from .utils import ssh_multiplex
+from .utils import ssh_multiplex, system
 from .utils.system import Color, console, error
 
 
@@ -529,50 +529,81 @@ def _make_display(config):
                         verbose=config.verbose)
 
 
+# The two parallel runners (execute_task_chain_parallel, execute_unified) share these: one job phase,
+# the configure/build bodies, scheduler construction, failure handling, and the deploy post-pass.
+_DISPLAY_LABEL = {'load': 'clone'}  # task kind -> friendlier display label; others show the kind verbatim
+
+
+def _run_phase(display, dep, kind, body, build_slot, detail=''):
+    """Run one scheduler phase (load/configure/build) for `dep`: open its display task, route this
+    thread's console output + subprocess CPU + the build barrier into it, then run `body(sink)`."""
+    tid = (dep.name, kind)
+    sink = lambda line: display.feed(tid, line)
+    display.start_task(tid, _DISPLAY_LABEL.get(kind, kind), f'{_node_marker(dep)} {dep.name}', detail)
+    ok = False
+    try:
+        with system.capture_to(sink, display, tid, build_slot):  # console + CPU + build barrier
+            body(sink)
+        ok = True
+    finally:
+        display.finish_task(tid, ok)
+
+
+def _configure_body(dep, sink):
+    _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
+    dep.target.configure_phase(out=sink)
+
+
+def _build_body(dep, sink):
+    dep.target.build_phase(out=sink)
+    dep.already_executed = True
+    _save_vscode_compile_commands(dep)
+
+
+def _make_scheduler(config, **extra):
+    """The build Scheduler with a primed psutil CPU sampler and (verbose) the [sched] debug log."""
+    import psutil
+    from .build_scheduler import Scheduler
+    cpu = psutil.cpu_count() or 4
+    psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
+    return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs,
+                     cpu_sampler=lambda: psutil.cpu_percent(interval=None),
+                     debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None, **extra)
+
+
+def _handle_failure(display, failed):
+    """First failed job -> replay its captured output (TTY) + traceback, then exit nonzero."""
+    import traceback
+    console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
+    if display.isatty:  # non-TTY already dumped the output on finish
+        display.replay((failed.node.name, failed.kind))
+    if failed.error:
+        console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
+    exit(-1)
+
+
+def _deploy_run_postpass(deps, config):
+    """Deploy/run/test post-pass: target-specific, cheap, kept serial and children-first."""
+    for dep in deps:
+        dep.target._execute_deploy_tasks()
+        dep.target._execute_run_tasks()
+        if config.verbose and not config.test and dep.is_root_or_config_target():
+            print_dependencies(dep)
+
+
 def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
-    """Parallel counterpart of execute_task_chain: a DAG scheduler runs each dep's configure
-    and build as separate jobs (a dep's configure waits on its children's builds), with a live
-    display. Deploy/run/test stay in a serial post-pass. Falls back to the serial path for
-    trivial graphs (see main)."""
-    import time, traceback, psutil
-    from .build_scheduler import Scheduler, build_dep_jobs
-    from .utils import system
+    """Parallel counterpart of execute_task_chain: a DAG scheduler runs each dep's configure and
+    build as separate jobs (a dep's configure waits on its children's builds), with a live display.
+    Deploy/run/test stay in a serial post-pass. Falls back to serial for trivial graphs (see main)."""
+    import time
+    from .build_scheduler import build_dep_jobs
     deps = list(flat_deps_reverse)
     config = deps[0].config
     display = _make_display(config)
-
-    def run_phase(dep, kind, body, detail=''):
-        tid = (dep.name, kind)
-        sink = lambda line: display.feed(tid, line)
-        display.start_task(tid, kind, f'{_node_marker(dep)} {dep.name}', detail)
-        ok = False
-        try:
-            with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
-                body(sink)
-            ok = True
-        finally:
-            display.finish_task(tid, ok)
-
-    def configure_fn(dep):
-        def body(sink):
-            _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
-            dep.target.configure_phase(out=sink)
-        run_phase(dep, 'configure', body)
-
-    def build_fn(dep):
-        def body(sink):
-            dep.target.build_phase(out=sink)
-            dep.already_executed = True
-            _save_vscode_compile_commands(dep)
-        run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
-
-    jobs = build_dep_jobs(deps, configure_fn, build_fn, weight_fn=_reserve_weight)  # resolved lazily at launch
-
-    cpu = psutil.cpu_count() or 4
-    psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
-    sched = Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs,
-                      cpu_sampler=lambda: psutil.cpu_percent(interval=None),
-                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
+    sched = _make_scheduler(config)
+    cfg = lambda d: _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
+    bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d))
+    jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
     system.set_active_display(display)
     start = time.monotonic()
     try:
@@ -580,26 +611,9 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     finally:
         display.close()
         system.set_active_display(None)
-
-    if failed is not None:
-        console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
-        if display.isatty:  # non-TTY already dumped the output on finish
-            display.replay((failed.node.name, failed.kind))
-        if failed.error:
-            console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
-        exit(-1)
-
+    if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
-
-    # deploy/run/test are target-specific and cheap; keep them serial and ordered
-    for dep in flat_deps_reverse:
-        dep.target._execute_deploy_tasks()
-        dep.target._execute_run_tasks()
-        if dep.config.verbose and not dep.config.test and dep.is_root_or_config_target():
-            print_dependencies(dep)
-
-
-_PHASE_LABEL = {'load': 'clone', 'configure': 'configure', 'build': 'build'}
+    _deploy_run_postpass(flat_deps_reverse, config)
 
 
 def _reserve_weight(dep) -> int:
@@ -653,26 +667,14 @@ def execute_unified(root: BuildDependency):
     BUILD on its CONFIGURE. So leaf nodes configure+build while deeper deps are still cloning. Replaces
     the load->flatten->execute split for a plain full build (main() falls back to the old path for
     targeted/list/deps_only/serial runs). Deploy/run/test remain a serial post-pass."""
-    import time, traceback, psutil
-    from .build_scheduler import Scheduler, Job, LOAD, CONFIGURE, BUILD
-    from .utils import system, ssh_multiplex
+    import time
+    from .build_scheduler import Job, LOAD, CONFIGURE, BUILD
     config = root.config
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
     config.update_stats.start()
     display = _make_display(config)
+    sched = _make_scheduler(config, max_load=config.parallel_max)
     load_jobs: dict = {}; cfg_jobs: dict = {}; bld_jobs: dict = {}  # dep -> Job (mutated under sched lock)
-
-    def run_phase(dep, label, body, detail=''):
-        tid = (dep.name, label)
-        sink = lambda line: display.feed(tid, line)
-        display.start_task(tid, label, f'{_node_marker(dep)} {dep.name}', detail)
-        ok = False
-        try:
-            with system.capture_to(sink, display, tid, sched.build_slot):  # console + CPU + build barrier
-                body(sink)
-            ok = True
-        finally:
-            display.finish_task(tid, ok)
 
     def make_jobs(dep, parent_load):
         L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
@@ -693,26 +695,11 @@ def execute_unified(root: BuildDependency):
                 cfg_jobs[dep].deps.update(bld_jobs[c] for c in dep.get_children())  # configure waits on child builds
                 return new
             sched.grow(grow)
-        run_phase(dep, 'clone', body)
+        _run_phase(display, dep, 'load', body, sched.build_slot)
 
-    def _do_configure(dep):
-        def body(sink):
-            _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
-            dep.target.configure_phase(out=sink)
-        run_phase(dep, 'configure', body)
+    def _do_configure(d): _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
+    def _do_build(d): _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d))
 
-    def _do_build(dep):
-        def body(sink):
-            dep.target.build_phase(out=sink)
-            dep.already_executed = True
-            _save_vscode_compile_commands(dep)
-        run_phase(dep, 'build', body, detail=_build_detail(dep))  # [#] = cores this build uses
-
-    cpu = psutil.cpu_count() or 4
-    psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
-    sched = Scheduler(max_load=config.parallel_max, max_configure=min(cpu * 2, 32), core_budget=config.jobs,
-                      cpu_sampler=lambda: psutil.cpu_percent(interval=None),
-                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None)
     system.set_active_display(display)
     start = time.monotonic()
     try:
@@ -721,23 +708,10 @@ def execute_unified(root: BuildDependency):
         display.close()
         system.set_active_display(None)
         config.update_stats.stop()
-
-    if failed is not None:
-        console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
-        if display.isatty:  # non-TTY already dumped the output on finish
-            display.replay((failed.node.name, _PHASE_LABEL.get(failed.kind, failed.kind)))
-        if failed.error:
-            console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
-        exit(-1)
-
+    if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)
-
-    for dep in reversed(flat):  # deploy/run/test: serial, children-first, target-gated
-        dep.target._execute_deploy_tasks()
-        dep.target._execute_run_tasks()
-        if config.verbose and not config.test and dep.is_root_or_config_target():
-            print_dependencies(dep)
+    _deploy_run_postpass(reversed(flat), config)
 
 
 def find_dependency(root: BuildDependency, name: str) -> BuildDependency:
