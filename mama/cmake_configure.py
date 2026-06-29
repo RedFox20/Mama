@@ -433,7 +433,8 @@ def _build_config(target:BuildTarget, install:bool):
 def _jobs(target:BuildTarget) -> int:
     """Build parallelism for this target: a scheduler-sized `_build_jobs` (from the TU probe)
     when set, else the global `config.jobs`. Per-target so concurrent builds never clobber
-    a shared `-j` value."""
+    a shared `-j` value. The root runs alone after all deps, so it always gets full `config.jobs`."""
+    if getattr(target.dep, 'is_root', False): return target.config.jobs
     return getattr(target, '_build_jobs', None) or target.config.jobs
 
 

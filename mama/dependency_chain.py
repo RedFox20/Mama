@@ -624,14 +624,16 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
 
 
 def _reserve_weight(dep) -> int:
-    """Cores reserved for a build job AT LAUNCH. A custom build() reserves from inside cmake_build()
-    (the build_barrier), so launch its runner free (0); a default build reserves its capped cores."""
-    if dep.target._has_custom_build(): return 0
+    """Cores reserved for a build job AT LAUNCH. The root is ungated and runs alone, and a custom
+    build() reserves from inside cmake_build() (the barrier): both launch free (0). A default build
+    reserves its capped cores."""
+    if dep.is_root or dep.target._has_custom_build(): return 0
     return dep.target._reserved_cores()
 
 
 def _build_detail(dep) -> str:
-    return f'J{dep.target._reserved_cores():<2}'  # -j cores this build occupies (capped at jobs/2); fixed width
+    cores = dep.config.jobs if dep.is_root else dep.target._reserved_cores()  # root runs alone at full -j
+    return f'J{cores:<2}'
 
 
 def _node_marker(dep) -> str:
@@ -683,7 +685,7 @@ def execute_unified(root: BuildDependency):
         L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
         C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), deps={L}, node=dep)
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
-                weight=(lambda d=dep: _reserve_weight(d)))
+                weight=(lambda d=dep: _reserve_weight(d)), ungated=getattr(dep, 'is_root', False))
         load_jobs[dep] = L; cfg_jobs[dep] = C; bld_jobs[dep] = B
         return [L, C, B]
 

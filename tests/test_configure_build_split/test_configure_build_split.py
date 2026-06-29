@@ -82,11 +82,13 @@ def test_compute_env_strips_cc_cxx_without_mutating_global(tmp_path, monkeypatch
 
 
 def test_per_target_jobs_flow_into_j_flag_without_touching_config(tmp_path):
-    t, _ = _target(tmp_path)  # config.jobs = 8, linux
+    t, dep = _target(tmp_path)  # config.jobs = 8, linux
     t._build_jobs = 3
     assert cc._mp_flags(t) == '-j3' and t.config.jobs == 8
     t._build_jobs = None
     assert cc._mp_flags(t) == '-j8'  # falls back to config.jobs
+    dep.is_root = True; t._build_jobs = 3
+    assert cc._mp_flags(t) == '-j8'  # root ignores the per-target TU sizing, runs at full config.jobs
 
 
 def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):

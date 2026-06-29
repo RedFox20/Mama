@@ -21,13 +21,14 @@ class BuildInterrupted(RuntimeError):
 
 class Job:
     def __init__(self, key, kind: str, run: Callable[[], None],
-                 deps: Iterable['Job'] = (), weight=1, node=None):
+                 deps: Iterable['Job'] = (), weight=1, node=None, ungated=False):
         self.key = key
         self.kind = kind
         self.run = run
         self.deps = set(deps)
         self.weight = weight   # int, or a zero-arg callable resolved at launch (lazy TU probe)
         self.node = node
+        self.ungated = ungated # BUILD that bypasses the CPU/budget gate (the root: runs alone after its deps)
         self.started = False
         self.done = False
         self.error: Optional[BaseException] = None
@@ -67,7 +68,8 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
     cfg = {d: Job((d, 'c'), CONFIGURE, (lambda x=d: configure_fn(x)), node=d) for d in deps}
-    bld = {d: Job((d, 'b'), BUILD, (lambda x=d: build_fn(x)), weight=(lambda x=d: weight_fn(x)), node=d) for d in deps}
+    bld = {d: Job((d, 'b'), BUILD, (lambda x=d: build_fn(x)), weight=(lambda x=d: weight_fn(x)),
+                  node=d, ungated=getattr(d, 'is_root', False)) for d in deps}
     for d in deps:
         bld[d].deps.add(cfg[d])
         for child in children_fn(d):
@@ -178,6 +180,8 @@ class Scheduler:
             return self._n_load < self._max_load   # network/IO bound: simple count cap
         if job.kind == CONFIGURE:
             return self._n_config < self._max_configure
+        if job.ungated:  # BUILD the root: launch the moment its deps are done, no CPU/budget gate
+            return True
         return self._build_admits(self._resolve_weight(job))  # BUILD
 
     def _build_admits(self, weight: int) -> bool:

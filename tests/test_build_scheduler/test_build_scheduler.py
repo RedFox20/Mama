@@ -110,6 +110,22 @@ def test_build_governor_respects_core_budget():
     assert p.max == 2
 
 
+def test_ungated_build_bypasses_cpu_and_budget_gate():
+    # The root build is ungated: it launches even when the budget is full and CPU is pegged (it runs
+    # alone after all deps), gated only by its own deps being done.
+    sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)
+    sched._reserved = 8; sched._cpu_now = 100.0  # budget exhausted, CPU maxed
+    assert sched._can_launch(Job('leaf', BUILD, lambda: None, weight=8)) is False    # normal build held back
+    assert sched._can_launch(Job('root', BUILD, lambda: None, weight=8, ungated=True)) is True
+
+
+def test_build_dep_jobs_marks_root_build_ungated():
+    leaf = _Dep('leaf'); root = _Dep('root'); root.is_root = True
+    jobs = build_dep_jobs([leaf, root], configure_fn=lambda d: None, build_fn=lambda d: None)
+    builds = {j.node: j for j in jobs if j.kind == BUILD}
+    assert builds[root].ungated and not builds[leaf].ungated
+
+
 def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
     # krattgcs has ~20 small leaf deps; with the old CPU gate they ran one-at-a-time. Small TU
     # weights must fill the core budget concurrently even while the sampler reads saturated.

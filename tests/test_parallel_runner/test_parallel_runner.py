@@ -23,6 +23,7 @@ class _T(FakeBuildTarget):
 class _D:
     def __init__(self, name, config, children=()):
         self.name = name; self.config = config; self._children = list(children); self.already_executed = False
+        self.is_root = False; self.load_action = 'check'
     def get_children(self): return self._children
     def is_root_or_config_target(self): return False
 
@@ -64,8 +65,10 @@ def test_node_marker_root_leaf_trunk():
 
 
 def test_build_detail_is_fixed_width_j_cores():
-    d = lambda cores: SimpleNamespace(target=SimpleNamespace(_reserved_cores=lambda: cores))
-    assert dc._build_detail(d(4)) == 'J4 ' and dc._build_detail(d(12)) == 'J12'  # same width, aligns
+    d = lambda cores, root=False, jobs=0: SimpleNamespace(is_root=root, config=SimpleNamespace(jobs=jobs),
+                                                          target=SimpleNamespace(_reserved_cores=lambda: cores))
+    assert dc._build_detail(d(4)) == 'J4 ' and dc._build_detail(d(12)) == 'J12'  # capped cores, same width
+    assert dc._build_detail(d(4, root=True, jobs=64)) == 'J64'                   # root shows full jobs, not the cap
 
 
 def test_run_phase_shows_tree_marker_only_in_verbose(monkeypatch):
@@ -107,12 +110,13 @@ def test_run_phase_relabels_load_to_actual_action(monkeypatch):
     assert 'k' not in seen               # only 'load' is relabeled, not other phases
 
 
-def test_reserve_weight_is_zero_for_custom_build_else_reserved_cores():
-    def mk(custom, cores):
+def test_reserve_weight_is_zero_for_custom_build_root_else_reserved_cores():
+    def mk(custom, cores, root=False):
         t = SimpleNamespace(_has_custom_build=lambda: custom, _reserved_cores=lambda: cores)
-        return SimpleNamespace(target=t)
+        return SimpleNamespace(target=t, is_root=root)
     assert dc._reserve_weight(mk(custom=False, cores=12)) == 12  # default build reserves at launch
     assert dc._reserve_weight(mk(custom=True, cores=12)) == 0    # custom build self-reserves via the barrier
+    assert dc._reserve_weight(mk(custom=False, cores=12, root=True)) == 0  # root ungated -> reserves nothing
 
 
 def test_build_summary_counts_only_real_builds(capsys):
