@@ -118,15 +118,6 @@ def test_sampler_backoff_caps_cost_at_tenth_of_walltime():
     d.close()
 
 
-def test_cpu_sampler_report_counts_samples():
-    d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {t: 100.0 for t in snap}, sample_interval=999)
-    assert d.cpu_sampler_report() is None              # nothing sampled yet -> no diagnostic
-    d.start_task(1, 'build', 'x'); d.attach_pid(1, 7)
-    d._sample_once(); d._sample_once()                 # two samples (one process scan each)
-    assert '2 samples' in d.cpu_sampler_report()
-    d.detach_pid(1, 7); d.close()
-
-
 def test_report_subprocess_attaches_pid_to_current_task():
     d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {t: 100.0 for t in snap}, sample_interval=999)
     tid = ('x', 'build'); d.start_task(tid, 'build', 'x')

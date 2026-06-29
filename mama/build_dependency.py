@@ -34,6 +34,7 @@ class BuildDependency:
         self.already_loaded = False
         self.already_executed = False
         self.currently_loading = False
+        self.load_action = 'check'  # what load() did, for the display: 'check' | 'clone' | 'pulling'
         self._load_lock = threading.Lock()  # serialises concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # if true, this Dependency was loaded from Artifactory
         self.did_check_artifactory = False # if true, artifactory was already checked and can be skipped

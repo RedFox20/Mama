@@ -528,8 +528,9 @@ def _make_display(config):
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
 def _phase_label(dep, kind) -> str:
-    # 'load' is a clone for a fresh dep, an update for an existing working tree; others show verbatim.
-    if kind == 'load': return 'update' if dep.is_real_clone() else 'clone'
+    # 'load' opens optimistically (clone if no tree yet, else check) then _run_phase relabels it to
+    # what load() actually did (dep.load_action: check/clone/pulling); others show verbatim.
+    if kind == 'load': return 'clone' if not dep.is_real_clone() else 'check'
     return kind
 
 
@@ -546,6 +547,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail=''):
             body(sink)
         ok = True
     finally:
+        if kind == 'load': display.relabel(tid, dep.load_action)  # reflect what load() actually did
         display.finish_task(tid, ok)
 
 
@@ -617,7 +619,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         system.set_active_display(None)
         SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
-    _print_build_summary(deps, time.monotonic() - start, display.cpu_sampler_report())
+    _print_build_summary(deps, time.monotonic() - start)
     _deploy_run_postpass(flat_deps_reverse, config)
 
 
@@ -656,13 +658,11 @@ def print_sched_debug(root: BuildDependency):
         console(f'  {d.name:<22}{tu:>6}  {via:<16}{probe:>6}{reserve:>9}{probe:>5}   {" ".join(flags)}')
 
 
-def _print_build_summary(deps, elapsed: float, cpu_report: str = None):
-    """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded),
-    plus the optional CPU-sampler cost diagnostic."""
+def _print_build_summary(deps, elapsed: float):
+    """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded)."""
     built = sum(1 for d in deps if getattr(d, 'should_rebuild', False)
                 and not getattr(d, 'from_artifactory', False) and not getattr(d, 'nothing_to_build', False))
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
-    if cpu_report: console(cpu_report, color=Color.BLUE)
 
 
 def execute_unified(root: BuildDependency):
@@ -714,7 +714,7 @@ def execute_unified(root: BuildDependency):
         SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
-    _print_build_summary(flat, time.monotonic() - start, display.cpu_sampler_report())
+    _print_build_summary(flat, time.monotonic() - start)
     _deploy_run_postpass(reversed(flat), config)
 
 

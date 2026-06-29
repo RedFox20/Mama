@@ -22,7 +22,7 @@ class _Dep:
     def __init__(self, name, config, ev, lock, child_specs=()):
         self.name = name; self.config = config; self._ev = ev; self._lock = lock
         self._child_specs = child_specs; self._children = []; self.already_executed = False
-        self.target = _Target(self, ev, lock)
+        self.load_action = 'check'; self.target = _Target(self, ev, lock)
     def load(self):
         with self._lock: self._ev.append(('load', self.name))
         self._children = [_Dep(n, self.config, self._ev, self._lock, cs)   # discovered only now

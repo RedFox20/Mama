@@ -535,6 +535,7 @@ class Git(DepSource):
             if not dep.config.is_network_available():
                 raise RuntimeError(f'Target {dep.name} requires network to clone but network is unavailable.' + \
                                    ' Check your connection or use a cached artifactory package.')
+            dep.load_action = 'clone'  # actual full repo clone (display label)
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             br_or_tag = self.branch_or_tag()
@@ -549,6 +550,7 @@ class Git(DepSource):
                 if dep.config.print:
                     warning(f"  - Target {dep.name: <16} SKIP PULL (network unavailable, using cached source)")
                 return
+            dep.load_action = 'pulling'  # actual git pull/fetch (display label)
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             # check for local modifications before potentially destructive operations

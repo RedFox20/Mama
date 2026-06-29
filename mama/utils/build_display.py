@@ -72,8 +72,6 @@ class BuildDisplay:
         self._sampler = None             # daemon thread, lazily started on first attach_pid
         self._stop = threading.Event()
         self._sample_interval = sample_interval
-        self._cpu_sample_secs = 0.0      # total wall-time spent in psutil CPU sampling (diagnostic)
-        self._cpu_sample_count = 0
 
     @property
     def isatty(self) -> bool:
@@ -90,6 +88,12 @@ class BuildDisplay:
             self._active.append(id)
         if self._isatty: self.render()  # render OUTSIDE the state lock (terminal I/O must not block feeders)
         return t
+
+    def relabel(self, id, kind: str):
+        """Change a task's kind after the fact (a load task only knows it cloned/pulled/checked once done)."""
+        with self._lock:
+            t = self._tasks.get(id)
+            if t is not None: t.kind = kind
 
     def feed(self, id, line: str):
         with self._lock:
@@ -255,20 +259,11 @@ class BuildDisplay:
         with self._lock:
             snapshot = {tid: set(pids) for tid, pids in self._pids.items() if pids}
         if not snapshot: return
-        t0 = self._clock()
         cpus = self._cpu_sampler(snapshot)  # ONE process scan for ALL build trees -> {tid: cpu%}; off-lock
-        self._cpu_sample_secs += self._clock() - t0   # diagnostic: how costly is the psutil scan
-        self._cpu_sample_count += 1
         with self._lock:
             for tid, cpu in cpus.items():
                 t = self._tasks.get(tid)
                 if t is not None: t.cpu = cpu
-
-    def cpu_sampler_report(self):
-        """One-line diagnostic on total time spent fetching process-tree CPU%, or None if never sampled."""
-        if self._cpu_sample_count <= 0: return None
-        avg_ms = self._cpu_sample_secs / self._cpu_sample_count * 1000
-        return f'[cpu-sampler] {self._cpu_sample_secs:.1f}s across {self._cpu_sample_count} samples ({avg_ms:.0f}ms avg)'
 
     def _truncate(self, text: str, cols: int) -> str:
         # Cap to cols-1 to avoid wrapping that would break the cursor math. If it

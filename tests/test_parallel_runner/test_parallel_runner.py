@@ -84,11 +84,27 @@ def test_run_phase_shows_tree_marker_only_in_verbose(monkeypatch):
     assert seen['n'] == '[L] ReCpp'             # markers only in verbose
 
 
-def test_phase_label_load_is_clone_when_fresh_else_update():
+def test_phase_label_load_opens_clone_when_fresh_else_check():
     fresh = SimpleNamespace(is_real_clone=lambda: False)
     existing = SimpleNamespace(is_real_clone=lambda: True)
-    assert dc._phase_label(fresh, 'load') == 'clone' and dc._phase_label(existing, 'load') == 'update'
+    assert dc._phase_label(fresh, 'load') == 'clone' and dc._phase_label(existing, 'load') == 'check'
     assert dc._phase_label(fresh, 'configure') == 'configure'  # non-load kinds verbatim
+
+
+def test_run_phase_relabels_load_to_actual_action(monkeypatch):
+    import contextlib
+    monkeypatch.setattr(dc, '_phase_label', lambda d, k: 'clone')  # optimistic opening label
+    monkeypatch.setattr(dc.system, 'capture_to', lambda *a, **k: contextlib.nullcontext())
+    seen = {}
+    disp = SimpleNamespace(start_task=lambda *a: None, feed=lambda *a: None, finish_task=lambda *a: None,
+                           relabel=lambda tid, kind: seen.__setitem__('k', kind))
+    dep = SimpleNamespace(name='ReCpp', is_root=False, get_children=lambda: [],
+                          config=SimpleNamespace(verbose=False), load_action='pulling')
+    dc._run_phase(disp, dep, 'load', lambda s: None, None)
+    assert seen['k'] == 'pulling'        # relabeled to what load() actually did
+    seen.clear()
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert 'k' not in seen               # only 'load' is relabeled, not other phases
 
 
 def test_reserve_weight_is_zero_for_custom_build_else_reserved_cores():
