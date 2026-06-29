@@ -101,7 +101,7 @@ def test_build_detail_shows_core_count_after_kind():
 
 
 def test_cpu_sampling_updates_task_and_renders_percent():
-    d, _, clk = _disp(isatty=True, cpu_sampler=lambda pids: 597.0, sample_interval=999)
+    d, _, clk = _disp(isatty=True, cpu_sampler=lambda snap: {t: 597.0 for t in snap}, sample_interval=999)
     d.start_task(1, 'build', 'compression', detail='[16]')
     d.attach_pid(1, 4242)
     d._sample_once()
@@ -112,17 +112,17 @@ def test_cpu_sampling_updates_task_and_renders_percent():
     d.close()
 
 
-def test_cpu_sampler_report_counts_tree_walks():
-    d, _, _ = _disp(isatty=True, cpu_sampler=lambda pids: 100.0, sample_interval=999)
+def test_cpu_sampler_report_counts_samples():
+    d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {t: 100.0 for t in snap}, sample_interval=999)
     assert d.cpu_sampler_report() is None              # nothing sampled yet -> no diagnostic
     d.start_task(1, 'build', 'x'); d.attach_pid(1, 7)
-    d._sample_once(); d._sample_once()                 # two tree walks
-    assert '2 tree walks' in d.cpu_sampler_report()
+    d._sample_once(); d._sample_once()                 # two samples (one process scan each)
+    assert '2 samples' in d.cpu_sampler_report()
     d.detach_pid(1, 7); d.close()
 
 
 def test_report_subprocess_attaches_pid_to_current_task():
-    d, _, _ = _disp(isatty=True, cpu_sampler=lambda pids: 100.0, sample_interval=999)
+    d, _, _ = _disp(isatty=True, cpu_sampler=lambda snap: {t: 100.0 for t in snap}, sample_interval=999)
     tid = ('x', 'build'); d.start_task(tid, 'build', 'x')
     with system.capture_to(lambda line: None, d, tid):
         system.report_subprocess(999, True)
@@ -132,19 +132,16 @@ def test_report_subprocess_attaches_pid_to_current_task():
     d.close()
 
 
-def test_psutil_tree_cpu_first_sight_averages_over_lifetime(monkeypatch):
+def test_psutil_tree_cpu_one_scan_sums_each_tree(monkeypatch):
+    # One process_iter feeds every build tree: pid 1 (cmake) -> pid 2 (cc); both first-seen, alive 4s
+    # with 12 cpu-sec each -> 300% per process -> 600% summed for the tree rooted at pid 1.
     import mama.utils.build_display as bd
     monkeypatch.setattr(bd.time, 'time', lambda: 100.0)
-    class E(Exception): pass
-    class P:
-        pid = 1
-        def cpu_times(self): return SimpleNamespace(user=12.0, system=0.0)  # 12 cpu-sec
-        def create_time(self): return 96.0                                  # alive 4s -> 300%
-        def children(self, recursive=True): return []
-    class Ps:
-        Error = E
-        def Process(self, pid): return P()
-    assert bd._PsutilTreeCpu(Ps())({1}) == 300.0
+    def proc(pid, ppid):
+        return SimpleNamespace(info={'pid': pid, 'ppid': ppid,
+                                     'cpu_times': SimpleNamespace(user=12.0, system=0.0), 'create_time': 96.0})
+    Ps = SimpleNamespace(process_iter=lambda attrs: [proc(1, 0), proc(2, 1), proc(9, 9)])  # pid 9 unrelated
+    assert bd._PsutilTreeCpu(Ps)({'t': {1}}) == {'t': 600.0}
 
 
 def test_replay_dumps_raw_colored_buffer():
