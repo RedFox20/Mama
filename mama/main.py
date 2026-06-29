@@ -283,7 +283,7 @@ def mamabuild(args, source_dir=os.getcwd()):
         exit(-1)
 
     if config.update:
-        if config.no_target():
+        if config.no_specific_target():
             config.target = 'all'
             if config.print: console(f'Updating all targets')
         else:
@@ -291,7 +291,7 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     deps_only_target_name = None
     if config.deps_only:
-        if config.no_target():
+        if config.no_specific_target():
             config.target = 'all'
             if config.print: console(f'Executing deps_only action on all targets')
         else:
