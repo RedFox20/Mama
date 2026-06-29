@@ -1375,10 +1375,13 @@ class BuildTarget:
         return self._build_jobs
 
     def _reserved_cores(self) -> int:
-        """Budget cores this build occupies: the memoized TU probe, capped at HALF of config.jobs
-        (a build rarely sustains full -j: ramp-up, inter-TU deps, serial link). 0 when unsizable."""
+        """Budget cores this build occupies: the memoized TU probe (== its actual -j), capped at the
+        FULL pool. Reservation must equal -j so a heavy build (-j = all cores) reserves the whole pool
+        and runs ALONE at full threads instead of being oversubscribed against another full-j build;
+        small builds reserve little and pack. The CPU gate still overprovisions non-saturating builds.
+        0 when unsizable (header-only / probe miss)."""
         if not self._ensure_build_jobs(): return 0
-        return min(self._build_jobs, max(1, self.config.jobs // 2))
+        return min(self._build_jobs, self.config.jobs)
 
     def _count_tu(self) -> tuple:
         """(TU count, method) - generator-agnostic, most-accurate first:

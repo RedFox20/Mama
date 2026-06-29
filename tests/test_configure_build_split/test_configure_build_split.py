@@ -130,10 +130,10 @@ def test_probe_build_jobs_counts_tus_across_generators_and_falls_back(tmp_path):
     assert t._probe_build_jobs() == 0                       # nothing countable -> 0 reserve (no budget slots)
 
 
-def test_reserved_cores_caps_at_half_jobs(tmp_path):
+def test_reserved_cores_is_full_build_jobs_capped_at_total(tmp_path):
     t, _ = _target(tmp_path)  # config.jobs = 8
-    t._build_jobs = 40; assert t._reserved_cores() == 4   # big build capped at jobs // 2
-    t._build_jobs = 3;  assert t._reserved_cores() == 3   # small build keeps its weight
+    t._build_jobs = 40; assert t._reserved_cores() == 8   # heavy build reserves the FULL pool (== its -j)
+    t._build_jobs = 3;  assert t._reserved_cores() == 3   # small build keeps its -j
     t._build_jobs = 0;  assert t._reserved_cores() == 0   # unsizable -> reserves nothing
     t._build_jobs = None                                  # unset (serial path / sched_debug): probe once + memoize
     with open(t.build_dir('compile_commands.json'), 'w') as f: f.write('[{"file":"a"},{"file":"b"}]')
