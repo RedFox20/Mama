@@ -156,6 +156,22 @@ def test_render_throttle_skips_within_min_interval():
     assert len(out.getvalue()) > n
 
 
+def test_render_skips_when_another_thread_is_drawing():
+    # A non-forced render must not block while another thread holds the render lock (that block would
+    # stall the subprocess reader -> fill the pipe -> stall the compiler). It skips; a later draw covers it.
+    d, out, clk = _disp(isatty=True)
+    d.start_task(1, 'build', 'x'); clk.tick(0.2)
+    d._render_lock.acquire()
+    try:
+        before = len(out.getvalue())
+        d.render()                              # busy -> skip, no draw, no block
+        assert len(out.getvalue()) == before
+    finally:
+        d._render_lock.release()
+    d.render(force=True)                         # free -> draws the running task
+    assert len(out.getvalue()) > before
+
+
 def test_close_clears_region():
     d, _, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'x'); clk.tick(0.2); d.render(force=True)  # past reveal -> 1 line drawn

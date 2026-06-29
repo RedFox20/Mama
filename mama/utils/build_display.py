@@ -62,7 +62,8 @@ class BuildDisplay:
         self._pending: list[str] = []    # permanent lines to flush above the region
         self._drawn = 0                  # active region lines drawn last frame
         self._last_render = 0.0
-        self._lock = threading.RLock()
+        self._lock = threading.RLock()        # guards task/region state (held only briefly)
+        self._render_lock = threading.Lock()  # serializes terminal writes; non-forced renders skip if busy
         self._cpu_sampler = cpu_sampler  # (set[int]) -> float total tree CPU%; None -> auto (psutil)
         self._cpu_auto = cpu_sampler is None
         self._pids: dict[object, set] = {}  # tid -> live child pids, for CPU sampling
@@ -83,15 +84,15 @@ class BuildDisplay:
             t = Task(id, kind, name, self._clock(), detail)
             self._tasks[id] = t
             self._active.append(id)
-            if self._isatty: self.render()
-            return t
+        if self._isatty: self.render()  # render OUTSIDE the state lock (terminal I/O must not block feeders)
+        return t
 
     def feed(self, id, line: str):
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
             t.feed(line)
-            if self._isatty: self.render()
+        if self._isatty: self.render()  # state lock released first: a slow draw can't stall the subprocess reader
 
     def finish_task(self, id, ok: bool):
         with self._lock:
@@ -101,24 +102,24 @@ class BuildDisplay:
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
             hide = ok and t.elapsed(t.end) < self._reveal  # instant no-op (cached/<0.1s): prune even in verbose
-            if self._isatty:
-                if not hide: self._pending.append(self._summary_line(t))
-                self.render(force=True)
-            elif not hide:
-                self._writeln(self._summary_line(t))
-                if self._verbose or not ok:
-                    for line in t.lines: self._writeln(line)
+            if not self._isatty:
+                if not hide:
+                    self._writeln(self._summary_line(t))
+                    if self._verbose or not ok:
+                        for line in t.lines: self._writeln(line)
+                return
+            if not hide: self._pending.append(self._summary_line(t))
+        self.render(force=True)  # commit the summary + redraw the shrunken region, off the state lock
 
     # -- permanent output (above the live region) --------------------------
 
     def print_above(self, text: str):
         """Emit a line that survives above the live region (status messages)."""
         with self._lock:
-            if self._isatty:
-                self._pending.append(text)
-                self.render(force=True)
-            else:
-                self._writeln(text)
+            if not self._isatty:
+                self._writeln(text); return
+            self._pending.append(text)
+        self.render(force=True)
 
     def replay(self, id):
         """Dump a task's full captured output permanently (colours intact)."""
@@ -131,20 +132,29 @@ class BuildDisplay:
     # -- rendering ---------------------------------------------------------
 
     def render(self, force=False):
-        with self._lock:
-            if not self._isatty:
-                return
-            now = self._clock()
-            if not force and (now - self._last_render) < self._min_interval:
-                return
-            self._last_render = now
-            self._clear_region()
-            for line in self._pending: self._writeln(line)
-            self._pending.clear()
-            region = self._region_lines(now)
-            for line in region: self._writeln(line)
-            self._drawn = len(region)
+        """Draw the live frame. A forced render waits for the terminal; a normal one SKIPS if another
+        thread is already drawing (it'll be covered by that draw / the next tick), so feeders never
+        block. State is snapshotted under the short state lock; the terminal write happens off it."""
+        if not self._isatty:
+            return
+        if force: self._render_lock.acquire()
+        elif not self._render_lock.acquire(blocking=False): return
+        try:
+            with self._lock:
+                now = self._clock()
+                if not force and (now - self._last_render) < self._min_interval:
+                    return
+                self._last_render = now
+                pending, self._pending = self._pending, []
+                region = self._region_lines(now)
+                prev_drawn, self._drawn = self._drawn, len(region)
+            nl = _ERASE_EOL + '\n'
+            frame = (_CURSOR_UP + '\r' + _ERASE_EOL) * prev_drawn
+            frame += ''.join(line + nl for line in pending + region)
+            self._out.write(frame)
             self._flush()
+        finally:
+            self._render_lock.release()
 
     def close(self):
         """Finalize: stop the CPU sampler, flush any pending permanent lines, drop the live region."""
