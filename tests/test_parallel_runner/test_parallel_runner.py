@@ -87,6 +87,15 @@ def test_run_phase_shows_tree_marker_only_in_verbose(monkeypatch):
     assert seen['n'] == '[L] ReCpp'             # markers only in verbose
 
 
+def test_stable_cpu_sampler_re_measures_only_per_window():
+    clk = {'t': 0.0}; reads = iter([10.0, 90.0])
+    s = dc._stable_cpu_sampler(lambda: next(reads), lambda: clk['t'], window=0.5)
+    assert s() == 0.0                       # within the first window: primed 0.0, no measure yet
+    clk['t'] = 0.6; assert s() == 10.0      # window elapsed -> measures
+    assert s() == 10.0                      # same instant -> cached, no spiky re-read
+    clk['t'] = 1.2; assert s() == 90.0      # next window -> re-measures
+
+
 def test_phase_label_load_opens_clone_when_fresh_else_check():
     fresh = SimpleNamespace(is_real_clone=lambda: False)
     existing = SimpleNamespace(is_real_clone=lambda: True)

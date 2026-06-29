@@ -562,15 +562,28 @@ def _build_body(dep, sink):
     _save_vscode_compile_commands(dep)
 
 
+def _stable_cpu_sampler(measure, clock, window=0.5):
+    """Gate `measure()` (CPU% since its last call) to >=`window`-second re-samples, caching between.
+    The scheduler polls at irregular sub-100ms-to-1s gaps; over a tiny window cpu_percent(interval=None)
+    reads a meaningless spiky 0% or 100%, so only re-measure once a real window has elapsed."""
+    state = {'t': clock(), 'val': 0.0}
+    def sample():
+        now = clock()
+        if now - state['t'] >= window:
+            state['val'] = measure(); state['t'] = now
+        return state['val']
+    return sample
+
+
 def _make_scheduler(config, **extra):
-    """The build Scheduler with a primed psutil CPU sampler, the Ctrl+C child-killer, and (verbose)
+    """The build Scheduler with a stable psutil CPU sampler, the Ctrl+C child-killer, and (verbose)
     the [sched] debug log."""
-    import psutil
+    import psutil, time
     from .build_scheduler import Scheduler
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
     return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs, abort_hook=SubProcess.terminate_all,
-                     cpu_sampler=lambda: psutil.cpu_percent(interval=None),
+                     cpu_sampler=_stable_cpu_sampler(lambda: psutil.cpu_percent(interval=None), time.monotonic),
                      debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None, **extra)
 
 
