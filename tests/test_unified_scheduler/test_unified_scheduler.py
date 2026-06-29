@@ -3,14 +3,13 @@ configures after its children have built (leaf nodes build while deeper deps sti
 import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
+from testutils import FakeBuildTarget
 from mama import dependency_chain as dc
 
 
-class _Target:
+class _Target(FakeBuildTarget):
     def __init__(self, dep, ev, lock):
-        self.dep = dep; self._ev = ev; self._lock = lock; self._build_jobs = None; self._out_sink = None
-    def _has_custom_build(self): return False
-    def _reserved_cores(self): return 4
+        self.dep = dep; self._ev = ev; self._lock = lock; self._out_sink = None
     def _rec(self, tag):
         with self._lock: self._ev.append((tag, self.dep.name))
     def configure_phase(self, out=None): self._rec('cfg')

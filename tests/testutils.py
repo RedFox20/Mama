@@ -10,6 +10,14 @@ import mama
 import pytest
 
 
+class FakeBuildTarget:
+    """Base for the runner-test target fakes: the build-weight stubs the parallel runners call on
+    every dep (configure/build phase bodies and event recording stay specialised per test)."""
+    _build_jobs = None
+    def _has_custom_build(self): return False
+    def _reserved_cores(self): return 4
+
+
 def make_mock_config(tmp_path, **overrides):
     """Mock BuildConfig pre-populated with the defaults every shim/probe/dep
     unit test needs. Pass kwargs to override specific fields per test."""

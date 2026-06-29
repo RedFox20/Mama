@@ -3,14 +3,13 @@ post-pass, and fail-fast that stops dependents and exits."""
 import threading
 from types import SimpleNamespace
 import pytest
+from testutils import FakeBuildTarget
 from mama import dependency_chain as dc
 
 
-class _T:
+class _T(FakeBuildTarget):
     def __init__(self, dep, ev, lock, fail=False):
-        self.dep = dep; self.ev = ev; self.lock = lock; self.fail = fail; self._build_jobs = None
-    def _has_custom_build(self): return False
-    def _reserved_cores(self): return 4
+        self.dep = dep; self.ev = ev; self.lock = lock; self.fail = fail
     def _rec(self, name):
         with self.lock: self.ev.append(name)
     def configure_phase(self, out=None): self._rec(('configure', self.dep.name))
