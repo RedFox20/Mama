@@ -30,13 +30,23 @@ def test_bar_glyphs_is_computed_once_and_cached():
     assert dc._bar_glyphs() in (dc._GLYPHS_SHADE, dc._GLYPHS_ASCII)
 
 
-def test_report_sorts_slowest_first_and_omits_pure_noops(capsys):
-    deps = [_dep('fast', build=2.0), _dep('slow', load=1.0, configure=5.0, build=60.0), _dep('cached')]
+def test_report_sorts_slowest_first_and_omits_noops_and_sub_floor(capsys):
+    deps = [_dep('fast', build=2.0), _dep('slow', load=1.0, configure=5.0, build=60.0),
+            _dep('cached'), _dep('blink', build=0.2)]   # 0.2s < 0.33s floor
     dc.print_buildtimes(deps)
     out = _strip(capsys.readouterr().out)
-    assert 'cached' not in out                     # a dep with no timed phase is omitted
-    assert out.index('slow') < out.index('fast')   # slowest package first
-    assert '1m 6s' in out and '2.0s' in out        # totals via the shared get_time_str
+    assert 'cached' not in out and 'blink' not in out   # no-op and sub-floor packages dropped
+    assert out.index('slow') < out.index('fast')        # slowest package first
+    assert '1m 6s' in out and '2.0s' in out             # totals via the shared get_time_str
+
+
+def test_legend_aligns_above_the_bars(capsys):
+    g = dc._bar_glyphs()
+    dc.print_buildtimes([_dep('alpha', load=1.0, build=1.0), _dep('beta', build=2.0)])
+    lines = _strip(capsys.readouterr().out).splitlines()
+    header = next(l for l in lines if 'Build times' in l)
+    row = next(l for l in lines if 'alpha' in l)
+    assert header.index(g[0]) == row.index(g[0])   # legend's first glyph sits directly over the bar start
 
 
 def test_run_phase_accumulates_phase_time(monkeypatch):

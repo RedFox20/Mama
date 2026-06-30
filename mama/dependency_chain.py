@@ -687,6 +687,7 @@ def _print_build_summary(deps, elapsed: float):
 
 # buildtimes (stage 1): a normalized horizontal bar per package, segmented load/configure/build.
 _BAR_FILL = 40  # the slowest package fills this width; the rest scale down proportionally
+_BUILDTIMES_FLOOR = 0.33  # omit packages faster than this - they're noise on the chart
 _BAR = (('load', Color.BLUE), ('configure', Color.MAGENTA), ('build', Color.GREEN))
 _GLYPHS_SHADE = ('░', '▒', '▓')  # light/medium/dark blocks (UTF-8 terminals)
 _GLYPHS_ASCII = ('-', '=', '#')  # legacy code-page fallback (Windows cp1252 can't encode the blocks)
@@ -722,20 +723,21 @@ def _buildtimes_bar(times: dict, total: float, max_total: float, glyphs) -> str:
 
 def print_buildtimes(deps):
     """`buildtimes`: one normalized bar per package (load / configure / build), slowest first, with its
-    total wall time. Deps that did no timed work (pure cached no-ops) are omitted."""
+    total wall time. Packages faster than _BUILDTIMES_FLOOR seconds are omitted so the chart stays relevant."""
+    label = 'Build times'
     rows = []
     for d in deps:
         pt = getattr(d, 'phase_times', None)
         if not pt: continue
         total = sum(pt.values())  # once per dep, not recomputed in a filter
-        if total > 0: rows.append((d.name, pt, total))
+        if total >= _BUILDTIMES_FLOOR: rows.append((d.name, pt, total))
     if not rows: return
     rows.sort(key=lambda r: r[2], reverse=True)
     max_total = rows[0][2]
-    name_w = min(max(len(name) for name, _, _ in rows), 24)
+    name_w = max(min(max(len(name) for name, _, _ in rows), 24), len(label))  # fit the names AND the header label
     glyphs = _bar_glyphs()
     legend = '  '.join(get_colored_text(f'{ch} {kind}', color) for (kind, color), ch in zip(_BAR, glyphs))
-    console(f'\n  Build times   {legend}')
+    console(f'\n  {label:<{name_w}}  {legend}')  # label padded to the name column so the legend sits over the bars
     for name, pt, total in rows:
         console(f'  {name:<{name_w}.{name_w}}  {_buildtimes_bar(pt, total, max_total, glyphs)}  {get_time_str(total)}')
 
