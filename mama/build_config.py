@@ -1079,15 +1079,29 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             raise EnvironmentError('MSVC tools not available on this platform!')
 
         tools_root = f"{self.get_visualstudio_path()}\\VC\\Tools\\MSVC"
-        tools = os.listdir(tools_root)
-        if not tools:
+        tools_path = self._latest_msvc_toolset(tools_root)
+        if not tools_path:
             raise EnvironmentError('Could not detect MSVC Tools')
-
-        tools_path = os.path.join(tools_root, tools[0])
-        #tools_path = forward_slashes(tools_path)
         self._msvctools_path = tools_path
         if self.verbose: console(f'Detected MSVC Tools: {tools_path}')
         return tools_path
+
+
+    @staticmethod
+    def _latest_msvc_toolset(tools_root: str) -> str:
+        """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
+        version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
+        (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none."""
+        try:
+            dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
+        except OSError:
+            return ''
+        if not dirs: return ''
+        dirs.sort(key=lambda n: tuple(int(p) if p.isdigit() else 0 for p in n.split('.')), reverse=True)
+        for d in dirs:
+            if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
+                return os.path.join(tools_root, d)
+        return os.path.join(tools_root, dirs[0])  # none had cl.exe (exotic host) - fall back to newest dir
 
 
     def get_msvc_bin64(self):

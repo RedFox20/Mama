@@ -2,7 +2,7 @@
 primer-election Coordinator."""
 import os, threading
 from mama import cmake_compiler_cache as cc
-from mama.util import normalized_path
+from mama.util import normalized_path, path_join
 
 
 def _fake_build_files(d, langs=('C', 'CXX', 'RC'), vs=True):
@@ -97,6 +97,56 @@ def test_purge_removes_seed(tmp_path):
     cc.purge(seed)  # idempotent, never raises
 
 
+def test_is_valid_requires_matching_fingerprint_and_live_probe(tmp_path):
+    cl = tmp_path / 'cl.exe'; cl.write_text('')
+    m = {'fingerprint': 'FP', 'probe': str(cl)}
+    assert cc.is_valid(m, 'FP')
+    assert not cc.is_valid(m, 'OTHER')                                        # fingerprint changed
+    assert not cc.is_valid({'fingerprint': 'FP', 'probe': str(tmp_path / 'gone.exe')}, 'FP')  # compiler removed
+    assert not cc.is_valid(None, 'FP') and not cc.is_valid({}, 'FP')
+    assert cc.is_valid({'fingerprint': 'FP'}, 'FP')                           # no probe -> fingerprint alone gates
+
+
+def test_publish_records_fingerprint_and_probe_so_a_fresh_seed_validates(tmp_path):
+    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    cl = tmp_path / 'cl.exe'; cl.write_text('')
+    seed = str(tmp_path / 'seed')
+    cc.publish(seed, bf, fingerprint='FP', probe=str(cl))
+    m = cc.load(seed)
+    assert m['fingerprint'] == 'FP' and m['probe'] == str(cl) and cc.is_valid(m, 'FP')
+
+
+def test_gc_stale_drops_legacy_and_dead_probe_but_keeps_live(tmp_path):
+    root = str(tmp_path / 'cache')
+    cl = tmp_path / 'cl.exe'; cl.write_text('')
+    bf = _fake_build_files(str(tmp_path / 'bf' / '4.2.3'))
+    cc.publish(path_join(root, 'live'), bf, fingerprint='L', probe=str(cl))            # toolchain present
+    cc.publish(path_join(root, 'dead'), bf, fingerprint='D', probe=str(tmp_path / 'x'))  # compiler gone
+    legacy = path_join(root, 'legacy'); os.makedirs(legacy)
+    open(path_join(legacy, cc._MANIFEST), 'w').write('{"files": [], "langs": [], "created": 0}')
+    cc.gc_stale(root)
+    assert set(os.listdir(root)) == {'live'}   # dead-probe and legacy (no fingerprint) seeds purged
+
+
+def test_begin_session_sweeps_and_logs_once(tmp_path):
+    root = str(tmp_path / 'cache')
+    legacy = path_join(root, 'old'); os.makedirs(legacy)
+    open(path_join(legacy, cc._MANIFEST), 'w').write('{"files": [], "langs": []}')   # no fingerprint -> stale
+    logs = []
+    co = cc.Coordinator(root, fp_fn=lambda t: 'FP', paths_fn=lambda t: None, log_fn=logs.append)
+    co.begin_session(); co.begin_session()                          # second call is a no-op
+    assert not os.path.exists(legacy)                               # legacy seed swept
+    assert sum('compiler-seed cache:' in m for m in logs) == 1      # root logged exactly once
+    assert any('drop stale seed old' in m for m in logs)
+
+
+def test_begin_session_announces_disabled_cache(tmp_path):
+    logs = []
+    cc.Coordinator(str(tmp_path / 'c'), fp_fn=lambda t: 'FP', paths_fn=lambda t: None,
+                   enabled=False, log_fn=logs.append).begin_session()
+    assert any('disabled' in m for m in logs)
+
+
 class _T:
     def __init__(self, build_dir, src='S:/src', with_files=False):
         self.build_dir = build_dir
@@ -156,6 +206,35 @@ def test_coordinator_failed_primer_lets_a_later_target_reelect(tmp_path):
     assert co.prepare(_T(str(tmp_path / 'A'), with_files=True)) == 'prime'
     co.fail_primer(_T(str(tmp_path / 'A')))           # primer configure failed, no seed published
     assert co.prepare(_T(str(tmp_path / 'B'))) == 'prime'  # re-elected, not stuck waiting forever
+
+
+def test_status_reports_fingerprint_and_presence(tmp_path):
+    co = _coord(tmp_path)
+    a = _T(str(tmp_path / 'A'), with_files=True)
+    assert co.status(a) == ('FP', False)        # nothing published yet
+    co.prepare(a); co.publish(a)
+    assert co.status(a) == ('FP', True)
+
+
+def test_coordinator_reprimes_when_fingerprint_changes(tmp_path):
+    fp = {'v': 'FP1'}
+    co = cc.Coordinator(str(tmp_path / 'cache'), fp_fn=lambda t: fp['v'],
+                        paths_fn=lambda t: (t.build_dir, t.bfd, t.src))
+    a = _T(str(tmp_path / 'A'), with_files=True)
+    assert co.prepare(a) == 'prime'; co.publish(a)
+    fp['v'] = 'FP2'                                    # toolchain changed -> new fingerprint
+    assert co.prepare(_T(str(tmp_path / 'B'), with_files=True)) == 'prime'  # old seed not reused
+
+
+def test_coordinator_drops_seed_when_compiler_vanishes(tmp_path):
+    cl = tmp_path / 'cl.exe'; cl.write_text('')
+    co = cc.Coordinator(str(tmp_path / 'cache'), fp_fn=lambda t: 'FP', probe_fn=lambda t: str(cl),
+                        paths_fn=lambda t: (t.build_dir, t.bfd, t.src))
+    a = _T(str(tmp_path / 'A'), with_files=True)
+    assert co.prepare(a) == 'prime'; co.publish(a)
+    assert co.prepare(_T(str(tmp_path / 'B'), with_files=True)) == 'use'    # probe alive -> reuse
+    cl.unlink()                                                            # toolset removed
+    assert co.prepare(_T(str(tmp_path / 'C'), with_files=True)) == 'prime'  # stale seed purged, re-detect
 
 
 def test_coordinator_heal_purges_seed(tmp_path):

@@ -55,10 +55,12 @@ def _seed_file_names(langs: list) -> list:
     return names
 
 
-def publish(seed_dir: str, build_files_dir: str, clock=time.time) -> bool:
+def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', clock=time.time) -> bool:
     """Capture detection artifacts from a freshly-configured `build_files_dir`
     (`<build>/CMakeFiles/<ver>`) into `seed_dir`. Returns False if nothing usable was found. Each
-    file lands via a temp + os.replace so a concurrent reader never copies a half-written file."""
+    file lands via a temp + os.replace so a concurrent reader never copies a half-written file. The
+    manifest records `fingerprint` (so a load can re-verify it) and `probe` (the compiler binary whose
+    disappearance invalidates the seed)."""
     langs = detected_langs(build_files_dir)
     if not langs: return False
     os.makedirs(seed_dir, exist_ok=True)
@@ -70,11 +72,37 @@ def publish(seed_dir: str, build_files_dir: str, clock=time.time) -> bool:
             shutil.copy2(src, dst + '.tmp'); os.replace(dst + '.tmp', dst)  # atomic: no partial reads
             copied.append(name)
     manifest = {'created': int(clock()), 'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
-                'langs': langs, 'files': copied}
+                'langs': langs, 'files': copied, 'fingerprint': fingerprint, 'probe': probe}
     mtmp = path_join(seed_dir, _MANIFEST + '.tmp')
     with open(mtmp, 'w', encoding='utf-8') as f: json.dump(manifest, f)
     os.replace(mtmp, path_join(seed_dir, _MANIFEST))  # manifest last + atomic (load() gates on it)
     return True
+
+
+def is_valid(manifest, fingerprint: str) -> bool:
+    """Cheap recheck that a loaded seed still matches the live toolchain: its embedded fingerprint equals
+    the current one AND the recorded compiler binary still exists. Pure stat/compare - never runs cmake."""
+    if not manifest or manifest.get('fingerprint') != fingerprint:
+        return False
+    probe = manifest.get('probe')
+    return not probe or os.path.exists(probe)
+
+
+def gc_stale(seed_root: str, log=lambda m: None):
+    """One cheap sweep of sibling seeds: drop any that can't be valid anymore - a legacy seed from an
+    older mama (no fingerprint recorded) or one whose compiler binary is gone (an upgraded/removed
+    toolset). A seed for a still-installed toolchain is untouched, so alternate-config seeds survive."""
+    try: names = os.listdir(seed_root)
+    except OSError: return
+    for name in names:
+        sd = path_join(seed_root, name)
+        m = load(sd, ttl=float('inf'))
+        if m is None: continue  # no manifest (maybe a publish in flight) - leave it
+        probe = m.get('probe')
+        if 'fingerprint' not in m:
+            log(f'  drop stale seed {name} (legacy: no fingerprint)'); purge(sd)
+        elif probe and not os.path.exists(probe):
+            log(f'  drop stale seed {name} (compiler gone: {probe})'); purge(sd)
 
 
 def load(seed_dir: str, ttl=BACKSTOP_TTL, clock=time.time):
@@ -124,34 +152,64 @@ class Coordinator:
     until it lands, then reuse it. In-process election only (cross-process races just redo detection -
     harmless, publish is idempotent). Injected `fp_fn(target)` + `paths_fn(target)` -> no-cmake tests."""
 
-    def __init__(self, seed_root, fp_fn, paths_fn, enabled=True, clock=time.time, wait_timeout=180.0):
+    def __init__(self, seed_root, fp_fn, paths_fn, probe_fn=None, enabled=True, clock=time.time,
+                 wait_timeout=180.0, log_fn=None):
         self._root = seed_root
         self._fp = fp_fn
         self._paths = paths_fn
+        self._probe = probe_fn or (lambda t: '')  # compiler binary recorded so a dead toolset self-invalidates
         self._enabled = enabled
         self._clock = clock
         self._wait = wait_timeout
+        self._log = log_fn or (lambda m: None)
         self._lock = threading.Lock()
         self._states: dict = {}  # fp -> {'event': Event, 'ok': bool}
+        self._gc_done = False
 
     def seed_dir(self, target) -> str:
         return path_join(self._root, self._fp(target))
+
+    def status(self, target) -> tuple:
+        """(fingerprint, seed-present) for this target - verbose diagnostics, even when prepare is skipped."""
+        fp = self._fp(target)
+        return fp, os.path.exists(path_join(self._root, fp))
+
+    def begin_session(self):
+        """Once per mama session (not per package): log the seed root and sweep stale seeds. Called from
+        the coordinator factory so it runs even when every build dir is already configured (prepare skipped)."""
+        with self._lock:
+            if self._gc_done: return
+            self._gc_done = True  # flag set under lock first -> exactly one thread sweeps, the rest skip
+        if not self._enabled:
+            self._log('compiler-seed cache: disabled (nocache)'); return
+        self._log(f'compiler-seed cache: {self._root}')
+        gc_stale(self._root, self._log)
+
+    def _try_use(self, target, fp) -> bool:
+        """Load this fp's seed and, if it's still valid, inject it. Purges a present-but-stale seed so a
+        clean one gets rebuilt (toolset moved, or a legacy seed with no fingerprint)."""
+        sd = self.seed_dir(target)
+        m = load(sd, clock=self._clock)
+        if is_valid(m, fp) and inject(sd, *self._paths(target)):
+            return True
+        if m is not None: purge(sd)
+        return False
 
     def prepare(self, target) -> str:
         """Decide and apply this target's role: 'use' (seed injected into the fresh build dir,
         cmake will skip detection), 'prime' (this caller publishes on success), or 'none'."""
         if not self._enabled: return 'none'
-        sd = self.seed_dir(target)
-        if load(sd, clock=self._clock) and inject(sd, *self._paths(target)):
-            return 'use'  # inject bails (False) if the seed vanished/empty -> fall through to detect
+        self.begin_session()
         fp = self._fp(target)
+        if self._try_use(target, fp):
+            return 'use'
         with self._lock:
             if fp not in self._states:
                 self._states[fp] = {'event': threading.Event(), 'ok': False}
                 return 'prime'
             st = self._states[fp]
         st['event'].wait(self._wait)  # another job is priming - wait for it
-        if st['ok'] and load(sd, clock=self._clock) and inject(sd, *self._paths(target)):
+        if st['ok'] and self._try_use(target, fp):
             return 'use'
         return 'none'  # primer failed/timed out, or the seed vanished: detect normally
 
@@ -159,7 +217,8 @@ class Coordinator:
         """Primer succeeded: capture its detection artifacts and wake the waiters. ALWAYS wakes them
         (even if the capture itself raises) so a publish error can't strand waiters for wait_timeout."""
         try:
-            ok = publish(self.seed_dir(target), self._paths(target)[1], clock=self._clock)
+            ok = publish(self.seed_dir(target), self._paths(target)[1],
+                         fingerprint=self._fp(target), probe=self._probe(target), clock=self._clock)
         except Exception:
             ok = False
         self._finish(self._fp(target), ok)

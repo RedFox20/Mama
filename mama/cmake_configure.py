@@ -122,6 +122,18 @@ def _toolchain_inputs(target:BuildTarget) -> dict:
     return out
 
 
+def _seed_probe(target:BuildTarget) -> str:
+    """The compiler binary whose disappearance means the seed is stale (an upgraded/removed toolset).
+    For MSVC that's the toolset's cl.exe - which `get_preferred_compiler_paths` leaves empty - so resolve
+    it explicitly. seedcache records it and GC checks it cheaply with os.path.exists."""
+    config = target.config
+    if config.msvc:
+        try: return util.normalized_path(config.get_msvc_cl64())
+        except Exception: return ''
+    _, cxx, _ = config.get_preferred_compiler_paths()
+    return util.normalized_path(cxx) if cxx else ''
+
+
 def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
@@ -131,7 +143,9 @@ def _seed_inputs(target:BuildTarget) -> dict:
         'cc': seedcache.compiler_stat(cc) if cc else {}, 'cxx': seedcache.compiler_stat(cxx) if cxx else {},
         'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''), 'toolchain': _toolchain_inputs(target),
     }
-    if not cc:  # no explicit compiler -> CC/CXX env selects it, so they belong in the fingerprint
+    if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
+        inputs['msvc'] = seedcache.compiler_stat(_seed_probe(target))
+    elif not cc:  # no explicit compiler -> CC/CXX env selects it, so they belong in the fingerprint
         inputs['env_cc'] = os.environ.get('CC', ''); inputs['env_cxx'] = os.environ.get('CXX', '')
     return inputs
 
@@ -146,8 +160,11 @@ def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
         co = getattr(config, '_seed_coord', None)
         if co is None:
             root = util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+            log = (lambda m: console(m, color=Color.BLUE)) if config.verbose else None
             co = seedcache.Coordinator(root, fp_fn=lambda t: seedcache.compute_fingerprint(_seed_inputs(t)),
-                                       paths_fn=_seed_paths, enabled=not getattr(config, 'no_compiler_cache', False))
+                                       paths_fn=_seed_paths, probe_fn=_seed_probe, log_fn=log,
+                                       enabled=not getattr(config, 'no_compiler_cache', False))
+            co.begin_session()  # once per session: log root + sweep stale seeds (even if every dir is configured)
             config._seed_coord = co
         return co
 
@@ -192,6 +209,10 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     cache_exists = os.path.exists(target.build_dir('CMakeCache.txt'))
     coord = _seed_coordinator(target)
     role = coord.prepare(target) if (_seed and not cache_exists) else 'none'
+    if target.config.verbose and _seed:
+        fp, present = coord.status(target)
+        outcome = role if not cache_exists else 'skip (CMakeCache exists)'
+        console(f'  seed[{target.name}] fp={fp} {"hit" if present else "miss"} -> {outcome}', color=Color.BLUE)
 
     cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
     ok = False
