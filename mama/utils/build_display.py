@@ -29,6 +29,13 @@ _PHASE_TAG = {'check': 'git', 'clone': 'git', 'pulling': 'git', 'local': 'loc', 
               'configure': 'cfg', 'build': 'bld'}
 
 
+def _fmt_dur(d: float) -> str:
+    """Phase duration for the timing column: a sub-0.1s step reads `.03s` (2 decimals, no leading 0,
+    stays 4-wide) instead of the noisy `34ms`; 0.1s+ uses the shared get_time_str (`0.5s`, `2m 44s`)."""
+    if d < 0.1: return f'.{round(d * 100):02d}s'
+    return get_time_str(d)
+
+
 class Task:
     """One dep across its whole workflow. `kind`/`detail`/`start` track the CURRENT phase; `phases`
     accumulates (duration, kind, detail) for each completed phase that did real work, so the final
@@ -244,7 +251,7 @@ class BuildDisplay:
         # Always tag every phase (even a lone build -> 'bld 4.0s'), so the timing column stays
         # consistent whether or not configure/load did visible work.
         phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
-        return '  '.join(f'{self._tag(k)} {get_time_str(d)}' for d, k, _ in phases)
+        return '  '.join(f'{self._tag(k)} {_fmt_dur(d)}' for d, k, _ in phases)
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])

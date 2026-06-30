@@ -58,9 +58,17 @@ def test_phases_merge_into_one_summary_with_breakdown():
 def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
     d, out, clk = _disp(isatty=False)
     d.start_task('z', 'pulling', 'z'); clk.tick(2.0); d.finish_task('z', ok=True, final=False)  # real load
-    d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure (0ms)
+    d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure
     d.start_task('z', 'build', 'z', detail='J4'); clk.tick(0.5); d.finish_task('z', ok=True, final=True)
-    assert 'cfg 0ms' in strip(out.getvalue())  # the 0ms configure is shown, not hidden - "did cfg run?"
+    assert 'cfg .00s' in strip(out.getvalue())  # the instant configure is shown, not hidden - "did cfg run?"
+
+
+def test_subsecond_phase_shows_fractional_seconds_not_milliseconds():
+    # ms is noise in the breakdown: a 34ms step reads '.03s'. (>=0.1s keeps get_time_str: 'git 2.0s'.)
+    d, out, clk = _disp(isatty=False)
+    d.start_task('m', 'pulling', 'm'); clk.tick(2.0); d.finish_task('m', ok=True, final=False)
+    d.start_task('m', 'build', 'm', detail='J4'); clk.tick(0.034); d.finish_task('m', ok=True, final=True)
+    assert 'git 2.0s' in out.getvalue() and 'bld .03s' in out.getvalue()
 
 
 def test_lone_phase_still_shows_its_tag():
@@ -72,10 +80,10 @@ def test_lone_phase_still_shows_its_tag():
 def test_live_line_shows_all_prior_phases_including_an_instant_one():
     d, _, clk = _disp(isatty=True)
     d.start_task('g', 'pulling', 'g'); clk.tick(3.7); d.finish_task('g', ok=True, final=False)  # 3.7s pull
-    d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure (0ms)
+    d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
     line = strip(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'git 3.7s' in line and 'cfg 0ms' in line and 'bld 0.5s' in line  # every step shown, even the 0ms cfg
+    assert 'git 3.7s' in line and 'cfg .00s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
 
 
 def test_phase_tags_collapse_git_loads_and_label_each_source():
