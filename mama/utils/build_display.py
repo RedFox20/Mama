@@ -34,6 +34,7 @@ def _fmt_dur(d: float) -> str:
     columns line up across rows. Sub-0.1s shows 2 decimals (`0.03s`) not the noisy `34ms`; 0.1s+
     uses the shared get_time_str (`0.5s`, `2m 44s`)."""
     s = f'{d:.2f}s' if d < 0.1 else get_time_str(d)
+    if s == '0.00s': s = '0.0s'   # an instant phase: 0.0s reads better than an over-precise 0.00s
     return s.rjust(6)
 
 

@@ -2,7 +2,7 @@
 import io, re
 from types import SimpleNamespace
 from mama.utils import system
-from mama.utils.build_display import BuildDisplay, Task
+from mama.utils.build_display import BuildDisplay, Task, _fmt_dur
 
 _STRIP = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # all ANSI (SGR + cursor), for plain assertions
 def strip(s: str) -> str: return _STRIP.sub('', s)
@@ -61,7 +61,7 @@ def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
     d.start_task('z', 'pulling', 'z'); clk.tick(2.0); d.finish_task('z', ok=True, final=False)  # real load
     d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure
     d.start_task('z', 'build', 'z', detail='J4'); clk.tick(0.5); d.finish_task('z', ok=True, final=True)
-    assert 'cfg 0.00s' in squeeze(out.getvalue())  # the instant configure is shown, not hidden - "did cfg run?"
+    assert 'cfg 0.0s' in squeeze(out.getvalue())  # the instant configure is shown, not hidden - "did cfg run?"
 
 
 def test_subsecond_phase_shows_fractional_seconds_not_milliseconds():
@@ -71,6 +71,11 @@ def test_subsecond_phase_shows_fractional_seconds_not_milliseconds():
     d.start_task('m', 'build', 'm', detail='J4'); clk.tick(0.034); d.finish_task('m', ok=True, final=True)
     text = squeeze(out.getvalue())
     assert 'git 2.0s' in text and 'bld 0.03s' in text  # 34ms shown as 0.03s, no ms noise
+
+
+def test_instant_phase_rounds_to_one_decimal_not_two_zeros():
+    assert _fmt_dur(0.0).strip() == '0.0s' and _fmt_dur(0.002).strip() == '0.0s'  # not an over-precise 0.00s
+    assert _fmt_dur(0.01).strip() == '0.01s'   # a real sub-0.1s value keeps 2 decimals
 
 
 def test_lone_phase_still_shows_its_tag():
@@ -85,7 +90,7 @@ def test_live_line_shows_all_prior_phases_including_an_instant_one():
     d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
     line = squeeze(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'git 3.7s' in line and 'cfg 0.00s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
+    assert 'git 3.7s' in line and 'cfg 0.0s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
 
 
 def test_phase_tags_collapse_git_loads_and_label_each_source():
