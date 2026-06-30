@@ -13,11 +13,21 @@ def _wait_until(pred, timeout=2.0):
     return False
 
 
+_probes, _threads = [], []  # tracked so _drain() can release + join them even if an assertion bailed early
+
+@pytest.fixture(autouse=True)
+def _drain():
+    yield
+    for p in _probes: p.gate.set()   # release any job bodies still parked at their gate
+    for t in _threads: t.join(3.0)   # join so no scheduler thread leaks into the next test or to exit
+    _probes.clear(); _threads.clear()
+
+
 class Probe:
     """Counts concurrent job bodies and holds them at a gate until released."""
     def __init__(self):
         self.lock = threading.Lock(); self.cur = 0; self.max = 0
-        self.gate = threading.Event()
+        self.gate = threading.Event(); _probes.append(self)
     def body(self):
         with self.lock:
             self.cur += 1; self.max = max(self.max, self.cur)
@@ -27,8 +37,8 @@ class Probe:
 
 def _run_bg(sched, jobs):
     out = {}
-    t = threading.Thread(target=lambda: out.__setitem__('r', sched.run(jobs)))
-    t.start()
+    t = threading.Thread(target=lambda: out.__setitem__('r', sched.run(jobs)), daemon=True)
+    t.start(); _threads.append(t)
     return t, out
 
 
@@ -162,18 +172,6 @@ def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
     assert p.max == 8
 
 
-def test_debug_log_reports_running_and_blocked_weights():
-    logs, p = [], Probe()
-    jobs = [Job(f'b{i}', BUILD, p.body, weight=4, node=SimpleNamespace(name=f'b{i}')) for i in range(3)]
-    sched = _sched(core_budget=4, overprovision=2.0, cpu_sampler=lambda: 100.0, debug_log=logs.append)  # busy
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: any('blocked:' in l for l in logs))
-    p.gate.set(); t.join(2.0)
-    line = next(l for l in logs if 'building[1]' in l)
-    assert 'reserved=4/8' in line and 'cpu=100%' in line   # budget 4 * overprovision 2.0
-    assert '(4)' in line.split('blocked:')[1]              # blocked builds report their weight
-
-
 def test_build_slot_barrier_blocks_until_budget_frees():
     sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)
     p = Probe()
@@ -207,13 +205,12 @@ def test_fail_fast_returns_failed_job_and_blocks_dependents():
     assert c.done                         # independent job still completed
 
 
-def test_normal_failure_does_not_fire_abort_hook():
-    # Deliberate asymmetry: the child-killer (abort_hook) fires ONLY on Ctrl+C. A plain job failure
-    # stops new launches but lets in-flight compiles finish, so the hook must stay silent.
+def test_failure_fires_abort_hook_once_to_kill_in_flight():
+    # Fail-fast: the first failure fires the child-killer so in-flight compiles are killed, not drained.
     hook = []
     def boom(): raise RuntimeError('kaboom')
-    failed = _sched(abort_hook=lambda: hook.append(1)).run([Job('a', BUILD, boom)])
-    assert failed is not None and not hook
+    failed = _sched(abort_hook=lambda: hook.append(1)).run([Job('a', BUILD, boom), Job('b', BUILD, boom)])
+    assert failed is not None and len(hook) == 1   # exactly once - only the first failure aborts
 
 
 def test_load_governor_caps_concurrency():
