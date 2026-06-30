@@ -1,4 +1,4 @@
-import os, concurrent.futures
+import os, sys, time, concurrent.futures
 from typing import List
 
 from mama.build_config import BuildConfig
@@ -6,7 +6,7 @@ from .build_dependency import BuildDependency
 from .util import read_text_from, write_text_to, save_file_if_contents_changed, get_time_str
 from .utils import ssh_multiplex, system
 from .utils.sub_process import SubProcess
-from .utils.system import Color, console, error
+from .utils.system import Color, console, error, get_colored_text
 
 
 def _get_cmake_path_list(paths):
@@ -542,12 +542,14 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
     sink = lambda line: display.feed(tid, line)
     name = f'{_node_marker(dep)} {dep.name}' if dep.config.verbose else dep.name  # tree markers: verbose only
     display.start_task(tid, _phase_label(dep, kind), name, detail)
-    ok = False
+    ok = False; t0 = time.monotonic()
     try:
         with system.capture_to(sink, display, tid, build_slot):  # console + CPU + build barrier
             body(sink)
         ok = True
     finally:
+        pt = getattr(dep, 'phase_times', None)  # accumulate for the `buildtimes` breakdown
+        if pt is not None: pt[kind] = pt.get(kind, 0.0) + (time.monotonic() - t0)
         if kind == 'load': display.relabel(tid, dep.load_action)  # reflect what load() actually did
         display.finish_task(tid, ok, final)
 
@@ -635,6 +637,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
         SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
+    if getattr(config, 'buildtimes', False): print_buildtimes(deps)
     _deploy_run_postpass(flat_deps_reverse, config)
 
 
@@ -680,6 +683,61 @@ def _print_build_summary(deps, elapsed: float):
     built = sum(1 for d in deps if getattr(d, 'should_rebuild', False)
                 and not getattr(d, 'from_artifactory', False) and not getattr(d, 'nothing_to_build', False))
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
+
+
+# buildtimes (stage 1): a normalized horizontal bar per package, segmented load/configure/build.
+_BAR_FILL = 40  # the slowest package fills this width; the rest scale down proportionally
+_BAR = (('load', Color.BLUE), ('configure', Color.MAGENTA), ('build', Color.GREEN))
+_GLYPHS_SHADE = ('░', '▒', '▓')  # light/medium/dark blocks (UTF-8 terminals)
+_GLYPHS_ASCII = ('-', '=', '#')  # legacy code-page fallback (Windows cp1252 can't encode the blocks)
+_glyphs_cache = None
+
+
+def _can_encode_blocks(encoding) -> bool:
+    try: ''.join(_GLYPHS_SHADE).encode(encoding); return True
+    except (UnicodeEncodeError, LookupError): return False
+
+
+def _bar_glyphs():
+    """Block shades on a UTF-8 terminal, ASCII on a legacy code page. Decided ONCE - the output
+    encoding is constant per process, so there's no point re-testing it per report or per row."""
+    global _glyphs_cache
+    if _glyphs_cache is None:
+        _glyphs_cache = _GLYPHS_SHADE if _can_encode_blocks(getattr(sys.stdout, 'encoding', None) or 'ascii') \
+                        else _GLYPHS_ASCII
+    return _glyphs_cache
+
+
+def _buildtimes_bar(times: dict, total: float, max_total: float, glyphs) -> str:
+    """Bar whose length scales with total/max_total; inside, load/configure/build take shares of that
+    length (shaded, coloured). Right-padded to full width so the trailing total aligns across rows."""
+    bar_len = max(1, round(total / max_total * _BAR_FILL)) if max_total > 0 else 0
+    out, used, last = [], 0, len(_BAR) - 1
+    for i, ((kind, color), ch) in enumerate(zip(_BAR, glyphs)):
+        n = (bar_len - used) if i == last else min(round(times.get(kind, 0.0) / total * bar_len), bar_len - used)
+        if n > 0: out.append(get_colored_text(ch * n, color))
+        used += n
+    return ''.join(out) + ' ' * (_BAR_FILL - bar_len)
+
+
+def print_buildtimes(deps):
+    """`buildtimes`: one normalized bar per package (load / configure / build), slowest first, with its
+    total wall time. Deps that did no timed work (pure cached no-ops) are omitted."""
+    rows = []
+    for d in deps:
+        pt = getattr(d, 'phase_times', None)
+        if not pt: continue
+        total = sum(pt.values())  # once per dep, not recomputed in a filter
+        if total > 0: rows.append((d.name, pt, total))
+    if not rows: return
+    rows.sort(key=lambda r: r[2], reverse=True)
+    max_total = rows[0][2]
+    name_w = min(max(len(name) for name, _, _ in rows), 24)
+    glyphs = _bar_glyphs()
+    legend = '  '.join(get_colored_text(f'{ch} {kind}', color) for (kind, color), ch in zip(_BAR, glyphs))
+    console(f'\n  Build times   {legend}')
+    for name, pt, total in rows:
+        console(f'  {name:<{name_w}.{name_w}}  {_buildtimes_bar(pt, total, max_total, glyphs)}  {get_time_str(total)}')
 
 
 def execute_unified(root: BuildDependency):
@@ -733,6 +791,7 @@ def execute_unified(root: BuildDependency):
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)
+    if getattr(config, 'buildtimes', False): print_buildtimes(flat)
     _deploy_run_postpass(reversed(flat), config)
 
 
