@@ -49,6 +49,13 @@ class TestIoFunc:
         _, lines = _py_run('import sys; print("out"); print("err", file=sys.stderr)')
         assert 'out' in lines and 'err' in lines
 
+    def test_all_output_drained_on_nonzero_exit(self):
+        # Regression: close() must drain the reader BEFORE shutting the pipe, or a burst of lines flushed
+        # right before a failing exit (e.g. the compiler error that failed the build) is lost.
+        status, lines = _py_run('import sys\nfor i in range(300): print("line%d" % i)\nsys.exit(1)')
+        assert status == 1
+        assert [l for l in lines if l.startswith('line')][-1] == 'line299'   # the tail is never dropped
+
     def test_no_trailing_carriage_return_on_lines(self):
         _, lines = _py_run('print("plain")')
         assert 'plain' in lines

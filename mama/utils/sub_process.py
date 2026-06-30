@@ -48,6 +48,7 @@ class SubProcess:
         self._swallow_lf = False       # after \r-progress idle-flush, swallow a leading \n (or \r\n) in next chunk
         self._last_output = time.monotonic()  # bumped on every chunk; drives the idle-timeout watchdog
         self._group = False            # True: child leads its own group/session -> kill() tears down its whole tree
+        self._killed = False           # set by kill(); close() only force-closes the pipe early when we killed
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
@@ -216,6 +217,7 @@ class SubProcess:
         p = self.process
         if not p or p.poll() is not None:
             return
+        self._killed = True
         if self._group:
             self._kill_tree(p)  # build/clone child: take down its whole subtree, not just the pid
             return
@@ -252,19 +254,23 @@ class SubProcess:
 
 
     def close(self):
-        self.kill()
-        # Windows has no master_fd: close the child's stdout pipe so a pump thread blocked in os.read
-        # unblocks (a killed cmake's grandchildren may still hold the write end). UNIX EOFs via the
-        # master_fd close below.
-        if System.windows and self.process and self.process.stdout:
-            try: self.process.stdout.close()
+        self.kill()  # no-op if the child already exited; sets self._killed if it had to kill a live one
+        win_out = self.process.stdout if (System.windows and self.process) else None
+        # Force the Windows read-end shut ONLY when we killed the child: its grandchildren (ninja/compilers)
+        # may still hold the write end, so the pump would block in os.read forever. On a CLEAN exit the write
+        # end is already closed, so closing here would race the pump and DROP the final buffered lines (e.g.
+        # the compiler error that failed the build) - instead drain first (join) and close after.
+        if win_out and self._killed:
+            try: win_out.close()
             except OSError: pass
-        # Reader thread exits when the PTY master sees EOF (slave closed by
-        # the child or by Popen's __exit__). Join briefly to drain any
-        # trailing buffered output the io_func hasn't seen yet.
+        # Reader thread drains its queue then exits on EOF (Windows pipe closed, or UNIX PTY master closed
+        # below). Join so all trailing output reaches io_func before we return.
         if self._reader_thread:
             self._reader_thread.join(timeout=2.0)
             self._reader_thread = None
+        if win_out and not win_out.closed:  # clean-exit path: now that the reader has drained, close it
+            try: win_out.close()
+            except OSError: pass
         if self._master_fd is not None:
             try:
                 os.close(self._master_fd)
