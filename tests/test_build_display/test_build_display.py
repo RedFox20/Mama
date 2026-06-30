@@ -6,6 +6,7 @@ from mama.utils.build_display import BuildDisplay, Task
 
 _STRIP = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # all ANSI (SGR + cursor), for plain assertions
 def strip(s: str) -> str: return _STRIP.sub('', s)
+def squeeze(s: str) -> str: return re.sub(r' +', ' ', strip(s))  # collapse fixed-width padding for breakdown asserts
 
 
 class Clock:
@@ -50,7 +51,7 @@ def test_phases_merge_into_one_summary_with_breakdown():
     assert out.getvalue() == ''   # an intermediate phase commits nothing - the dep is still working
     d.start_task('geo', 'configure', 'geo'); clk.tick(0.3); d.finish_task('geo', ok=True, final=False)
     d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
-    text = strip(out.getvalue())
+    text = squeeze(out.getvalue())
     assert text.count('geo') == 1 and 'build J32' in text  # one merged line; kind = last phase that did work
     assert 'git 3.7s' in text and 'cfg 0.3s' in text and 'bld 0.5s' in text  # git pull, configure, build
 
@@ -60,7 +61,7 @@ def test_summary_keeps_an_instant_phase_when_the_dep_did_real_work():
     d.start_task('z', 'pulling', 'z'); clk.tick(2.0); d.finish_task('z', ok=True, final=False)  # real load
     d.start_task('z', 'configure', 'z'); d.finish_task('z', ok=True, final=False)  # instant configure
     d.start_task('z', 'build', 'z', detail='J4'); clk.tick(0.5); d.finish_task('z', ok=True, final=True)
-    assert 'cfg .00s' in strip(out.getvalue())  # the instant configure is shown, not hidden - "did cfg run?"
+    assert 'cfg 0.00s' in squeeze(out.getvalue())  # the instant configure is shown, not hidden - "did cfg run?"
 
 
 def test_subsecond_phase_shows_fractional_seconds_not_milliseconds():
@@ -68,13 +69,14 @@ def test_subsecond_phase_shows_fractional_seconds_not_milliseconds():
     d, out, clk = _disp(isatty=False)
     d.start_task('m', 'pulling', 'm'); clk.tick(2.0); d.finish_task('m', ok=True, final=False)
     d.start_task('m', 'build', 'm', detail='J4'); clk.tick(0.034); d.finish_task('m', ok=True, final=True)
-    assert 'git 2.0s' in out.getvalue() and 'bld .03s' in out.getvalue()
+    text = squeeze(out.getvalue())
+    assert 'git 2.0s' in text and 'bld 0.03s' in text  # 34ms shown as 0.03s, no ms noise
 
 
 def test_lone_phase_still_shows_its_tag():
     d, out, clk = _disp(isatty=False)
     d.start_task('x', 'build', 'x', detail='J4'); clk.tick(2.0); d.finish_task('x', ok=True)  # build-only dep
-    assert 'bld 2.0s' in out.getvalue()  # the tag shows even for a lone phase, for a consistent column
+    assert 'bld 2.0s' in squeeze(out.getvalue())  # the tag shows even for a lone phase, for a consistent column
 
 
 def test_live_line_shows_all_prior_phases_including_an_instant_one():
@@ -82,8 +84,8 @@ def test_live_line_shows_all_prior_phases_including_an_instant_one():
     d.start_task('g', 'pulling', 'g'); clk.tick(3.7); d.finish_task('g', ok=True, final=False)  # 3.7s pull
     d.start_task('g', 'configure', 'g'); d.finish_task('g', ok=True, final=False)  # instant configure
     d.start_task('g', 'build', 'g', detail='J8'); clk.tick(0.5)                    # now building
-    line = strip(d._task_line(d._tasks['g'], clk(), 120))
-    assert 'git 3.7s' in line and 'cfg .00s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
+    line = squeeze(d._task_line(d._tasks['g'], clk(), 120))
+    assert 'git 3.7s' in line and 'cfg 0.00s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
 
 
 def test_phase_tags_collapse_git_loads_and_label_each_source():

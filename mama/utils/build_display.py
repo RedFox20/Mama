@@ -30,10 +30,11 @@ _PHASE_TAG = {'check': 'git', 'clone': 'git', 'pulling': 'git', 'local': 'loc', 
 
 
 def _fmt_dur(d: float) -> str:
-    """Phase duration for the timing column: a sub-0.1s step reads `.03s` (2 decimals, no leading 0,
-    stays 4-wide) instead of the noisy `34ms`; 0.1s+ uses the shared get_time_str (`0.5s`, `2m 44s`)."""
-    if d < 0.1: return f'.{round(d * 100):02d}s'
-    return get_time_str(d)
+    """One phase's duration for the timing column, right-aligned to a fixed width so the cfg/bld
+    columns line up across rows. Sub-0.1s shows 2 decimals (`0.03s`) not the noisy `34ms`; 0.1s+
+    uses the shared get_time_str (`0.5s`, `2m 44s`)."""
+    s = f'{d:.2f}s' if d < 0.1 else get_time_str(d)
+    return s.rjust(6)
 
 
 class Task:
