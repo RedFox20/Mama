@@ -6,7 +6,7 @@ from .build_dependency import BuildDependency
 from .util import read_text_from, write_text_to, save_file_if_contents_changed, get_time_str
 from .utils import ssh_multiplex, system
 from .utils.sub_process import SubProcess
-from .utils.system import Color, console, error, get_colored_text
+from .utils.system import Color, console, error, warning, get_colored_text
 
 
 def _get_cmake_path_list(paths):
@@ -579,15 +579,14 @@ def _stable_cpu_sampler(measure, clock, window=0.5):
 
 
 def _make_scheduler(config, **extra):
-    """The build Scheduler with a stable psutil CPU sampler, the Ctrl+C child-killer, and (verbose)
-    the [sched] debug log."""
+    """The build Scheduler with a stable psutil CPU sampler and the Ctrl+C child-killer."""
     import psutil, time
     from .build_scheduler import Scheduler
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
     return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs, abort_hook=SubProcess.terminate_all,
                      cpu_sampler=_stable_cpu_sampler(lambda: psutil.cpu_percent(interval=None), time.monotonic),
-                     debug_log=(lambda m: console(m, color=Color.BLUE)) if config.verbose else None, **extra)
+                     **extra)
 
 
 def _handle_failure(display, failed):
@@ -629,15 +628,18 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
     system.set_active_display(display)
     start = time.monotonic()
-    try:
-        failed = sched.run(jobs)
-    finally:
-        display.close()
-        system.set_active_display(None)
-        SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
+    with _build_insights_session(config):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
+        try:
+            failed = sched.run(jobs)
+        finally:
+            display.close()
+            system.set_active_display(None)
+            SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
-    if getattr(config, 'buildtimes', False): print_buildtimes(deps)
+    if getattr(config, 'buildtimes', False):
+        print_buildtimes(deps)
+        _print_build_insights(config, deps)
     _deploy_run_postpass(flat_deps_reverse, config)
 
 
@@ -742,6 +744,43 @@ def print_buildtimes(deps):
         console(f'  {name:<{name_w}.{name_w}}  {_buildtimes_bar(pt, total, max_total, glyphs)}  {get_time_str(total)}')
 
 
+def _build_insights_session(config):
+    """MSVC `buildtimes`: a live vcperf /timetrace session wrapping the build (Stage 2); otherwise a null
+    context. Stashes the JSON path on config for the post-build deep report."""
+    import contextlib
+    if not (getattr(config, 'buildtimes', False) and config.msvc):
+        return contextlib.nullcontext()
+    from .build_insights import find_vcperf, VcPerfSession, timetrace_path
+    vcperf = find_vcperf(config)
+    if not vcperf:
+        warning('buildtimes: vcperf.exe not found (set VCPERF= or run from a Developer Command Prompt);'
+                ' skipping MSVC Build Insights')
+        return contextlib.nullcontext()
+    config._timetrace_json = timetrace_path()
+    return VcPerfSession(vcperf, config._timetrace_json)
+
+
+def _print_build_insights(config, deps):
+    """After the Stage 1 bars: parse the vcperf trace and print the MSVC frontend/backend/link deep dive.
+    No target -> whole-build root stats; a <target> -> only that package's TUs (matched by path)."""
+    path = getattr(config, '_timetrace_json', None)
+    if not path or not os.path.exists(path): return
+    import json
+    from .build_insights import parse_timetrace, print_buildtimes_deep
+    scope_paths, label = None, 'root'
+    if config.has_target() and not config.targets_all():
+        dep = next((d for d in deps if d.name.lower() == config.target.lower()), None)
+        if dep:
+            label = dep.name
+            scope_paths = [p for p in (getattr(dep, 'src_dir', None), getattr(dep, 'build_dir', None)) if p]
+    try:
+        with open(path, encoding='utf-8') as f: data = json.load(f)
+        stats = parse_timetrace(data, scope_paths)
+    except Exception as e:
+        warning(f'buildtimes: failed to read vcperf trace: {e}'); return
+    print_buildtimes_deep(stats, label)
+
+
 def execute_unified(root: BuildDependency):
     """Dynamic DAG scheduler interleaving cloning with configure+build: each dep is a LOAD job whose
     completion GROWS the graph with its children's LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits
@@ -783,17 +822,20 @@ def execute_unified(root: BuildDependency):
 
     system.set_active_display(display)
     start = time.monotonic()
-    try:
-        failed = sched.run(make_jobs(root, None))
-    finally:
-        display.close()
-        system.set_active_display(None)
-        config.update_stats.stop()
-        SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
+    with _build_insights_session(config):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
+        try:
+            failed = sched.run(make_jobs(root, None))
+        finally:
+            display.close()
+            system.set_active_display(None)
+            config.update_stats.stop()
+            SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)
-    if getattr(config, 'buildtimes', False): print_buildtimes(flat)
+    if getattr(config, 'buildtimes', False):
+        print_buildtimes(flat)
+        _print_build_insights(config, flat)
     _deploy_run_postpass(reversed(flat), config)
 
 
