@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,9 @@ from unittest.mock import Mock
 
 import mama
 import pytest
+
+_ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves
+def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
 
 
 class FakeBuildTarget:

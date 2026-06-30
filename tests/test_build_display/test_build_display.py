@@ -3,9 +3,8 @@ import io, re
 from types import SimpleNamespace
 from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task, _fmt_dur
+from testutils import strip_ansi as strip
 
-_STRIP = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # all ANSI (SGR + cursor), for plain assertions
-def strip(s: str) -> str: return _STRIP.sub('', s)
 def squeeze(s: str) -> str: return re.sub(r' +', ' ', strip(s))  # collapse fixed-width padding for breakdown asserts
 
 
