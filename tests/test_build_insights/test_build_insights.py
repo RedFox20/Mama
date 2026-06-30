@@ -8,19 +8,22 @@ def _b(name, ts, args=None): return {'ph': 'B', 'name': name, 'ts': ts, **({'arg
 def _e(ts): return {'ph': 'E', 'ts': ts}
 def _x(name, ts, dur): return {'ph': 'X', 'name': name, 'ts': ts, 'dur': dur}
 
-# CL Invocation 0 (a.cpp -> C:\proj\build): frontend=100us (a.cpp incl big.h), backend=60us, +someFunc codegen.
-# CL Invocation 1 (b.cpp -> C:\other\build): frontend=60us, re-parses big.h. Link 0 -> C:\proj\build, 50us.
+# Real vcperf shape: CL Invocation -> FrontEndPass -> C1DLL -> <source> (+ nested includes); BackEndPass ->
+# C2DLL -> codegen leaves. CL0 (a.cpp -> C:\proj): frontend 100us (incl big.h 60us), backend 60us (someFunc).
+# CL1 (b.cpp -> C:\other): frontend 60us, re-includes big.h 20us, no backend. Link 0 -> C:\proj, 50us.
+def _fe(src, ts, dur, inc=None):  # one FrontEndPass: C1DLL -> source, optional nested include (name, ts, dur)
+    body = [_b('C1DLL', ts), _b(src, ts)] + ([_x(inc[0], inc[1], inc[2])] if inc else []) + [_e(ts + dur), _e(ts + dur)]
+    return [_b('FrontEndPass', ts), *body, _e(ts + dur)]
+def _be(sym, ts, dur, sym_dur):  # one BackEndPass: C2DLL -> one codegen leaf
+    return [_b('BackEndPass', ts), _b('C2DLL', ts), _x(sym, ts, sym_dur), _e(ts + dur), _e(ts + dur)]
+
 _TRACE = {'traceEvents': [
     _b('CL Invocation 0', 0, {'File Input': r'C:\proj\src\a.cpp', 'File Output': r'C:\proj\build\a.obj'}),
-      _b('Pass1', 0),
-        _b(r'C:\proj\src\a.cpp', 0), _x(r'C:\proj\inc\big.h', 10, 60), _e(100),
-      _e(100),
-      _b('Pass2', 100), _x('someFunc', 100, 40), _e(160),
+      *_fe(r'C:\proj\src\a.cpp', 0, 100, inc=(r'C:\proj\inc\big.h', 10, 60)),
+      *_be('someFunc', 100, 60, 40),
     _e(160),
     _b('CL Invocation 1', 200, {'File Input': r'C:\other\src\b.cpp', 'File Output': r'C:\other\build\b.obj'}),
-      _b('Pass1', 200),
-        _b(r'C:\other\src\b.cpp', 200), _x(r'C:\proj\inc\big.h', 210, 20), _e(260),
-      _e(260),
+      *_fe(r'C:\other\src\b.cpp', 200, 60, inc=(r'C:\proj\inc\big.h', 210, 20)),
     _e(260),
     _b('Link Invocation 0', 260, {'File Output': r'C:\proj\build\app.exe', 'File Input': r'C:\proj\build\a.obj'}),
     _e(310),
@@ -29,19 +32,19 @@ _TRACE = {'traceEvents': [
 US = 1e-6
 
 
-def test_build_tree_reconstructs_nesting_and_durations():
+def test_build_tree_reconstructs_passes_and_durations():
     roots = bi._build_tree(_TRACE['traceEvents'])
     assert [r.name for r in roots] == ['CL Invocation 0', 'CL Invocation 1', 'Link Invocation 0']
-    assert roots[0].dur == 160 and roots[0].children[0].name == 'Pass1'
-    assert roots[0].children[0].children[0].dur == 100   # a.cpp B/E span encloses its include
+    assert roots[0].dur == 160
+    assert [c.name for c in roots[0].children] == ['FrontEndPass', 'BackEndPass']
+    assert roots[0].children[0].dur == 100   # FrontEndPass B/E span
 
 
-def test_root_totals_and_frontend_backend_split():
+def test_root_totals_sum_passes_not_invocation_wall():
     s = bi.parse_timetrace(_TRACE)
-    assert s.n_tu == 2
-    assert s.compile_s == (160 + 60) * US and s.link_s == 50 * US
+    assert s.n_tu == 2                                              # one per FrontEndPass, not per cl.exe
     assert s.frontend_s == (100 + 60) * US and s.backend_s == 60 * US
-    assert s.frontend_s + s.backend_s == s.compile_s   # backend is compile minus outermost-file parse
+    assert s.compile_s == s.frontend_s + s.backend_s and s.link_s == 50 * US  # compile is aggregate, never clamped
 
 
 def test_header_costs_count_includes_not_tu_sources():
@@ -52,7 +55,7 @@ def test_header_costs_count_includes_not_tu_sources():
 
 def test_codegen_symbols_exclude_structural_and_paths():
     syms = [name for name, _ in bi.parse_timetrace(_TRACE).symbols]
-    assert syms == ['someFunc']   # Pass1/Pass2 structural and file paths are not codegen symbols
+    assert syms == ['someFunc']   # the passes (FrontEndPass/C1DLL/...) and file paths are not codegen symbols
 
 
 def test_scope_filters_to_one_packages_tus():
@@ -80,6 +83,34 @@ def test_deep_report_renders_all_sections(capsys):
     for token in ['Build Insights (root)', 'frontend', 'backend', 'link', 'translation units', 'a.cpp',
                   'costliest headers', 'big.h']:
         assert token in out
+
+
+def test_demangle_decodes_msvc_and_passes_through_plain():
+    assert bi._demangle('main') == 'main'                              # not mangled -> unchanged
+    assert bi._demangle('mocs_compilation.cpp') == 'mocs_compilation.cpp'
+    if bi.System.windows:
+        assert bi._demangle('?_buildMap@QGCPalette@@CAXXZ') == 'QGCPalette::_buildMap'  # dbghelp NAME_ONLY
+
+
+def test_short_truncates_long_symbols_to_one_line():
+    assert bi._short('x' * 200).endswith('...') and len(bi._short('x' * 200)) == bi._SYM_WIDTH
+    assert bi._short('rfl::parsing::to_single_error_message') == 'rfl::parsing::to_single_error_message'
+
+
+def test_timetrace_path_is_in_the_build_dir(tmp_path):
+    assert bi.timetrace_path(str(tmp_path / 'pkg' / 'windows')).endswith('/pkg/windows/mama_timetrace.json')
+
+
+def test_deep_report_demangles_codegen_symbols(capsys):
+    if not bi.System.windows: return  # demangling is a no-op off Windows (dbghelp is Windows-only)
+    tr = {'traceEvents': [
+        _b('CL Invocation 0', 0, {'File Input': r'C:\p\a.cpp', 'File Output': r'C:\p\b\a.obj'}),
+          *_fe(r'C:\p\a.cpp', 0, 1_000_000),
+          *_be('?_buildMap@QGCPalette@@CAXXZ', 1_000_000, 5_000_000, 5_000_000),
+        _e(6_000_000)]}
+    bi.print_buildtimes_deep(bi.parse_timetrace(tr), 'root')
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'QGCPalette::_buildMap' in out and '?_buildMap' not in out   # raw mangled name never shown
 
 
 def test_find_vcperf_prefers_env_override(monkeypatch, tmp_path):

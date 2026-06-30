@@ -626,9 +626,10 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot,
                                _build_detail(d), final=True)  # build is the dep's last phase -> commit its summary
     jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
+    root = next((d for d in deps if getattr(d, 'is_root', False)), deps[-1])
     system.set_active_display(display)
     start = time.monotonic()
-    with _build_insights_session(config):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
+    with _build_insights_session(config, root):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
         try:
             failed = sched.run(jobs)
         finally:
@@ -744,9 +745,9 @@ def print_buildtimes(deps):
         console(f'  {name:<{name_w}.{name_w}}  {_buildtimes_bar(pt, total, max_total, glyphs)}  {get_time_str(total)}')
 
 
-def _build_insights_session(config):
+def _build_insights_session(config, root: BuildDependency):
     """MSVC `buildtimes`: a live vcperf /timetrace session wrapping the build (Stage 2); otherwise a null
-    context. Stashes the JSON path on config for the post-build deep report."""
+    context. The trace lands in the root project's build dir; the path is stashed on config for the report."""
     import contextlib
     if not (getattr(config, 'buildtimes', False) and config.msvc):
         return contextlib.nullcontext()
@@ -756,7 +757,7 @@ def _build_insights_session(config):
         warning('buildtimes: vcperf.exe not found (set VCPERF= or run from a Developer Command Prompt);'
                 ' skipping MSVC Build Insights')
         return contextlib.nullcontext()
-    config._timetrace_json = timetrace_path()
+    config._timetrace_json = timetrace_path(root.build_dir)
     return VcPerfSession(vcperf, config._timetrace_json)
 
 
@@ -822,7 +823,7 @@ def execute_unified(root: BuildDependency):
 
     system.set_active_display(display)
     start = time.monotonic()
-    with _build_insights_session(config):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
+    with _build_insights_session(config, root):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
         try:
             failed = sched.run(make_jobs(root, None))
         finally:

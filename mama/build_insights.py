@@ -34,8 +34,10 @@ def find_vcperf(config) -> str:
     return next((c for c in candidates if c and os.path.isfile(c)), '')
 
 
-def timetrace_path() -> str:
-    return normalized_path(os.path.join(tempfile.gettempdir(), 'mama_timetrace.json'))
+def timetrace_path(build_dir: str) -> str:
+    """Where vcperf writes the trace: the root project's platform build dir, so other tools can find it at
+    a stable per-project location (packages/<project>/<platform>/mama_timetrace.json), not a temp file."""
+    return normalized_path(os.path.join(build_dir, 'mama_timetrace.json'))
 
 
 def _start_reason(output: str) -> str:
@@ -98,6 +100,7 @@ class VcPerfSession:
 
     def __exit__(self, *exc):
         if self.ok:
+            os.makedirs(os.path.dirname(self.json_out) or '.', exist_ok=True)  # vcperf won't create the dir
             try: os.remove(self.json_out)  # so a leftover trace can't masquerade as this run's
             except OSError: pass
             self._run([self.vcperf, '/stop', _SESSION, '/timetrace', self.json_out])
@@ -147,24 +150,37 @@ def _arg_values(args, key: str) -> list:
     return [v for k, v in args.items() if k.startswith(key)] if args else []
 
 
-def _walk(node, depth_in_file: int, files: dict, symbols: dict) -> float:
-    """Returns the node's frontend (parse) contribution while filling `files` (each INCLUDED header by
-    basename -> [inclusive_us, count]) and `symbols` (codegen leaves -> us). Frontend credits only the
-    OUTERMOST file span (depth 0, its dur already covers the includes); that source file is the TU itself,
-    not a header, so only nested files (depth > 0) feed `files` - that's the cross-TU PCH signal."""
-    fe = 0.0
+_FRONTEND_PASS, _BACKEND_PASS = 'FrontEndPass', 'BackEndPass'
+
+def _find_passes(node, fe: list, be: list):
+    """Collect the per-TU FrontEndPass/BackEndPass activities under a CL invocation (descending through
+    any wrapper nodes). With /MP one invocation runs MANY of each in parallel; summing their durations
+    gives aggregate CPU - which is what makes frontend/backend comparable (the invocation's own dur is
+    wall time, so aggregate parse could exceed it and clamp backend to zero - the bug this fixes)."""
+    for ch in node.children:
+        if ch.name == _FRONTEND_PASS: fe.append(ch)
+        elif ch.name == _BACKEND_PASS: be.append(ch)
+        else: _find_passes(ch, fe, be)
+
+
+def _collect(node, depth: int, files: dict, symbols: dict, in_backend: bool) -> str:
+    """DFS of one compiler pass: aggregate each INCLUDED header (a FrontEndFile at depth>0) into `files`
+    and, under a backend pass, each codegen leaf into `symbols`. Returns the outermost source path (the
+    TU's own .cpp at depth 0) for labeling - it's not a header, so it never feeds `files`."""
+    src = None
     for ch in node.children:
         if _is_path(ch.name):
-            if depth_in_file == 0:
-                fe += ch.dur
-            else:
+            if depth > 0:
                 agg = files.setdefault(_base(ch.name), [0.0, 0]); agg[0] += ch.dur; agg[1] += 1
-            _walk(ch, depth_in_file + 1, files, symbols)
+            elif src is None:
+                src = ch.name
+            _collect(ch, depth + 1, files, symbols, in_backend)
         else:
-            if not ch.children and ch.dur > 0 and not _structural(ch.name):
+            if in_backend and not ch.children and ch.dur > 0 and not _structural(ch.name):
                 symbols[ch.name] = symbols.get(ch.name, 0.0) + ch.dur
-            fe += _walk(ch, depth_in_file, files, symbols)
-    return fe
+            r = _collect(ch, depth, files, symbols, in_backend)
+            if src is None: src = r
+    return src
 
 
 def _norm(p: str) -> str:
@@ -194,7 +210,7 @@ def parse_timetrace(data: dict, scope_paths=None) -> TraceStats:
         if not prefixes: return True
         return any(any(_norm(p).startswith(pre) for pre in prefixes) for p in paths)
 
-    compile_us = link_us = frontend_us = 0.0
+    frontend_us = backend_us = link_us = 0.0
     n_tu = 0
     tus, files, symbols = [], {}, {}
     starts, stops = [], []
@@ -202,14 +218,20 @@ def parse_timetrace(data: dict, scope_paths=None) -> TraceStats:
         ins, outs = _arg_values(node.args, 'File Input'), _arg_values(node.args, 'File Output')
         if not in_scope(ins + outs): continue
         if node.name.startswith('CL Invocation'):
-            n_tu += 1; compile_us += node.dur
             starts.append(node.start); stops.append(node.start + node.dur)
-            tus.append((_base(ins[0]) if ins else node.name, node.dur))
-            frontend_us += _walk(node, 0, files, symbols)
+            fe_passes, be_passes = [], []
+            _find_passes(node, fe_passes, be_passes)
+            for fp in fe_passes:  # one per TU (the .cpp's frontend), even under /MP
+                frontend_us += fp.dur; n_tu += 1
+                src = _collect(fp, 0, files, symbols, in_backend=False)
+                tus.append((_base(src) if src else 'TU', fp.dur))
+            for bp in be_passes:
+                backend_us += bp.dur
+                _collect(bp, 0, files, symbols, in_backend=True)
         elif node.name.startswith('Link Invocation'):
             link_us += node.dur
             starts.append(node.start); stops.append(node.start + node.dur)
-    backend_us = max(0.0, compile_us - frontend_us)
+    compile_us = frontend_us + backend_us  # aggregate CPU (parallelism vs wall reported separately)
     wall_us = (max(stops) - min(starts)) if starts else 0.0
     us = 1e-6
     rank = lambda seq: sorted(seq, key=lambda t: t[1], reverse=True)
@@ -221,7 +243,36 @@ def parse_timetrace(data: dict, scope_paths=None) -> TraceStats:
 
 
 # --- rendering ----------------------------------------------------------------------------------------
-_TOP = 8  # rows per ranked section
+_TOP = 8           # rows per ranked section
+_SYM_WIDTH = 100   # truncate a demangled symbol so a codegen row stays one line
+_UNDNAME_NAME_ONLY = 0x1000  # dbghelp flag: drop return type / calling convention / params -> scope::name<...>
+_undname = None    # memoized (ctypes, UnDecorateSymbolName) or False; resolved once (the API is process-constant)
+
+
+def _demangle(name: str) -> str:
+    """An MSVC-mangled symbol (`?...`) -> readable `scope::name<...>` via dbghelp's UnDecorateSymbolName
+    (NAME_ONLY drops the return type/params). No-op for a non-mangled name or off Windows."""
+    global _undname
+    if not name.startswith('?') or not System.windows:
+        return name
+    if _undname is None:
+        try:
+            import ctypes
+            fn = ctypes.WinDLL('dbghelp.dll').UnDecorateSymbolName
+            fn.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint, ctypes.c_uint]; fn.restype = ctypes.c_uint
+            _undname = (ctypes, fn)
+        except Exception:
+            _undname = False
+    if not _undname: return name
+    ctypes, fn = _undname
+    buf = ctypes.create_string_buffer(8192)
+    n = fn(name.encode('utf-8', 'replace'), buf, len(buf), _UNDNAME_NAME_ONLY)
+    return buf.value.decode('utf-8', 'replace') if n else name
+
+
+def _short(s: str, width=_SYM_WIDTH) -> str:
+    return s if len(s) <= width else s[:width - 3] + '...'
+
 
 def _seg(label, color, s, whole=None) -> str:
     pct = f' ({100*s/whole:4.1f}%)' if whole else ''  # share-of-compile, omitted for link
@@ -254,4 +305,4 @@ def print_buildtimes_deep(stats: TraceStats, scope_label: str):
     if stats.symbols:
         console('    costliest codegen:', color=Color.GREEN)
         for name, s in stats.symbols[:_TOP]:
-            console(f'      {get_time_str(s):>8}  {name}')
+            console(f'      {get_time_str(s):>8}  {_short(_demangle(name))}')
