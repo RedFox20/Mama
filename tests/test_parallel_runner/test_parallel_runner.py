@@ -136,3 +136,12 @@ def test_build_summary_counts_only_real_builds(capsys):
             d(should_rebuild=True, from_artifactory=False, nothing_to_build=True)]     # header-only no-op
     dc._print_build_summary(deps, 72.0)
     assert 'Built 1 target(s) in 1m 12s' in capsys.readouterr().out
+
+
+def test_make_scheduler_overprovision_is_platform_specific(monkeypatch):
+    from mama.utils import system
+    cfg = SimpleNamespace(jobs=8)
+    monkeypatch.setattr(system.System, 'windows', True)
+    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_WIN   # MSVC tolerates 2x
+    monkeypatch.setattr(system.System, 'windows', False)
+    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_UNIX  # GCC/make already saturates cores

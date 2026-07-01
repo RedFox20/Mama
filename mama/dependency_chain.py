@@ -578,12 +578,18 @@ def _stable_cpu_sampler(measure, clock, window=0.5):
     return sample
 
 
+# Build-job overprovisioning (max reserved cores = core_budget * this). MSVC/MSBuild tolerates 2x; GCC/make
+# on Linux already saturates the cores near-optimally, so 2x just piles on redundant compiles and OOMs.
+_OVERPROVISION_WIN, _OVERPROVISION_UNIX = 2.0, 1.2
+
+
 def _make_scheduler(config, **extra):
     """The build Scheduler with a stable psutil CPU sampler and the Ctrl+C child-killer."""
     import psutil, time
     from .build_scheduler import Scheduler
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
+    extra.setdefault('overprovision', _OVERPROVISION_WIN if system.System.windows else _OVERPROVISION_UNIX)
     return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs, abort_hook=SubProcess.terminate_all,
                      cpu_sampler=_stable_cpu_sampler(lambda: psutil.cpu_percent(interval=None), time.monotonic),
                      **extra)
