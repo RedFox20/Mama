@@ -360,3 +360,19 @@ class TestNoForkptyDeprecationWarning:
             SubProcess.run([PY, '-c', 'print("x")'], io_func=lambda p, l: None)
         forkpty_warnings = [w for w in caught if 'forkpty' in str(w.message).lower()]
         assert forkpty_warnings == [], f'forkpty deprecation came back: {forkpty_warnings}'
+
+
+class TestExecuteEchoCapture:
+    # A custom build()'s self.run() -> execute_echo must feed the active display sink (not the raw
+    # terminal) while a build phase captures, but stay stdio-direct for interactive post-pass commands.
+    def test_captures_into_active_sink(self):
+        from mama.utils.sub_process import execute_echo
+        captured = []
+        with system.capture_to(captured.append):
+            execute_echo(cwd=None, cmd=[PY, '-c', 'print("from-build-step")'])
+        assert any('from-build-step' in line for line in captured)
+
+    def test_without_sink_inherits_stdio(self, capfd):
+        from mama.utils.sub_process import execute_echo
+        execute_echo(cwd=None, cmd=[PY, '-c', 'print("direct-to-terminal")'])
+        assert 'direct-to-terminal' in capfd.readouterr().out

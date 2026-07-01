@@ -389,10 +389,15 @@ def execute_echo(cwd, cmd, exit_on_fail=False, env=None):
     - exit_on_fail: if True, exits the application with exit_status
     - env: overrrides the environment for the subprocess, default is os.environ
     """
+    # Inside a scheduled build phase a capture sink is active: route the child's output through console()
+    # so a custom build()'s commands land in the owning display task (and the log) instead of tearing the
+    # live region. Outside it (serial path, interactive run/gdb/test post-pass) keep stdio direct - the
+    # child needs the real terminal for prompts, and there's nowhere to capture to anyway.
+    io = (lambda p, line: console(line)) if capture_context()[0] is not None else None
     exit_status = -1
     throw_on_fail = not exit_on_fail
     try:
-        exit_status = SubProcess.run(cmd, cwd, env=env, io_func=None)
+        exit_status = SubProcess.run(cmd, cwd, env=env, io_func=io)
     except:
         error(f'SubProcess exited cwd={cwd} cmd={cmd}')
         if throw_on_fail:
