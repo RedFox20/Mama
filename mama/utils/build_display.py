@@ -20,6 +20,25 @@ _CURSOR_UP = '\x1b[1A'
 _ERASE_EOL = '\x1b[K'  # erase to end of line (colorama enables it on Windows)
 _ERASE_EOL_LF = _ERASE_EOL + '\n'  # clear-to-EOL then newline: one written task/permanent line
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct previews
+# A compiler diagnostic line: MSVC 'warning C4996:' / 'error C2065:' / 'error LNK2019:', GCC/Clang
+# 'warning:' / 'error:'. \b guards keep -Werror, std::error_code and '0 errors' from matching.
+_DIAG_RE = re.compile(r'\b(error|warning)\b\s*(?:[A-Za-z]+[0-9]+)?\s*:', re.IGNORECASE)
+
+
+def scan_diagnostics(lines, limit=8):
+    """Pull compiler warning/error lines out of a task's raw output for the post-build summary
+    (parallel builds only replay output on failure, so a successful build's diagnostics are lost).
+    De-duplicated, errors before warnings, capped to `limit`. Returns (diags, n_err, n_warn) with
+    diags = [(severity, ansi-stripped text)]."""
+    seen = set(); errs = []; warns = []
+    for line in lines:
+        text = _ANSI_RE.sub('', line).strip()
+        m = _DIAG_RE.search(text)
+        if not m or text in seen: continue
+        seen.add(text)
+        (errs if m.group(1).lower() == 'error' else warns).append(text)
+    diags = [('error', t) for t in errs] + [('warning', t) for t in warns]
+    return diags[:limit], len(errs), len(warns)
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
 _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
@@ -176,6 +195,11 @@ class BuildDisplay:
             if t is None: return
             self._clear_region()
             for line in t.lines: self._writeln(line)
+
+    def diagnostics(self, id, limit=8):
+        """Compiler warnings/errors captured for a finished dep task, for the post-build summary."""
+        t = self._tasks.get(id)
+        return scan_diagnostics(t.lines, limit) if t else ([], 0, 0)
 
     # -- rendering ---------------------------------------------------------
 

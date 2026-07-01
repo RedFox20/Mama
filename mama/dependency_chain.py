@@ -656,6 +656,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
+    _print_diagnostics(display, deps)
     if getattr(config, 'buildtimes', False):
         print_buildtimes(deps)
         _print_build_insights(config, deps)
@@ -704,6 +705,23 @@ def _print_build_summary(deps, elapsed: float):
     built = sum(1 for d in deps if getattr(d, 'should_rebuild', False)
                 and not getattr(d, 'from_artifactory', False) and not getattr(d, 'nothing_to_build', False))
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
+
+
+_DIAG_LIMIT = 8  # compiler warnings/errors surfaced per target in the post-build summary
+
+
+def _print_diagnostics(display, deps):
+    """Post-build: surface the compiler warnings/errors the live display swallowed on a successful
+    build (parallel builds only replay output on failure). Up to _DIAG_LIMIT per target, errors first."""
+    printed = False
+    for dep in deps:
+        diags, n_err, n_warn = display.diagnostics(dep.name, _DIAG_LIMIT)
+        if not diags: continue
+        if not printed: console('\n  Compiler diagnostics:', color=Color.BLUE); printed = True
+        counts = ', '.join(f'{n} {w}(s)' for n, w in ((n_err, 'error'), (n_warn, 'warning')) if n)
+        console(f'  {dep.name}: {counts}')
+        for sev, text in diags: (error if sev == 'error' else warning)(f'    {text}')
+        if n_err + n_warn > len(diags): console(f'    ... (+{n_err + n_warn - len(diags)} more)')
 
 
 # buildtimes (stage 1): a normalized horizontal bar per package, segmented load/configure/build.
@@ -884,6 +902,7 @@ def execute_unified(root: BuildDependency):
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)
+    _print_diagnostics(display, flat)
     if getattr(config, 'buildtimes', False):
         print_buildtimes(flat)
         _print_build_insights(config, flat)

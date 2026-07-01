@@ -3,7 +3,7 @@ post-pass, and fail-fast that stops dependents and exits."""
 import threading
 from types import SimpleNamespace
 import pytest
-from testutils import FakeBuildTarget
+from testutils import FakeBuildTarget, strip_ansi
 from mama import dependency_chain as dc
 
 
@@ -136,6 +136,19 @@ def test_build_summary_counts_only_real_builds(capsys):
             d(should_rebuild=True, from_artifactory=False, nothing_to_build=True)]     # header-only no-op
     dc._print_build_summary(deps, 72.0)
     assert 'Built 1 target(s) in 1m 12s' in capsys.readouterr().out
+
+
+def test_print_diagnostics_lists_warnings_per_target_and_notes_overflow(capsys):
+    data = {'krattcam': ([('warning', 'a.cpp:1: warning: x')], 0, 1),
+            'krattlink': ([('error', 'b.cpp:2: error: y')], 1, 3),   # 4 total, 1 shown -> +3 overflow
+            'clean': ([], 0, 0)}
+    disp = SimpleNamespace(diagnostics=lambda name, limit=8: data[name])
+    dc._print_diagnostics(disp, [SimpleNamespace(name=n) for n in data])
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'Compiler diagnostics' in out
+    assert 'krattcam: 1 warning(s)' in out and 'a.cpp:1: warning: x' in out
+    assert 'krattlink: 1 error(s), 3 warning(s)' in out and '... (+3 more)' in out
+    assert 'clean' not in out   # nothing captured -> target omitted
 
 
 def test_make_scheduler_overprovision_is_platform_specific(monkeypatch):

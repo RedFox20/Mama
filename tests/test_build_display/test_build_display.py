@@ -2,7 +2,7 @@
 import io, re
 from types import SimpleNamespace
 from mama.utils import system
-from mama.utils.build_display import BuildDisplay, Task, _fmt_dur
+from mama.utils.build_display import BuildDisplay, Task, _fmt_dur, scan_diagnostics
 from testutils import strip_ansi as strip
 
 def squeeze(s: str) -> str: return re.sub(r' +', ' ', strip(s))  # collapse fixed-width padding for breakdown asserts
@@ -317,3 +317,31 @@ def test_task_feed_tracks_current_and_full_buffer():
     t.feed('a'); t.feed('   '); t.feed('b')
     assert t.current == 'b'  # blank line did not overwrite the live preview
     assert t.lines == ['a', '   ', 'b']
+
+
+def test_scan_diagnostics_picks_msvc_and_gcc_errors_first_and_dedups():
+    diags, n_err, n_warn = scan_diagnostics([
+        'foo.cpp(12): warning C4996: deprecated',
+        "bar.cpp:5:3: error: expected ';'",
+        '\x1b[31mbaz.cpp:1:1: warning: unused variable\x1b[0m',   # ansi stripped before matching
+        'foo.cpp(12): warning C4996: deprecated',                # duplicate -> collapsed
+        'obj.obj : error LNK2019: unresolved external', 'linking...', 'note: in expansion'])
+    assert n_err == 2 and n_warn == 2
+    assert diags[0][0] == 'error' and diags[1][0] == 'error'                    # errors before warnings
+    assert ('warning', 'baz.cpp:1:1: warning: unused variable') in diags        # ansi stripped in the stored text
+
+
+def test_scan_diagnostics_caps_and_counts_full_totals():
+    diags, n_err, n_warn = scan_diagnostics([f'f{i}.cpp:1:1: warning: w{i}' for i in range(12)], limit=8)
+    assert len(diags) == 8 and n_warn == 12 and n_err == 0   # capped list, but the count reflects all 12
+
+
+def test_scan_diagnostics_ignores_non_diagnostic_error_words():
+    diags, n_err, n_warn = scan_diagnostics(['-Werror is set', '0 errors, 0 warnings', 'std::error_code x;'])
+    assert diags == [] and n_err == 0 and n_warn == 0
+
+
+def test_diagnostics_reads_a_finished_task_buffer():
+    d, _, _ = _disp(isatty=False)
+    d.start_task('t', 'build', 't'); d.feed('t', 'a.cpp:1:1: warning: oops'); d.finish_task('t', ok=True)
+    assert d.diagnostics('t') == ([('warning', 'a.cpp:1:1: warning: oops')], 0, 1)
