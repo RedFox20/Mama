@@ -173,6 +173,19 @@ class Git(DepSource):
         return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
 
 
+    def _ensure_no_local_modifications(self, dep: BuildDependency):
+        """Raise (with an actionable message + `git status`) when the working tree has uncommitted
+        changes an update's reset --hard would overwrite. Called at the TOP of the update path so a
+        dirty dep fails loudly (marked `x`), even when upstream is unchanged - otherwise the pull below
+        fails, gets swallowed by its fetch fallback, and the dep silently reports success un-updated."""
+        if not self._has_local_modifications(dep): return
+        name = dep.name
+        error(f"  Target {name} has local modifications that would be overwritten by update.\n"
+              f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
+        self.run_git(dep, "status --porcelain") # show the user what files are modified
+        raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
+
+
     def working_tree_fingerprint(self, dep: BuildDependency) -> str:
         """'' for a clean tree, else a content-aware hash of uncommitted source. See
         util.git_dir_fingerprint. Guarded on is_real_clone so a shim (no working tree on
@@ -554,12 +567,7 @@ class Git(DepSource):
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             # check for local modifications before potentially destructive operations
-            if self._has_local_modifications(dep):
-                name = dep.name
-                error(f"  Target {name} has local modifications that would be overwritten by update.\n"
-                      f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
-                self.run_git(dep, "status --porcelain") # show the user what files are modified
-                raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
+            self._ensure_no_local_modifications(dep)
             if unshallow:
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())
@@ -615,6 +623,9 @@ class Git(DepSource):
         changed = False
 
         if config.update and is_target:
+            # Fail loudly on a dirty tree BEFORE the pull below - which would otherwise fail, get
+            # swallowed by its fetch fallback, and leave the dep un-updated but reporting success.
+            self._ensure_no_local_modifications(dep)
             changed = self.check_status(dep)
 
         wiped = False
