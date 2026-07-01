@@ -752,40 +752,71 @@ def print_buildtimes(deps):
 
 
 def _build_insights_session(config, root: BuildDependency):
-    """MSVC `buildtimes`: a live vcperf /timetrace session wrapping the build (Stage 2); otherwise a null
-    context. The trace lands in the root project's build dir; the path is stashed on config for the report."""
-    import contextlib
-    if not (getattr(config, 'buildtimes', False) and config.msvc):
+    """MSVC `buildtimes`: a live vcperf /timetrace session wrapping the build. Linux `buildtimes`: record the
+    build start time so the post-build report collects only the clang -ftime-trace JSONs written this run.
+    Otherwise a null context."""
+    import contextlib, time
+    if not getattr(config, 'buildtimes', False):
         return contextlib.nullcontext()
-    from .build_insights import find_vcperf, VcPerfSession, timetrace_path
-    vcperf = find_vcperf(config)
-    if not vcperf:
-        warning('buildtimes: vcperf.exe not found (set VCPERF= or run from a Developer Command Prompt);'
-                ' skipping MSVC Build Insights')
-        return contextlib.nullcontext()
-    config._timetrace_json = timetrace_path(root.build_dir)
-    return VcPerfSession(vcperf, config._timetrace_json)
+    if config.msvc:
+        from .build_insights import find_vcperf, VcPerfSession, timetrace_path
+        vcperf = find_vcperf(config)
+        if not vcperf:
+            warning('buildtimes: vcperf.exe not found (set VCPERF= or run from a Developer Command Prompt);'
+                    ' skipping MSVC Build Insights')
+            return contextlib.nullcontext()
+        config._timetrace_json = timetrace_path(root.build_dir)
+        return VcPerfSession(vcperf, config._timetrace_json)
+    config._buildtimes_start = time.time()  # wall start: post-build we analyze only traces newer than this
+    return contextlib.nullcontext()
+
+
+def _insights_target(config, deps):
+    """(scope-label, scoped-dep-or-None) for the deep report: the named <target>, else whole-build 'root'."""
+    if config.has_target() and not config.targets_all():
+        dep = next((d for d in deps if d.name.lower() == config.target.lower()), None)
+        if dep: return dep.name, dep
+    return 'root', None
 
 
 def _print_build_insights(config, deps):
-    """After the Stage 1 bars: parse the vcperf trace and print the MSVC frontend/backend/link deep dive.
-    No target -> whole-build root stats; a <target> -> only that package's TUs (matched by path)."""
+    """After the Stage 1 bars: the compiler-specific deep dive. MSVC -> the vcperf trace; Linux/Clang -> the
+    clang -ftime-trace JSONs written this build; Linux/GCC -> a note (GCC has no per-file trace)."""
+    label, dep = _insights_target(config, deps)
+    if config.msvc:
+        _print_msvc_insights(config, label, dep)
+    elif getattr(config, '_buildtimes_start', None) is not None:
+        _print_clang_insights(config, deps, label, dep)
+
+
+def _print_msvc_insights(config, label, dep):
     path = getattr(config, '_timetrace_json', None)
     if not path or not os.path.exists(path): return
     import json
     from .build_insights import parse_timetrace, print_buildtimes_deep
-    scope_paths, label = None, 'root'
-    if config.has_target() and not config.targets_all():
-        dep = next((d for d in deps if d.name.lower() == config.target.lower()), None)
-        if dep:
-            label = dep.name
-            scope_paths = [p for p in (getattr(dep, 'src_dir', None), getattr(dep, 'build_dir', None)) if p]
+    scope_paths = [p for p in (getattr(dep, 'src_dir', None), getattr(dep, 'build_dir', None)) if p] if dep else None
     try:
         with open(path, encoding='utf-8') as f: data = json.load(f)
         stats = parse_timetrace(data, scope_paths)
     except Exception as e:
         warning(f'buildtimes: failed to read vcperf trace: {e}'); return
     print_buildtimes_deep(stats, label)
+
+
+def _print_clang_insights(config, deps, label, dep):
+    import time
+    from .build_insights import collect_clang_traces, parse_clang_traces, print_buildtimes_deep
+    if not config.clang:
+        warning('buildtimes: deep per-file insights need Clang -ftime-trace; build with `clang` for the breakdown')
+        return
+    start = config._buildtimes_start
+    scoped = [dep] if dep else deps  # a <target> -> just its build dir; else every package's
+    paths = []
+    for d in scoped:
+        bd = getattr(d, 'build_dir', None)
+        if bd: paths += collect_clang_traces(bd, since=start)
+    stats = parse_clang_traces(paths, wall_s=time.time() - start)
+    print_buildtimes_deep(stats, f'{label} (clang)')
 
 
 def execute_unified(root: BuildDependency):

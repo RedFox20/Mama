@@ -231,15 +231,72 @@ def parse_timetrace(data: dict, scope_paths=None) -> TraceStats:
         elif node.name.startswith('Link Invocation'):
             link_us += node.dur
             starts.append(node.start); stops.append(node.start + node.dur)
-    compile_us = frontend_us + backend_us  # aggregate CPU (parallelism vs wall reported separately)
     wall_us = (max(stops) - min(starts)) if starts else 0.0
+    return _build_stats(frontend_us, backend_us, link_us, wall_us, n_tu, tus, files, symbols)
+
+
+def _build_stats(frontend_us, backend_us, link_us, wall_us, n_tu, tus, files, symbols) -> TraceStats:
+    """Convert accumulated microseconds to a sorted TraceStats (compile = frontend + backend, aggregate)."""
     us = 1e-6
     rank = lambda seq: sorted(seq, key=lambda t: t[1], reverse=True)
-    tus_s = rank((l, d*us) for l, d in tus)
-    files_s = rank((b, v[0]*us, v[1]) for b, v in files.items())
-    syms_s = rank((s, d*us) for s, d in symbols.items())
-    return TraceStats(compile_us*us, link_us*us, frontend_us*us, backend_us*us, wall_us*us, n_tu,
-                      tus_s, files_s, syms_s)
+    return TraceStats((frontend_us + backend_us) * us, link_us * us, frontend_us * us, backend_us * us,
+                      wall_us * us, n_tu, rank((l, d * us) for l, d in tus),
+                      rank((b, v[0] * us, v[1]) for b, v in files.items()), rank((s, d * us) for s, d in symbols.items()))
+
+
+# --- Clang -ftime-trace (Linux/Clang deep dive) -------------------------------------------------------
+# One flat-event JSON per TU (events ph:"X", each with args.detail). Frontend/Backend are the phase
+# totals; Source events carry a parsed file path; Instantiate*/OptFunction carry an ALREADY-demangled
+# symbol. Linking isn't traced (link stays 0), and per-TU timelines are independent, so wall comes from
+# the build clock, not the JSONs.
+_CLANG_CODEGEN = ('InstantiateClass', 'InstantiateFunction', 'OptFunction')
+_SRC_EXTS = ('.c', '.cc', '.cpp', '.cxx', '.c++', '.m', '.mm')
+
+def _is_header(path: str) -> bool:
+    return not _base(path).lower().endswith(_SRC_EXTS)  # the TU's own .cpp isn't a header; STL headers have no ext
+
+
+def parse_clang_traces(paths, wall_s=0.0) -> TraceStats:
+    """Aggregate Clang -ftime-trace JSONs (one per TU) into the same TraceStats vcperf produces, so the
+    Linux deep report renders identically. `wall_s` is the measured build wall time (the JSONs can't give it)."""
+    frontend_us = backend_us = 0.0
+    n_tu = 0
+    tus, files, symbols = [], {}, {}
+    for path in paths:
+        try:
+            with open(path, encoding='utf-8') as f: data = json.load(f)
+            events = data.get('traceEvents', []) if isinstance(data, dict) else []  # skip compile_commands.json etc
+        except (OSError, ValueError):
+            continue
+        fe = be = 0.0
+        for ev in events:
+            if ev.get('ph') != 'X': continue
+            name, dur = ev.get('name', ''), ev.get('dur', 0)
+            detail = (ev.get('args') or {}).get('detail', '')
+            if name == 'Frontend': fe += dur
+            elif name == 'Backend': be += dur
+            elif name == 'Source' and detail and _is_header(detail):
+                agg = files.setdefault(_base(detail), [0.0, 0]); agg[0] += dur; agg[1] += 1
+            elif name in _CLANG_CODEGEN and detail:
+                symbols[detail] = symbols.get(detail, 0.0) + dur
+        if fe or be:
+            n_tu += 1; frontend_us += fe; backend_us += be
+            tus.append((_base(path)[:-5] if path.endswith('.json') else _base(path), fe + be))
+    return _build_stats(frontend_us, backend_us, 0.0, wall_s / 1e-6, n_tu, tus, files, symbols)
+
+
+def collect_clang_traces(build_dir: str, since: float = 0.0) -> list:
+    """The `*.json` time-traces clang wrote into `build_dir`, modified at/after `since` (wall seconds) so
+    only THIS build's TUs are analyzed. Content-filtering (skip compile_commands.json etc) is left to the
+    parser. Sorted newest-first is irrelevant; the parser aggregates all."""
+    import glob
+    out = []
+    for p in glob.glob(os.path.join(build_dir, '**', '*.json'), recursive=True):
+        try:
+            if os.path.getmtime(p) >= since: out.append(p)
+        except OSError:
+            pass
+    return out
 
 
 # --- rendering ----------------------------------------------------------------------------------------

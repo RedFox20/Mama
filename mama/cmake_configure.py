@@ -318,6 +318,9 @@ def _default_options(target:BuildTarget):
         if not exceptions:
             add_flag('-fno-exceptions')
 
+    if config.buildtimes and config.clang:  # instrument for the Linux/Clang buildtimes deep dive
+        add_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
+
     if config.android:
         config.android.get_cxx_flags(add_flag)
     elif config.linux:

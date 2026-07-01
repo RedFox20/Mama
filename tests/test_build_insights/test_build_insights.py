@@ -1,5 +1,7 @@
 """Pins Stage 2 build-insights: timetrace tree rebuild, frontend/backend/link aggregation, header
 costs, target scoping, and the vcperf session start/stop wiring."""
+import json
+import pytest
 from types import SimpleNamespace
 from mama import build_insights as bi
 from testutils import strip_ansi
@@ -111,6 +113,42 @@ def test_deep_report_demangles_codegen_symbols(capsys):
     bi.print_buildtimes_deep(bi.parse_timetrace(tr), 'root')
     out = strip_ansi(capsys.readouterr().out)
     assert 'QGCPalette::_buildMap' in out and '?_buildMap' not in out   # raw mangled name never shown
+
+
+def test_is_header_excludes_source_files():
+    assert bi._is_header('/usr/include/c++/vector') and bi._is_header('foo.h')   # STL (no ext) + .h
+    assert not bi._is_header('/proj/a.cpp') and not bi._is_header('b.cc')        # the TU's own source
+
+
+def test_parse_clang_traces_aggregates_across_tus(tmp_path):
+    ev = lambda n, d, detail=None: {'ph': 'X', 'name': n, 'dur': d, **({'args': {'detail': detail}} if detail else {})}
+    def w(name, evs): (tmp_path / name).write_text(json.dumps({'traceEvents': evs}))
+    w('a.cpp.json', [ev('Frontend', 800000), ev('Backend', 200000), ev('Source', 500000, '/u/vector'),
+                     ev('Source', 300000, '/p/a.cpp'), ev('InstantiateClass', 150000, 'std::vector<Foo>')])
+    w('b.cpp.json', [ev('Frontend', 600000), ev('Backend', 100000), ev('Source', 400000, '/u/vector'),
+                     ev('OptFunction', 90000, 'rpp::recv()')])
+    st = bi.parse_clang_traces([str(tmp_path / 'a.cpp.json'), str(tmp_path / 'b.cpp.json')], wall_s=1.0)
+    assert st.n_tu == 2 and st.link_s == 0.0 and st.wall_s == 1.0
+    assert st.frontend_s == pytest.approx(1.4) and st.backend_s == pytest.approx(0.3)
+    assert [t[0] for t in st.tus] == ['a.cpp', 'b.cpp']            # slowest first, .json + source basename stripped
+    files = dict((b, (s, n)) for b, s, n in st.files)
+    assert files['vector'] == (pytest.approx(0.9), 2) and 'a.cpp' not in files  # header summed; the .cpp isn't a header
+    assert dict(st.symbols)['std::vector<Foo>'] == pytest.approx(0.15)          # clang details already readable
+
+
+def test_parse_clang_traces_skips_unreadable_and_non_trace_json(tmp_path):
+    (tmp_path / 'bad.json').write_text('{ not json')
+    (tmp_path / 'compile_commands.json').write_text('[{"file": "a.cpp"}]')   # a list, not a trace dict
+    files = [str(tmp_path / n) for n in ('bad.json', 'compile_commands.json', 'missing.json')]
+    assert bi.parse_clang_traces(files).empty
+
+
+def test_collect_clang_traces_filters_by_mtime(tmp_path):
+    import os
+    old = tmp_path / 'old.json'; old.write_text('{}'); os.utime(old, (1, 1))   # ancient
+    new = tmp_path / 'sub' / 'new.json'; new.parent.mkdir(); new.write_text('{}')  # recursive + fresh
+    got = bi.collect_clang_traces(str(tmp_path), since=1000)
+    assert str(new) in got and str(old) not in got
 
 
 def test_find_vcperf_prefers_env_override(monkeypatch, tmp_path):

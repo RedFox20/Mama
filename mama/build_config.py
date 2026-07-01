@@ -184,6 +184,8 @@ class BuildConfig:
         self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
         self.check_platform()
+        if self.buildtimes and self.clang:
+            self.run_cmake_configure = True  # Linux/Clang: the -ftime-trace compile flag must be (re)applied
 
 
     def parse_args(self, args: List[str]):
