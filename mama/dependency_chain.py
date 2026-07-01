@@ -608,8 +608,9 @@ def _make_scheduler(config, **extra):
 
 
 def _handle_failure(display, failed):
-    """First failed job -> replay its captured output (TTY) + traceback, then exit nonzero. A Ctrl+C
-    abort prints a terse interrupted line (no replay/traceback) and still exits nonzero."""
+    """First failed job -> replay its captured output (TTY) + traceback, then RETURN so the caller can
+    still print the aggregate diagnostics summary before exiting nonzero. A Ctrl+C abort prints a terse
+    interrupted line (no replay/traceback/summary) and exits immediately."""
     import traceback
     if isinstance(failed.error, KeyboardInterrupt):
         console('  [BUILD INTERRUPTED]  stopped by Ctrl+C', color=Color.RED)
@@ -619,7 +620,6 @@ def _handle_failure(display, failed):
         display.replay(failed.node.name)
     if failed.error:
         console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
-    exit(-1)
 
 
 def _deploy_run_postpass(deps, config):
@@ -654,7 +654,9 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             display.close()
             system.set_active_display(None)
             SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
-    if failed is not None: _handle_failure(display, failed)
+    if failed is not None:
+        _handle_failure(display, failed)      # replay the failed target + traceback (scroll up for detail)
+        _print_diagnostics(display, deps); exit(-1)  # ...then the aggregate warnings/errors summary at the very end
     _print_build_summary(deps, time.monotonic() - start)
     _print_diagnostics(display, deps)
     if getattr(config, 'buildtimes', False):
@@ -899,8 +901,10 @@ def execute_unified(root: BuildDependency):
             system.set_active_display(None)
             config.update_stats.stop()
             SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
-    if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
+    if failed is not None:
+        _handle_failure(display, failed)      # replay the failed target + traceback (scroll up for detail)
+        _print_diagnostics(display, flat); exit(-1)  # ...then the aggregate warnings/errors summary at the very end
     _print_build_summary(flat, time.monotonic() - start)
     _print_diagnostics(display, flat)
     if getattr(config, 'buildtimes', False):

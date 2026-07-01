@@ -15,6 +15,7 @@ class _T(FakeBuildTarget):
     def configure_phase(self, out=None): self._rec(('configure', self.dep.name))
     def build_phase(self, out=None):
         self._rec(('build', self.dep.name))
+        if getattr(self, 'warn', None) and out: out(self.warn)  # emit a captured diagnostic, then maybe fail
         if self.fail: raise RuntimeError('boom ' + self.dep.name)
     def _execute_deploy_tasks(self): self._rec(('deploy', self.dep.name))
     def _execute_run_tasks(self): self._rec(('run', self.dep.name))
@@ -55,6 +56,16 @@ def test_parallel_runner_fails_fast_and_blocks_dependents(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert 'BUILD FAILED' in out and 'child' in out
     assert ('build', 'parent') not in ev   # parent build depends on failed child, never released
+
+
+def test_parallel_runner_prints_diagnostics_summary_on_failure(monkeypatch, capsys):
+    deps, _ = _graph(monkeypatch, fail_child=True)
+    deps[0].target.warn = 'a.cpp:1:1: warning: leaky'   # child emits a warning, then fails
+    with pytest.raises(SystemExit):
+        dc.execute_task_chain_parallel(deps)
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'BUILD FAILED' in out                                          # failure still reported + replayed
+    assert 'Compiler diagnostics' in out and 'child: 1 warning(s)' in out and 'leaky' in out  # ...+ aggregate summary
 
 
 def test_node_marker_root_leaf_trunk():
