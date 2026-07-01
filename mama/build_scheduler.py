@@ -34,6 +34,7 @@ class Job:
         self.done = False
         self.error: Optional[BaseException] = None
         self._rweight = 1      # weight resolved at launch, reused at completion
+        self.priority = 0.0    # critical-path bottom level: launch the longest-pole ready job first
 
     def __repr__(self): return f'Job({self.kind} {self.key})'
 
@@ -61,10 +62,11 @@ def _check_acyclic(jobs: List[Job]):
         if color[j] == WHITE: visit(j)
 
 
-def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None) -> List[Job]:
+def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None, cost_fn=None) -> List[Job]:
     """Wire a configure + build job per dep: a dep's configure waits on every in-set child's build
     (its dependencies.cmake embeds child outputs), its build on its own configure. `weight_fn(dep)`
-    gives the build's core weight, resolved lazily at launch. `children_fn` defaults to get_children."""
+    gives the build's core weight, resolved lazily at launch. `children_fn` defaults to get_children.
+    `cost_fn(dep)` (est build seconds) sets critical-path priorities so long-pole deps launch first."""
     children_fn = children_fn or (lambda d: d.get_children())
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
@@ -75,7 +77,28 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
         bld[d].deps.add(cfg[d])
         for child in children_fn(d):
             if child in dep_set: cfg[d].deps.add(bld[child])
-    return list(cfg.values()) + list(bld.values())
+    jobs = list(cfg.values()) + list(bld.values())
+    if cost_fn: assign_priorities(jobs, lambda j: cost_fn(j.node) if j.kind == BUILD else 0.0)
+    return jobs
+
+
+def assign_priorities(jobs, cost_fn):
+    """Set job.priority to its critical-path 'bottom level' = own cost + the longest cost path through the
+    jobs that depend on it. The scheduler launches the highest-priority ready job first, so a long-pole dep
+    (big + feeding the root) starts immediately instead of waiting behind cheaper-but-less-critical ones."""
+    jobs = list(jobs)
+    succ = {j: [] for j in jobs}
+    for j in jobs:
+        for d in j.deps:
+            if d in succ: succ[d].append(j)
+    memo = {}
+    def blevel(j):
+        v = memo.get(j)
+        if v is not None: return v
+        memo[j] = 0.0  # cycle guard (the graph is validated acyclic, but never recurse forever)
+        memo[j] = cost_fn(j) + max((blevel(s) for s in succ[j]), default=0.0)
+        return memo[j]
+    for j in jobs: j.priority = blevel(j)
 
 
 class Scheduler:
@@ -136,7 +159,9 @@ class Scheduler:
                 progressed = False
                 blocked: List[Job] = []
                 if not self._error:
-                    for job in [j for j in self._pending if self._deps_done(j)]:
+                    ready = sorted((j for j in self._pending if self._deps_done(j)),
+                                   key=lambda j: j.priority, reverse=True)  # longest critical path first
+                    for job in ready:
                         if self._can_launch(job):
                             self._pending.remove(job)
                             self._launch(job, ex)

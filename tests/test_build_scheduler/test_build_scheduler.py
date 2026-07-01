@@ -2,7 +2,7 @@
 import threading, time
 from types import SimpleNamespace
 import pytest
-from mama.build_scheduler import Job, Scheduler, build_dep_jobs, BuildInterrupted, LOAD, CONFIGURE, BUILD
+from mama.build_scheduler import Job, Scheduler, build_dep_jobs, assign_priorities, BuildInterrupted, LOAD, CONFIGURE, BUILD
 
 
 def _wait_until(pred, timeout=2.0):
@@ -192,6 +192,26 @@ def test_resolve_weight_handles_int_and_callable():
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=lambda: 4)) == 4
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=3)) == 3
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=0)) == 0  # unsizable -> no reserve
+
+
+def test_assign_priorities_is_the_critical_path_bottom_level():
+    # a(1) feeds b(10); c(2) is independent. a's bottom level (1+10) must beat c so the long-pole feeder runs first.
+    a, b, c = Job('a', BUILD, lambda: None), Job('b', BUILD, lambda: None), Job('c', BUILD, lambda: None)
+    b.deps.add(a)
+    assign_priorities([a, b, c], lambda j: {'a': 1, 'b': 10, 'c': 2}[j.key])
+    assert (a.priority, b.priority, c.priority) == (11, 10, 2) and a.priority > c.priority
+
+
+def test_scheduler_launches_highest_priority_ready_job_first():
+    order, gate = [], threading.Event()
+    def body(n): order.append(n); gate.wait(2.0)
+    lo = Job('lo', BUILD, lambda: body('lo'), weight=8); lo.priority = 1.0
+    hi = Job('hi', BUILD, lambda: body('hi'), weight=8); hi.priority = 100.0
+    sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)  # budget fits one weight-8 build
+    t, _ = _run_bg(sched, [lo, hi])                # pending order is lo, hi - but priority must win
+    assert _wait_until(lambda: order == ['hi'])    # only hi launched; lo waits though it's also ready
+    gate.set(); t.join(3.0)
+    assert order == ['hi', 'lo']
 
 
 def test_fail_fast_returns_failed_job_and_blocks_dependents():

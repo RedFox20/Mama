@@ -607,6 +607,52 @@ def _make_scheduler(config, **extra):
                      **extra)
 
 
+_BUILD_TIMES_FILE = '.mama_buildtimes.json'  # per-workspace cache of measured build seconds (critical-path scheduling)
+_SEC_PER_TU = 0.5  # first-build cost proxy for a dep with no measured history yet
+
+
+def _build_times_path(root):
+    bd = getattr(root, 'build_dir', None)  # None for artifactory-only roots / test fakes -> caching is skipped
+    return os.path.join(os.path.dirname(os.path.dirname(bd)), _BUILD_TIMES_FILE) if isinstance(bd, str) and bd else None
+
+
+def _load_build_times(root) -> dict:
+    import json
+    path = _build_times_path(root)
+    if not path: return {}
+    try:
+        with open(path, encoding='utf-8') as f: return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_build_times(deps, root):
+    """Persist each dep's measured build wall seconds so the next run computes accurate critical paths."""
+    import json
+    path = _build_times_path(root)
+    if not path: return
+    times = _load_build_times(root)
+    for d in deps:
+        pt = getattr(d, 'phase_times', None)
+        if pt and pt.get('build'): times[d.name] = round(pt['build'], 2)
+    try:
+        with open(path, 'w', encoding='utf-8') as f: json.dump(times, f)
+    except OSError:
+        pass
+
+
+def _build_cost_fn(root):
+    """est build seconds per dep for critical-path priority: the last measured time if known, else a
+    TU-count proxy (same seconds unit, so the bottom-level sums stay consistent)."""
+    cached = _load_build_times(root)
+    def cost(dep):
+        t = cached.get(dep.name)
+        if t: return float(t)
+        try: return max(1.0, dep.target._count_tu()[0] * _SEC_PER_TU)
+        except Exception: return 1.0
+    return cost
+
+
 def _handle_failure(display, failed):
     """First failed job -> replay its captured output (TTY) + traceback, then exit nonzero. A Ctrl+C
     abort prints a terse interrupted line (no replay/traceback) and still exits nonzero."""
@@ -638,13 +684,14 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
     from .build_scheduler import build_dep_jobs
     deps = list(flat_deps_reverse)
     config = deps[0].config
+    root = next((d for d in deps if getattr(d, 'is_root', False)), deps[-1])
     display = _make_display(config)
     sched = _make_scheduler(config, pending_log=display.set_pending)
     cfg = lambda d: _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
     bld = lambda d: _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot,
                                _build_detail(d), final=True)  # build is the dep's last phase -> commit its summary
-    jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight)  # weight resolved lazily at launch
-    root = next((d for d in deps if getattr(d, 'is_root', False)), deps[-1])
+    # cost_fn sets critical-path priorities so a long-pole dep launches first instead of waiting behind cheaper ones
+    jobs = build_dep_jobs(deps, cfg, bld, weight_fn=_reserve_weight, cost_fn=_build_cost_fn(root))
     system.set_active_display(display)
     start = time.monotonic()
     with _build_insights_session(config, root):  # MSVC buildtimes: wrap the build in a vcperf trace (else no-op)
@@ -656,6 +703,7 @@ def execute_task_chain_parallel(flat_deps_reverse: List[BuildDependency]):
             SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     if failed is not None: _handle_failure(display, failed)
     _print_build_summary(deps, time.monotonic() - start)
+    _save_build_times(deps, root)  # feed the next run's critical-path scheduling
     if getattr(config, 'buildtimes', False):
         print_buildtimes(deps)
         _print_build_insights(config, deps)
@@ -837,13 +885,15 @@ def execute_unified(root: BuildDependency):
     on its own LOAD + its children's BUILDs. So leaf nodes build while deeper deps still clone. Used
     for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial."""
     import time
-    from .build_scheduler import Job, LOAD, CONFIGURE, BUILD
+    from .build_scheduler import Job, LOAD, CONFIGURE, BUILD, assign_priorities
     config = root.config
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
     config.update_stats.start()
     display = _make_display(config)
     sched = _make_scheduler(config, max_load=config.parallel_max, pending_log=display.set_pending)
     load_jobs: dict = {}; cfg_jobs: dict = {}; bld_jobs: dict = {}  # dep -> Job (mutated under sched lock)
+    cost = _build_cost_fn(root)
+    job_cost = lambda j: cost(j.node) if j.kind == BUILD else 0.0  # configure ~free; the build cost drives the path
 
     def make_jobs(dep, parent_load):
         L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
@@ -862,6 +912,7 @@ def execute_unified(root: BuildDependency):
                     if child not in load_jobs:
                         new += make_jobs(child, load_jobs[dep])
                 cfg_jobs[dep].deps.update(bld_jobs[c] for c in dep.get_children())  # configure waits on child builds
+                assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()), job_cost)  # re-rank critical path
                 return new
             sched.grow(grow)
         _run_phase(display, dep, 'load', body, sched.build_slot)
@@ -883,6 +934,7 @@ def execute_unified(root: BuildDependency):
     if failed is not None: _handle_failure(display, failed)
     flat = get_flat_deps(root)
     _print_build_summary(flat, time.monotonic() - start)
+    _save_build_times(flat, root)  # feed the next run's critical-path scheduling
     if getattr(config, 'buildtimes', False):
         print_buildtimes(flat)
         _print_build_insights(config, flat)
