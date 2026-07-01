@@ -578,9 +578,19 @@ def _stable_cpu_sampler(measure, clock, window=0.5):
     return sample
 
 
-# Build-job overprovisioning (max reserved cores = core_budget * this). MSVC/MSBuild tolerates 2x; GCC/make
-# on Linux already saturates the cores near-optimally, so 2x just piles on redundant compiles and OOMs.
-_OVERPROVISION_WIN, _OVERPROVISION_UNIX = 2.0, 1.2
+# Build-job overprovisioning (max reserved cores = core_budget * this). MSVC/MSBuild tolerates 2x; on Linux
+# the build is memory-bound (below) - GCC/make already saturates the cores - so overprovisioning beyond the
+# RAM-capped budget only risks OOM. _GB_PER_COMPILE is a heavy-C++ TU's peak RSS; total RAM / it caps how
+# many parallel compiles we allow so a swarm can't take down a memory-limited box (a WSL-killer).
+_OVERPROVISION_WIN, _OVERPROVISION_UNIX = 2.0, 1.0
+_GB_PER_COMPILE = 1.5
+
+
+def _mem_capped_budget(jobs: int) -> int:
+    """Cap the core budget by RAM so parallel heavy C++ compiles can't OOM. Never below 1 or above `jobs`."""
+    import psutil
+    gb = psutil.virtual_memory().total / (1024 ** 3)
+    return max(1, min(jobs, int(gb / _GB_PER_COMPILE)))
 
 
 def _make_scheduler(config, **extra):
@@ -589,8 +599,10 @@ def _make_scheduler(config, **extra):
     from .build_scheduler import Scheduler
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
-    extra.setdefault('overprovision', _OVERPROVISION_WIN if system.System.windows else _OVERPROVISION_UNIX)
-    return Scheduler(max_configure=min(cpu * 2, 32), core_budget=config.jobs, abort_hook=SubProcess.terminate_all,
+    win = system.System.windows
+    budget = config.jobs if win else _mem_capped_budget(config.jobs)  # Linux: don't OOM on parallel C++ compiles
+    extra.setdefault('overprovision', _OVERPROVISION_WIN if win else _OVERPROVISION_UNIX)
+    return Scheduler(max_configure=min(cpu * 2, 32), core_budget=budget, abort_hook=SubProcess.terminate_all,
                      cpu_sampler=_stable_cpu_sampler(lambda: psutil.cpu_percent(interval=None), time.monotonic),
                      **extra)
 

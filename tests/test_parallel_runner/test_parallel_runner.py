@@ -144,4 +144,12 @@ def test_make_scheduler_overprovision_is_platform_specific(monkeypatch):
     monkeypatch.setattr(system.System, 'windows', True)
     assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_WIN   # MSVC tolerates 2x
     monkeypatch.setattr(system.System, 'windows', False)
-    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_UNIX  # GCC/make already saturates cores
+    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_UNIX  # Linux is memory-bound -> no overprovision
+
+
+def test_mem_capped_budget_caps_by_ram_but_never_below_one(monkeypatch):
+    import psutil
+    ram = lambda gb: monkeypatch.setattr(psutil, 'virtual_memory', lambda: SimpleNamespace(total=int(gb * 1024**3)))
+    ram(8);   assert dc._mem_capped_budget(32) == int(8 / dc._GB_PER_COMPILE)   # RAM-limited (8/1.5 -> 5)
+    ram(256); assert dc._mem_capped_budget(32) == 32                            # RAM plenty -> capped by jobs
+    ram(0.5); assert dc._mem_capped_budget(32) == 1                             # tiny box -> at least one build
