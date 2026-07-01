@@ -345,3 +345,26 @@ def test_diagnostics_reads_a_finished_task_buffer():
     d, _, _ = _disp(isatty=False)
     d.start_task('t', 'build', 't'); d.feed('t', 'a.cpp:1:1: warning: oops'); d.finish_task('t', ok=True)
     assert d.diagnostics('t') == ([('warning', 'a.cpp:1:1: warning: oops')], 0, 1)
+
+
+class _Log:
+    def __init__(self): self.text = ''
+    def write(self, s): self.text += s
+    def close(self): pass
+
+
+def test_log_writes_full_per_target_block_even_when_hidden():
+    log = _Log()
+    d, _, _ = _disp(isatty=False, log=log)  # instant build -> hidden from the display, but still logged
+    d.start_task('geo', 'configure', 'geo'); d.feed('geo', 'checking compiler'); d.finish_task('geo', ok=True, final=False)
+    d.start_task('geo', 'build', 'geo'); d.feed('geo', 'compiling x.cpp'); d.finish_task('geo', ok=True, final=True)
+    assert 'checking compiler' in log.text and 'compiling x.cpp' in log.text  # full buffer across phases
+    assert 'geo' in log.text and '====' in log.text                          # one delimited per-target block
+
+
+def test_log_writes_permanent_lines_and_closes():
+    log = _Log()
+    d, _, _ = _disp(isatty=False, log=log)
+    d.print_above('Built 3 target(s)')
+    d.close()
+    assert 'Built 3 target(s)' in log.text

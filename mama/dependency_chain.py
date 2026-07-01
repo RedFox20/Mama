@@ -519,11 +519,14 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
 def _make_display(config):
     import sys, shutil, time
     from .utils.build_display import BuildDisplay
+    from .utils.log_writer import open_build_log
     out = sys.stdout
     isatty = bool(getattr(out, 'isatty', lambda: False)())
+    root = getattr(config, 'workspaces_root', None)
+    log = open_build_log(os.path.join(root, 'packages', 'mamabuild.log')) if root else None
     return BuildDisplay(out, isatty=isatty, clock=time.monotonic,
                         term_size=lambda: tuple(shutil.get_terminal_size((100, 24))),
-                        verbose=config.verbose)
+                        verbose=config.verbose, log=log)
 
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).

@@ -90,8 +90,9 @@ class Task:
 
 class BuildDisplay:
     def __init__(self, out, isatty: bool, term_size, clock, verbose=False, color=True,
-                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.5):
+                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.5, log=None):
         self._out = out
+        self._log = log  # optional AsyncLogWriter: full per-target output + permanent lines -> mamabuild.log
         self._isatty = isatty
         self._term_size = term_size  # () -> (cols, rows)
         self._clock = clock          # () -> float
@@ -169,6 +170,7 @@ class BuildDisplay:
             t.phases.append((t.elapsed(t.end), t.kind, t.detail))
             done = final or not ok                        # workflow over -> emit; else dormant, resume later
             show = done and (not ok or any(d >= self._reveal for d, _, _ in t.phases))  # hide a wholly-instant dep
+            if done: self._log_task(t)  # full per-target output -> log, even for deps hidden from the live region
             if not self._isatty:
                 if show:
                     self._writeln(self._summary_line(t))
@@ -182,11 +184,20 @@ class BuildDisplay:
 
     def print_above(self, text: str):
         """Emit a line that survives above the live region (status messages)."""
+        if self._log is not None: self._log.write(text + '\n')
         with self._lock:
             if not self._isatty:
                 self._writeln(text); return
             self._pending.append(text)
         self.render(force=True)
+
+    def _log_task(self, t: Task):
+        """Write a target's whole captured buffer to the build log as ONE contiguous block (all phases,
+        verbatim) so the log has the full configure/build output the live region only previews, never
+        intermixed across parallel targets."""
+        if self._log is None or not t.lines: return
+        self._log.write(f'\n{"=" * 100}\n{self._summary_line(t)}\n{"-" * 100}\n')
+        self._log.write('\n'.join(t.lines) + '\n')
 
     def replay(self, id):
         """Dump a task's full captured output permanently (colours intact)."""
@@ -238,6 +249,7 @@ class BuildDisplay:
                 self._pending.clear()
                 self._drawn = 0
                 self._flush()
+        if self._log is not None: self._log.close()  # drain + close the async log writer
 
     # -- internals ---------------------------------------------------------
 
