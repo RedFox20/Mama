@@ -335,22 +335,23 @@ class BuildDependency:
 
 
     def _force_source_clone(self) -> bool:
-        """`mama unshallow <target>` must materialize a real clone, even from a
-        cached shim - a shim has no source on disk to unshallow."""
-        return self.config.unshallow and self.is_current_target()
+        """A `rebuild` (build from source) or `mama unshallow` of THIS target must materialize a real
+        clone, even from a cached shim: drop the shim so the git path clones source instead of reusing
+        the prebuilt package. A plain `clean` does NOT force a clone - it reloads the package post-clean."""
+        return (self.config.rebuild or self.config.unshallow) and self.is_current_target()
 
 
     def _try_artifactory_shim(self) -> bool:
         """Pre-clone artifactory load for non-root git deps. Either honours a
         cached shim or probes artifactory via ls-remote. Returns True when the
         dep was satisfied without a clone."""
-        # unshallow target: drop the shim marker so the git path clones source.
+        # rebuild/unshallow target: drop the shim marker so the git path clones source.
         if self._force_source_clone():
             if self.is_artifactory_shim():
                 if self.config.print:
-                    console(f'  - Target {self.name: <16} UNSHALLOW shim -> source clone', color=Color.BLUE)
+                    console(f'  - Target {self.name: <16} REBUILD shim -> source clone', color=Color.BLUE)
                 self.remove_shim_marker()
-            # Unshallow means "use this target's source": suppress the post-clone probe so it
+            # Build-from-source means "use this target's source": suppress the post-clone probe so it
             # doesn't re-load the prebuilt pkg over the clone (true for an already-cloned target too).
             self.did_check_artifactory = True
             return False
@@ -394,6 +395,17 @@ class BuildDependency:
         return False
 
 
+    def _reload_artifactory_after_clean(self, target) -> bool:
+        """Re-fetch the artifactory package a plain `clean` just wiped from the build dir. The cached
+        zip lives in dep_dir (clean only rmtree's build_dir), so this re-extracts offline. Returns True
+        on success; on failure the caller falls through to the regular post-clone probe."""
+        self.create_build_dir_if_needed()
+        fetched, dependencies = artifactory_fetch_and_reconfigure(target)
+        if fetched and dependencies:
+            for dep_source in dependencies: self.add_child(dep_source)
+        return bool(fetched)
+
+
     def _load(self):
         conf = self.config
         if conf.verbose:
@@ -418,6 +430,10 @@ class BuildDependency:
 
         if conf.clean and is_target:
             self.clean() ## requires a parsed mamafile target
+            # A plain `clean` rmtree'd the build dir, including a shim-loaded artifactory package's libs;
+            # re-extract it so dependents can still link. (`rebuild` dropped the shim above -> from source.)
+            if loaded_from_pkg:
+                loaded_from_pkg = self._reload_artifactory_after_clean(target)
 
         if not self.is_root and not loaded_from_pkg:
             # Post-clone probe catches target.version-pinned deps that the pre-clone shim couldn't predict.
