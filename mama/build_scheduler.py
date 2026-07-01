@@ -62,11 +62,11 @@ def _check_acyclic(jobs: List[Job]):
         if color[j] == WHITE: visit(j)
 
 
-def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None, cost_fn=None) -> List[Job]:
+def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None) -> List[Job]:
     """Wire a configure + build job per dep: a dep's configure waits on every in-set child's build
     (its dependencies.cmake embeds child outputs), its build on its own configure. `weight_fn(dep)`
     gives the build's core weight, resolved lazily at launch. `children_fn` defaults to get_children.
-    `cost_fn(dep)` (est build seconds) sets critical-path priorities so long-pole deps launch first."""
+    Sets critical-path priorities so trunk deps launch first."""
     children_fn = children_fn or (lambda d: d.get_children())
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
@@ -78,14 +78,14 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
         for child in children_fn(d):
             if child in dep_set: cfg[d].deps.add(bld[child])
     jobs = list(cfg.values()) + list(bld.values())
-    if cost_fn: assign_priorities(jobs, lambda j: cost_fn(j.node) if j.kind == BUILD else 0.0)
+    assign_priorities(jobs)
     return jobs
 
 
-def assign_priorities(jobs, cost_fn):
-    """Set job.priority to its critical-path 'bottom level' = own cost + the longest cost path through the
-    jobs that depend on it. The scheduler launches the highest-priority ready job first, so a long-pole dep
-    (big + feeding the root) starts immediately instead of waiting behind cheaper-but-less-critical ones."""
+def assign_priorities(jobs):
+    """Set job.priority to its critical-path DEPTH: the number of BUILD jobs on the longest chain of jobs
+    that depend on it (configure jobs are free). So a dep deep in the trunk - feeding the root through the
+    longest dependency chain - launches first. Purely structural: no (unreliable) build-time estimates."""
     jobs = list(jobs)
     succ = {j: [] for j in jobs}
     for j in jobs:
@@ -96,7 +96,7 @@ def assign_priorities(jobs, cost_fn):
         v = memo.get(j)
         if v is not None: return v
         memo[j] = 0.0  # cycle guard (the graph is validated acyclic, but never recurse forever)
-        memo[j] = cost_fn(j) + max((blevel(s) for s in succ[j]), default=0.0)
+        memo[j] = (1.0 if j.kind == BUILD else 0.0) + max((blevel(s) for s in succ[j]), default=0.0)
         return memo[j]
     for j in jobs: j.priority = blevel(j)
 

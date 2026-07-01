@@ -194,12 +194,12 @@ def test_resolve_weight_handles_int_and_callable():
     assert Scheduler._resolve_weight(Job('a', BUILD, lambda: None, weight=0)) == 0  # unsizable -> no reserve
 
 
-def test_assign_priorities_is_the_critical_path_bottom_level():
-    # a(1) feeds b(10); c(2) is independent. a's bottom level (1+10) must beat c so the long-pole feeder runs first.
+def test_assign_priorities_is_the_critical_path_depth():
+    # a feeds b (a -> b); c is independent. a's trunk depth (itself + b) beats c, so the trunk feeder runs first.
     a, b, c = Job('a', BUILD, lambda: None), Job('b', BUILD, lambda: None), Job('c', BUILD, lambda: None)
     b.deps.add(a)
-    assign_priorities([a, b, c], lambda j: {'a': 1, 'b': 10, 'c': 2}[j.key])
-    assert (a.priority, b.priority, c.priority) == (11, 10, 2) and a.priority > c.priority
+    assign_priorities([a, b, c])
+    assert (a.priority, b.priority, c.priority) == (2, 1, 1) and a.priority > c.priority
 
 
 def test_scheduler_launches_highest_priority_ready_job_first():
