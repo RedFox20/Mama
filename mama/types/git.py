@@ -31,6 +31,38 @@ _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to
 def _is_git_status_noise(line: str) -> bool:
     return line.startswith(_GIT_NOISE) or 'set up to track ' in line
 
+
+# git transfer progress ('Receiving objects: 42% (...)') - the per-percent flood the PTY makes git
+# emit. EVERY git runner routes output through _filter_git_progress so the flood collapses to one
+# throttled redraw (a single filtering chokepoint), instead of each command spewing raw remote: output.
+_GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
+                 ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
+                 ('Updating files:', 'updating files     '))
+
+
+def _git_progress_status(line: str):
+    """(status label, percent) for a git transfer-progress line, else None."""
+    for needle, status in _GIT_PROGRESS:
+        if needle in line:
+            pct = line.split('%')[0].rsplit(':', 1)[-1].strip()
+            return status, (int(pct) if pct.isdigit() else 0)
+    return None
+
+
+def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
+    """True if `line` is git transfer progress (the caller drops it) - collapsing the per-percent flood
+    into one throttled redraw. `state` carries the throttle across calls; `label` prefixes (e.g. CLONE)."""
+    st = _git_progress_status(line)
+    if st is None: return False
+    if dep.config.print:
+        now = time.monotonic()
+        if 'at' not in state: state['at'] = now  # seed on first sight; don't emit until the throttle elapses
+        if st != state.get('last') and (st[1] >= 100 or now - state['at'] >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL):
+            state['last'] = st; state['at'] = now
+            tag = f'{label} ' if label else ''
+            progress(f'  {dep.name: <16} {tag}{st[0]} {st[1]:3}%')
+    return True
+
 def parse_git_url(url: str):
     """Split a remote git url into (scheme, user, host, path). Returns None for
     local paths or anything without a network host, which overrides leave untouched."""
@@ -150,9 +182,11 @@ class Git(DepSource):
         ssh_multiplex.ensure_master_for_url(self.url)
         # Capture and prefix each line so parallel updates don't tear and the
         # user can see which target said what (e.g. 'remote: Enumerating ...').
+        prog: dict = {}
         def prefixed(p:SubProcess, line:str):
             line = line.rstrip()
             if not line: return
+            if _filter_git_progress(dep, line, prog): return  # collapse the transfer-progress flood
             if not dep.config.verbose and _is_git_status_noise(line): return  # drop benign reset/track/up-to-date chatter
             console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
@@ -465,40 +499,10 @@ class Git(DepSource):
         same nice UI instead of spewing git's raw remote: output."""
         output = []  # list + join, not output += line (O(n^2) over a big checkout's file list)
         start = time.monotonic()
-        last_progress_at = None
-        last_progress = (None, -1)
+        prog: dict = {}
         def print_output(p:SubProcess, line:str):
-            nonlocal last_progress_at, last_progress
-            if 'remote: Counting objects:' in line or \
-                'remote: Compressing objects:' in line or \
-                'Receiving objects:' in line or \
-                'Resolving deltas:' in line or \
-                'Updating files:' in line:
-                if dep.config.print:
-                    parts = line.split('%')[0].split(':')
-                    if not parts:
-                        console(line)
-                        return
-                    percent_string = parts[len(parts)-1].strip()
-                    percent = int(percent_string) if percent_string else 0
-                    status = 'status             '
-                    if 'remote: Counting objects:' in line:      status = 'counting objects   '
-                    elif 'remote: Compressing objects:' in line: status = 'compressing objects'
-                    elif 'Receiving objects:' in line:           status = 'receiving objects  '
-                    elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
-                    elif 'Updating files:' in line:              status = 'updating files     '
-                    now = time.monotonic()
-                    cur_progress = (status, percent)
-                    if last_progress_at is None:
-                        last_progress_at = now
-                    should_report = percent >= 100 or \
-                        (now - last_progress_at) >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL
-                    if last_progress != cur_progress and should_report:
-                        last_progress = cur_progress
-                        last_progress_at = now
-                        elapsed = get_time_str(now - start)
-                        progress(f'  - Target {dep.name: <16} {label} {status} {percent:3}% ({elapsed})')
-            elif 'Cloning into ' in line:
+            if _filter_git_progress(dep, line, prog, label=label): return  # same chokepoint as run_git
+            if 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
                 # TODO: maybe auto-add the key before running clone?

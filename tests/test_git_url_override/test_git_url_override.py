@@ -1,11 +1,13 @@
 """Pins git.py helpers: ssh<->https url rewriting (protocol-only override is not a url change, no
 spurious wipe) and the update-output noise filter."""
-from unittest.mock import patch
+import contextlib
+from unittest.mock import Mock, patch
 
 import pytest
 from testutils import make_mock_dep
 
-from mama.types.git import Git, convert_git_url, same_git_remote, _is_git_status_noise
+from mama.types.git import (Git, convert_git_url, same_git_remote, _is_git_status_noise,
+                            _git_progress_status)
 
 GH_SSH = 'git@github.com:KrattWorks/mavlink-headers.git'
 GH_HTTPS = 'https://github.com/KrattWorks/mavlink-headers.git'
@@ -66,6 +68,33 @@ def test_update_noise_is_filtered(line):
     'error: pathspec broke', 'remote: Enumerating objects: 12, done.', "fatal: couldn't find remote ref x"])
 def test_real_git_output_is_kept(line):
     assert not _is_git_status_noise(line)
+
+
+def test_git_progress_status_classifies_transfer_lines():
+    assert _git_progress_status('Receiving objects:  42% (5/12)') == ('receiving objects  ', 42)
+    assert _git_progress_status('remote: Counting objects: 100% (30/30), done.')[1] == 100
+    assert _git_progress_status(' * [new branch] main -> origin/main') is None  # a real ref line, not progress
+    assert _git_progress_status('From https://github.com/RedFox20/ReCpp') is None
+
+
+def test_run_git_collapses_progress_flood_but_keeps_real_lines(tmp_path):
+    # The regression: run_git printed every per-percent progress line raw; now it collapses them.
+    dep = make_mock_dep(tmp_path, print=True)
+    flood = [f'Receiving objects: {p}% ({p}/100)' for p in range(101)]
+    real = ['From https://github.com/RedFox20/ReCpp', ' * [new branch] main -> origin/main']
+    consoled, progressed = [], []
+    def fake_run(cmd, io_func=None, **kw):
+        for ln in flood + real: io_func(Mock(), ln)
+        return 0
+    with patch('mama.types.git.SubProcess.run', side_effect=fake_run), \
+         patch('mama.types.git.console', side_effect=lambda t, **k: consoled.append(t)), \
+         patch('mama.types.git.progress', side_effect=lambda t, **k: progressed.append(t)), \
+         patch('mama.types.git.ssh_multiplex.ensure_master_for_url'), \
+         patch('mama.types.git.ssh_multiplex.fetch_slot', side_effect=lambda: contextlib.nullcontext()):
+        dep.dep_source.run_git(dep, 'fetch --unshallow')
+    assert not any('Receiving objects' in c for c in consoled)  # no raw per-percent flood on the console
+    assert len(progressed) <= 5                                 # collapsed into a few throttled redraws
+    assert any('new branch' in c for c in consoled)             # real ref output still shown
 
 
 def test_check_status_override_is_not_url_change(tmp_path):
