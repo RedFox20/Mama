@@ -70,6 +70,14 @@ class UpdateStats:
 # This configuration is then passed down to dependencies
 #
 class BuildConfig:
+    @staticmethod
+    def _default_build_jobs() -> int:
+        """Default parallel build jobs. Linux leaves ONE core free so a perfectly-parallel build can't
+        saturate the desktop into an OOM/freeze; Windows/macOS use all cores. An explicit `jobs=N`
+        on the command line overrides this."""
+        cpu = psutil.cpu_count() or 4
+        return max(1, cpu - 1) if System.linux else cpu
+
     def __init__(self, args):
         # commands
         self.list    = False
@@ -141,7 +149,7 @@ class BuildConfig:
         # valid architectures: x86, x64, arm, arm64
         self.arch    = None
         self.distro  = None  # distro information (name, major, minor)
-        self.jobs    = psutil.cpu_count()
+        self.jobs    = BuildConfig._default_build_jobs()
         self.target  = None
         self.flags   = None
         self.open    = None
