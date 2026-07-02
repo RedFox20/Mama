@@ -142,6 +142,7 @@ class BuildConfig:
         # If compiler specificed from command line
         # using `mama build gcc` or `mama build clang`
         self.compiler_cmd = False
+        self.compiler_conflict_warned = False  # the "target prefers X but compiler locked to Y" note fires once, not per dep
         self.fortran = ''
         # build optimization
         self.release = True
@@ -572,6 +573,14 @@ class BuildConfig:
         self.artifactory_auth = auth
 
 
+    def _warn_compiler_conflict(self, target_name, requested, locked):
+        """The 'target prefers X but the compiler is already locked to Y' note - emitted ONCE per run
+        (every dep re-requests its preference, so this used to flood the output one line per target)."""
+        if self.print and not self.compiler_conflict_warned:
+            self.compiler_conflict_warned = True
+            console(f'Target {target_name} requested {requested} but compiler already set to {locked}.')
+
+
     def prefer_clang(self, target_name):
         if not self.linux or self.raspi or self.clang: return
         if not self.compiler_cmd:
@@ -581,8 +590,7 @@ class BuildConfig:
             if self.print:
                 console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler flag passed.')
         else:
-            if self.print:
-                console(f'Target {target_name} requested Clang but compiler already set to GCC.')
+            self._warn_compiler_conflict(target_name, 'Clang', 'GCC')
 
 
     def prefer_gcc(self, target_name):
@@ -594,8 +602,7 @@ class BuildConfig:
             if self.print:
                 console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler flag passed.')
         else:
-            if self.print:
-                console(f'Target {target_name} requested GCC but compiler already set to Clang.')
+            self._warn_compiler_conflict(target_name, 'GCC', 'Clang')
 
 
     ##

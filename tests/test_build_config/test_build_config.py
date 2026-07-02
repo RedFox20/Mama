@@ -16,3 +16,20 @@ def test_default_jobs_never_below_one(monkeypatch):
     monkeypatch.setattr(psutil, 'cpu_count', lambda: 1)
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 1
+
+
+def _bare_cfg(**attrs):
+    c = object.__new__(BuildConfig)  # skip the heavy __init__; set only what prefer_gcc touches
+    c.linux = True; c.raspi = False; c.gcc = False; c.clang = True
+    c.compiler_cmd = True; c.print = True; c.compiler_conflict_warned = False
+    for k, v in attrs.items(): setattr(c, k, v)
+    return c
+
+
+def test_compiler_conflict_note_fires_once_across_deps(monkeypatch):
+    printed = []
+    monkeypatch.setattr('mama.build_config.console', lambda t, **k: printed.append(t))
+    c = _bare_cfg()  # compiler locked to Clang
+    for name in ('krattcam', 'krattlink', 'ReCpp'): c.prefer_gcc(name)   # every dep re-requests GCC
+    assert len(printed) == 1                                             # one note, not one per dep
+    assert 'krattcam requested GCC but compiler already set to Clang' in printed[0]
