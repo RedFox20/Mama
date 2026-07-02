@@ -376,3 +376,10 @@ class TestExecuteEchoCapture:
         from mama.utils.sub_process import execute_echo
         execute_echo(cwd=None, cmd=[PY, '-c', 'print("direct-to-terminal")'])
         assert 'direct-to-terminal' in capfd.readouterr().out
+
+    def test_quiet_suppresses_output_even_with_active_sink(self):
+        from mama.utils.sub_process import execute_echo
+        captured = []
+        with system.capture_to(captured.append):
+            execute_echo(cwd=None, cmd=[PY, '-c', 'print("should-be-silenced")'], quiet=True)
+        assert not any('should-be-silenced' in line for line in captured)

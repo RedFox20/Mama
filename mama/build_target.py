@@ -1016,17 +1016,20 @@ class BuildTarget:
         return os.path.join(os.path.dirname(cc), filename)
 
 
-    def run(self, command: str, src_dir=False, exit_on_fail=True):
+    def run(self, command: str, src_dir=False, exit_on_fail=True, quiet=False):
         """
         Run a command in the build or source folder.
         Can be used for any custom commands or custom build systems.
         src_dir -- [False] If true, then command is relative to source directory.
+        quiet   -- [False] Suppress the command's output entirely (it still runs and is exit-checked).
+                   Use for noisy sub-steps like a script's own `git clone`.
         ```
             self.run('./configure', src_dir=True)
             self.run('make release -j7') # run in build dir
+            self.run('./build_ffmpeg.sh', quiet=True) # silence a noisy custom script
         ```
         """
-        run_in_project_dir(self, command, src_dir, exit_on_fail)
+        run_in_project_dir(self, command, src_dir, exit_on_fail, quiet=quiet)
 
 
     def run_program(self, working_dir: str, command: str, exit_on_fail=True, env=None):

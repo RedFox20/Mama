@@ -381,19 +381,22 @@ def execute_piped(command, cwd=None, timeout=None, throw=True):
             return None
 
 
-def execute_echo(cwd, cmd, exit_on_fail=False, env=None):
+def execute_echo(cwd, cmd, exit_on_fail=False, env=None, quiet=False):
     """
     Wrapper around SubProcess.run(), by default throws if exit_status != 0
     - cwd: working dir for the subprocess
     - cmd: command string
     - exit_on_fail: if True, exits the application with exit_status
     - env: overrrides the environment for the subprocess, default is os.environ
+    - quiet: if True, drop the child's output entirely (it still runs and is exit-checked)
     """
     # Inside a scheduled build phase a capture sink is active: route the child's output through console()
     # so a custom build()'s commands land in the owning display task (and the log) instead of tearing the
     # live region. Outside it (serial path, interactive run/gdb/test post-pass) keep stdio direct - the
     # child needs the real terminal for prompts, and there's nowhere to capture to anyway.
-    io = (lambda p, line: console(line)) if capture_context()[0] is not None else None
+    if quiet:               io = lambda p, line: None                # caller asked for silence: drop output
+    elif capture_context()[0] is not None: io = lambda p, line: console(line)
+    else:                   io = None
     exit_status = -1
     throw_on_fail = not exit_on_fail
     try:
