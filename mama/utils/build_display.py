@@ -13,7 +13,7 @@ from __future__ import annotations
 import re, time, threading
 from . import proc_cpu
 from .system import Color, get_colored_text
-from ..util import get_time_str
+from ..util import get_time_str, is_git_progress_line
 
 
 _CURSOR_UP = '\x1b[1A'
@@ -80,7 +80,13 @@ class Task:
         self.end = None; self.state = 'run'; self.current = ''
 
     def feed(self, line: str):
-        self.lines.append(line)
+        # Collapse a run of git transfer-progress ('Receiving objects: 0%..100%') to just its latest
+        # line, so a captured `git clone` (mama's or a custom build step's) doesn't flood the buffer
+        # (and thus the log + failure replay) with hundreds of per-percent updates.
+        if self.lines and is_git_progress_line(line) and is_git_progress_line(self.lines[-1]):
+            self.lines[-1] = line
+        else:
+            self.lines.append(line)
         s = line.strip()
         if s: self.current = s
 

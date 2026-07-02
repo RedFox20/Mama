@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 import pytest
 from testutils import make_mock_dep
 
-from mama.types.git import (Git, convert_git_url, same_git_remote, _is_git_status_noise,
-                            _git_progress_status)
+from mama.types.git import Git, convert_git_url, same_git_remote, _is_git_status_noise
+from mama.util import git_progress_status
 
 GH_SSH = 'git@github.com:KrattWorks/mavlink-headers.git'
 GH_HTTPS = 'https://github.com/KrattWorks/mavlink-headers.git'
@@ -71,10 +71,18 @@ def test_real_git_output_is_kept(line):
 
 
 def test_git_progress_status_classifies_transfer_lines():
-    assert _git_progress_status('Receiving objects:  42% (5/12)') == ('receiving objects  ', 42)
-    assert _git_progress_status('remote: Counting objects: 100% (30/30), done.')[1] == 100
-    assert _git_progress_status(' * [new branch] main -> origin/main') is None  # a real ref line, not progress
-    assert _git_progress_status('From https://github.com/RedFox20/ReCpp') is None
+    assert git_progress_status('Receiving objects:  42% (5/12)') == ('receiving objects  ', 42)
+    assert git_progress_status('remote: Counting objects: 100% (30/30), done.')[1] == 100
+    assert git_progress_status(' * [new branch] main -> origin/main') is None  # a real ref line, not progress
+    assert git_progress_status('From https://github.com/RedFox20/ReCpp') is None
+
+
+def test_is_git_progress_line_matches_raw_and_collapsed():
+    from mama.util import is_git_progress_line
+    assert is_git_progress_line('remote: Counting objects:  10% (29/290)')  # raw git clone output
+    assert is_git_progress_line('  ReCpp  receiving objects  42%')          # mama's collapsed redraw
+    assert not is_git_progress_line('remote: Enumerating objects: 290, done.')  # no %, kept verbatim
+    assert not is_git_progress_line('[3/74] Building CXX object foo.cpp.o')     # a real build line
 
 
 def test_run_git_collapses_progress_flood_but_keeps_real_lines(tmp_path):

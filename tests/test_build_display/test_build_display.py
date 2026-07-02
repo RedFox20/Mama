@@ -319,6 +319,16 @@ def test_task_feed_tracks_current_and_full_buffer():
     assert t.lines == ['a', '   ', 'b']
 
 
+def test_task_feed_collapses_git_progress_flood():
+    t = Task(1, 'build', 'x', 0.0)
+    t.feed('remote: Counting objects:   0% (1/290)')
+    t.feed('remote: Counting objects:  50% (145/290)')
+    t.feed('remote: Counting objects: 100% (290/290), done.')
+    t.feed('linking x')  # a real line ends the progress run and is appended
+    assert t.lines == ['remote: Counting objects: 100% (290/290), done.', 'linking x']
+    assert t.current == 'linking x'
+
+
 def test_scan_diagnostics_picks_msvc_and_gcc_errors_first_and_dedups():
     diags, n_err, n_warn = scan_diagnostics([
         'foo.cpp(12): warning C4996: deprecated',

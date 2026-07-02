@@ -582,3 +582,26 @@ def is_network_error(e: Exception) -> bool:
             return True
     return False
 
+
+
+# git transfer progress ('Receiving objects: 42% (...)') classification - shared so every place that
+# captures git output collapses the per-percent flood identically (one source of truth).
+_GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
+                 ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
+                 ('Updating files:', 'updating files     '))
+
+
+def git_progress_status(line: str):
+    """(status label, percent) for a raw git transfer-progress line ('Receiving objects: 42%'), else None."""
+    for needle, status in _GIT_PROGRESS:
+        if needle in line:
+            pct = line.split('%')[0].rsplit(':', 1)[-1].strip()
+            return status, (int(pct) if pct.isdigit() else 0)
+    return None
+
+
+def is_git_progress_line(line: str) -> bool:
+    """True for a raw git transfer-progress line OR mama's collapsed redraw of one ('... receiving
+    objects 42%'): the per-percent updates a captured buffer collapses to just the latest."""
+    if git_progress_status(line) is not None: return True
+    return '%' in line and any(label.strip() in line for _, label in _GIT_PROGRESS)

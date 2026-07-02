@@ -7,7 +7,7 @@ from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
-                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint)
+                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status)
 
 
 if TYPE_CHECKING:
@@ -32,27 +32,11 @@ def _is_git_status_noise(line: str) -> bool:
     return line.startswith(_GIT_NOISE) or 'set up to track ' in line
 
 
-# git transfer progress ('Receiving objects: 42% (...)') - the per-percent flood the PTY makes git
-# emit. EVERY git runner routes output through _filter_git_progress so the flood collapses to one
-# throttled redraw (a single filtering chokepoint), instead of each command spewing raw remote: output.
-_GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
-                 ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
-                 ('Updating files:', 'updating files     '))
-
-
-def _git_progress_status(line: str):
-    """(status label, percent) for a git transfer-progress line, else None."""
-    for needle, status in _GIT_PROGRESS:
-        if needle in line:
-            pct = line.split('%')[0].rsplit(':', 1)[-1].strip()
-            return status, (int(pct) if pct.isdigit() else 0)
-    return None
-
-
 def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
     """True if `line` is git transfer progress (the caller drops it) - collapsing the per-percent flood
-    into one throttled redraw. `state` carries the throttle across calls; `label` prefixes (e.g. CLONE)."""
-    st = _git_progress_status(line)
+    the PTY makes git emit into one throttled redraw. EVERY git runner routes output through this single
+    chokepoint. `state` carries the throttle across calls; `label` prefixes (e.g. CLONE)."""
+    st = git_progress_status(line)
     if st is None: return False
     if dep.config.print:
         now = time.monotonic()
