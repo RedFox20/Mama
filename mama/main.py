@@ -364,10 +364,11 @@ def mamabuild(args, source_dir=os.getcwd()):
         flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
         flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
-        # `build X` runs X and what X needs - not the whole tree. An out-of-scope dep did no build work
-        # but still reached _run_packaging(), re-packaging a target that was never built (and asserting
-        # on libs that don't exist).
-        targeted = config.build and config.has_target() and not config.targets_all() and not config.deps_only
+        # `build/upload/deploy X` runs X and what X needs - not the whole tree. An out-of-scope dep did
+        # no build work but still reached _run_packaging(), re-packaging a target that was never built
+        # (and asserting on libs that don't exist). Upload/deploy of the deps is still gated per-target.
+        targeted = ((config.build or config.upload or config.deploy)
+                    and config.has_target() and not config.targets_all() and not config.deps_only)
         if targeted and dep is not None:
             flat_deps = get_flat_deps(dep)
             flat_deps_reverse = list(reversed(flat_deps))

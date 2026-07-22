@@ -126,6 +126,19 @@ def test_building_a_mid_tree_target_still_includes_what_it_needs(tmp_path):
     assert set(names) == {'rpclib', 'protobuf'}   # its own dep comes along, its dependents don't
 
 
+def test_uploading_one_target_does_not_execute_unrelated_targets(tmp_path):
+    # `mama upload protobuf` used to run build_phase (packaging) for the whole workspace; an unrelated
+    # dep then asserted on a lib that was never built. Scope it like a targeted build.
+    names = _executed_deps(['upload', 'protobuf'], tmp_path)
+    assert names == ['protobuf']
+    assert 'rpcservice' not in names and 'myapp' not in names
+
+
+def test_deploying_a_mid_tree_target_scopes_to_its_subtree(tmp_path):
+    names = _executed_deps(['deploy', 'rpclib'], tmp_path)
+    assert set(names) == {'rpclib', 'protobuf'}   # deps come along to be packaged; dependents don't
+
+
 def test_an_untargeted_build_still_runs_the_whole_tree(tmp_path):
     names = _executed_deps(['build', 'all', 'serial'], tmp_path)  # serial keeps it on the classic path
     assert {'rpcservice', 'rpclib', 'protobuf', 'gcsmanual'} <= set(names)
