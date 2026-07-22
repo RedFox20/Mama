@@ -9,7 +9,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip, is_network_error
+from .util import download_file, normalized_join, try_unzip, is_network_error, read_text_from
 from .papa_deploy import PapaFileInfo
 
 
@@ -318,6 +318,21 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
         return (False, None)
 
 
+def resolve_pinned_version(dep) -> str:
+    """A `self.version = '<literal>'` pinned in the dep's mamafile, read from disk WITHOUT
+    executing it (mamafiles typically set version inside configure(), which never runs on
+    download probes - only on the upload side, where it renames the archive). Pre-clone the
+    mamafile is on disk only for a parent-repo override (dep.mamafile); post-clone also in
+    the dep's own tree. Returns '' when unpinned or the mamafile isn't on disk yet."""
+    path = dep.mamafile_path()
+    if path and os.path.exists(path):
+        try:
+            return Git.extract_self_version(read_text_from(path)) or ''
+        except OSError:
+            return ''
+    return ''
+
+
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
     Try to fetch prebuilt package from artifactory
@@ -326,6 +341,12 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     url = target.config.artifactory_ftp
     if not url:
         return (False, None)
+
+    # A pinned version names the UPLOADED archive (artifactory_archive_name drops the commit
+    # hash), so a probe without it looks for a name uploads no longer produce - and a
+    # hash-named archive it finds instead can only be a stale pre-pin leftover.
+    if not target.version:
+        target.version = resolve_pinned_version(target.dep)
 
     archive = artifactory_archive_name(target)
     if not archive:
@@ -382,14 +403,16 @@ def try_load_artifactory_shim(dep) -> Tuple:
         return (None, None)
     git.commit_hash = commit_hash  # cache for downstream consumers
 
-    # First probe: commit-hash-based archive name. Works for the common case.
+    # First probe: version-named if a local mamafile pins self.version (fetch_and_reconfigure
+    # resolves it), else commit-hash-named. Works for the common case.
     probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
     fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
 
-    # Fallback: dep may pin target.version (e.g. boost 1.60), so its archive
-    # name doesn't include the commit hash. Sparse-fetch only the mamafile,
-    # grep self.version, and re-probe with that version.
-    if not fetched:
+    # Fallback: dep may pin target.version (e.g. boost 1.60) in its own not-yet-cloned
+    # mamafile, so its archive name doesn't include the commit hash. Sparse-fetch only the
+    # mamafile, grep self.version, and re-probe with that version. A version-pinned first
+    # probe gets no fallback: re-probing by hash would resurrect a stale pre-pin archive.
+    if not fetched and not probe_target.version:
         version = git.fetch_self_version_from_remote(dep)
         if version:
             if config.verbose:

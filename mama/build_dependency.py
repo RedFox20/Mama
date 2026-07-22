@@ -6,7 +6,7 @@ from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, resolve_pinned_version
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, MAMA_SHIM_FILENAME
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
@@ -290,6 +290,18 @@ class BuildDependency:
         marker = self.read_shim_marker()
         stored_hash = marker.get('hash', '')
         if not stored_hash: return None
+
+        # A locally-pinned self.version renames the archive (it replaces the commit hash), so
+        # a shim cached under a non-matching name predates the pin: a stale package the pin
+        # was bumped precisely to invalidate. Re-probe instead of trusting it.
+        pinned = resolve_pinned_version(self)
+        stored_archive = marker.get('archive', '')
+        if pinned and stored_archive and not stored_archive.endswith(f'-{pinned}'):
+            if self.config.print:
+                warning(f'  - Target {self.name: <16} SHIM STALE archive={stored_archive} '
+                        f'!= pinned version {pinned}')
+            self.remove_shim_marker()
+            return None
 
         if check_staleness:
             git: Git = self.dep_source

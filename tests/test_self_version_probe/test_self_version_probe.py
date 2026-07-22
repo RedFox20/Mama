@@ -67,6 +67,7 @@ def _make_dep(branch='main', mamafile_field=''):
     dep.target_args = []
     dep.from_artifactory = False
     dep.write_shim_marker = Mock()
+    dep.mamafile = None  # no parent-repo mamafile override (the common case)
     return dep, git
 
 
@@ -136,6 +137,18 @@ class TestFetchSelfVersionFromRemote:
     def test_returns_none_when_network_unavailable(self):
         dep, git = _make_dep()
         dep.config.is_network_available.return_value = False
+        with patch.object(Git, '_run_git_with_filtered_progress') as mock_clone, \
+             patch('mama.types.git.subprocess.run') as mock_show:
+            assert git.fetch_self_version_from_remote(dep) is None
+            mock_clone.assert_not_called()
+            mock_show.assert_not_called()
+
+    def test_returns_none_for_local_mamafile_override(self):
+        # A parent-repo override (dep.mamafile is a resolved local path) is not in the remote
+        # repo: `git show HEAD:<local path>` can never work, and the local file was already
+        # checked by resolve_pinned_version. Must return None without any network work.
+        dep, git = _make_dep()
+        dep.mamafile = 'C:/parent/mamadeps/libfoo.py'
         with patch.object(Git, '_run_git_with_filtered_progress') as mock_clone, \
              patch('mama.types.git.subprocess.run') as mock_show:
             assert git.fetch_self_version_from_remote(dep) is None
@@ -237,6 +250,22 @@ class TestShimProbeFallback:
         mock_version.assert_called_once_with(dep)
         assert fetch_versions == [None, '1.0']
 
+    def test_pinned_probe_miss_gets_no_fallback(self):
+        # A local mamafile pin makes the FIRST probe version-named (applied inside
+        # fetch_and_reconfigure). On a miss there must be no hash-named re-probe: any
+        # hash-named archive predates the pin, which was bumped precisely to bury it.
+        dep, _ = _make_dep()
+        def fake_fetch(target):
+            target.version = '34.0'  # what resolve_pinned_version does on the real path
+            return (False, None)
+        with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
+             patch.object(Git, 'fetch_self_version_from_remote') as mock_version, \
+             patch('mama.artifactory.artifactory_fetch_and_reconfigure', side_effect=fake_fetch), \
+             patch('mama.build_target.BuildTarget', side_effect=_PROBE_TARGET):
+            target, _ = art.try_load_artifactory_shim(dep)
+        assert target is None
+        mock_version.assert_not_called()
+
     def test_hash_miss_and_no_self_version_returns_none(self):
         dep, _ = _make_dep()
         with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
@@ -255,3 +284,31 @@ class TestShimProbeFallback:
              patch('mama.build_target.BuildTarget', side_effect=_PROBE_TARGET):
             target, _ = art.try_load_artifactory_shim(dep)
         assert target is None
+
+
+class TestResolvePinnedVersion:
+    def _dep_with_mamafile(self, path):
+        dep = Mock()
+        dep.mamafile_path.return_value = path
+        return dep
+
+    def test_reads_pin_from_mamafile_on_disk(self, tmp_path):
+        # version pinned inside configure(): never executed on the download probe path,
+        # which is exactly why it must be read from disk instead.
+        mf = tmp_path / 'protobuf.py'
+        mf.write_text("class protobuf:\n"
+                      "    def configure(self):\n"
+                      "        self.version = '34.0'\n", encoding='utf-8')
+        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == '34.0'
+
+    def test_empty_when_mamafile_has_no_pin(self, tmp_path):
+        mf = tmp_path / 'mamafile.py'
+        mf.write_text("class libfoo:\n    pass\n", encoding='utf-8')
+        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == ''
+
+    def test_empty_when_mamafile_not_on_disk(self, tmp_path):
+        assert art.resolve_pinned_version(self._dep_with_mamafile(str(tmp_path / 'nope.py'))) == ''
+
+    def test_empty_when_dep_has_no_mamafile_path(self):
+        # pre-clone git dep without a parent override: mamafile_path() is None
+        assert art.resolve_pinned_version(self._dep_with_mamafile(None)) == ''

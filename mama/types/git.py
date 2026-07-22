@@ -255,6 +255,11 @@ class Git(DepSource):
         SubProcess.run (live progress UI); the one-shot `git show` uses subprocess.run
         with stderr=DEVNULL + timeout to drop the lazy-fetch's `remote: ...` chatter
         and to bound a stuck fetch. Returns the version string or None on any failure."""
+        if dep.mamafile:
+            # Parent-repo mamafile override: the remote repo's mamafile is not the one mama
+            # runs, and `git show HEAD:<local path>` can never resolve. The local file was
+            # already checked for a pin before this fallback (resolve_pinned_version).
+            return None
         if not dep.config.is_network_available():
             return None
         mamafile_name = self.mamafile or 'mamafile.py'
