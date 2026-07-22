@@ -356,6 +356,11 @@ class Git(DepSource):
                 return None
 
 
+    def _is_repo_broken(self, dep: BuildDependency) -> bool:
+        """`.git` present but HEAD unresolvable - a corrupt/half-cloned tree. -q keeps git silent on failure."""
+        return not execute_piped(['git', 'rev-parse', '--verify', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
+
+
     def _is_detached_head(self, dep: BuildDependency) -> bool:
         """Check if the repository is in detached HEAD state"""
         result = execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
@@ -603,9 +608,10 @@ class Git(DepSource):
         Do a git repository checkout. Can be an expensive operation.
         If an existing artifactory package exists, then this step is skipped
         """
-        # No valid working tree: nothing on disk, or a limbo dir (dropped shim / half-finished
-        # clone) that has files but no .git and so can't be pulled. Wipe leftovers, then clone.
-        if not dep.is_real_clone():
+        # No valid working tree: nothing on disk, a limbo dir (dropped shim / half-finished clone)
+        # with files but no .git, or a .git that's present but corrupt (HEAD unresolvable). None can
+        # be pulled - wipe leftovers, then clone fresh.
+        if not dep.is_real_clone() or self._is_repo_broken(dep):
             if dep.source_dir_exists(): self.reclone_wipe(dep)
             self.clone_or_pull(dep)
             return True

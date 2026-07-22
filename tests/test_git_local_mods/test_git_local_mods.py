@@ -22,6 +22,7 @@ def test_update_fails_on_dirty_tree_even_without_upstream_change(tmp_path):
     dep = make_mock_dep(tmp_path, update=True)
     dep.config.target_matches.return_value = True
     with patch.object(BuildDependency, 'is_real_clone', return_value=True), \
+         patch.object(Git, '_is_repo_broken', return_value=False), \
          patch.object(Git, '_sync_remote_url'), \
          patch.object(Git, '_has_local_modifications', return_value=True), \
          patch.object(Git, 'run_git'), \
