@@ -1,12 +1,12 @@
 [build-system]
-requires = ["setuptools>=65.0,<77"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mama"
 dynamic = ["version"]
 description = "A modular C++ build tool even your mama can use"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     { name="Jorma Rebane", email="jorma.rebane@gmail.com" },
 ]
