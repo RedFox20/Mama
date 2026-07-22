@@ -1,0 +1,216 @@
+"""Pins execute_task_chain_parallel: child builds before parent configures, serial deploy/run
+post-pass, and fail-fast that stops dependents and exits."""
+import threading
+from types import SimpleNamespace
+import pytest
+from testutils import FakeBuildTarget, strip_ansi
+from mama import dependency_chain as dc
+
+
+class _T(FakeBuildTarget):
+    def __init__(self, dep, ev, lock, fail=False):
+        self.dep = dep; self.ev = ev; self.lock = lock; self.fail = fail
+    def _rec(self, name):
+        with self.lock: self.ev.append(name)
+    def configure_phase(self, out=None): self._rec(('configure', self.dep.name))
+    def build_phase(self, out=None):
+        self._rec(('build', self.dep.name))
+        if getattr(self, 'warn', None) and out: out(self.warn)  # emit a captured diagnostic, then maybe fail
+        if self.fail: raise RuntimeError('boom ' + self.dep.name)
+    def _execute_deploy_tasks(self): self._rec(('deploy', self.dep.name))
+    def _execute_run_tasks(self): self._rec(('run', self.dep.name))
+
+
+class _D:
+    def __init__(self, name, config, children=()):
+        self.name = name; self.config = config; self._children = list(children); self.already_executed = False
+        self.is_root = False; self.load_action = 'check'
+        self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
+    def get_children(self): return self._children
+    def is_root_or_config_target(self): return False
+
+
+def _graph(monkeypatch, fail_child=False):
+    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
+    monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
+    cfg = SimpleNamespace(jobs=2, verbose=False, test=False, workspaces_root=None, buildstats=False)
+    ev, lock = [], threading.Lock()
+    child = _D('child', cfg); parent = _D('parent', cfg, [child])
+    for d in (child, parent): d.target = _T(d, ev, lock)
+    child.target.fail = fail_child
+    return [child, parent], ev  # flat_deps_reverse is leaves-first
+
+
+def test_parallel_runner_orders_and_runs_post_pass(monkeypatch):
+    deps, ev = _graph(monkeypatch)
+    dc.execute_task_chain_parallel(deps)
+    assert ev.index(('build', 'child')) < ev.index(('configure', 'parent'))  # child built before parent configures
+    assert ev.index(('configure', 'parent')) < ev.index(('build', 'parent'))
+    assert ('deploy', 'child') in ev and ('run', 'parent') in ev            # serial post-pass ran
+    assert all(d.already_executed for d in deps)
+
+
+def test_parallel_runner_fails_fast_and_blocks_dependents(monkeypatch, capsys):
+    deps, ev = _graph(monkeypatch, fail_child=True)
+    with pytest.raises(SystemExit):
+        dc.execute_task_chain_parallel(deps)
+    out = capsys.readouterr().out
+    assert 'BUILD FAILED' in out and 'child' in out
+    assert ('build', 'parent') not in ev   # parent build depends on failed child, never released
+
+
+def test_parallel_runner_prints_diagnostics_summary_on_failure(monkeypatch, capsys):
+    deps, _ = _graph(monkeypatch, fail_child=True)
+    deps[0].target.warn = 'a.cpp:1:1: warning: leaky'   # child emits a warning, then fails
+    with pytest.raises(SystemExit):
+        dc.execute_task_chain_parallel(deps)
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'BUILD FAILED' in out                                          # failure still reported + replayed
+    assert 'Compiler diagnostics' in out and 'child: 1 warning(s)' in out and 'leaky' in out  # ...+ aggregate summary
+
+
+def test_node_marker_root_leaf_trunk():
+    mk = lambda root, kids: SimpleNamespace(is_root=root, get_children=lambda: kids)
+    assert dc._node_marker(mk(False, [])) == '[L]'    # no deps of its own
+    assert dc._node_marker(mk(False, [1])) == '[T]'   # has deps
+    assert dc._node_marker(mk(True, [1])) == '[R]'    # root wins regardless of children
+
+
+def test_build_detail_is_fixed_width_j_cores():
+    d = lambda cores, root=False, jobs=0: SimpleNamespace(is_root=root, config=SimpleNamespace(jobs=jobs),
+                                                          target=SimpleNamespace(_reserved_cores=lambda: cores))
+    assert dc._build_detail(d(4)) == 'J4 ' and dc._build_detail(d(12)) == 'J12'  # capped cores, same width
+    assert dc._build_detail(d(4, root=True, jobs=64)) == 'J64'                   # root shows full jobs, not the cap
+
+
+def test_run_phase_shows_tree_marker_only_in_verbose(monkeypatch):
+    import contextlib
+    monkeypatch.setattr(dc, '_phase_label', lambda d, k: 'build')
+    monkeypatch.setattr(dc.system, 'capture_to', lambda *a, **k: contextlib.nullcontext())
+    seen = {}
+    disp = SimpleNamespace(start_task=lambda tid, label, name, detail: seen.__setitem__('n', name),
+                           feed=lambda *a: None, finish_task=lambda *a: None)
+    dep = SimpleNamespace(name='ReCpp', is_root=False, get_children=lambda: [], phase_times={},
+                          config=SimpleNamespace(verbose=False))
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert seen['n'] == 'ReCpp'                 # no [L]/[T]/[R] noise in normal output
+    dep.config.verbose = True
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert seen['n'] == '[L] ReCpp'             # markers only in verbose
+
+
+def test_stable_cpu_sampler_re_measures_only_per_window():
+    clk = {'t': 0.0}; reads = iter([10.0, 90.0])
+    s = dc._stable_cpu_sampler(lambda: next(reads), lambda: clk['t'], window=0.5)
+    assert s() == 0.0                       # within the first window: primed 0.0, no measure yet
+    clk['t'] = 0.6; assert s() == 10.0      # window elapsed -> measures
+    assert s() == 10.0                      # same instant -> cached, no spiky re-read
+    clk['t'] = 1.2; assert s() == 90.0      # next window -> re-measures
+
+
+def test_phase_label_load_opens_clone_when_fresh_else_check():
+    fresh = SimpleNamespace(is_real_clone=lambda: False)
+    existing = SimpleNamespace(is_real_clone=lambda: True)
+    assert dc._phase_label(fresh, 'load') == 'clone' and dc._phase_label(existing, 'load') == 'check'
+    assert dc._phase_label(fresh, 'configure') == 'configure'  # non-load kinds verbatim
+
+
+def test_run_phase_relabels_load_to_actual_action(monkeypatch):
+    import contextlib
+    monkeypatch.setattr(dc, '_phase_label', lambda d, k: 'clone')  # optimistic opening label
+    monkeypatch.setattr(dc.system, 'capture_to', lambda *a, **k: contextlib.nullcontext())
+    seen = {}
+    disp = SimpleNamespace(start_task=lambda *a: None, feed=lambda *a: None, finish_task=lambda *a: None,
+                           relabel=lambda tid, kind: seen.__setitem__('k', kind))
+    dep = SimpleNamespace(name='ReCpp', is_root=False, get_children=lambda: [], phase_times={},
+                          config=SimpleNamespace(verbose=False), load_action='pulling')
+    dc._run_phase(disp, dep, 'load', lambda s: None, None)
+    assert seen['k'] == 'pulling'        # relabeled to what load() actually did
+    seen.clear()
+    dc._run_phase(disp, dep, 'build', lambda s: None, None)
+    assert 'k' not in seen               # only 'load' is relabeled, not other phases
+
+
+def test_reserve_weight_is_zero_for_custom_build_root_else_reserved_cores():
+    def mk(custom, cores, root=False):
+        t = SimpleNamespace(_has_custom_build=lambda: custom, _reserved_cores=lambda: cores)
+        return SimpleNamespace(target=t, is_root=root)
+    assert dc._reserve_weight(mk(custom=False, cores=12)) == 12  # default build reserves at launch
+    assert dc._reserve_weight(mk(custom=True, cores=12)) == 0    # custom build self-reserves via the barrier
+    assert dc._reserve_weight(mk(custom=False, cores=12, root=True)) == 0  # root ungated -> reserves nothing
+
+
+def test_build_summary_counts_only_real_builds(capsys):
+    d = lambda **k: SimpleNamespace(**k)
+    deps = [d(should_rebuild=True, from_artifactory=False, nothing_to_build=False),    # compiled
+            d(should_rebuild=True, from_artifactory=True, nothing_to_build=False),     # artifactory fetch
+            d(should_rebuild=False, from_artifactory=False, nothing_to_build=False),   # up to date
+            d(should_rebuild=True, from_artifactory=False, nothing_to_build=True)]     # header-only no-op
+    dc._print_build_summary(deps, 72.0)
+    assert 'Built 1 target(s) in 1m 12s' in capsys.readouterr().out
+
+
+def test_print_diagnostics_lists_warnings_per_target_and_notes_overflow(capsys):
+    data = {'myapp': ([('warning', 'a.cpp:1: warning: x')], 0, 1),
+            'netlib': ([('error', 'b.cpp:2: error: y')], 1, 3),   # 4 total, 1 shown -> +3 overflow
+            'clean': ([], 0, 0)}
+    disp = SimpleNamespace(diagnostics=lambda name, limit=8: data[name])
+    dc._print_diagnostics(disp, [SimpleNamespace(name=n) for n in data])
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'Compiler diagnostics' in out
+    assert 'myapp: 1 warning(s)' in out and 'a.cpp:1: warning: x' in out
+    assert 'netlib: 1 error(s), 3 warning(s)' in out and '... (+3 more)' in out
+    assert 'clean' not in out   # nothing captured -> target omitted
+
+
+def _failed(err, name='rpcservice'):
+    return SimpleNamespace(error=err, node=SimpleNamespace(name=name, config=SimpleNamespace(verbose=False)))
+
+
+def _quiet_display():
+    return SimpleNamespace(isatty=False, replay=lambda n: None)
+
+
+def test_build_error_reports_cleanly_without_a_traceback(capsys):
+    from mama.util import BuildError
+    dc._handle_failure(_quiet_display(), _failed(BuildError('CMake configure failed for rpcservice (exit 1)')))
+    out = strip_ansi(capsys.readouterr().out)
+    assert '[BUILD FAILED]  rpcservice' in out
+    assert 'CMake configure failed for rpcservice (exit 1)' in out
+    assert 'Traceback' not in out   # a broken user build is not a mamabuild bug
+
+
+def test_unexpected_error_still_shows_the_traceback(capsys):
+    try: raise ValueError('internal oops')
+    except ValueError as e: err = e
+    dc._handle_failure(_quiet_display(), _failed(err))
+    out = strip_ansi(capsys.readouterr().out)
+    assert 'Traceback' in out and 'internal oops' in out   # a real bug keeps its stack trace
+
+
+def test_diagnostics_lists_the_failed_target_first(capsys):
+    data = {'geo': ([('warning', 'CMake Warning:')], 0, 1),
+            'rpcservice': ([('error', 'CMake Error at FindOpenSSL.cmake:668')], 1, 0)}
+    disp = SimpleNamespace(diagnostics=lambda name, limit=8: data[name])
+    deps = [SimpleNamespace(name='geo'), SimpleNamespace(name='rpcservice')]
+    dc._print_diagnostics(disp, deps, failed_name='rpcservice')
+    out = strip_ansi(capsys.readouterr().out)
+    assert out.index('rpcservice') < out.index('geo')  # the reason to fix is last on screen, not buried
+    assert 'BUILD FAILED HERE' in out
+
+
+def test_make_scheduler_overprovision_is_platform_specific(monkeypatch):
+    from mama.utils import system
+    cfg = SimpleNamespace(jobs=8)
+    monkeypatch.setattr(system.System, 'windows', True)
+    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_WIN   # MSVC tolerates 2x
+    monkeypatch.setattr(system.System, 'windows', False)
+    assert dc._make_scheduler(cfg)._overprovision == dc._OVERPROVISION_UNIX  # Linux is memory-bound -> no overprovision
+
+
+def test_mem_capped_budget_caps_by_ram_but_never_below_one(monkeypatch):
+    import psutil
+    ram = lambda gb: monkeypatch.setattr(psutil, 'virtual_memory', lambda: SimpleNamespace(total=int(gb * 1024**3)))
+    ram(8);   assert dc._mem_capped_budget(32) == int(8 / dc._GB_PER_COMPILE)   # RAM-limited (8/1.5 -> 5)
+    ram(256); assert dc._mem_capped_budget(32) == 32                            # RAM plenty -> capped by jobs
+    ram(0.5); assert dc._mem_capped_budget(32) == 1                             # tiny box -> at least one build

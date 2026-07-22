@@ -1,4 +1,4 @@
-import os, stat, shutil, zipfile, subprocess, hashlib
+import os, re, stat, shutil, zipfile, subprocess, hashlib
 from typing import List
 import time, ssl, pathlib, random
 from .utils.system import System, console, progress
@@ -107,9 +107,11 @@ def normalized_join(path1: str, *pathsN) -> str:
     return normalized_path(os.path.join(path1, *pathsN))
 
 
-def glob_with_extensions(rootdir: str, extensions: List[str]) -> List[str]:
+def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List[str] = None) -> List[str]:
     results = []
-    for dirpath, _, dirfiles in os.walk(rootdir):
+    exclude = set(exclude_dirs) if exclude_dirs else None
+    for dirpath, dirnames, dirfiles in os.walk(rootdir):
+        if exclude: dirnames[:] = [d for d in dirnames if d not in exclude]  # prune generated/vendored trees
         for file in dirfiles:
             _, fext = os.path.splitext(file)
             if fext in extensions:
@@ -233,7 +235,7 @@ def get_file_size_str(size):
 
 
 def get_time_str(seconds: float):
-    if seconds < 1: return f'{int(seconds*1000)}ms'
+    if seconds < 0.1: return f'{int(seconds*1000)}ms'  # ms only below 0.1s, else 0.0s; 0.2s beats 200ms
     if seconds < 60: return f'{seconds:.1f}s'
     if seconds < 60*60: return f'{int(seconds/60)}m {int(seconds%60)}s'
     if seconds < 24*60*60: return f'{int(seconds/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
@@ -355,11 +357,6 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                 return True
         return False
 
-    def print_debug(zipmember: zipfile.ZipInfo):
-        what = 'DIR' if zipmember.is_dir() else 'FILE'
-        what = what + ' LINK' if is_symlink else what
-        print(f'{what} {zipmember.filename} S_IMODE={stat.S_IMODE(mode):0o} S_IFMT={stat.S_IFMT(mode):0o}')
-
     num_unzipped = 0
 
     with zipfile.ZipFile(local_zip, "r") as zip:
@@ -400,7 +397,6 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                         os.utime(dst_path, times=(mtime, mtime), follow_symlinks=False)
             if did_extract:
                 num_unzipped += 1
-                #print_debug(zipmember)
 
     return num_unzipped
 
@@ -580,3 +576,54 @@ def is_network_error(e: Exception) -> bool:
             return True
     return False
 
+
+
+# git transfer progress ('Receiving objects: 42% (...)') classification - shared so every place that
+# captures git output collapses the per-percent flood identically (one source of truth).
+_GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
+                 ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
+                 ('Updating files:', 'updating files     '))
+
+
+def git_progress_status(line: str):
+    """(status label, percent) for a raw git transfer-progress line ('Receiving objects: 42%'), else None."""
+    for needle, status in _GIT_PROGRESS:
+        if needle in line:
+            pct = line.split('%')[0].rsplit(':', 1)[-1].strip()
+            return status, (int(pct) if pct.isdigit() else 0)
+    return None
+
+
+_PERCENT_RE = re.compile(r'\b\d{1,3}%')  # a NN% completion token: git 'Receiving objects: 42%', a
+                                         # download bar '|===| 42%', mama's collapsed redraw, wget/curl, ...
+
+
+def is_progress_line(line: str) -> bool:
+    """True for any transfer/download progress update - a line carrying a NN% completion token.
+    Consecutive such lines collapse to just the latest so a progress bar (git, artifactory download,
+    a custom build's own downloader) can't flood a captured buffer with hundreds of per-percent updates."""
+    return _PERCENT_RE.search(line) is not None
+
+
+def parse_version(version: str) -> tuple:
+    """'0.13.01' -> (0, 13, 1). Segments parse as ints so zero-padding is irrelevant and 0.13 ranks
+    ABOVE 0.9 (a plain string compare gets that backwards). Non-numeric junk in a segment is dropped."""
+    parts = []
+    for segment in str(version).split('.'):
+        digits = ''.join(c for c in segment if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) if parts else (0,)
+
+
+def version_at_least(current: str, required: str) -> bool:
+    """True if `current` >= `required`, comparing segment-wise and zero-padding the shorter one
+    (so '0.13' < '0.13.01')."""
+    cur, req = parse_version(current), parse_version(required)
+    width = max(len(cur), len(req))
+    return cur + (0,) * (width - len(cur)) >= req + (0,) * (width - len(req))
+
+
+class BuildError(RuntimeError):
+    """A configure/build command failed: the USER's build is broken, not mamabuild. Reported as a clean
+    message with no Python traceback - a stack trace through mama's internals only buries the actual
+    compiler/cmake error the user needs to read."""

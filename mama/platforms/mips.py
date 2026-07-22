@@ -109,8 +109,7 @@ class Mips:
 
     def get_cmake_build_opts(self) -> list:
         if self.toolchain_file:
-            if self.config.print:
-                console(f'MIPS Toolchain: {self.toolchain_file}')
+            self.config.announce_once('toolchain', f'MIPS Toolchain: {self.toolchain_file}')
             return [
                 'MIPS=TRUE',
                 f'CMAKE_TOOLCHAIN_FILE="{self.toolchain_file}"'

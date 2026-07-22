@@ -1,12 +1,25 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Iterable, Optional
 from unittest.mock import Mock
 
 import mama
 import pytest
+
+_ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves
+def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
+
+
+class FakeBuildTarget:
+    """Base for the runner-test target fakes: the build-weight stubs the parallel runners call on
+    every dep (configure/build phase bodies and event recording stay specialised per test)."""
+    _build_jobs = None
+    def _has_custom_build(self): return False
+    def _reserved_cores(self): return 4
 
 
 def make_mock_config(tmp_path, **overrides):
@@ -20,6 +33,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.verbose = False
     cfg.print = False
     cfg.loaded_dependencies = {}
+    cfg.dep_registry_lock = threading.Lock()  # real lock so add_child works under the mock config
     cfg.target_matches.return_value = False
     cfg.force_artifactory = False
     cfg.disable_artifactory = False
@@ -34,6 +48,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.rebuild = False
     cfg.run_cmake_configure = False
     cfg.target = None
+    cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
     # platform aliases (BuildTarget.__init__ pokes these)
     cfg.msvc = False

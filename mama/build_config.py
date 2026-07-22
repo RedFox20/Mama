@@ -70,6 +70,14 @@ class UpdateStats:
 # This configuration is then passed down to dependencies
 #
 class BuildConfig:
+    @staticmethod
+    def _default_build_jobs() -> int:
+        """Default parallel build jobs. Linux leaves ONE core free so a perfectly-parallel build can't
+        saturate the desktop into an OOM/freeze; Windows/macOS use all cores. An explicit `jobs=N`
+        on the command line overrides this."""
+        cpu = psutil.cpu_count() or 4
+        return max(1, cpu - 1) if System.linux else cpu
+
     def __init__(self, args):
         # commands
         self.list    = False
@@ -90,6 +98,8 @@ class BuildConfig:
         self.reclone   = False
         self.dirty     = False # marks a target for rebuild on next build even if it's up to date
         self.deps_only = False # only execute build/rebuild/clean on dependencies, not the main target
+        self.sched_debug = False # TEMP: print each target's build-weight calc, then exit without building
+        self.buildstats = False # after the build, print a per-package load/configure/build time breakdown
         self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
         self.git_url_override = None  # 'https' or 'ssh': rewrite add_git() urls at build time
         self.run_cmake_configure = False # if True, forces running CMake configure step even if target doesn't need rebuild
@@ -132,6 +142,8 @@ class BuildConfig:
         # If compiler specificed from command line
         # using `mama build gcc` or `mama build clang`
         self.compiler_cmd = False
+        self.compiler_conflict_warned = False  # the "target prefers X but compiler locked to Y" note fires once, not per dep
+        self.clang_stdlib = 'libc++'  # linux clang C++ stdlib; see use_gcc_stdlib_for_clang()
         self.fortran = ''
         # build optimization
         self.release = True
@@ -139,7 +151,7 @@ class BuildConfig:
         # valid architectures: x86, x64, arm, arm64
         self.arch    = None
         self.distro  = None  # distro information (name, major, minor)
-        self.jobs    = psutil.cpu_count()
+        self.jobs    = BuildConfig._default_build_jobs()
         self.target  = None
         self.flags   = None
         self.open    = None
@@ -169,16 +181,27 @@ class BuildConfig:
         self.parallel_load = False  ## Whether to load dependencies in parallel?
         self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
         self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
+        self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
+        self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
         else:
             self.workspaces_root = os.getenv('HOME')
         self._network_available = None  # None=untested, True/False=result
+        self._announced = set()          # announce_once() keys already printed
+        self._announce_lock = threading.Lock()
+        self._cmake_ver_num = None   # cached `cmake --version`, also the CMakeFiles/<ver> dir name
+        self._seed_coord = None      # compiler-seed Coordinator, built on first configure
+        self._buildstats_start = None  # buildstats wall start; set only on a non-MSVC insights run
+        self._timetrace_json = None    # vcperf trace path; set only on an MSVC insights run
         self.unused_args = []
         self.loaded_dependencies : dict[str, BuildDependency] = {}
+        self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
         self.check_platform()
+        if self.buildstats and self.clang:
+            self.run_cmake_configure = True  # Linux/Clang: the -ftime-trace compile flag must be (re)applied
 
 
     def parse_args(self, args: List[str]):
@@ -208,6 +231,8 @@ class BuildConfig:
             elif arg == 'unshallow': self.unshallow = True
             elif arg == 'https-override': self.git_url_override = 'https'
             elif arg == 'ssh-override':   self.git_url_override = 'ssh'
+            elif arg == 'sched_debug': self.sched_debug = True  # TEMP: print build-weight calc, no build
+            elif arg == 'buildstats':  self.buildstats = True   # print per-package timing breakdown after build
             elif arg == 'configure':
                 self.run_cmake_configure = True
                 self.build = True # configure implies a build
@@ -216,8 +241,12 @@ class BuildConfig:
             elif arg == 'verbose':   self.verbose = True
             elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'serial':    self.serial_load = True
+            elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True
             elif arg.startswith('parallel_max='):
                 try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
+                except (ValueError, IndexError): pass
+            elif arg.startswith('git_timeout='):
+                try: self.git_timeout = max(5, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass
             elif arg == 'all':       self.target = 'all'
             elif arg == 'test':      self.test = ' ' # no test arguments
@@ -494,7 +523,13 @@ class BuildConfig:
     # per-sanitizer build dir suffix so flavors don't share a dir and force a reconfigure
     SANITIZER_SUFFIX = { 'address':'-asan', 'leak':'-lsan', 'thread':'-tsan', 'undefined':'-ubsan' }
 
+    def compiler_build_dir_suffix(self):
+        """'-clang' on linux clang builds, else ''. Shared dir = one compiler clobbers the other, then g++
+        links libc++ archives. gcc keeps bare 'linux' (no churn); elsewhere the toolset/SDK fixes the compiler."""
+        return '-clang' if (self.linux and self.clang) else ''
+
     def build_dir_with_suffix(self, build_dir):
+        build_dir += self.compiler_build_dir_suffix()  # coarsest axis first: linux-clang-coverage-tsan
         if self.coverage: build_dir += '-coverage'
         if self.sanitize: build_dir += ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
         return build_dir
@@ -551,6 +586,35 @@ class BuildConfig:
         self.artifactory_auth = auth
 
 
+    def announce_once(self, key: str, text: str):
+        """Print `text` only the first time `key` comes up. Option builders run per fingerprint
+        computation, not per configure, so a plain console() repeats the same line with no new news."""
+        if not self.print: return
+        with self._announce_lock:
+            if key in self._announced: return
+            self._announced.add(key)
+        console(text)
+
+
+    def clean_only(self) -> bool:
+        """`clean` with no build: nothing to fetch, configure or package afterwards - just delete."""
+        return self.clean and not self.build
+
+
+    def lock_compiler(self):
+        """Freeze the compiler after the ROOT mamafile's settings(). build_dir depends on it, so a dep
+        flipping it mid-load would scatter the tree across linux/ and linux-clang/. Later prefer_*() just notes."""
+        self.compiler_cmd = True
+
+
+    def _warn_compiler_conflict(self, target_name, requested, locked):
+        """The 'target prefers X but the compiler is already locked to Y' note - emitted ONCE per run
+        (every dep re-requests its preference, so this used to flood the output one line per target)."""
+        if self.print and not self.compiler_conflict_warned:
+            self.compiler_conflict_warned = True
+            console(f'Target {target_name} requested {requested} but compiler already set to {locked}.')
+
+
     def prefer_clang(self, target_name):
         if not self.linux or self.raspi or self.clang: return
         if not self.compiler_cmd:
@@ -560,8 +624,7 @@ class BuildConfig:
             if self.print:
                 console(f'Target {target_name} requests Clang. Using Clang since no explicit compiler flag passed.')
         else:
-            if self.print:
-                console(f'Target {target_name} requested Clang but compiler already set to GCC.')
+            self._warn_compiler_conflict(target_name, 'Clang', 'GCC')
 
 
     def prefer_gcc(self, target_name):
@@ -573,8 +636,13 @@ class BuildConfig:
             if self.print:
                 console(f'Target {target_name} requests GCC. Using GCC since no explicit compiler flag passed.')
         else:
-            if self.print:
-                console(f'Target {target_name} requested GCC but compiler already set to Clang.')
+            self._warn_compiler_conflict(target_name, 'GCC', 'Clang')
+
+
+    def use_gcc_stdlib_for_clang(self):
+        """Use libstdc++ instead of libc++ for linux clang, to link GNU-built prebuilts like Qt.
+           Call from the root mamafile settings() so it applies to every target."""
+        self.clang_stdlib = 'libstdc++'
 
 
     ##
@@ -1068,15 +1136,30 @@ Define env RASPI_HOME with path to Raspberry tools.''')
             raise EnvironmentError('MSVC tools not available on this platform!')
 
         tools_root = f"{self.get_visualstudio_path()}\\VC\\Tools\\MSVC"
-        tools = os.listdir(tools_root)
-        if not tools:
+        tools_path = self._latest_msvc_toolset(tools_root)
+        if not tools_path:
             raise EnvironmentError('Could not detect MSVC Tools')
-
-        tools_path = os.path.join(tools_root, tools[0])
-        #tools_path = forward_slashes(tools_path)
         self._msvctools_path = tools_path
         if self.verbose: console(f'Detected MSVC Tools: {tools_path}')
         return tools_path
+
+
+    @staticmethod
+    def _latest_msvc_toolset(tools_root: str) -> str:
+        """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
+        version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
+        (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none:
+        every get_msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
+        try:
+            dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
+        except OSError:
+            return ''
+        if not dirs: return ''
+        dirs.sort(key=lambda n: tuple(int(p) if p.isdigit() else 0 for p in n.split('.')), reverse=True)
+        for d in dirs:
+            if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
+                return os.path.join(tools_root, d)
+        return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
 
 
     def get_msvc_bin64(self):

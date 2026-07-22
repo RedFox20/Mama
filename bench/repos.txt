@@ -1,0 +1,6 @@
+# CMake config-overhead benchmark manifest: one "name url" per line (shallow-cloned into repos/).
+# Lines starting with # are ignored. A 3rd field (optional) is the relative subdir holding the
+# top CMakeLists.txt. These are public repos, so no auth is needed; private repos would clone via git SSH.
+ReCpp https://github.com/RedFox20/ReCpp.git
+udp_quality https://github.com/RedFox20/udp_quality.git
+googletest https://github.com/RedFox20/googletest.git

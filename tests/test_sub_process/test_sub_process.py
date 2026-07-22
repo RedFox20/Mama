@@ -5,20 +5,21 @@ import subprocess
 
 import pytest
 
+from mama.utils import system
 from mama.utils.sub_process import SubProcess
 
 
 PY = sys.executable
 
 
-def _py_run(code: str, io_func=None, cwd=None, env=None, timeout=None):
+def _py_run(code: str, io_func=None, cwd=None, env=None, timeout=None, idle_timeout=None):
     """Run `python -c "<code>"` via SubProcess. Returns (status, lines_seen)."""
     lines = []
     if io_func is None:
         def collect(p, line): lines.append(line)
         io_func = collect
     status = SubProcess.run([PY, '-c', code], cwd=cwd, env=env,
-                            io_func=io_func, timeout=timeout)
+                            io_func=io_func, timeout=timeout, idle_timeout=idle_timeout)
     return status, lines
 
 
@@ -48,6 +49,13 @@ class TestIoFunc:
         _, lines = _py_run('import sys; print("out"); print("err", file=sys.stderr)')
         assert 'out' in lines and 'err' in lines
 
+    def test_all_output_drained_on_nonzero_exit(self):
+        # Regression: close() must drain the reader BEFORE shutting the pipe, or a burst of lines flushed
+        # right before a failing exit (e.g. the compiler error that failed the build) is lost.
+        status, lines = _py_run('import sys\nfor i in range(300): print("line%d" % i)\nsys.exit(1)')
+        assert status == 1
+        assert [l for l in lines if l.startswith('line')][-1] == 'line299'   # the tail is never dropped
+
     def test_no_trailing_carriage_return_on_lines(self):
         _, lines = _py_run('print("plain")')
         assert 'plain' in lines
@@ -58,6 +66,17 @@ class TestIoFunc:
         def broken(p, line): raise RuntimeError(f'callback boom on line={line!r}')
         with pytest.raises(RuntimeError, match='callback boom'):
             SubProcess.run([PY, '-c', 'print("hi")'], io_func=broken)
+
+
+class TestCaptureContextPropagation:
+    def test_io_func_console_routes_to_callers_capture_sink(self):
+        # io_func fires on the reader thread; without the capture context carried over, its console()
+        # would miss the caller's sink and leak above the live region (the parallel-build checkout leak).
+        sink = []
+        def echo(p, line): system.console(f'got:{line}')  # mirrors run_git's prefixed() callback
+        with system.capture_to(sink.append):
+            SubProcess.run([PY, '-c', 'print("checkout")'], io_func=echo)
+        assert 'got:checkout' in sink
 
 
 class TestCwd:
@@ -86,12 +105,29 @@ class TestEnv:
 class TestTimeout:
     def test_long_running_command_times_out(self):
         with pytest.raises(subprocess.TimeoutExpired):
-            SubProcess.run([PY, '-c', 'import time; time.sleep(30)'],
+            SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
                            io_func=lambda p, line: None, timeout=0.3)
 
     def test_fast_command_does_not_time_out(self):
         assert SubProcess.run([PY, '-c', 'print("done")'],
                               io_func=lambda p, line: None, timeout=10.0) == 0
+
+
+class TestIdleTimeout:
+    def test_idle_timeout_kills_a_silent_child(self):
+        import time
+        t0 = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
+                           io_func=lambda p, l: None, idle_timeout=0.4)
+        assert time.monotonic() - t0 < 5  # died on the 0.4s idle bound, not the child's 5s sleep
+
+    def test_idle_timeout_spares_a_chatty_child(self):
+        # Streaming output keeps resetting the idle clock, so total runtime (0.6s) > idle (0.4s) is fine.
+        status, lines = _py_run(
+            'import sys, time\nfor i in range(6): print(i); sys.stdout.flush(); time.sleep(0.1)',
+            idle_timeout=0.4)
+        assert status == 0 and lines == ['0', '1', '2', '3', '4', '5']
 
 
 class TestStdinWrite:
@@ -262,6 +298,58 @@ class TestDrainBuffer:
         assert lines == ['x'] * 5000 and d.buf == b''
 
 
+class TestCtrlCTermination:
+    @pytest.fixture(autouse=True)
+    def _disarm(self):
+        SubProcess.clear_abort(); yield; SubProcess.clear_abort()
+
+    def test_terminate_all_blocks_new_spawns_then_clear_re_arms(self):
+        SubProcess.terminate_all()
+        with pytest.raises(KeyboardInterrupt):
+            SubProcess.run([PY, '-c', 'pass'])
+        SubProcess.clear_abort()
+        assert SubProcess.run([PY, '-c', 'pass'], io_func=lambda p, l: None) == 0
+
+    def test_terminate_all_kills_a_running_child(self):
+        import threading, time
+        from mama.utils import sub_process
+        result = {}
+        def run_child():
+            try: result['s'] = SubProcess.run([PY, '-c', 'import time; time.sleep(5)'], io_func=lambda p, l: None)
+            except BaseException as e: result['exc'] = e
+        t = threading.Thread(target=run_child); t.start()
+        end = time.monotonic() + 5
+        while time.monotonic() < end and not sub_process._live_procs: time.sleep(0.01)
+        SubProcess.terminate_all()
+        t.join(10)
+        assert not t.is_alive()         # killed promptly, not blocked for the full 30s
+        assert result.get('s', 0) != 0  # nonzero status from the kill
+
+    def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
+        # The point of tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not
+        # just the spawned pid. Stand-in: a child that spawns a long-sleeping grandchild.
+        import threading, time
+        from mama.utils import sub_process
+        psutil = pytest.importorskip('psutil')
+        pidfile = str(tmp_path / 'gc.pid').replace('\\', '/')
+        code = (f'import subprocess, sys, time\n'
+                f'gc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])\n'
+                f'open("{pidfile}", "w").write(str(gc.pid)); time.sleep(60)\n')
+        threading.Thread(target=lambda: SubProcess.run([PY, '-c', code], io_func=lambda p, l: None),
+                         daemon=True).start()
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not os.path.exists(pidfile): time.sleep(0.02)
+        gc_pid = int(open(pidfile).read())
+        SubProcess.terminate_all()
+        end = time.monotonic() + 5
+        while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
+        alive = psutil.pid_exists(gc_pid)
+        if alive:
+            try: psutil.Process(gc_pid).kill()  # don't leak a 60s sleeper if the assert fails
+            except Exception: pass
+        assert not alive  # grandchild died with the tree
+
+
 class TestNoForkptyDeprecationWarning:
     # The whole point of the Popen+pty.openpty rewrite was to kill this warning
     # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).
@@ -272,3 +360,36 @@ class TestNoForkptyDeprecationWarning:
             SubProcess.run([PY, '-c', 'print("x")'], io_func=lambda p, l: None)
         forkpty_warnings = [w for w in caught if 'forkpty' in str(w.message).lower()]
         assert forkpty_warnings == [], f'forkpty deprecation came back: {forkpty_warnings}'
+
+
+class TestExecuteEchoCapture:
+    # A custom build()'s self.run() -> execute_echo must feed the active display sink (not the raw
+    # terminal) while a build phase captures, but stay stdio-direct for interactive post-pass commands.
+    def test_captures_into_active_sink(self):
+        from mama.utils.sub_process import execute_echo
+        captured = []
+        with system.capture_to(captured.append):
+            execute_echo(cwd=None, cmd=[PY, '-c', 'print("from-build-step")'])
+        assert any('from-build-step' in line for line in captured)
+
+    def test_without_sink_inherits_stdio(self, capfd):
+        from mama.utils.sub_process import execute_echo
+        execute_echo(cwd=None, cmd=[PY, '-c', 'print("direct-to-terminal")'])
+        assert 'direct-to-terminal' in capfd.readouterr().out
+
+    def test_quiet_suppresses_output_even_with_active_sink(self):
+        from mama.utils.sub_process import execute_echo
+        captured = []
+        with system.capture_to(captured.append):
+            execute_echo(cwd=None, cmd=[PY, '-c', 'print("should-be-silenced")'], quiet=True)
+        assert not any('should-be-silenced' in line for line in captured)
+
+
+def test_echoed_output_goes_through_console_not_raw_print(monkeypatch):
+    # a raw print() while a live display owns the screen tears its cursor math
+    from mama.utils import sub_process as sp
+    seen = []
+    monkeypatch.setattr(sp, 'console', lambda line, **kw: seen.append(line))
+    monkeypatch.setattr(sp.SubProcess, 'run', lambda cmd, cwd, env=None, io_func=None: (io_func(None, 'hello'), 0)[1])
+    status, out = sp.execute_piped_echo('.', 'anything', echo=True)
+    assert seen == ['hello'] and out == 'hello' and status == 0

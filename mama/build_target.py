@@ -8,7 +8,7 @@ from .types.asset import Asset
 from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
-from .utils.system import System, console, Color, warning
+from .utils.system import System, console, Color, warning, build_barrier
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -17,12 +17,18 @@ from .papa_deploy import papa_deploy_to
 from .papa_upload import papa_upload_to
 import mama.msbuild as msbuild
 import mama.util as util
+from ._version import __version__
 import mama.cmake_configure as cmake
 import mama.package as package
 
 if TYPE_CHECKING:
     from .build_config import BuildConfig
     from .build_dependency import BuildDependency
+
+# Non-library trees skipped by the source-file TU fallback (e.g. gtest is ~90% test/ + samples/).
+_NON_LIB_DIRS = ['build', 'packages', 'libs', 'out', '.git', 'test', 'tests', 'samples', 'example',
+                 'examples', 'benchmark', 'benchmarks', 'doc', 'docs', 'third_party', 'thirdparty',
+                 'extern', 'external', 'vendor']
 
 
 ######################################################################################
@@ -90,6 +96,10 @@ class BuildTarget:
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
         self.packaging_result = '' # how we performed the package() step?
+        self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
+        self._did_configure = False # guards configure() to run once across configure/build phases
+        self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
+        self._out_sink = None # display sink for cmake output during a scheduled phase (None -> print)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
         self.include_glob_filter = ['.h','.hpp','.hxx','.hh'] # default gather filter when deploying includes
         self.papa_path = None # recorded path for previous papa deployment
@@ -756,6 +766,21 @@ class BuildTarget:
         return None
 
 
+    def requires_version(self, min_version: str):
+        """
+        Require a minimum mamabuild version for this mamafile. Aborts the build immediately (during
+        target load, before any configure/build work) with an upgrade hint when the running mama is
+        older, instead of failing later on an API this mama doesn't have.
+        ```
+            def settings(self):
+                self.requires_version('0.13.01')
+        ```
+        """
+        if util.version_at_least(__version__, min_version): return
+        raise RuntimeError(f'Target {self.name} requires mamabuild >= {min_version}, but this is {__version__}.' + \
+                           ' Upgrade with:  pip install --upgrade mama')
+
+
     def prefer_gcc(self):
         """ Configures the entire build chain to prefer GCC if possible """
         self.config.prefer_gcc(self.name)
@@ -1007,17 +1032,20 @@ class BuildTarget:
         return os.path.join(os.path.dirname(cc), filename)
 
 
-    def run(self, command: str, src_dir=False, exit_on_fail=True):
+    def run(self, command: str, src_dir=False, exit_on_fail=True, quiet=False):
         """
         Run a command in the build or source folder.
         Can be used for any custom commands or custom build systems.
         src_dir -- [False] If true, then command is relative to source directory.
+        quiet   -- [False] Suppress the command's output entirely (it still runs and is exit-checked).
+                   Use for noisy sub-steps like a script's own `git clone`.
         ```
             self.run('./configure', src_dir=True)
             self.run('make release -j7') # run in build dir
+            self.run('./build_ffmpeg.sh', quiet=True) # silence a noisy custom script
         ```
         """
-        run_in_project_dir(self, command, src_dir, exit_on_fail)
+        run_in_project_dir(self, command, src_dir, exit_on_fail, quiet=quiet)
 
 
     def run_program(self, working_dir: str, command: str, exit_on_fail=True, env=None):
@@ -1338,17 +1366,88 @@ class BuildTarget:
         self.dep.clean()
 
 
+    def _cmake_configure_step(self, out=None):
+        """CMake configure half of a build: ensure CMakeLists, inject env, run config."""
+        self.dep.ensure_cmakelists_exists()
+        cmake.inject_env(self)
+        cmake.run_config(self, out=out) # THROWS on CMAKE failure
+
+    def _cmake_build_step(self, out=None):
+        """CMake build+install half. -j was sized from the TU probe in configure_phase; size it
+        here too for the serial path (where configure_phase didn't run)."""
+        self._ensure_build_jobs()
+        cmake.run_build(self, install=True, out=out) # THROWS on CMAKE failure
+
+    def _probe_build_jobs(self) -> int:
+        """TU count capped at config.jobs. 0 when nothing's countable (header-only / artifactory /
+        probe miss) -> weight 0, reserves no budget, never blocks real builds (it's a no-op anyway)."""
+        try:
+            n = self._count_tu()[0]
+            if n > 0: return min(n, self.config.jobs)
+        except Exception: pass
+        return 0
+
+    def _ensure_build_jobs(self) -> int:
+        """Lazily memoize the TU-probed -j. configure_phase sets it authoritatively post-configure;
+        this fills it in for the serial path / sched_debug where configure_phase never ran."""
+        if self._build_jobs is None: self._build_jobs = self._probe_build_jobs()
+        return self._build_jobs
+
+    def _reserved_cores(self) -> int:
+        """Budget cores this build occupies: the memoized TU probe (== its actual -j), capped at the
+        FULL pool. Reservation must equal -j so a heavy build (-j = all cores) reserves the whole pool
+        and runs ALONE at full threads instead of being oversubscribed against another full-j build;
+        small builds reserve little and pack. The CPU gate still overprovisions non-saturating builds.
+        0 when unsizable (header-only / probe miss)."""
+        if not self._ensure_build_jobs(): return 0
+        return min(self._build_jobs, self.config.jobs)
+
+    def _count_tu(self) -> tuple:
+        """(TU count, method) - generator-agnostic, most-accurate first:
+          compile_commands.json          (Ninja, or Make/VS only when export is on) -> "file" entries
+          *.vcxproj                       (Visual Studio generator)                  -> <ClCompile Include=>
+          CMakeFiles/**/DependInfo.cmake  (Unix Makefiles, export off)               -> one object per TU
+          C/C++ source files in the source tree                                      -> cross-platform fallback
+        0 when none match. The source walk skips build/vendored/test trees (see _NON_LIB_DIRS)."""
+        bd = self.build_dir()
+        cc = util.path_join(bd, 'compile_commands.json')
+        if os.path.exists(cc):
+            return util.read_text_from(cc).count('"file"'), 'compile_commands'
+        if os.path.isdir(bd):
+            n = sum(util.read_text_from(util.path_join(bd, fn)).count('<ClCompile Include=')
+                    for fn in os.listdir(bd) if fn.endswith('.vcxproj'))
+            if n > 0: return n, 'vcxproj'
+            n = self._count_makefile_tus(util.path_join(bd, 'CMakeFiles'))
+            if n > 0: return n, 'makefile'
+        src = self.source_dir()
+        if os.path.isdir(src):
+            srcs = util.glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
+                                             exclude_dirs=_NON_LIB_DIRS)
+            return len(srcs), 'source'
+        return 0, 'none'
+
+    @staticmethod
+    def _count_makefile_tus(cmakefiles_dir: str) -> int:
+        """Unix Makefiles generator: each target's DependInfo.cmake lists one object ('...o"') per TU."""
+        if not os.path.isdir(cmakefiles_dir): return 0
+        total = 0
+        for dirpath, _, files in os.walk(cmakefiles_dir):
+            if 'DependInfo.cmake' in files:
+                total += util.read_text_from(util.path_join(dirpath, 'DependInfo.cmake')).count('.o"')
+        return total
+
     def cmake_build(self):
         if self.config.print:
             console('\n\n#############################################################')
             console(f"CMakeBuild {self.name} ({self.cmake_build_type})")
         config_start = time.time()
-        self.dep.ensure_cmakelists_exists()
-        cmake.inject_env(self)
-        cmake.run_config(self) # THROWS on CMAKE failure
+        self._cmake_configure_step()
         config_stop = time.time()
         build_start = config_stop
-        cmake.run_build(self, install=True) # THROWS on CMAKE failure
+        # Barrier: a custom build() reaches here on a worker thread; suspend until the parallel
+        # scheduler grants budget for the compile (no-op on the serial path / no active scheduler).
+        with build_barrier(self._reserved_cores()):
+            self._cmake_build_step()
         build_stop = time.time()
         if self.config.print:
             e_config = util.get_time_str(config_stop - config_start)
@@ -1422,20 +1521,64 @@ class BuildTarget:
         return None
 
 
-    ## TODO: move all of this into a new utility
+    def _build_work_enabled(self) -> bool:
+        """True when this target has real build work (not header-only, not artifactory, flagged for rebuild)."""
+        return not self.dep.nothing_to_build and self.dep.should_rebuild and not self.dep.from_artifactory
+
+    def _has_custom_build(self) -> bool:
+        """A mamafile overriding build() fuses cmake configure+build, so it can't be split;
+        the scheduler runs it whole in build_phase and skips the separate configure step."""
+        return type(self).build is not BuildTarget.build
+
+    def _run_configure_once(self):
+        """User configure() hook, guarded to run at most once (configure_phase / build_phase / serial)."""
+        if self._did_configure: return
+        self._did_configure = True
+        self.configure() # user customization
+
+    def configure_phase(self, out=None):
+        """Scheduled CONFIGURE job: user configure() hook + cmake configure. No-op for a
+        no-work node or a custom build() (which owns its own configure inside build_phase)."""
+        self._out_sink = out  # so a custom build()'s cmake output is captured too, not just the default path
+        if not self._build_work_enabled() or self._has_custom_build():
+            return
+        self._run_configure_once()
+        self._fetched = self.try_automatic_artifactory_fetch()
+        if not self._fetched:
+            self._cmake_configure_step(out=out)
+            # Size build weight NOW (compile_commands.json exists) so the scheduler knows the core
+            # count at BUILD launch; left None it falls back to all cores -> serial builds.
+            self._build_jobs = self._probe_build_jobs()
+
+    def build_phase(self, out=None):
+        """Scheduled BUILD job: compile (if any) then ALWAYS package - so no-work nodes
+        still package their exports in dependency order. Mirrors _execute_build_tasks."""
+        self._out_sink = out  # captures cmake output from a custom build()->cmake_build() too
+        if self._build_work_enabled():
+            if self._has_custom_build():
+                self._run_configure_once() # custom build's configure_phase was a no-op
+                self._fetched = self.try_automatic_artifactory_fetch()
+                if not self._fetched:
+                    self.build() # user override owns configure+build
+            elif not self._fetched:
+                self._cmake_build_step(out=out)
+            self.dep.successful_build()
+            if not self._fetched:
+                package.clean_intermediate_files(self)
+        self._run_packaging()
+
     def _execute_build_tasks(self):
-        can_build = not self.dep.nothing_to_build
-        if can_build and self.dep.should_rebuild and not self.dep.from_artifactory:
-            self.configure() # user customization
-            if can_build:
-                fetched = self.try_automatic_artifactory_fetch()
-                if not fetched:
-                    self.build() # user build customization
+        if self._build_work_enabled():
+            self._run_configure_once() # user customization
+            fetched = self.try_automatic_artifactory_fetch()
+            if not fetched:
+                self.build() # user build customization
+            self.dep.successful_build()
+            if not fetched:
+                package.clean_intermediate_files(self)
+        self._run_packaging()
 
-                self.dep.successful_build()
-                if not fetched:
-                    package.clean_intermediate_files(self)
-
+    def _run_packaging(self):
         # skip package() if we already fetched it as a package from artifactory()
         # unless user has specified for a local rebuild
         if self.dep.should_rebuild or not self.dep.from_artifactory:

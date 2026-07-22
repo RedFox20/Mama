@@ -234,6 +234,16 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
     return False
 
 
+def _warn_on_compiler_mismatch(target:BuildTarget, papa:PapaFileInfo):
+    """Foreign-compiler package = libc++ archives in a libstdc++ build, dies on undefined std::__1:: symbols.
+    Compiler-scoped build dirs make this unreachable, so warn (don't fail) - a pre-C-record package has no stamp."""
+    if not papa.compiler: return  # pre-C-record package: unknown, allow
+    try: current = target.config.compiler_version()
+    except Exception: return
+    if papa.compiler != current:
+        warning(f'  - Target {target.name: <16} package was built with {papa.compiler}, this build uses {current}')
+
+
 def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -> Tuple[bool, list]:
     """
     Reconfigures `target` from {deployment_path}/papa.txt.
@@ -254,6 +264,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     if papa.project_name != target.name:
         error(f'    {target.name}  Artifactory Load failed because {papa_list} ProjectName={papa.project_name} mismatches!')
         return (False, None)
+    _warn_on_compiler_mismatch(target, papa)
 
     target.dep.from_artifactory = True
     target.exported_includes = papa.includes # include folders to export from this target

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from mama.build_config import BuildConfig
 
 
@@ -44,3 +45,35 @@ def test_coverage_composes_with_sanitizer():
     c.coverage = 'default'
     c.sanitize = 'address'
     assert c.platform_build_dir_name() == 'linux-coverage-asan'
+
+
+def test_clang_gets_its_own_dir_and_gcc_keeps_the_bare_name():
+    c = linux_config()
+    assert c.platform_build_dir_name() == 'linux'  # gcc default: no churn for existing trees
+    c.clang = True; c.gcc = False
+    assert c.platform_build_dir_name() == 'linux-clang'
+
+
+def test_compiler_is_the_coarsest_suffix():
+    c = linux_config()
+    c.clang = True; c.sanitize = 'thread'
+    assert c.platform_build_dir_name() == 'linux-clang-tsan'
+    c.coverage = 'default'; c.sanitize = 'address'
+    assert c.platform_build_dir_name() == 'linux-clang-coverage-asan'
+
+
+def test_arm_linux_also_gets_the_clang_suffix():
+    c = linux_config()
+    c.arch = 'arm64'; c.clang = True
+    assert c.platform_build_dir_name() == 'linuxarm-clang'
+
+
+def test_non_linux_platforms_are_unaffected_by_clang():
+    # set_platform() is exclusive: these never see the suffix, toolset/SDK fixes their compiler
+    for platform in ('macos', 'ios', 'android', 'msvc'):
+        c = linux_config()
+        c.linux = False; setattr(c, platform, True); c.clang = True
+        assert '-clang' not in c.platform_build_dir_name()
+    yocto = linux_config()
+    yocto.linux = False; yocto.yocto_linux = SimpleNamespace(build_dir='oclea'); yocto.clang = True
+    assert yocto.platform_build_dir_name() == 'oclea'

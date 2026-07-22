@@ -236,8 +236,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
         if toolchain:
             opts.append(f'CMAKE_TOOLCHAIN_FILE="{toolchain}"')
-            if self.config.print:
-                console(f'Toolchain: {toolchain}')
+            self.config.announce_once('toolchain', f'Toolchain: {toolchain}')
 
         make = self._get_make(target)
         if make: opts.append(f'CMAKE_MAKE_PROGRAM="{make}"')

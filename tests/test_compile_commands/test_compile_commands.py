@@ -1,8 +1,9 @@
 """Pins that sanitized/coverage builds don't repoint c_cpp_properties.json compileCommands."""
 import json, os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
-from mama.dependency_chain import _save_vscode_compile_commands
+from mama.dependency_chain import _save_vscode_compile_commands, _find_matching_platform_config
 
 
 def _make_vscode_dep(tmp_path, sanitize=None, coverage=None):
@@ -41,3 +42,20 @@ def test_coverage_build_leaves_compile_commands_untouched(tmp_path):
     dep, props_path = _make_vscode_dep(tmp_path, coverage='gcov')
     _save_vscode_compile_commands(dep)
     assert _commands(props_path) == 'ORIGINAL'
+
+
+def _cfg_dep(clang: bool):
+    cfg = SimpleNamespace(clang=clang, gcc=not clang, arch='x64', name=lambda: 'linux')
+    return SimpleNamespace(config=cfg)
+
+
+def test_a_config_named_for_the_other_compiler_is_never_picked():
+    confs = [{'name': 'Linux GCC x64'}, {'name': 'Linux Clang x64'}]
+    assert _find_matching_platform_config(_cfg_dep(clang=True), confs)['name'] == 'Linux Clang x64'
+    assert _find_matching_platform_config(_cfg_dep(clang=False), confs)['name'] == 'Linux GCC x64'
+
+
+def test_a_compiler_agnostic_config_still_matches():
+    confs = [{'name': 'Linux x64'}]
+    assert _find_matching_platform_config(_cfg_dep(clang=True), confs)['name'] == 'Linux x64'
+    assert _find_matching_platform_config(_cfg_dep(clang=True), [{'name': 'Windows x64'}]) is None

@@ -5,13 +5,15 @@ from mama.util import get_time_str
 
 
 @pytest.mark.parametrize('seconds,expected', [
-    # sub-second: milliseconds, integer-truncated
+    # below 0.1s: milliseconds (keeps truly-instant ops from rendering a meaningless 0.0s)
     (0,        '0ms'),
     (0.001,    '1ms'),
-    (0.5,      '500ms'),
-    (0.999,    '999ms'),
+    (0.099,    '99ms'),
 
-    # under a minute: one decimal place
+    # 0.1s and up under a minute: one decimal place (0.2s reads better than 200ms)
+    (0.1,      '0.1s'),
+    (0.2,      '0.2s'),
+    (0.5,      '0.5s'),
     (1,        '1.0s'),
     (1.5,      '1.5s'),
     (42,       '42.0s'),
