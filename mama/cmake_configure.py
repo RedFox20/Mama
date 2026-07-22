@@ -228,13 +228,16 @@ def _wipe_build_dir(target:BuildTarget):
     shutil.rmtree(util.path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
 
 
+def _cache_entry(cache_text:str, key:str) -> str:
+    """Value of a `KEY:TYPE=value` line in a CMakeCache ('' if absent). Anchored to the exact key with an
+    optional `:TYPE`, so CMAKE_GENERATOR won't pick up its CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE siblings."""
+    m = re.search(rf'^{re.escape(key)}(?::[^=\n]*)?=(.*)$', cache_text, re.MULTILINE)
+    return m.group(1).strip() if m else ''
+
+
 def cache_generator(cache_text:str) -> str:
-    """The CMAKE_GENERATOR recorded in a CMakeCache ('Ninja', 'Unix Makefiles', ...), '' if absent.
-    Matches the exact key so CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE don't get picked up."""
-    for line in cache_text.splitlines():
-        if line.startswith('CMAKE_GENERATOR:'):
-            return line.split('=', 1)[1].strip() if '=' in line else ''
-    return ''
+    """The CMAKE_GENERATOR recorded in a CMakeCache ('Ninja', 'Unix Makefiles', ...), '' if absent."""
+    return _cache_entry(cache_text, 'CMAKE_GENERATOR')
 
 
 def generator_build_file_exists(build_dir:str, generator:str) -> bool:
@@ -266,6 +269,47 @@ def _sink(target, out):
     return out if out is not None else target._out_sink  # capture even custom build()s
 
 
+_TOOLCHAIN_FINGERPRINT_FILE = 'mama_toolchain.fingerprint'
+
+
+def _toolchain_fingerprint(target:BuildTarget) -> str:
+    """Hash of THIS target's toolchain identity - compiler, generator, arch, platform, SDK, cross toolchain
+    (the same inputs the seed cache fingerprints). Recorded in the build dir by every completed configure, so
+    the NEXT configure can tell the dir was built against a toolchain that has since moved."""
+    return seedcache.compute_fingerprint(_seed_inputs(target))
+
+
+def _read_toolchain_fingerprint(build_dir:str) -> str:
+    """Fingerprint the last completed configure of `build_dir` recorded; '' if none (never configured, or a
+    dir from before fingerprints were written)."""
+    try: return util.read_text_from(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE)).strip()
+    except OSError: return ''
+
+
+def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
+    """Persist the toolchain fingerprint next to the cache. Best-effort - a write failure just makes the next
+    run treat the dir as unfingerprinted (adopt), never an exception mid-configure."""
+    try: util.write_text_to(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE), fingerprint)
+    except OSError: pass
+
+
+def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
+    """One-time heal for a dir configured before fingerprints were recorded: True only when the compiler the
+    cache was built with is DEFINITELY not the current one - the recorded path differs from the preferred
+    compiler, or no longer exists on disk. No explicit compiler (MSVC) or no cached compiler -> False: never
+    wipe on missing evidence, so shipping this can't mass-invalidate warm dirs whose toolchain is unchanged."""
+    cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
+    if not cc_path: return False  # MSVC/unresolved: mama writes no CMAKE_*_COMPILER define to compare against
+    try: cache_text = util.read_text_from(util.path_join(build_dir, 'CMakeCache.txt'))
+    except OSError: return False
+    for key, want in (('CMAKE_CXX_COMPILER', cxx_path), ('CMAKE_C_COMPILER', cc_path)):
+        cached = _cache_entry(cache_text, key)
+        if not cached or not want: continue
+        if util.normalized_path(cached) != util.normalized_path(want): return True  # compiler path moved
+        return not os.path.exists(cached)  # same path but the binary is gone (e.g. store GC'd) -> moved
+    return False  # no compiler recorded in the cache -> nothing to compare, don't wipe
+
+
 def run_config(target:BuildTarget, out=None, _seed=True):
     out = _sink(target, out)
     must_configure = target.config.update or target.config.run_cmake_configure
@@ -275,6 +319,21 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         previous_sanitizers = target.dep.get_enabled_sanitizers()
         if current_sanitizers != previous_sanitizers:
             must_configure = True
+
+    # A build dir configured against a toolchain that has since MOVED - compiler/NDK/SDK path changed (e.g. a
+    # nix store rev bump relocates the Android NDK) - must be wiped, never soft-reconfigured: cmake keeps stale
+    # cache vars like CMAKE_SYSTEM_PROCESSOR, which then mis-drive the project's own CMakeLists. A recorded
+    # fingerprint that differs proves the move; a dir predating fingerprints falls back to its cached compiler
+    # path. An unfingerprinted dir with a matching/unknown toolchain is left alone, so this never mass-wipes.
+    toolchain_fingerprint = _toolchain_fingerprint(target)
+    if os.path.exists(target.build_dir('CMakeCache.txt')):
+        recorded = _read_toolchain_fingerprint(target.build_dir())
+        moved = recorded != toolchain_fingerprint if recorded \
+                else _toolchain_moved_unfingerprinted(target.build_dir(), target)
+        if moved:
+            if target.config.print:
+                warning(f'  - Target {target.name: <16} toolchain changed since last configure - wiping build dir')
+            _wipe_build_dir(target)
 
     # A cache or a compiler detection left half-written by a killed configure poisons this run; drop both
     # so it reconfigures clean instead of trusting what merely EXISTS. Detection is checked even with no
@@ -287,6 +346,7 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     elif not must_configure and os.path.exists(target.build_dir('CMakeCache.txt')):
         if target.config.verbose:
             console('Not running CMake configure because CMakeCache.txt exists and `update` or `configure` was not specified')
+        _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)  # adopt/refresh the baseline
         return
 
     type_flags = f'-DCMAKE_BUILD_TYPE={target.cmake_build_type}'
@@ -317,6 +377,10 @@ def run_config(target:BuildTarget, out=None, _seed=True):
             _wipe_build_dir(target)
             return run_config(target, out=out, _seed=False)
         raise
+    # Record the toolchain identity only after a configure that ran to completion, so the next run's move
+    # check compares against a dir that is actually consistent with this fingerprint (a failed configure
+    # leaves the previous/absent fingerprint, never a false baseline).
+    _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)
 
 
 _RERUNNABLE_ERRORS = (

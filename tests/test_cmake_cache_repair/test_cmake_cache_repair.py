@@ -3,7 +3,7 @@ detect the truncated cache or the stage-1 compiler module, wipe it, reconfigure 
 import os, pytest
 from unittest.mock import patch
 
-from testutils import make_mock_local_dep
+from testutils import make_configured_target, write_cmake_cache, write_build_file
 from mama import cmake_configure as cc
 
 COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=Release\n'
@@ -11,29 +11,13 @@ NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_BUILD_TYPE:STRING=Release\n'
 TRUNCATED = '# This is the CMakeCache file.\nCMAKE_BUILD_TYPE:STRING=Release\n'  # killed before the generator line
 
 
-def _target(tmp_path):
-    sub = tmp_path / 'pkg'; sub.mkdir()
-    dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False)
-    dep.config.get_preferred_compiler_paths.return_value = ('/usr/bin/gcc', '/usr/bin/g++', '13.3')
-    return dep.target, dep
-
-
-def _write_cache(build_dir, text):
-    os.makedirs(build_dir, exist_ok=True)
-    with open(os.path.join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f: f.write(text)
-
-
-def _write_build_file(build_dir, name='build.ninja'):
-    with open(os.path.join(build_dir, name), 'w', encoding='utf-8') as f: f.write('# generated\n')
-
-
 def test_is_cmake_cache_valid(tmp_path):
     d = str(tmp_path / 'b')
     assert not cc.is_cmake_cache_valid(d)                      # no cache at all
-    _write_cache(d, TRUNCATED); assert not cc.is_cmake_cache_valid(d)   # interrupted configure
-    _write_cache(d, COMPLETE)
+    write_cmake_cache(d, TRUNCATED); assert not cc.is_cmake_cache_valid(d)   # interrupted configure
+    write_cmake_cache(d, COMPLETE)
     assert not cc.is_cmake_cache_valid(d)   # complete cache but configure died before emitting the Makefile
-    _write_build_file(d, 'Makefile'); assert cc.is_cmake_cache_valid(d)  # a configure that ran to completion
+    write_build_file(d, 'Makefile'); assert cc.is_cmake_cache_valid(d)  # a configure that ran to completion
 
 
 def test_cache_generator_reads_the_exact_key():
@@ -48,22 +32,22 @@ def test_a_stale_other_build_system_file_does_not_count(tmp_path):
     # Targets pick their own build system: a leftover Makefile must NOT make a Ninja-configured dir
     # look complete, or `cmake --build` dies on the missing build.ninja every time.
     d = str(tmp_path / 'b')
-    _write_cache(d, NINJA); _write_build_file(d, 'Makefile')
+    write_cmake_cache(d, NINJA); write_build_file(d, 'Makefile')
     assert not cc.is_cmake_cache_valid(d)
-    _write_build_file(d, 'build.ninja'); assert cc.is_cmake_cache_valid(d)
+    write_build_file(d, 'build.ninja'); assert cc.is_cmake_cache_valid(d)
 
 
 def test_unknown_generator_is_trusted_not_wiped(tmp_path):
     d = str(tmp_path / 'b')
-    _write_cache(d, 'CMAKE_GENERATOR:INTERNAL=Green Hills MULTI\n')
+    write_cmake_cache(d, 'CMAKE_GENERATOR:INTERNAL=Green Hills MULTI\n')
     assert cc.is_cmake_cache_valid(d)  # we don't know its build file - let cmake decide, don't wipe blindly
 
 
 def test_cache_without_generated_build_file_is_repaired(tmp_path):
     # A find_package failure leaves a COMPLETE cache but no build.ninja; skipping the reconfigure then
     # dies with "ninja: error: loading 'build.ninja'" on every later build until it's wiped.
-    t, dep = _target(tmp_path)
-    _write_cache(t.build_dir(), COMPLETE)
+    t, dep = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), COMPLETE)
     assert _run_config_recording(t, dep) == ['conf']
     assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
 
@@ -82,15 +66,15 @@ def _run_config_recording(t, dep):
 
 
 def test_truncated_cache_is_wiped_and_reconfigured(tmp_path):
-    t, dep = _target(tmp_path)
-    _write_cache(t.build_dir(), TRUNCATED)
+    t, dep = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), TRUNCATED)
     assert _run_config_recording(t, dep) == ['conf']   # did NOT skip on a cache that merely exists
     assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))  # the bad cache was dropped
 
 
 def test_complete_configure_still_skips_the_reconfigure(tmp_path):
-    t, dep = _target(tmp_path)
-    _write_cache(t.build_dir(), COMPLETE); _write_build_file(t.build_dir(), 'Makefile')
+    t, dep = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), COMPLETE); write_build_file(t.build_dir(), 'Makefile')
     assert _run_config_recording(t, dep) == []  # nothing broken -> no needless reconfigure
     assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
 
@@ -106,8 +90,8 @@ def _write_compiler_module(build_dir, ver='4.3.1', abi_done=True):
 
 @pytest.mark.parametrize('with_cache', [True, False])  # a kill mid-detection often saves no cache at all
 def test_killed_detection_is_wiped_and_reconfigured(tmp_path, with_cache):
-    t, dep = _target(tmp_path)
-    if with_cache: _write_cache(t.build_dir(), NINJA); _write_build_file(t.build_dir(), 'build.ninja')
+    t, dep = make_configured_target(tmp_path)
+    if with_cache: write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir(), 'build.ninja')
     _write_compiler_module(t.build_dir(), abi_done=False)
     with patch('mama.cmake_configure._cmake_version_number', return_value='4.3.1'):  # no `cmake --version` shell-out
         assert _run_config_recording(t, dep) == ['conf']  # the dir looks complete but cmake would trust
@@ -115,8 +99,8 @@ def test_killed_detection_is_wiped_and_reconfigured(tmp_path, with_cache):
 
 
 def test_a_completed_detection_is_left_alone(tmp_path):
-    t, dep = _target(tmp_path)
-    _write_cache(t.build_dir(), NINJA); _write_build_file(t.build_dir(), 'build.ninja')
+    t, dep = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir(), 'build.ninja')
     _write_compiler_module(t.build_dir(), abi_done=True)
     with patch('mama.cmake_configure._cmake_version_number', return_value='4.3.1'):
         assert _run_config_recording(t, dep) == []  # nothing broken -> no needless reconfigure

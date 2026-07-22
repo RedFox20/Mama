@@ -116,6 +116,27 @@ def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **
         (tmp_path / 'packages/libfoo/linux/papa.txt').write_text('p libfoo\nv 1.0\n')
     return dep
 
+
+def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '13.3'), **config_overrides):
+    """A real BuildTarget on a fresh pkg/ dir with the preferred compiler paths mocked - the shared starting
+    point for cmake_configure tests. Returns (target, dep)."""
+    sub = tmp_path / 'pkg'; sub.mkdir()
+    dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False, **config_overrides)
+    dep.config.get_preferred_compiler_paths.return_value = compiler
+    return dep.target, dep
+
+
+def write_cmake_cache(build_dir, text):
+    """Write a raw CMakeCache.txt into build_dir (created if missing)."""
+    os.makedirs(build_dir, exist_ok=True)
+    with open(os.path.join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f: f.write(text)
+
+
+def write_build_file(build_dir, name='build.ninja'):
+    """Write the generator's build file so is_cmake_cache_valid() sees a completed configure."""
+    with open(os.path.join(build_dir, name), 'w', encoding='utf-8') as f: f.write('# generated\n')
+
+
 def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
     # Needed for mama commands to perform work in the correct directory
     if caller_file:
