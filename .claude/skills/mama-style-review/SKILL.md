@@ -170,6 +170,17 @@ grep -rn 'Color\.YELLOW' mama/ | grep -v 'utils/system.py'
 - A new ~3-line helper duplicating something in util.py is a finding.
 
 ### Code shape
+- **Lean and mean: cache repeated/invariant calculations.** Never compute the
+  same value twice. Flag a `sum()` / probe / `.encode()` / `stat` / glob
+  evaluated twice in one expression (classically in a comprehension's filter
+  AND the value it builds), or recomputed every loop iteration when it is
+  loop-invariant - hoist it out and compute once. Process-constant results
+  (terminal encoding, cpu count, a compiled regex) get memoized a single time,
+  not re-derived per call. The fix is usually both faster AND fewer lines.
+  ```bash
+  # smell: same call in the filter and the body of one comprehension
+  grep -rn 'for .* if .*\b\(sum\|len\|glob\|encode\|stat\)\b' mama/ tests/
+  ```
 - Long functions are a smell. If you find yourself adding a third large
   responsibility to a function (e.g. another inline artifactory probe inside
   `_load`), extract a helper.

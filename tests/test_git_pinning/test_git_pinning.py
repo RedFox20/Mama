@@ -6,7 +6,7 @@ def remote_file_contains(dep_name, text):
 # Make sure different git pinning methods work
 def test_git_pinning():
     init(__file__, clean_dirs=['packages'])
-    mama_exec(['clean'])
+    mama_exec(['update'])   # clone the pinned deps; `clean` deliberately fetches nothing
 
     # https://github.com/BatteredBunny/MamaExampleRemote repo has different commits that either do or dont have the REMOTE_VERSION line
     assert not remote_file_contains('ExampleRemote', 'REMOTE_VERSION'), "Tag pinning went wrong"

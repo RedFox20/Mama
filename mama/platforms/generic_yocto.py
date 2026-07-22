@@ -186,8 +186,7 @@ class GenericYocto:
 
     def get_cmake_build_opts(self) -> list:
         if self.toolchain_file:
-            if self.config.print:
-                console(f'Toolchain: {self.toolchain_file}')
+            self.config.announce_once('toolchain', f'Toolchain: {self.toolchain_file}')
             return [
                 f'{self.platform_define}=TRUE',
                 f'CMAKE_TOOLCHAIN_FILE="{self.toolchain_file}"'

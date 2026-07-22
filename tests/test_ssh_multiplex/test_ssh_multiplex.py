@@ -90,7 +90,7 @@ class TestOptionsToAdd:
             'serveralivecountmax': '5',
         }
         opts, we_own = sm.options_to_add(probe)
-        assert opts == [], 'should add nothing when user has everything'
+        assert opts == sm._SAFETY_OPTS, 'only the always-on safety opts when user has everything'
         assert we_own is False
 
     def test_user_has_nothing(self, tmp_path, monkeypatch):
@@ -162,7 +162,7 @@ class TestOptionsToAdd:
         }
         opts, we_own = sm.options_to_add(probe)
         assert we_own is False
-        assert opts == [], 'user has full config - we add nothing'
+        assert opts == sm._SAFETY_OPTS, 'user has full config - only the always-on safety opts'
 
 
 class TestMultiplexKnownBroken:
@@ -366,8 +366,8 @@ class TestWrapperMain:
                        'git@github.com', "git-upload-pack 'foo/bar.git'"])
         prog, argv = execed
         assert prog == 'ssh'
-        # No options added - user already has everything.
-        assert argv == ['ssh', '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
+        # Only the always-on safety opts are added; user already has multiplex + keepalives.
+        assert argv == ['ssh', *sm._SAFETY_OPTS, '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
                         "git-upload-pack 'foo/bar.git'"]
 
     def test_adds_multiplex_when_user_has_nothing(self, monkeypatch, tmp_path):

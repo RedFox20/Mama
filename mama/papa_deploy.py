@@ -123,6 +123,12 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 
 
+def _compiler_stamp(config) -> str:
+    """'gcc14.3' / 'clang18.1', '' if the platform can't name one - a diagnostic, never a deploy failure."""
+    try: return config.compiler_version()
+    except Exception: return ''
+
+
 def papa_deploy_to(target:BuildTarget, package_full_path:str,
                    r_includes:bool, r_dylibs:bool,
                    r_syslibs:bool, r_assets:bool):
@@ -142,8 +148,11 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
 
-    # set up project and dependencies
+    # set up project and dependencies. `C` = compiler that built these libs (same string as the archive name),
+    # so a load can spot a gcc tree landing in a clang build.
     descr = [ f'P {target.name}' ]
+    compiler = _compiler_stamp(config)
+    if compiler: descr.append(f'C {compiler}')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
@@ -207,6 +216,7 @@ class PapaFileInfo:
         self.papa_dir = os.path.dirname(papa_file)
 
         self.project_name = None
+        self.compiler = None # 'gcc14.3' / 'clang18.1'; None for packages predating the C record
         self.dependencies = []
         self.includes = []
         self.libs = []
@@ -218,6 +228,7 @@ class PapaFileInfo:
 
         for line in read_lines_from(self.papa_file):
             if   line.startswith('P '): self.project_name = line[2:].strip()
+            elif line.startswith('C '): self.compiler = line[2:].strip()
             elif line.startswith('D '): self.dependencies.append(make_dep_source(line[2:].strip()))
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)

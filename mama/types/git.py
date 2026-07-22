@@ -7,7 +7,7 @@ from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
-                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint)
+                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status)
 
 
 if TYPE_CHECKING:
@@ -20,6 +20,32 @@ if TYPE_CHECKING:
 _SCP_GIT_RE = re.compile(r'^(?P<user>[^@/]+)@(?P<host>[^:/]+):(?P<path>.+)$')
 _SCHEME_RE = re.compile(r'^(?P<scheme>[a-zA-Z][\w+.-]*)://(?P<rest>.*)$')
 _FILTERED_GIT_PROGRESS_REPORT_INTERVAL = 0.005
+
+# Benign post-op chatter from git reset/checkout/pull - pure noise outside verbose mode. The
+# "merge with the ref ... no such ref was fetched" pair is the expected pull-then-fetch fallback.
+_GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to date',
+              'Already on ', 'Switched to branch ', 'Switched to a new branch ', 'HEAD is now at ',
+              'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
+              'There is no tracking information for the current branch')
+
+def _is_git_status_noise(line: str) -> bool:
+    return line.startswith(_GIT_NOISE) or 'set up to track ' in line
+
+
+def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
+    """True if `line` is git transfer progress (the caller drops it) - collapsing the per-percent flood
+    the PTY makes git emit into one throttled redraw. EVERY git runner routes output through this single
+    chokepoint. `state` carries the throttle across calls; `label` prefixes (e.g. CLONE)."""
+    st = git_progress_status(line)
+    if st is None: return False
+    if dep.config.print:
+        now = time.monotonic()
+        if 'at' not in state: state['at'] = now  # seed on first sight; don't emit until the throttle elapses
+        if st != state.get('last') and (st[1] >= 100 or now - state['at'] >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL):
+            state['last'] = st; state['at'] = now
+            tag = f'{label} ' if label else ''
+            progress(f'  {dep.name: <16} {tag}{st[0]} {st[1]:3}%')
+    return True
 
 def parse_git_url(url: str):
     """Split a remote git url into (scheme, user, host, path). Returns None for
@@ -140,12 +166,21 @@ class Git(DepSource):
         ssh_multiplex.ensure_master_for_url(self.url)
         # Capture and prefix each line so parallel updates don't tear and the
         # user can see which target said what (e.g. 'remote: Enumerating ...').
+        prog: dict = {}
         def prefixed(p:SubProcess, line:str):
             line = line.rstrip()
-            if line: console(f'  {dep.name: <16} {line}')
+            if not line: return
+            if _filter_git_progress(dep, line, prog): return  # collapse the transfer-progress flood
+            if not dep.config.verbose and _is_git_status_noise(line): return  # drop benign reset/track/up-to-date chatter
+            console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
-            result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed)
+            # idle_timeout: kill a fetch stuck on an auth prompt so a parallel run never freezes.
+            try:
+                result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed, idle_timeout=dep.config.git_timeout)
+            except subprocess.TimeoutExpired:
+                error(f'  {dep.name: <16} git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                result = -1
         if result != 0 and throw:
             raise RuntimeError(f'{cmd} (in {dep.src_dir}) failed with return code {result}')
         return result
@@ -154,6 +189,19 @@ class Git(DepSource):
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
         """Check if the working tree has uncommitted modifications to tracked files"""
         return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
+
+
+    def _ensure_no_local_modifications(self, dep: BuildDependency):
+        """Raise (with an actionable message + `git status`) when the working tree has uncommitted
+        changes an update's reset --hard would overwrite. Called at the TOP of the update path so a
+        dirty dep fails loudly (marked `x`), even when upstream is unchanged - otherwise the pull below
+        fails, gets swallowed by its fetch fallback, and the dep silently reports success un-updated."""
+        if not self._has_local_modifications(dep): return
+        name = dep.name
+        error(f"  Target {name} has local modifications that would be overwritten by update.\n"
+              f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
+        self.run_git(dep, "status --porcelain") # show the user what files are modified
+        raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
 
 
     def working_tree_fingerprint(self, dep: BuildDependency) -> str:
@@ -433,42 +481,12 @@ class Git(DepSource):
         Returns (exit_code, captured_output, elapsed_str). Does not raise.
         Used by full clone and by the sparse mamafile probe so both share the
         same nice UI instead of spewing git's raw remote: output."""
-        output = ''
+        output = []  # list + join, not output += line (O(n^2) over a big checkout's file list)
         start = time.monotonic()
-        last_progress_at = None
-        last_progress = (None, -1)
+        prog: dict = {}
         def print_output(p:SubProcess, line:str):
-            nonlocal output, last_progress_at, last_progress
-            if 'remote: Counting objects:' in line or \
-                'remote: Compressing objects:' in line or \
-                'Receiving objects:' in line or \
-                'Resolving deltas:' in line or \
-                'Updating files:' in line:
-                if dep.config.print:
-                    parts = line.split('%')[0].split(':')
-                    if not parts:
-                        console(line)
-                        return
-                    percent_string = parts[len(parts)-1].strip()
-                    percent = int(percent_string) if percent_string else 0
-                    status = 'status             '
-                    if 'remote: Counting objects:' in line:      status = 'counting objects   '
-                    elif 'remote: Compressing objects:' in line: status = 'compressing objects'
-                    elif 'Receiving objects:' in line:           status = 'receiving objects  '
-                    elif 'Resolving deltas:' in line:            status = 'resolving deltas   '
-                    elif 'Updating files:' in line:              status = 'updating files     '
-                    now = time.monotonic()
-                    cur_progress = (status, percent)
-                    if last_progress_at is None:
-                        last_progress_at = now
-                    should_report = percent >= 100 or \
-                        (now - last_progress_at) >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL
-                    if last_progress != cur_progress and should_report:
-                        last_progress = cur_progress
-                        last_progress_at = now
-                        elapsed = get_time_str(now - start)
-                        progress(f'  - Target {dep.name: <16} {label} {status} {percent:3}% ({elapsed})')
-            elif 'Cloning into ' in line:
+            if _filter_git_progress(dep, line, prog, label=label): return  # same chokepoint as run_git
+            if 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
                 # TODO: maybe auto-add the key before running clone?
@@ -476,8 +494,7 @@ class Git(DepSource):
                 console(line)
                 p.write('yes\n') # get us unstuck
             elif line:
-                output += line
-                output += '\n'
+                output.append(line)
                 if dep.config.verbose:
                     console(line)
 
@@ -485,8 +502,14 @@ class Git(DepSource):
             console(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         with ssh_multiplex.fetch_slot():
-            result = SubProcess.run(cmd, io_func=print_output)
-        return result, output, get_time_str(time.monotonic() - start)
+            # idle_timeout: kill a clone stuck on a passphrase prompt so a parallel wave never
+            # freezes; a real download streams progress and is never wrongly aborted.
+            try:
+                result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
+            except subprocess.TimeoutExpired:
+                output.append(f'[mama] git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                result = -1
+        return result, '\n'.join(output), get_time_str(time.monotonic() - start)
 
 
     def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
@@ -513,6 +536,7 @@ class Git(DepSource):
             if not dep.config.is_network_available():
                 raise RuntimeError(f'Target {dep.name} requires network to clone but network is unavailable.' + \
                                    ' Check your connection or use a cached artifactory package.')
+            dep.load_action = 'clone'  # actual full repo clone (display label)
             if not wiped and dep.config.print:
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             br_or_tag = self.branch_or_tag()
@@ -527,15 +551,11 @@ class Git(DepSource):
                 if dep.config.print:
                     warning(f"  - Target {dep.name: <16} SKIP PULL (network unavailable, using cached source)")
                 return
+            dep.load_action = 'pulling'  # actual git pull/fetch (display label)
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
             # check for local modifications before potentially destructive operations
-            if self._has_local_modifications(dep):
-                name = dep.name
-                error(f"  Target {name} has local modifications that would be overwritten by update.\n"
-                      f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
-                self.run_git(dep, "status --porcelain") # show the user what files are modified
-                raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
+            self._ensure_no_local_modifications(dep)
             if unshallow:
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())
@@ -591,6 +611,9 @@ class Git(DepSource):
         changed = False
 
         if config.update and is_target:
+            # Fail loudly on a dirty tree BEFORE the pull below - which would otherwise fail, get
+            # swallowed by its fetch fallback, and leave the dep un-updated but reporting success.
+            self._ensure_no_local_modifications(dep)
             changed = self.check_status(dep)
 
         wiped = False

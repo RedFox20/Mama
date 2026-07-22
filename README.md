@@ -1,24 +1,46 @@
 # Mama Build Tool
-Mama - A modular C++ build tool even your mama can use
+Mama - A modular C++ build tool so simple even your mama can use it
 
-The main goal of this project is to provide extremely convenient in-source builds
-for cross platform projects. Building is as simple as `mama build windows` - no ceremony~!
+Mama turns a tree of C++ libraries - your own and third-party - into a single
+`mama build`. It clones the sources, configures them, builds them in the right order
+across every platform and compiler you target, and links the results into your project.
+No central package repository, no Docker containers, no hand-written toolchain glue -
+just git repos, a minimal set of system libs, and the compilers you already have.
 
-CMake projects with trivial configurations and no dependencies can be handled
-automatically by Mama. This makes header-only libraries or stand-alone C libraries
-extremely easy to link.
+Building is as simple as `mama build windows` - no ceremony~! Trivial CMake projects and
+header-only or stand-alone C libraries are picked up automatically; larger projects add a
+small `mamafile.py` to declare their dependencies and build steps.
 
-Adding projects with already configured `mamafile.py` is trivial and allows you to manage
-large scale projects in a modular way. Dependencies are added and configured through mamafiles.
+![mama build demo](docs/demo.gif)
 
-Each mama build target exports CMake `${ProjectName}_INCLUDES` and `${ProjectName}_LIBS`. All exports
-are gathered in correct linker order inside `MAMA_INCLUDES` and `MAMA_LIBS`. This ensures the least
-amount of friction for developers - everything just works.
+## Why Mama
 
-There is no central package repository, all packages are pulled and updated from public or
-private git repositories. Package versioning is done through git tags or branches.
+- **One command, the whole DAG.** Mama resolves C++ dependencies into a build graph and drives
+  it end to end - clone, configure, compile, in dependency order. `mama build <target>` does just
+  that target's subtree, nothing more.
+- **Everything parallel.** Clones, configures and compiles all run at once under one scheduler - a
+  leaf builds while a deeper dep still clones. Longest poles launch first; the core budget is
+  RAM-capped so a wide build can't OOM the box.
+- **Multi-platform, multi-compiler - no Docker.** Toolchains used as designed: `linux`, `linux-clang`,
+  `windows`, `android` and other cross-builds land side by side, never clobbering. Three platforms at once? Run
+  three builds, `mama build <platform>` each. Sanitizers (asan/lsan/tsan/ubsan) and coverage are plain flags.
+- **Any build system.** CMake, GNU Make, MSBuild, or a custom `build()` step - all through the
+  same scheduler and live display.
+- **Faster CMake configures.** Compiler detection (~5s of a ~6.5s cold configure) runs once per
+  toolchain and is reused across every fresh build dir, cutting it down to almost nothing.
+- **In-source, project-scoped, reproducible.** Dependencies pull from git (pinned by
+  tag/branch/commit) or local folders; heavy libs like OpenCV and FFmpeg build easily from source, so a
+  fresh checkout builds identically - only a minimal set of system libs is assumed.
+- **Resilient & cached.** Fail-fast Ctrl+C, self-healing build dirs after an interrupted
+  configure, and `mama upload` to a private artifactory server so matching commits are fetched
+  instead of rebuilt.
+- **Rich build stats.** `mama build buildstats` prints per-package timing bars plus a
+  frontend/backend/link breakdown (MSVC vcperf, Clang `-ftime-trace`) - the slowest TUs, costliest
+  headers, heaviest codegen.
+- **Batteries included.** Correct-order linking via `MAMA_INCLUDES`/`MAMA_LIBS`, `clang-tidy` and
+  coverage as flags, and `mama init` to adopt an existing CMake project in one step.
 
-Custom build systems are also supported. For additional documentation explore: [build_target.py](mama/build_target.py)
+For additional documentation explore: [build_target.py](mama/build_target.py)
 
 
 ## Who is this FOR?
@@ -69,7 +91,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
 ## Command examples
 ```
   mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt
-  mama build                     Update and build main project only. This only clones, but does not update!
+  mama build                     Build main project only. Clones missing deps, but does not git pull.
   mama build x86 opencv          Cross compile build target opencv to x86 architecture
   mama build android             Cross compile to arm64 android NDK (default API level 29)
   mama build android-31           Cross compile to arm64 with Android API level 31
@@ -83,7 +105,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama rebuild dep1 deps_only    Cleans and rebuilds only dep1's dependencies, skipping dep1 itself.
   mama build dep1 deps_only      Build only dep1's dependencies, skipping dep1 itself.
   mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.
-  mama build dep1                Update and build dep1 only.
+  mama build dep1                Build dep1 only. Clones if missing, but does not git pull.
   mama update dep1               Update and build the specified target.
   mama serve android             Update, build and deploy for Android.
   mama deploy                    Runs PAPA deploy stage.
@@ -118,6 +140,7 @@ Call `mama help` for more usage information.
   clang-tidy                     Enable clang-tidy static analysis during build.
   silent                         Greatly reduces output verbosity.
   verbose                        Greatly increases output verbosity.
+  buildstats                     After the build, print per-package timing bars and a deep compiler breakdown.
   parallel                       Load dependencies in parallel.
   deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
                                  When combined with a target name, applies to that target's dependencies only.
@@ -137,7 +160,7 @@ conversion, and an existing clone's `origin` remote is re-pointed so `fetch`/`pu
 the chosen protocol.
 
 ```
-  mama build https-override      git@github.com:KrattWorks/repo.git -> https://github.com/KrattWorks/repo.git
+  mama build https-override      git@github.com:example/repo.git -> https://github.com/example/repo.git
   mama build ssh-override        https://github.com/RedFox20/ReCpp.git -> git@github.com:RedFox20/ReCpp.git
 ```
 
@@ -158,6 +181,45 @@ the chosen protocol.
   coverage                       Build with GCC --coverage option.
   coverage-report[=src_root]     Generate coverage report using gcovr.
 ```
+
+### Build statistics: `buildstats`
+
+`mama build buildstats` prints a timing report after the build finishes.
+
+```
+mama build buildstats             # timing report for the whole dependency chain
+mama rebuild all buildstats       # full rebuild, so every package shows real compile time
+mama build buildstats opencv      # scope the deep breakdown to a single target
+```
+
+**Stage 1 - per-package bars.** One normalized horizontal bar per package, slowest first,
+segmented into load (git/artifactory), configure (CMake) and build (compile+link), with the
+package's total wall time on the right. Bar length scales against the slowest package, so the
+long poles are obvious at a glance. Packages faster than 0.33s are omitted as noise. On UTF-8
+terminals the segments use block shades, on legacy Windows code pages they fall back to ASCII.
+
+```
+  Build times     ░ load  ▒ configure  ▓ build
+  opencv          ░▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓   2m 12s
+  ReCpp           ░▒▒▓▓▓▓▓▓                       31.4s
+```
+
+**Stage 2 - deep compiler breakdown.** Where the compile time actually went: frontend (parse)
+vs backend (codegen) vs link, the achieved build parallelism, the slowest translation units,
+the costliest headers (total parse time and include count) and the costliest codegen symbols.
+This stage is compiler-specific:
+
+- **MSVC** - the build is wrapped in a [vcperf](https://learn.microsoft.com/en-us/cpp/build-insights/)
+  `/timetrace` session and the trace is written to `packages/<project>/<platform>/mama_timetrace.json`.
+  vcperf must be on `PATH`, in the MSVC toolset, or pointed at by the `VCPERF` env var; a one-time
+  elevated `vcperf /grantusercontrol` is the prerequisite for capturing without admin rights.
+  If vcperf isn't found, Stage 1 still prints and Stage 2 is skipped with a warning.
+- **Clang** - the build is instrumented with `-ftime-trace` and the per-TU JSONs written during
+  this run are collected from the build dirs. Use `mama build clang buildstats` on Linux.
+- **GCC** - no per-file trace exists, so only Stage 1 prints.
+
+Both stages only see what was actually compiled. An up-to-date incremental build reports
+`no compiler activity captured` - use `rebuild` when you want to profile a full build.
 
 ### Clang-Tidy static analysis
 
@@ -203,12 +265,33 @@ def settings(self):
 
 ## Mamafile Reference
 
+### Requiring a minimum mamabuild version
+
+When a mamafile relies on newer mamabuild features, declare the minimum version. The build aborts
+during target load - before any configure/build work - with an upgrade hint if mama is too old:
+
+```py
+def settings(self):
+    self.requires_version('0.13.01')
+```
+
+```
+Target myapp requires mamabuild >= 0.13.01, but this is 0.12.5. Upgrade with:  pip install --upgrade mama
+```
+
+Versions compare segment-wise as numbers, so `0.13.01` correctly outranks `0.9.5` and a shorter
+version zero-pads (`0.13` < `0.13.01`).
+
+> Note: `requires_version` itself exists only from 0.13.01 onward. On an older mama the mamafile
+> fails with `AttributeError: ... has no attribute 'requires_version'` - which is still the signal
+> to upgrade.
+
 ### Adding dependencies
 
 ```py
 # Git dependency with full options:
 self.add_git('ReCpp', 'https://github.com/RedFox20/ReCpp.git',
-             branch='master',      # track a branch (default: repo default branch)
+             git_branch='master',  # track a branch (default: repo default branch)
              git_tag='v1.2.3',     # pin to a specific git tag
              git_commit='abc123',  # OR pin to a specific commit hash (alias of git_tag argument)
              mamafile='recpp.py',  # explicit mamafile path (default: auto-detect {src}/mamafile.py)
@@ -451,7 +534,7 @@ class AlphaGL(mama.BuildTarget):
         # the credentials can be configured by env vars for CI, call `mama help`
         self.set_artifactory_ftp('artifacts.myftp.com', auth='store')
         # add packages
-        self.add_git('ReCpp',   'https://github.com/RedFox20/ReCpp.git', branch='master')
+        self.add_git('ReCpp',   'https://github.com/RedFox20/ReCpp.git', git_branch='master')
         self.add_git('libpng',  'https://github.com/LuaDist/libpng.git')
         self.add_git('libjpeg', 'https://github.com/LuaDist/libjpeg.git')
         self.add_git('glfw',    'https://github.com/glfw/glfw.git')
@@ -520,40 +603,26 @@ This is also the default behavior of `default_package_includes()` when only a `s
 
 ## Example output from Mama Build
 ```
-$ mama build
-========= Mama Build Tool ==========
-  - Target FaceOne            BUILD [root target]
-  - Target dlib               OK
-  - Target CppGuid            OK
-  - Target opencv             OK
-  - Target ReCpp              OK
-  - Target NanoMesh           OK
-  - Package ReCpp
-    <I>  build/ReCpp/ReCpp
-    [L]  build/ReCpp/windows/RelWithDebInfo/ReCpp.lib
-  - Package opencv
-    <I>  build/opencv/windows/include
-    [L]  build/opencv/windows/lib/Release/opencv_xphoto342.lib
-    [L]  build/opencv/windows/lib/Release/opencv_features2d342.lib
-    [L]  build/opencv/windows/lib/Release/opencv_imgcodecs342.lib
-    [L]  build/opencv/windows/lib/Release/opencv_imgproc342.lib
-    [L]  build/opencv/windows/lib/Release/opencv_core342.lib
-    [L]  build/opencv/windows/3rdparty/lib/Release/libjpeg-turbo.lib
-    [L]  build/opencv/windows/3rdparty/lib/Release/libpng.lib
-    [L]  build/opencv/windows/3rdparty/lib/Release/zlib.lib
-  - Package dlib
-    <I>  build/dlib/windows/include
-    [L]  build/dlib/windows/lib/dlib19.15.99_relwithdebinfo_64bit_msvc1914.lib
-  - Package NanoMesh
-    <I>  build/NanoMesh/NanoMesh
-    [L]  build/NanoMesh/windows/RelWithDebInfo/NanoMesh.lib
-  - Package CppGuid
-    <I>  build/CppGuid/CppGuid/include
-    [L]  build/CppGuid/windows/RelWithDebInfo/CppGuid.lib
-  - Package FaceOne
-    <I>  include
-    [L]  bin/FaceOne.dll
-    [L]  bin/FaceOne.lib
+$ mama clang build
+Mama 0.13.01 building with clang 18.1 libstdc++
++ build J4                reflect_cpp            git   0.1s  cfg  0.02s  bld  0.01s
++ build J0                sdl_gamecontrollerdb   git   0.1s  cfg  0.02s  bld  0.07s
++ build J1                nlohmannjson           git   0.1s  cfg  0.02s  bld  0.02s
++ build J12               px4gpsdrivers          git   0.4s  cfg   0.0s  bld   0.0s
++ build J4                xz_embedded            git  0.09s  cfg  0.02s  bld   0.3s
++ build J5                shapelib               git  0.08s  cfg  0.07s  bld   0.4s
++ build J15               zlib                   git  0.08s  cfg  0.08s  bld   0.3s
++ build J2                libevents              git  0.08s  cfg   0.1s  bld   3.2s
++ build J31               SDL                    git   0.2s  cfg  0.01s  bld   5.7s
++ build J18               qcoro                  git  0.09s  cfg  0.01s  bld  10.3s
++ build J31               protobuf               git   0.3s  cfg   0.8s  bld  35.3s
++ build J31               rtpvideo               git   0.1s  cfg   0.0s  bld   0.0s
++ build J27               serviceman             git   0.1s  cfg  0.01s  bld  0.01s
++ build J31               geographiclib          git  0.07s  cfg  0.09s  bld   2.0s
++ build J31               sentry_native          git  0.10s  cfg   4.1s  bld   0.8s
++ build J31               datalink               git   0.4s  cfg   0.0s  bld  12.1s
++ build J31               qgroundcontrol         loc  0.02s  cfg   5.6s  bld  27.2s
+Built 14 target(s) in 1m 32s
 ```
 ### Uploading packages ###
 ```python
@@ -563,32 +632,13 @@ $ mama build
 ```
 ```
 $ mama upload googletest
-========= Mama Build Tool ==========
-  - Package googletest
-    <I>  myworkspace/googletest/linux/include
-    [L]  myworkspace/googletest/linux/lib/libgmock.a
-    [L]  myworkspace/googletest/linux/lib/libgtest.a
-  - PAPA Deploy /home/XXX/myworkspace/googletest/linux/deploy/googletest
+  - PAPA Deploy /home/mamabuild/example/packages/googletest/linux/deploy/googletest
     I (googletest)       include
-    L (googletest)       libgmock.a
-    L (googletest)       libgtest.a
+    L (googletest)       lib/libgmock.a
+    L (googletest)       lib/libgtest.a
   PAPA Deployed: 1 includes, 2 libs, 0 syslibs, 0 assets
-  - PAPA Upload googletest-linux-x64-release-ebb36f3  770.6KB
-    |==================================================>| 100 %
-```
-And then rebuilding with an artifactory package available
-```
-$ mama rebuild googletest
-========= Mama Build Tool ==========
-  - Target googletest         CLEAN  linux
-  - Target googletest         BUILD [cleaned target]
-    Artifactory fetch ftp.myartifactory.com/googletest-linux-x64-release-ebb36f3  770.6KB
-    |<==================================================| 100 %
-    Artifactory unzip googletest-linux-x64-release-ebb36f3
-  - Package googletest
-    <I>  myworkspace/googletest/linux/include
-    [L]  myworkspace/googletest/linux/libgmock.a
-    [L]  myworkspace/googletest/linux/libgtest.a
+  - PAPA Upload googletest-ubuntu-24-gcc14.3-x64-release-ae51a95  2.9MB
+  - googletest       |==================================================>| 100 %
 ```
 
 

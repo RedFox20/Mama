@@ -20,6 +20,13 @@ keep biting future-Claude. Update as the codebase teaches new lessons.
 - **Yellow output goes through `warning(text)`** (from `mama.utils.system`),
   not `console(text, color=Color.YELLOW)`. The helper exists so warnings have
   a single chokepoint and a consistent shape.
+- **Lean and mean: cache repeated/invariant calculations.** Never compute the
+  same value twice. A `sum()` / probe / `.encode()` / `stat` evaluated twice in
+  one expression (e.g. in a filter AND the value it builds), or recomputed per
+  loop iteration when it's loop-invariant, is a finding - hoist it out and
+  compute once. Results that are constant for the whole process (terminal
+  encoding, cpu count, a compiled regex) get memoized a single time, not
+  re-derived per call. Less work and less code, same result.
 
 ### Examples
 

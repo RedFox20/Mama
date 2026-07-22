@@ -46,6 +46,11 @@ _DEFAULT_KEEPALIVE_INTERVAL = '60'
 _DEFAULT_KEEPALIVE_COUNT    = '3'
 _DEFAULT_CONTROL_PERSIST    = '10m'
 
+# Always-on so a parallel clone never freezes on an SSH prompt: bound the TCP connect + auto-accept
+# NEW host keys (still rejects CHANGED). NOT BatchMode (would break interactive-passphrase keys);
+# the SubProcess idle-timeout is the backstop for stuck auth prompts.
+_SAFETY_OPTS = ['-oConnectTimeout=30', '-oStrictHostKeyChecking=accept-new']
+
 
 # Module state -------------------------------------------------------------
 
@@ -156,7 +161,7 @@ def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     cleaning it up). False if the user already has multiplex configured, or
     if multiplex is known-broken on this platform.
     """
-    opts: list[str] = []
+    opts: list[str] = list(_SAFETY_OPTS)
     we_own_master = False
     if not multiplex_known_broken() and not is_multiplex_configured(probe):
         we_own_master = True
