@@ -132,6 +132,15 @@ class BuildDependency:
             return dep
 
 
+    def add_children(self, dep_sources):
+        """Adds papa.txt-declared children, skipping any already present. One dep can load its
+        artifactory package twice - shim probe, then the post-clean re-extract - and both report the
+        same list; add_child's duplicate raise must stay for genuine mamafile double-declares."""
+        existing = {c.name for c in self.children}
+        for dep_source in dep_sources:
+            if dep_source.name not in existing: self.add_child(dep_source)
+
+
     def get_children(self) -> List[BuildDependency]:
         """ Gets already resolved dependencies """
         if self.children is None:
@@ -316,8 +325,7 @@ class BuildDependency:
         probe_target = BuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
         fetched, dependencies = artifactory_load_target(probe_target, self.build_dir, num_files_copied=0)
         if not fetched: return None
-        if dependencies:
-            for dep_source in dependencies: self.add_child(dep_source)
+        if dependencies: self.add_children(dependencies)
         if self.config.print:
             console(f'  - Target {self.name: <16} SHIM CACHED {marker.get("archive", "")}', color=Color.GREEN)
         return probe_target
@@ -393,8 +401,7 @@ class BuildDependency:
             if shim_target is not None:
                 self.target = shim_target
                 self.did_check_artifactory = True
-                if shim_deps:
-                    for dep_source in shim_deps: self.add_child(dep_source)
+                if shim_deps: self.add_children(shim_deps)
                 return True
         return False
 
@@ -407,7 +414,7 @@ class BuildDependency:
             self.did_check_artifactory = True
             fetched, dependencies = artifactory_fetch_and_reconfigure(target)
             if fetched:
-                for dep_name in dependencies: self.add_child(dep_name)
+                self.add_children(dependencies)
                 return True
             if self.dep_source.is_pkg:
                 raise RuntimeError(f'  - Target {self.name} failed to load artifactory pkg {self.dep_source}')
@@ -422,8 +429,7 @@ class BuildDependency:
         on success; on failure the caller falls through to the regular post-clone probe."""
         self.create_build_dir_if_needed()
         fetched, dependencies = artifactory_fetch_and_reconfigure(target)
-        if fetched and dependencies:
-            for dep_source in dependencies: self.add_child(dep_source)
+        if fetched and dependencies: self.add_children(dependencies)
         return bool(fetched)
 
 

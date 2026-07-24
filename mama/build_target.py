@@ -1621,6 +1621,14 @@ class BuildTarget:
         self._run_packaging()
 
     def _run_packaging(self):
+        # package() is user mamafile code that asserts on build outputs, so it needs something to
+        # package. Commands that walk the task chain WITHOUT building (wipe, upload, deploy, test)
+        # would otherwise run it against artifacts never produced, or ones a clean/wipe just deleted.
+        if not self._build_work_enabled() and not self.dep.has_usable_artifacts():
+            if self.config.verbose or self.config.deploy or self.config.upload:
+                warning(f'  - Target {self.name: <16} PACKAGE skipped: nothing built, no artifacts on disk')
+            return
+
         # skip package() if we already fetched it as a package from artifactory()
         # unless user has specified for a local rebuild
         if self.dep.should_rebuild or not self.dep.from_artifactory:
