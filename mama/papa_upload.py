@@ -4,28 +4,56 @@ from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .util import get_file_size_str, console, normalized_join
+from .util import get_file_size_str, console, normalized_join, ProgressBar
 from .papa_deploy import PapaFileInfo
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
 
 
-def _append_files_recursive(zip: zipfile.ZipFile, rel_path:str, full_path:str):
-    # add each file recursively
-    if os.path.isdir(full_path):
-        for full_dir, _, files in os.walk(full_path):
-            nested_rel = os.path.relpath(full_dir, full_path)
-            rel_dir = rel_path if nested_rel == '.' else f'{rel_path}/{nested_rel}'
-            # write the directory into the zip as well
-            zip.write(full_dir, rel_dir)
-            for file in files:
-                src_file = full_dir + '/' + file
-                rel_file = rel_dir + '/' + file
-                #print(f'src_file:{src_file} rel_file:{rel_file}')
-                zip.write(src_file, rel_file)
-    else:
-        zip.write(full_path, rel_path)
+def _archive_entries(rel_path:str, full_path:str):
+    """(src, rel, size) for one papa record; a dir flattens into its tree, dir entries included so the
+    zip keeps its structure. Size is stat'd once here and reused as the progress weight."""
+    if not os.path.isdir(full_path):
+        return [(full_path, rel_path, os.path.getsize(full_path))]
+    entries = []
+    for full_dir, _, files in os.walk(full_path):
+        nested_rel = os.path.relpath(full_dir, full_path)
+        rel_dir = rel_path if nested_rel == '.' else f'{rel_path}/{nested_rel}'
+        entries.append((full_dir, rel_dir, 0)) # dir entry: no payload to compress
+        for file in files:
+            src_file = f'{full_dir}/{file}'
+            entries.append((src_file, f'{rel_dir}/{file}', os.path.getsize(src_file)))
+    return entries
+
+
+def _archive_groups(papa:PapaFileInfo, package_full_path:str):
+    """(verbose label, entries) per papa.txt record in write order: manifest, includes, libs, assets."""
+    groups = [('', _archive_entries('papa.txt', papa.papa_file))]
+    for include in papa.includes:
+        rel_path = os.path.relpath(include, package_full_path)
+        groups.append((f'      adding {rel_path} {include}', _archive_entries(rel_path, include)))
+    for lib in papa.libs:
+        rel_path = os.path.relpath(lib, package_full_path)
+        if rel_path.startswith('..'):
+            raise Exception(f'lib path {lib} is outside of the package path {package_full_path}')
+        groups.append((f'      adding {rel_path} {lib}', _archive_entries(rel_path, lib)))
+    for asset in papa.assets:
+        groups.append((f'      adding {asset.outpath} {asset}', _archive_entries(asset.outpath, asset.srcpath)))
+    return groups
+
+
+def _write_archive(zip:zipfile.ZipFile, groups:list, config, indent:str):
+    """Writes every entry into the zip. Verbose keeps its per-record lines; regular verbosity gets a
+    progress bar, since a big package (protobuf ships ~100 libs) otherwise looks frozen for minutes."""
+    show_bar = config.print and not config.verbose
+    bar = ProgressBar(sum(size for _, e in groups for _, _, size in e), indent) if show_bar else None
+    for label, entries in groups:
+        if config.verbose and label: console(label)
+        for src, rel, size in entries:
+            zip.write(src, rel)
+            if bar: bar.step(size)  # per file, so one huge include dir still moves the bar
+    if bar: bar.finish()
 
 
 def _zip_path(path: str):
@@ -97,25 +125,10 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     papa = PapaFileInfo(papa_file)
     # create a zip archive with papa.includes, papa.libs and papa.assets
     temp_archive = archive_path + '.tmp'
-    with zipfile.ZipFile(temp_archive, 'w',
-                         compression=zipfile.ZIP_DEFLATED,
-                         compresslevel=8) as zip:
+    groups = _archive_groups(papa, package_full_path)
+    with zipfile.ZipFile(temp_archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=8) as zip:
         if config.verbose: console(f'      root {package_full_path}')
-        zip.write(papa_file, 'papa.txt') # always add the main manifest file
-        for include in papa.includes:
-            rel_path = os.path.relpath(include, package_full_path)
-            if config.verbose: console(f'      adding {rel_path} {include}')
-            _append_files_recursive(zip, rel_path, include)
-        for lib in papa.libs:
-            rel_path = os.path.relpath(lib, package_full_path)
-            if config.verbose: console(f'      adding {rel_path} {lib}')
-            if rel_path.startswith('..'):
-                raise Exception(f'lib path {lib} is outside of the package path {package_full_path}')
-            zip.write(lib, rel_path)
-        for asset in papa.assets:
-            rel_path = asset.outpath
-            if config.verbose: console(f'      adding {rel_path} {asset}')
-            zip.write(asset.srcpath, asset.outpath)
+        _write_archive(zip, groups, config, f'  - {target.name: <16} ')
 
     # move the intermediate archive to the final location
     if os.path.exists(archive_path):

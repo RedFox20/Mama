@@ -14,6 +14,7 @@ from mama.util import normalized_path
 class FakeTarget:
     def __init__(self, build_root: Path):
         build_root.mkdir(parents=True, exist_ok=True)
+        self.name = 'sample_pkg'
         self.config = SimpleNamespace(verbose=False, print=False)
         self._build_root = normalized_path(str(build_root))
 

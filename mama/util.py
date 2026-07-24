@@ -253,6 +253,40 @@ def get_time_str(seconds: float):
     return f'{int(seconds/(24*60*60))}d {int((seconds%(24*60*60))/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
 
 
+class ProgressBar:
+    """In-place `|   <====| NN% (time)` bar: drawn on construction, committed by finish(). Redraws
+    throttle by payload size (100MB every 1%, under ~1MB none) so small payloads never flicker."""
+    def __init__(self, total: int, indent: str = '    '):
+        self.total = total
+        self.indent = indent
+        self.interval = max(1, int((100*1024*1024) / total)) if total else 100
+        self.start = time.time()
+        self.done = 0
+        self.percent = 0
+        console(f'{indent}|{" ":50}<| {0:>3}%', end='')
+
+    def _percent(self) -> int:
+        return int((self.done / self.total) * 100.0) if self.total else 100
+
+    def _draw(self, percent: int, final=False):
+        n = int(percent / 2)
+        progress(f'{self.indent}|{" "*(50-n)}<{"="*n}| {percent:>3}% ({get_time_str(time.time()-self.start)})', final=final)
+
+    def step(self, amount: int):
+        """Advance by `amount` bytes, redrawing only when the throttle allows."""
+        self.done += amount
+        if self.interval >= 100: return
+        percent = self._percent()
+        if abs(self.percent - percent) < self.interval: return
+        self.percent = percent
+        self._draw(percent)
+
+    def finish(self):
+        """Commit the bar on its own line. Always drawn, even when redraws were throttled off, and
+        reports the real percent so a truncated transfer is visible rather than claiming 100%."""
+        self._draw(self._percent(), final=True)
+
+
 def download_file(remote_url:str, local_dir:str, force=False, message=None, name:str=None):
     """Downloads remote_url into local_dir.
     - force=False: use any existing local file without contacting the server.
@@ -265,7 +299,6 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
     if not force and os.path.exists(local_file):
         console(f'{indent}Using locally cached {local_file}')
         return local_file
-    start = time.time()
     if not os.path.exists(local_dir):
         os.makedirs(local_dir, exist_ok=True)
 
@@ -295,33 +328,17 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
         if not size:
             return None
 
-        # for 100MB file, interval = 1
-        # for 10MB file, interval = 10
-        # for 1MB file, interval = 100 (so essentially disabled)
-        report_interval = max(1, int((100*1024*1024) / size))
+        bar = ProgressBar(size, indent)
         transferred = 0
-        lastpercent = 0
-        console(f'{indent}|{" ":50}<| {0:>3}%', end='')
         with open(local_file, 'wb') as output:
             while transferred < size:
                 data = urlfile.read(32*1024) # large chunks plz
                 if not data: break
                 output.write(data)
                 transferred += len(data)
-                if report_interval < 100:
-                    percent = int((transferred / size) * 100.0)
-                    if abs(lastpercent - percent) >= report_interval:
-                        lastpercent = percent
-                        n = int(percent / 2)
-                        right = '=' * n
-                        left = ' ' * int(50 - n)
-                        elapsed = time.time() - start
-                        progress(f'{indent}|{left}<{right}| {percent:>3}% ({get_time_str(elapsed)})')
+                bar.step(len(data))
 
-    # report actual percent here, just incase something goes wrong
-    elapsed = time.time() - start
-    percent = int((transferred / size) * 100.0)
-    progress(f'{indent}|<{"="*50}| {percent:>3}% ({get_time_str(elapsed)})', final=True)
+    bar.finish()
     return local_file
 
 
