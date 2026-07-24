@@ -162,6 +162,17 @@ def is_dir_empty(dir: str): # no files?
     return len(filenames) == 0
 
 
+# Entries mama itself drops into a dep's src_dir, plus `.git` (metadata, not working-tree source).
+_NON_SOURCE_ENTRIES = {'mama.cmake', '.git'}
+
+
+def has_source_content(dir: str) -> bool:
+    """True if `dir` holds anything mama didn't put there - source a wipe would destroy. Counts subdirs
+    (unlike is_dir_empty) and biases to 'source': worst case keeps a stale dir, never loses local work."""
+    if not os.path.exists(dir): return False
+    return any(entry not in _NON_SOURCE_ENTRIES for entry in os.listdir(dir))
+
+
 def has_tag_changed(old_tag_file: str, new_tag: str):
     if not os.path.exists(old_tag_file):
         return True

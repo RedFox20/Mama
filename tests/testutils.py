@@ -46,6 +46,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.update = False
     cfg.clean = False
     cfg.rebuild = False
+    cfg.reclone = False
     cfg.run_cmake_configure = False
     cfg.target = None
     cfg.clean_only.return_value = False  # Mock methods are truthy by default

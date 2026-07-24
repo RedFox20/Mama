@@ -6,7 +6,7 @@ from .dep_source import DepSource
 from ..utils.system import Color, System, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import (is_dir_empty, save_file_if_contents_changed, read_lines_from, path_join,
+from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status)
 
 
@@ -361,6 +361,17 @@ class Git(DepSource):
         return not execute_piped(['git', 'rev-parse', '--verify', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
 
 
+    def _refuse_destructive_clone(self, dep: BuildDependency) -> bool:
+        """True when src_dir has real source but no usable .git (rsync'd sandbox copy, local dev work):
+        cloning over it destroys uncommitted changes, so build as-is. Only `mama wipe` may discard it."""
+        if not has_source_content(dep.src_dir): return False
+        if dep.is_current_target() and dep.config.reclone: return False
+        if dep.config.print:
+            warning(f'  - Target {dep.name: <16} SKIP CLONE (source present, but no usable git repo)')
+            console(f'    Building the source as-is. To discard it and re-clone: mama wipe {dep.name}')
+        return True
+
+
     def _is_detached_head(self, dep: BuildDependency) -> bool:
         """Check if the repository is in detached HEAD state"""
         result = execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
@@ -610,8 +621,10 @@ class Git(DepSource):
         """
         # No valid working tree: nothing on disk, a limbo dir (dropped shim / half-finished clone)
         # with files but no .git, or a .git that's present but corrupt (HEAD unresolvable). None can
-        # be pulled - wipe leftovers, then clone fresh.
+        # be pulled - wipe leftovers, then clone fresh. Unless real source sits there (sandbox rsync,
+        # local dev): that must never be clobbered, so build it as-is.
         if not dep.is_real_clone() or self._is_repo_broken(dep):
+            if self._refuse_destructive_clone(dep): return False
             if dep.source_dir_exists(): self.reclone_wipe(dep)
             self.clone_or_pull(dep)
             return True
