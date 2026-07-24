@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Tuple, TYPE_CHECKING
-import os.path, time
+import os.path, sys, time
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -9,6 +9,7 @@ from .types.artifactory_pkg import ArtifactoryPkg
 
 from .artifactory import artifactory_fetch_and_reconfigure
 from .utils.system import System, console, Color, warning, build_barrier
+from .utils.sub_process import SubProcess
 from .utils.gdb import run_gdb, filter_gdb_arg
 from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
@@ -167,6 +168,47 @@ class BuildTarget:
         """
         if not subpath: return self.dep.build_dir
         return util.path_join(self.dep.build_dir, subpath)
+
+
+    def host_build_dir(self, subpath=''):
+        """This target's build dir for the HOST platform (.../<name>/<host>), a sibling of build_dir(). Where a
+        host tool built by build_host_binary() lands; equals build_dir() on a native host build."""
+        host_dir = util.path_join(os.path.dirname(self.dep.build_dir), self.config.host_platform_name())
+        return util.path_join(host_dir, subpath) if subpath else host_dir
+
+
+    def build_host_binary(self, relpath, auto_build=True):
+        """Ensure a HOST-built binary of this target exists and return its absolute path (None on miss / opt
+        out). For a tool needed WHILE cross-compiling - e.g. protoc, which can't run as the arm64 android
+        binary the target build would produce.
+
+        Cheap-checks the host build dir first, so warm builds and repeated consumers pay nothing. On a miss,
+        when auto_build (default), bootstraps via `mama <host> build target=<name>` in a correctly
+        host-configured child - which fetches the host artifactory package first and only builds on a miss.
+        No foreign config is synthesised in-process (the child owns its own); no-op returning the local path
+        when this build IS the host."""
+        if System.windows and not os.path.splitext(relpath)[1]:
+            relpath += '.exe'  # host tools are executables: spare every caller the host-suffix dance
+        host = self.config.host_platform_name()
+        if self.config.name() == host:
+            local = self.build_dir(relpath)  # already the host: the normal build produced it here
+            return local if os.path.exists(local) else None
+        binary = self.host_build_dir(relpath)
+        if os.path.exists(binary):
+            return binary
+        if not auto_build:
+            return None
+        if self.config.print:
+            console(f'  - {self.name: <16} bootstrapping host binary: mama {host} build target={self.name}', color=Color.BLUE)
+        # sys.executable + the mama.main entry (there's no __main__.py for `python -m mama`); cwd = the root
+        # project so the child resolves the same dependency graph. The child computes the correct host archive
+        # name and does fetch-or-build - no cross-platform naming is attempted from this android-flavoured config.
+        argv = [sys.executable, '-c', 'from mama.main import __main__; __main__()', host, 'build', f'target={self.name}']
+        status = SubProcess.run(argv, cwd=self.config.root_source_dir or os.getcwd())
+        if status != 0:
+            warning(f'  - {self.name: <16} host binary bootstrap failed (mama {host} build target={self.name} exited {status})')
+            return None
+        return binary if os.path.exists(binary) else None
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):

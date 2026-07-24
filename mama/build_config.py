@@ -184,6 +184,9 @@ class BuildConfig:
         self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
         self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
+        # The root project dir (mamabuild sets it from source_dir); cwd for a `mama <host> build` bootstrap
+        # child so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
+        self.root_source_dir = None
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
         else:
@@ -495,6 +498,16 @@ class BuildConfig:
         if self.yocto_linux: return self.yocto_linux.name # imx8mp, oclea, xilinx
         if self.mips:        return self.mips.name
         return 'build'
+
+
+    def host_platform_name(self):
+        """Build-dir / CLI platform name of the HOST mama runs on ('windows'|'linux'|'macos'), independent of
+        the (possibly cross-compiled) target platform. The single source of truth for locating host build dirs
+        and forming a `mama <host> build` bootstrap; mirrors name() for the host. Host arch is left out (as the
+        `windows`/`linux` build-dir names are for x64), which matches every non-arm64-host build."""
+        if System.windows: return 'windows'
+        if System.macos:   return 'macos'
+        return 'linux'
 
 
     ## These are the hard references to all build directory variations

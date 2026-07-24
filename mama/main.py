@@ -271,6 +271,7 @@ def mamabuild(args, source_dir=os.getcwd()):
         exit(0)
 
     config = BuildConfig(args)
+    config.root_source_dir = source_dir  # cwd for any `mama <host> build` bootstrap child (build_host_binary)
     if config.print:
         if config.verbose:
             console(f'Build jobs={config.jobs}')
