@@ -263,18 +263,26 @@ class ProgressBar:
         self.start = time.time()
         self.done = 0
         self.percent = 0
+        self.label = ''
         console(f'{indent}|{" ":50}<| {0:>3}%', end='')
 
     def _percent(self) -> int:
         return int((self.done / self.total) * 100.0) if self.total else 100
 
+    def _tail(self) -> str:
+        """Current item, truncated from the left so the informative filename tail survives."""
+        if not self.label: return ''
+        return f' {self.label}' if len(self.label) <= 32 else f' ...{self.label[-29:]}'
+
     def _draw(self, percent: int, final=False):
         n = int(percent / 2)
-        progress(f'{self.indent}|{" "*(50-n)}<{"="*n}| {percent:>3}% ({get_time_str(time.time()-self.start)})', final=final)
+        bar = f'|{" "*(50-n)}<{"="*n}| {percent:>3}% ({get_time_str(time.time()-self.start)})'
+        progress(f'{self.indent}{bar}{self._tail()}', final=final)
 
-    def step(self, amount: int):
-        """Advance by `amount` bytes, redrawing only when the throttle allows."""
+    def step(self, amount: int, label: str = ''):
+        """Advance by `amount` bytes; `label` names the item in flight, shown on the next redraw."""
         self.done += amount
+        self.label = label
         if self.interval >= 100: return
         percent = self._percent()
         if abs(self.percent - percent) < self.interval: return
@@ -284,6 +292,7 @@ class ProgressBar:
     def finish(self):
         """Commit the bar on its own line. Always drawn, even when redraws were throttled off, and
         reports the real percent so a truncated transfer is visible rather than claiming 100%."""
+        self.label = ''  # at 100% there is no item in flight; keep the committed line clean
         self._draw(self._percent(), final=True)
 
 
