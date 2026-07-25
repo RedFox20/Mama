@@ -6,6 +6,7 @@ from .types.dep_source import DepSource
 from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
+from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, resolve_pinned_version
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, MAMA_SHIM_FILENAME
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
@@ -15,6 +16,12 @@ import mama.package as package
 if TYPE_CHECKING:
     from .build_config import BuildConfig
     from .build_target import BuildTarget
+
+
+# Backstop for the cross-process dep-dir lock: a single dep's shim/clone is seconds-to-minutes, and mama's
+# git_timeout kills a stalled clone (releasing the lock), so a waiter almost never approaches this. If it
+# does, it proceeds unlocked rather than hang - a genuinely stuck holder can't block a build forever.
+_LOAD_LOCK_TIMEOUT_SEC = 300
 
 
 ######################################################################################
@@ -450,11 +457,20 @@ class BuildDependency:
             self._update_dep_name_and_dirs(self.name)
             self.create_build_dir_if_needed()
             if self.dep_source.is_git:
-                loaded_from_pkg = self._try_artifactory_shim()
-            # A clean deletes build dirs; it never needs source. Without this a dep whose shim marker a
-            # PREVIOUS clean removed gets cloned from scratch - minutes of git for a dir we then delete.
-            if not loaded_from_pkg and not conf.clean_only():
-                git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
+                # One cross-process lock over BOTH the shim setup and the checkout: a sibling `mama <host>
+                # build` (build_host_binary's bootstrap) can be materialising this SAME dep_dir, and a
+                # checkout's reclone-wipe rmtree's the ENTIRE dep_dir - so it must never run while another
+                # process shims or clones into it. Keyed on dep_dir; different deps never contend, so parallel
+                # loads stay fully concurrent. Once the checkout returns the tree is a real clone, so the
+                # mamefile parse below is safe unlocked (no other process will wipe a healthy clone).
+                with interprocess_dir_lock(self.dep_dir, timeout=_LOAD_LOCK_TIMEOUT_SEC):
+                    loaded_from_pkg = self._try_artifactory_shim()
+                    # A clean deletes build dirs; it never needs source. Without this a dep whose shim marker a
+                    # PREVIOUS clean removed gets cloned from scratch - minutes of git for a dir we then delete.
+                    if not loaded_from_pkg and not conf.clean_only():
+                        git_changed = self._git_checkout_if_needed() ## pull Git before loading target Mamafile
+            elif not conf.clean_only():
+                git_changed = self._git_checkout_if_needed()  # non-git local source: no shared tree to lock
             target = self._load_target() ## load target for Git and Src
 
         if conf.clean and is_target:
