@@ -491,6 +491,7 @@ class BuildDependency:
         target.settings() ## customization point for project settings
         if self.is_root:
             conf.lock_compiler()  # root settings() is the last prefer_clang/gcc; lock before any dep loads
+            conf.init_platform_toolchain()  # after settings(), so its set_*_toolchain() beats the default probe
             self._update_dep_name_and_dirs(self.name)  # build_dir was computed pre-flip, re-resolve it
         target.dependencies() ## customization point for additional dependencies
 

@@ -752,8 +752,9 @@ class BuildConfig:
             self.cxx_path = self.android.cxx_path()
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
         elif self.yocto_linux:
-            self.cc_path  = f'{self.yocto_linux.cc_prefix}gcc'
-            self.cxx_path = f'{self.yocto_linux.cc_prefix}g++'
+            prefix = self.yocto_linux.gcc_prefix() # accessor, not raw cc_prefix: an uninit toolchain silently picks HOST gcc
+            self.cc_path  = f'{prefix}gcc'
+            self.cxx_path = f'{prefix}g++'
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
@@ -956,6 +957,16 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         This should be abspath such as `/opt/android-sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake`
         """
         self.android.set_toolchain_path(toolchain_file)
+
+
+    def init_platform_toolchain(self):
+        """Resolve the cross-compile toolchain (NDK/sysroot paths) from the default search paths.
+        MUST run after the ROOT mamafile's settings(), so an explicit set_*_toolchain() there wins:
+        each of these is a no-op once settings() already picked a toolchain dir."""
+        if self.android:     self.android.android_home()
+        if self.raspi:       self.raspi_bin()
+        if self.yocto_linux: self.yocto_linux.init_default()
+        if self.mips:        self.mips.init_default()
 
 
     def set_yocto_toolchain(self, toolchain_dir=None, toolchain_file=None):

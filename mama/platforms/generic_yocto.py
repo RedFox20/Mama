@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
 from typing import Callable
-from mama.utils.system import System, console, Color, get_colored_text
+from mama.utils.system import System, console, warning, Color, get_colored_text
 
 
 if TYPE_CHECKING:
@@ -131,21 +131,39 @@ class GenericYocto:
             if not self._set_toolchain_file(toolchain_file):
                 raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
 
+        self.distro_version = self._autodetect_version(self.toolchain_dir)
+
         if self.config.print:
             OK  = get_colored_text('OK', 'green')
             BAD = get_colored_text('NOTFOUND', 'red')
             def get_path_status(path):
                 return OK if path and os.path.exists(path) else BAD
 
-            console(f'Yocto {self.name} TOOLS:     {get_path_status(self.compilers)} {self.compilers}')
-            console(f'      {self.name} SDK path:  {get_path_status(self.sdk_path)} {self.sdk_path}')
-            console(f'      {self.name} sysroot:   {get_path_status(self.sysroot_path)} {self.sysroot_path}')
-            console(f'      {self.name} toolchain: {get_path_status(self.toolchain_file)} {self.toolchain_file}')
+            version = '.'.join(str(x) for x in self.distro_version)
+            tools = 'TOOLS ' + version + ':'
+            console(f'Yocto {self.name} {tools:14} {get_path_status(self.compilers)} {self.compilers}')
+            console(f'      {self.name} SDK path:      {get_path_status(self.sdk_path)} {self.sdk_path}')
+            console(f'      {self.name} sysroot:       {get_path_status(self.sysroot_path)} {self.sysroot_path}')
+            console(f'      {self.name} toolchain:     {get_path_status(self.toolchain_file)} {self.toolchain_file}')
 
         if not os.path.exists(self.compilers):
             raise EnvironmentError(f'''No {self.name} toolchain compilers detected! 
     Default search paths: {paths} 
     Define env {envs[0]} with path to {self.name} tools.''')
+
+
+    def _autodetect_version(self, toolchain_dir):
+        """ Attempts to autodetect the version of the Yocto SDK based on the toolchain_dir name. """
+        if not toolchain_dir:
+            return (1, 0, 0)
+        last_part = os.path.basename(toolchain_dir)
+        if last_part.count('.') == 2: # e.g. 'toolchain-1.0.0' or '5.0.4'
+            import re
+            parts = re.split(r'[-_ +]', last_part) # split using separators
+            # find last part that starts with a digit and looks like a version number, e.g. '1.0' or '5.0.4'
+            version = [p for p in parts if p and '.' in p and p[0].isdigit()][-1]
+            return tuple(int(x) for x in version.split('.') if x.isdigit())
+        return (1, 0, 0)
 
 
     def _set_toolchain_file(self, toolchain_file):

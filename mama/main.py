@@ -180,13 +180,6 @@ def set_target_from_unused_args(config: BuildConfig):
         else:
             config.target = arg
 
-def _init_platform_compilers(config: BuildConfig):
-    """Cross-compile platform setup (NDK/sysroot paths) - config-derived, no dep tree needed."""
-    if config.android:     config.android.android_home()
-    if config.raspi:       config.raspi_bin()
-    if config.yocto_linux: config.yocto_linux.init_default()
-    if config.mips:        config.mips.init_default()
-
 
 def _can_unify(config: BuildConfig) -> bool:
     """True for a plain full build/update that the unified clone+build scheduler handles. Targeted /
@@ -329,7 +322,6 @@ def mamabuild(args, source_dir=os.getcwd()):
     # Plain full build/update -> unified clone+configure+build scheduler; everything else (which
     # needs the fully-loaded tree up front for lookup/filtering) -> classic load->execute path.
     if _can_unify(config):
-        _init_platform_compilers(config)
         execute_unified(root)
         dep = root
         flat_deps = get_flat_deps(root)  # the graph is fully grown by now; keep it defined for the code below
@@ -394,7 +386,6 @@ def mamabuild(args, source_dir=os.getcwd()):
             mama_dirty(root, dep)
             return
 
-        _init_platform_compilers(config)
         if config.build or config.update:  # not for list/deploy/test runs, which build nothing
             print_build_banner(config, len(flat_deps_reverse))
 

@@ -108,7 +108,7 @@ def _executed_deps(args, tmp_path):
          patch('mama.main.execute_task_chain', side_effect=capture), \
          patch('mama.main.execute_task_chain_parallel', side_effect=capture), \
          patch('mama.main.execute_unified'), \
-         patch('mama.main._init_platform_compilers'), patch('mama.main.print_build_banner'):
+         patch('mama.main.print_build_banner'):
         mamabuild(args, source_dir=str(tmp_path))
     return seen.get('names', [])
 
@@ -153,7 +153,7 @@ def _runner_used(args, tmp_path):
          patch('mama.main.execute_task_chain') as serial, \
          patch('mama.main.execute_task_chain_parallel') as parallel, \
          patch('mama.main.execute_unified'), \
-         patch('mama.main._init_platform_compilers'), patch('mama.main.print_build_banner'):
+         patch('mama.main.print_build_banner'):
         mamabuild(args, source_dir=str(tmp_path))
     return 'serial' if serial.called else ('parallel' if parallel.called else 'none')
 
@@ -177,7 +177,7 @@ def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
     with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', [rpc])), \
          patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
          patch('mama.main.execute_unified'), \
-         patch('mama.main._init_platform_compilers'), patch('mama.main.print_build_banner'):
+         patch('mama.main.print_build_banner'):
         mamabuild(['build', 'rpclib'], source_dir=str(tmp_path))
     assert protobuf.should_rebuild     # else rpclib compiles against an include dir that isn't there
 

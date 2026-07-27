@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from testutils import FakeBuildTarget
 from mama import dependency_chain as dc
+from mama.utils import system
 
 
 class _Target(FakeBuildTarget):
@@ -34,11 +35,16 @@ class _Dep:
     def is_real_clone(self): return False  # load label resolves to 'clone'
 
 
+def _cfg():
+    return SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
+                           workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
+                           rebuild=False, update=False, clean=False)
+
+
 def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
     monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
-                          workspaces_root=None, buildstats=False)
+    cfg = _cfg()
     ev, lock = [], threading.Lock()
     # root -> {A (leaf), B -> {C (leaf)}}
     root = _Dep('root', cfg, ev, lock, child_specs=[('A', ()), ('B', [('C', ())])])
@@ -59,8 +65,7 @@ def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
 def test_unified_dedups_a_diamond_dependency(monkeypatch):
     monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
-                          workspaces_root=None, buildstats=False)
+    cfg = _cfg()
     ev, lock = [], threading.Lock()
     d = _Dep('D', cfg, ev, lock)                                   # one shared instance...
     a = _Dep('A', cfg, ev, lock, shared_children=[d])             # ...reached via both A...
@@ -69,3 +74,21 @@ def test_unified_dedups_a_diamond_dependency(monkeypatch):
     names = lambda tag: [n for t, n in ev if t == tag]
     assert names('load').count('D') == 1   # grow() dedups the shared child: cloned once, not per-parent
     assert names('bld').count('D') == 1     # and built once
+
+
+def test_unified_loads_the_root_before_the_display_exists(monkeypatch):
+    """The root's settings() picks the toolchain everything else needs, so it runs first - and its
+    output must reach the terminal instead of a captured task line nobody scrolls back to."""
+    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
+    monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
+    cfg = _cfg()
+    ev, lock = [], threading.Lock()
+    make_display = dc._make_display
+    monkeypatch.setattr(dc, '_make_display', lambda c: (ev.append(('display', '-')), make_display(c))[1])
+    root = _Dep('root', cfg, ev, lock)
+    sinks, load = [], root.load
+    root.load = lambda: (sinks.append(system.capture_context()[0]), load())[1]
+    dc.execute_unified(root)
+
+    assert ev.index(('load', 'root')) < ev.index(('display', '-'))
+    assert sinks[0] is None  # no capture sink: settings() prints to the terminal (the L job replays it captured)

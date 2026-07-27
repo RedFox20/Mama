@@ -961,11 +961,16 @@ def execute_unified(root: BuildDependency):
     """Dynamic DAG scheduler interleaving cloning with configure+build: each dep is a LOAD job whose
     completion GROWS the graph with its children's LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits
     on its own LOAD + its children's BUILDs. So leaf nodes build while deeper deps still clone. Used
-    for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial."""
+    for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial.
+    The ROOT is loaded up front, before the display: everything below it needs what its settings() picks."""
     import time
     from .build_scheduler import Job, LOAD, CONFIGURE, BUILD, assign_priorities
     config = root.config
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
+    # Outside the display on purpose: root settings() output has to land on the terminal, not in a
+    # captured task line, or a mis-picked toolchain/artifactory server is invisible to debug.
+    root.load()
+    print_build_banner(config)  # root settings() has now locked compiler + stdlib
     config.update_stats.start()
     display = _make_display(config)
     sched = _make_scheduler(config, max_load=config.parallel_max, pending_log=display.set_pending)
@@ -991,8 +996,7 @@ def execute_unified(root: BuildDependency):
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
                 return new
             sched.grow(grow)
-        _run_phase(display, dep, 'load', body, sched.build_slot)
-        if dep.is_root: print_build_banner(config)  # root settings() has now locked compiler + stdlib
+        _run_phase(display, dep, 'load', body, sched.build_slot)  # the root's is already done: a no-op replay
 
     def _do_configure(d): _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
     def _do_build(d):

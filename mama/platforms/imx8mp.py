@@ -26,8 +26,6 @@ class Imx8mp(GenericYocto):
         paths += [ '/opt/imx8mp-sdk' ]
         paths += [ 'imx8mp-toolchain' ]
 
-        self.distro_version = (5, 0, 4) # default distro version for i.MX8MP builds, overridden by config
-
         # /opt/imdt-imx-xwayland/5.0.4/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc
         compiler = 'usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc'
         default_toolchain = 'sysroots/x86_64-pokysdk-linux/usr/share/cmake/cortexa53-crypto-poky-linux-toolchain.cmake'

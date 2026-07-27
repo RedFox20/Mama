@@ -8,8 +8,7 @@ def _run(args, tmp_path):
     with patch('mama.main.load_dependency_chain') as load, \
          patch('mama.main.execute_task_chain') as serial, \
          patch('mama.main.execute_task_chain_parallel') as parallel, \
-         patch('mama.main.execute_unified') as unified, \
-         patch('mama.main._init_platform_compilers'):
+         patch('mama.main.execute_unified') as unified:
         mamabuild(args, source_dir=str(tmp_path))
     return load.called, (serial.called or parallel.called or unified.called)
 
