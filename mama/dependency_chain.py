@@ -944,12 +944,29 @@ def _toolchain_name(config) -> str:
         return ''
 
 
+def _platform_name(config) -> str:
+    """'android-36 arm64 ndk-29.0.14206865' / 'linux x64' - the TARGET this run builds FOR. The toolchain
+    alone is ambiguous ('clang 21.0' is both a host clang and the android NDK's), so the banner has to name
+    the platform to prove the right one was picked. '' when unresolvable - a banner must never fail a build."""
+    try:
+        if config.android:
+            ndk = os.path.basename(config.android.android_ndk().rstrip('/\\'))
+            api = config.android.android_api or 'android'  # already 'android-36', so it names the platform
+            return ' '.join(p for p in (api, config.arch, f'ndk-{ndk}' if ndk else '') if p)
+        return ' '.join(p for p in (config.name(), config.arch) if p)
+    except Exception:
+        return ''
+
+
 def print_build_banner(config, count=None):
-    """One-line preview above the first task line: version, command, target count, toolchain. `count` is
-    None on the unified path - its graph grows as deps load, so the total isn't known until it's over."""
+    """One-line preview above the first task line: version, command, target count, platform, toolchain.
+    `count` is None on the unified path - its graph grows as deps load, so the total isn't known until
+    it's over."""
     targets = f' {count} target(s)' if count is not None else ''
+    platform = _platform_name(config)
     toolchain = _toolchain_name(config)
-    console(f'Mama {__version__} {_command_verb(config)}{targets}' + (f' with {toolchain}' if toolchain else ''),
+    console(f'Mama {__version__} {_command_verb(config)}{targets}'
+            + (f' {platform}' if platform else '') + (f' with {toolchain}' if toolchain else ''),
             color=Color.GREEN)
 
 
