@@ -21,9 +21,23 @@ _LANG_FILES = {
 _SHARED_FILES = ['CMakeSystem.cmake']
 _VS_FILES = ['VCTargetsPath.txt']  # VS-generator MSBuild probe result (reusable, toolset-bound)
 _MANIFEST = 'seed.json'
-# ABI facts CMakeDetermineCompilerABI puts in the CACHE, not the compiler module. Seeding skips that probe,
-# so unless replayed every install-RPATH add_executable dies: 'not supported ... unless on an ELF-based platform'.
-_ABI_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE')
+# Cache entries the injected CMakeCache.txt must carry, replayed verbatim from the probe's own cache.
+#
+# The ABI pair is what CMakeDetermineCompilerABI writes to the CACHE, not to the compiler module. Seeding
+# skips that probe, so unless replayed every install-RPATH add_executable dies: 'not supported ... unless
+# on an ELF-based platform'.
+#
+# The compiler and toolchain entries are here for a sharper reason. mama passes -DCMAKE_C_COMPILER and
+# -DCMAKE_CXX_COMPILER on every configure. An injected cache that omits them makes cmake announce 'you have
+# changed variables that require your cache to be deleted', delete the cache MID-CONFIGURE and re-run. The
+# second pass no longer applies CMAKE_TOOLCHAIN_FILE, so a cross build silently re-detects as the host: an
+# android configure came out as CMAKE_SYSTEM_PROCESSOR=x86_64 and every -march the target set then broke.
+_REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
+                      'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
+
+# Bumped when the seed changes shape. An older seed has the SAME fingerprint but replays too few cache
+# lines, so it must be rejected and re-probed rather than silently reused.
+_SEED_FORMAT = 2
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds; fingerprint is the real gate, this is just paranoia
 
 
@@ -81,11 +95,11 @@ def _seed_file_names(langs: list) -> list:
     return names
 
 
-def read_abi_cache_lines(build_dir: str) -> list:
-    """_ABI_CACHE_KEYS lines verbatim from a configured dir's CMakeCache.txt, for inject() to replay."""
+def read_replay_cache_lines(build_dir: str) -> list:
+    """_REPLAY_CACHE_KEYS lines verbatim from a configured dir's CMakeCache.txt, for inject() to replay."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return []
-    return [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _ABI_CACHE_KEYS]
+    return [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
 
 
 def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build_dir='', clock=time.time) -> bool:
@@ -105,9 +119,10 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
             dst = path_join(seed_dir, name)
             shutil.copy2(src, dst + '.tmp'); os.replace(dst + '.tmp', dst)  # atomic: no partial reads
             copied.append(name)
-    manifest = {'created': int(clock()), 'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
+    manifest = {'created': int(clock()), 'format': _SEED_FORMAT,
+                'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
                 'langs': langs, 'files': copied, 'fingerprint': fingerprint, 'probe': probe,
-                'abi_cache': read_abi_cache_lines(build_dir) if build_dir else []}
+                'cache_lines': read_replay_cache_lines(build_dir) if build_dir else []}
     mtmp = path_join(seed_dir, _MANIFEST + '.tmp')
     with open(mtmp, 'w', encoding='utf-8') as f: json.dump(manifest, f)
     os.replace(mtmp, path_join(seed_dir, _MANIFEST))  # manifest last + atomic (load() gates on it)
@@ -119,6 +134,8 @@ def is_valid(manifest, fingerprint: str) -> bool:
     the current one AND the recorded compiler binary still exists. Pure stat/compare - never runs cmake."""
     if not manifest or manifest.get('fingerprint') != fingerprint:
         return False
+    if manifest.get('format') != _SEED_FORMAT:
+        return False  # older shape: replays too few cache lines, so re-probe instead of reusing it
     if not covers_core_langs(manifest.get('langs')):
         return False  # a seed missing C or CXX can't serve a project that enables it
     probe = manifest.get('probe')
@@ -174,7 +191,9 @@ def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str) ->
     if not copied: return False
     cache = (f'CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1\n'
              f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(src_dir)}\n')
-    cache += ''.join(f'{line}\n' for line in manifest.get('abi_cache', []))  # facts the skipped ABI probe would set
+    # ABI facts the skipped probe would set, plus the compiler/toolchain entries whose absence would
+    # make cmake reset the cache mid-configure and lose the toolchain file (see _REPLAY_CACHE_KEYS).
+    cache += ''.join(f'{line}\n' for line in manifest.get('cache_lines', []))
     with open(path_join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f:
         f.write(cache)
     return True

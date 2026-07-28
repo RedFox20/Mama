@@ -127,11 +127,12 @@ def test_publish_refuses_a_seed_missing_a_core_language(tmp_path):
 
 def test_is_valid_rejects_a_single_language_seed(tmp_path):
     # _try_use purges what is_valid rejects, so an on-disk C-only seed self-heals instead of poisoning
-    assert not cc.is_valid({'fingerprint': 'FP', 'langs': ['C']}, 'FP')
-    assert not cc.is_valid({'fingerprint': 'FP', 'langs': ['CXX']}, 'FP')
-    assert not cc.is_valid({'fingerprint': 'FP', 'langs': []}, 'FP')
-    assert cc.is_valid({'fingerprint': 'FP', 'langs': ['C', 'CXX']}, 'FP')
-    assert not cc.is_valid({'fingerprint': 'FP'}, 'FP')  # no langs record -> can't prove it covers C+CXX
+    fp = {'fingerprint': 'FP', 'format': cc._SEED_FORMAT}
+    assert not cc.is_valid({**fp, 'langs': ['C']}, 'FP')
+    assert not cc.is_valid({**fp, 'langs': ['CXX']}, 'FP')
+    assert not cc.is_valid({**fp, 'langs': []}, 'FP')
+    assert cc.is_valid({**fp, 'langs': ['C', 'CXX']}, 'FP')
+    assert not cc.is_valid(fp, 'FP')  # no langs record -> can't prove it covers C+CXX
 
 
 def test_inject_writes_no_marker_when_seed_has_no_files(tmp_path):
@@ -163,13 +164,13 @@ def test_purge_removes_seed(tmp_path):
 
 def test_is_valid_requires_matching_fingerprint_and_live_probe(tmp_path):
     cl = tmp_path / 'cl.exe'; cl.write_text('')
-    m = {'fingerprint': 'FP', 'probe': str(cl), 'langs': ['C', 'CXX']}
+    base = {'fingerprint': 'FP', 'format': cc._SEED_FORMAT, 'langs': ['C', 'CXX']}
+    m = {**base, 'probe': str(cl)}
     assert cc.is_valid(m, 'FP')
     assert not cc.is_valid(m, 'OTHER')                                        # fingerprint changed
-    assert not cc.is_valid({'fingerprint': 'FP', 'probe': str(tmp_path / 'gone.exe'),
-                            'langs': ['C', 'CXX']}, 'FP')  # compiler removed
+    assert not cc.is_valid({**base, 'probe': str(tmp_path / 'gone.exe')}, 'FP')  # compiler removed
     assert not cc.is_valid(None, 'FP') and not cc.is_valid({}, 'FP')
-    assert cc.is_valid({'fingerprint': 'FP', 'langs': ['C', 'CXX']}, 'FP')    # no probe -> fingerprint alone gates
+    assert cc.is_valid(base, 'FP')                                            # no probe -> fingerprint alone gates
 
 
 def test_publish_records_fingerprint_and_probe_so_a_fresh_seed_validates(tmp_path):
@@ -416,3 +417,32 @@ def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
     before = cc.compute_fingerprint(cfg._toolchain_inputs(target))
     opts[1] = 'CMAKE_SYSROOT=/opt/sdk-2.0/sysroot'
     assert cc.compute_fingerprint(cfg._toolchain_inputs(target)) != before
+
+
+def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache(tmp_path):
+    # mama passes -DCMAKE_C/CXX_COMPILER on every configure. An injected cache without them makes cmake
+    # say "you have changed variables that require your cache to be deleted", wipe the cache MID-configure
+    # and re-run WITHOUT the toolchain file - so an android build silently re-detected as host x86_64.
+    build = str(tmp_path / 'A')
+    bf = _fake_build_files(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build,
+        'CMAKE_C_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang\n'
+        'CMAKE_CXX_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang++\n'
+        'CMAKE_TOOLCHAIN_FILE:FILEPATH=/ndk/build/cmake/android.toolchain.cmake\n')
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf, build_dir=build)
+
+    dst = str(tmp_path / 'B')
+    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
+    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
+    assert '/ndk/bin/aarch64-linux-android29-clang' in cache
+    assert '/ndk/bin/aarch64-linux-android29-clang++' in cache
+    assert 'android.toolchain.cmake' in cache   # without this the re-run loses the cross toolchain
+
+
+def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
+    # the older shape has the SAME fingerprint but replays too few cache lines, so reusing it would
+    # reintroduce the cache reset. It must be re-probed instead.
+    old = {'fingerprint': 'FP', 'langs': ['C', 'CXX']}          # no 'format' key
+    assert not cc.is_valid(old, 'FP')
+    assert cc.is_valid({**old, 'format': cc._SEED_FORMAT}, 'FP')
