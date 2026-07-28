@@ -204,7 +204,13 @@ class BuildTarget:
         # project so the child resolves the same dependency graph. The child computes the correct host archive
         # name and does fetch-or-build - no cross-platform naming is attempted from this android-flavoured config.
         argv = [sys.executable, '-c', 'from mama.main import __main__; __main__()', host, 'build', f'target={self.name}']
-        status = SubProcess.run(argv, cwd=self.config.root_source_dir or os.getcwd())
+        # io_func is MANDATORY here: without it the child inherits our stdout, and on a pty it draws its
+        # OWN live region over ours - the two fight for the same rows and strand our task lines in the
+        # scrollback. Captured, its output feeds this target's display line, log and failure replay.
+        def child_output(p, line: str):
+            line = line.rstrip()
+            if line: console(f'  {self.name: <16} | {line}')
+        status = SubProcess.run(argv, cwd=self.config.root_source_dir or os.getcwd(), io_func=child_output)
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed (mama {host} build target={self.name} exited {status})')
             return None

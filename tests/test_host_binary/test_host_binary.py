@@ -75,6 +75,17 @@ def test_cross_miss_bootstraps_then_returns_the_produced_binary(tmp_path):
     assert run.call_args.kwargs['cwd'] == str(tmp_path)   # root project, so the child resolves the graph
 
 
+def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp_path):
+    """An uncaptured child inherits stdout and draws its own live region over ours, tearing the
+    parent's cursor math apart - every child line must come back through console()."""
+    t, dep = _cross_target(tmp_path)
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run, \
+         patch('mama.build_target.console') as console:
+        t.build_host_binary('bin/protoc')
+        run.call_args.kwargs['io_func'](None, '* build J4  protoc  bld 2.1s\n')
+    assert console.call_args.args[0].endswith('| * build J4  protoc  bld 2.1s')
+
+
 def test_cross_bootstrap_failure_returns_none(tmp_path):
     t, dep = _cross_target(tmp_path)
     with patch('mama.build_target.SubProcess.run', return_value=1):
