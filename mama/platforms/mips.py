@@ -20,6 +20,9 @@ class Mips(Platform):
     is_host_runnable = False
     default_arch = 'mipsel'
     supported_arches = ('mips', 'mipsel', 'mips64', 'mips64el')
+    # mipsel keeps the bare `mips` dir, because it is the default and every existing package uses it.
+    # The other three used to share it, so a big-endian build overwrote a little-endian one in place.
+    build_dirs = {'mipsel': 'mips', 'mips': 'mipsbe', 'mips64': 'mips64', 'mips64el': 'mips64el'}
     platform_define = 'MIPS'
     compile_defines = {'MIPS': '1'}
 

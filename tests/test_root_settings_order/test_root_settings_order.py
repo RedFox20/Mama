@@ -7,16 +7,19 @@ from mama.build_config import BuildConfig
 from mama.platforms.imx8mp import Imx8mp
 
 
-class FakeYocto(Imx8mp):
-    """A real Yocto board whose SDK probe is recorded instead of hitting the disk."""
-    def __init__(self, config):
-        super().__init__(config)
-        self.probes = []
-    def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        self.probes.append(toolchain_dir)
-        self.toolchain_dir = toolchain_dir or '/opt/default-sdk'
-        self.compilers = f'{self.toolchain_dir}/bin/'
-        self.cc_prefix = f'{self.compilers}aarch64-poky-linux-'
+def _record_probe(self, toolchain_dir=None, toolchain_file=None):
+    """Stands in for the real SDK probe: records the dir asked for and resolves without touching disk."""
+    self.probes.append(toolchain_dir)
+    self.toolchain_dir = toolchain_dir or '/opt/default-sdk'
+    self.compilers = f'{self.toolchain_dir}/bin/'
+    self.cc_prefix = f'{self.compilers}aarch64-poky-linux-'
+
+
+def fake_yocto_sdk(monkeypatch):
+    """Make every Imx8mp instance record its probes instead of searching /opt."""
+    monkeypatch.setattr(Imx8mp, 'probes', [], raising=False)  # class-level, so an unprobed board has one
+    monkeypatch.setattr(Imx8mp, 'init_toolchain', _record_probe)
+    monkeypatch.setattr(BuildConfig, 'get_gcc_clang_fullversion', lambda self, cc, dumpfullversion: '13.3')
 
 
 ROOT_MAMAFILE = '''import mama
@@ -29,8 +32,7 @@ class project(mama.BuildTarget):
 @pytest.fixture
 def yocto_project(tmp_path, monkeypatch):
     """A root project whose settings() picks a custom SDK dir, on a faked imx8mp platform."""
-    monkeypatch.setattr('mama.build_config.Imx8mp', FakeYocto)
-    monkeypatch.setattr(BuildConfig, 'get_gcc_clang_fullversion', lambda self, cc, dumpfullversion: '13.3')
+    fake_yocto_sdk(monkeypatch)
     (tmp_path / 'mamafile.py').write_text(ROOT_MAMAFILE)
     (tmp_path / 'CMakeLists.txt').write_text('')
     return tmp_path
@@ -66,7 +68,7 @@ def test_root_load_resolves_the_toolchain_after_settings(tmp_path):
 
 
 def test_init_platform_toolchain_keeps_the_dir_settings_already_chose(monkeypatch):
-    monkeypatch.setattr('mama.build_config.Imx8mp', FakeYocto)
+    fake_yocto_sdk(monkeypatch)
     config = BuildConfig(['imx8mp', 'build'])
     config.set_yocto_toolchain('/opt/custom-sdk')
     config.init_platform_toolchain()

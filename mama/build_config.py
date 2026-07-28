@@ -13,6 +13,7 @@ from mama.platforms.windows import Windows
 from mama.platforms.linux import Linux
 from mama.platforms.macos import Macos
 from mama.platforms.platform import Platform
+from mama.platforms.registry import platform_for_arg
 import mama.util as util
 from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
@@ -276,18 +277,7 @@ class BuildConfig:
             elif arg.startswith('coverage-report='):
                 self.coverage_report = arg[16:]
                 self.add_coverage_option()
-            elif arg == 'windows': self.set_platform(msvc=True)
-            elif arg == 'msvc':    self.set_platform(msvc=True)
-            elif arg == 'linux':   self.set_platform(linux=True)
-            elif arg == 'macos':   self.set_platform(macos=True)
-            elif arg == 'ios':     self.set_platform(ios=True)
-            elif arg == 'android': self.set_platform(android=True)
-            elif arg == 'raspi':   self.set_platform(raspi=True)
-            elif arg == 'raspi32': self.set_platform(raspi=True); self.set_arch('arm')
-            elif arg == 'oclea':   self.set_platform(oclea=True)
-            elif arg == 'xilinx':  self.set_platform(xilinx=True)
-            elif arg == 'mips':    self.set_platform(mips=True)
-            elif arg == 'imx8mp':  self.set_platform(imx8mp=True)
+            elif platform_for_arg(arg): self.select_platform_arg(arg)
             elif arg == 'x86':     self.set_arch('x86')
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
@@ -378,6 +368,13 @@ class BuildConfig:
                 return True
         self.set_platform_class(None)
         return True
+
+
+    def select_platform_arg(self, arg: str):
+        """Select the platform a CLI arg names, eg `raspi32` -> Raspi pinned to arm."""
+        cls, arch = platform_for_arg(arg)
+        self.set_platform_class(cls)
+        if arch: self.set_arch(arch)
 
 
     def set_platform_class(self, cls):

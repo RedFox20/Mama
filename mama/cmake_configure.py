@@ -513,10 +513,7 @@ def _platform_opts(target:BuildTarget) -> list:
 
     One dispatch, no per-platform branches: the option lists live with the platforms that own them, so
     adding a platform cannot forget CMAKE_SYSTEM_PROCESSOR or the toolchain-file recording again."""
-    config:BuildConfig = target.config
-    if config.msvc:  # host toolset override, not a cross build
-        return ['CMAKE_GENERATOR_TOOLSET=host=x86'] if config.is_target_arch_x86() else []
-    return config.platform.get_cmake_build_opts(target)
+    return target.config.platform.get_cmake_build_opts(target)
 
 
 def _default_options(target:BuildTarget):

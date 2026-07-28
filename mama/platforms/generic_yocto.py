@@ -67,6 +67,12 @@ class GenericYocto(Platform):
         return self.include_paths
 
 
+    def cmake_toolchain(self):
+        """ {sdk_path}/aarch64_oclea_toolchain.cmake, or '' when the SDK ships none """
+        if not self.compilers: self.init_default()
+        return self.toolchain_file
+
+
     def gcc_prefix(self):
         """ e.g. {sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux- """
         if not self.compilers: self.init_default()
@@ -218,9 +224,10 @@ class GenericYocto(Platform):
         # CMAKE_SYSTEM_NAME and _PROCESSOR go out even with a toolchain file. A seeded compiler cache
         # makes cmake skip system determination, and the processor then falls back to the HOST's.
         opts = [f'{self.platform_define}=TRUE', *cross_system_opts(config, self.system_name, self.system_processor())]
-        if self.toolchain_file:
-            config.announce_once('toolchain', f'Toolchain: {self.toolchain_file}')
-            return opts + [use_toolchain_file(config, self.toolchain_file)]
+        toolchain = self.cmake_toolchain()  # accessor: reading the field skips SDK discovery
+        if toolchain:
+            config.announce_once('toolchain', f'Toolchain: {toolchain}')
+            return opts + [use_toolchain_file(config, toolchain)]
         # NOTE: CMAKE_C_COMPILER and CMAKE_CXX_COMPILER is already configured
         #       by get_preferred_compiler_paths()
         return opts + [

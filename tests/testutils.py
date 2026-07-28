@@ -114,6 +114,13 @@ def make_mock_config(tmp_path, **overrides):
     cfg.yocto_linux = None
     cfg.clang = False
     cfg.gcc = True
+    cfg.clang_stdlib = 'libc++'
+    cfg.clang_tidy_path = None
+    cfg.fortran = ''
+    cfg.flags = None
+    cfg.coverage = None
+    cfg.with_tests = False
+    cfg.buildstats = False
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
@@ -193,7 +200,7 @@ def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **
 def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '13.3'), **config_overrides):
     """A real BuildTarget on a fresh pkg/ dir with the preferred compiler paths mocked - the shared starting
     point for cmake_configure tests. Returns (target, dep)."""
-    sub = tmp_path / 'pkg'; sub.mkdir()
+    sub = tmp_path / 'pkg'; sub.mkdir(exist_ok=True)
     dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False, **config_overrides)
     dep.config.get_preferred_compiler_paths.return_value = compiler
     return dep.target, dep

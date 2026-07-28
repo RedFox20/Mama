@@ -24,6 +24,12 @@ class Windows(Platform):
         return f'msvc{toolset.split(".")[0]}'
 
 
+    def get_cmake_build_opts(self, target) -> list:
+        # host=x86 picks the 32-bit toolset, the only one that can target x86. Not a cross build:
+        # everything else about the compiler comes from the toolset and the Windows SDK.
+        return ['CMAKE_GENERATOR_TOOLSET=host=x86'] if self.arch() == 'x86' else []
+
+
     def exe_suffix(self) -> str:
         return '.exe'
 

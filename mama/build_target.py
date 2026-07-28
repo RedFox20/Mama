@@ -442,7 +442,7 @@ class BuildTarget:
         return (target._get_exported_includes(), target._get_exported_libs(None))
 
 
-    def add_build_dependency(self, all=None, windows=None, linux=None, macos=None, ios=None, android=None):
+    def add_build_dependency(self, all=None, **platforms):
         """
         Manually add a build dependency to prevent unnecessary rebuilds.
 
@@ -451,13 +451,14 @@ class BuildTarget:
         if the dependency file does not exist, then the project will be rebuilt
 
         if your project has no build dependencies, it will always be rebuilt, so make sure
-        to add_build_dependency or export_lib
+        to add_build_dependency or export_lib. @see select() for the platform names.
         ```
             # Note: relative to build directory
             self.add_build_dependency('customProduct.dat')
+            self.add_build_dependency(windows='custom.lib', linux='libcustom.a')
         ```
         """
-        dependency = all if all else self.select(windows, linux, macos, ios, android)
+        dependency = all if all else self.select(**platforms)
         if dependency:
             dependency = util.normalized_join(self.build_dir(), dependency)
             self.build_products.append(dependency)
@@ -741,32 +742,26 @@ class BuildTarget:
             else: self._add_dict_flag(self.cmake_ldflags, flag)
 
 
-    def add_platform_cxx_flags(self, windows=None, linux=None, macos=None, ios=None, android=None):
+    def add_platform_cxx_flags(self, **platforms):
         """
-        Adds C / C++ flags flags depending on configuration platform.
-        Supports many different usages: strings, list of strings, kwargs, or space separate string.
+        Adds C / C++ flags depending on the configuration platform. @see select() for the platform names.
         ```
-            self.add_cxx_flags('-Wall')
-            self.add_cxx_flags(['-Wall', '-std=c++17'])
-            self.add_cxx_flags('-Wall', '-std=c++17')
-            self.add_cxx_flags('-Wall -std=c++17')
+            self.add_platform_cxx_flags(linux='-fPIC', windows='/W4')
+            self.add_platform_cxx_flags(imx8mp=['-Wall', '-std=c++17'])
         ```
         """
-        flags = self.select(windows, linux, macos, ios, android)
+        flags = self.select(**platforms)
         if flags: self.add_cxx_flags(flags)
 
 
-    def add_platform_ld_flags(self, windows=None, linux=None, macos=None, ios=None, android=None):
+    def add_platform_ld_flags(self, **platforms):
         """
-        Adds linker flags depending on configuration platform.
-        Supports many different usages: strings, list of strings, or space separate string.
+        Adds linker flags depending on the configuration platform. @see select() for the platform names.
         ```
-            self.add_platform_ld_flags(windows='/LTCG',
-                                    ios=['-lobjc', '-rdynamic'],
-                                    linux='-rdynamic -s')
+            self.add_platform_ld_flags(windows='/LTCG', ios=['-lobjc', '-rdynamic'], linux='-rdynamic -s')
         ```
         """
-        flags = self.select(windows, linux, macos, ios, android)
+        flags = self.select(**platforms)
         if flags: self.add_ld_flags(flags)
 
 
@@ -805,23 +800,31 @@ class BuildTarget:
             self.add_cmake_options(f'{name}={enabled}')
 
 
-    def add_platform_options(self, msvc=None, linux=None, macos=None, ios=None, android=None):
+    def add_platform_options(self, **platforms):
         """
-        Selectively applies CMake options depending on configuration platform.
+        Selectively applies CMake options depending on the configuration platform.
+        @see select() for the platform names.
         ```
-            self.add_platform_options(msvc='ZLIB_STATIC=TRUE')
+            self.add_platform_options(windows='ZLIB_STATIC=TRUE', raspi='USE_NEON=ON')
         ```
         """
-        defines = self.select(msvc, linux, macos, ios, android)
+        defines = self.select(**platforms)
         if defines: self.cmake_opts += defines
 
 
-    def select(self, msvc, linux, macos, ios, android):
-        if   self.msvc and msvc: return msvc
-        elif self.linux   and linux:   return linux
-        elif self.macos   and macos:   return macos
-        elif self.ios     and ios:     return ios
-        elif self.android and android: return android
+    def select(self, **platforms):
+        """
+        Picks the value whose keyword names the active platform, else None. Every platform name works:
+        `windows`, `linux`, `macos`, `ios`, `android`, `raspi`, `mips`, `oclea`, `xilinx`, `imx8mp`,
+        plus `yocto_linux` for any Yocto board and `msvc` as an alias of `windows`.
+        ```
+            opts = self.select(windows='/W4', linux='-Wall')
+        ```
+        """
+        name = self.config.platform.name
+        if name in platforms: return platforms[name]
+        if name == 'windows' and 'msvc' in platforms: return platforms['msvc']  # historic alias
+        if 'yocto_linux' in platforms and self.yocto_linux: return platforms['yocto_linux']
         return None
 
 
