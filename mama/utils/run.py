@@ -16,11 +16,10 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     args = ' '.join(shell_args[1:]) if shell_args else ''
     #print(f'get_cwd_exe_args: program={program} args={args} cwd={cwd} root_dir={root_dir}')
 
-    # add or remove .exe extension
-    if System.windows and target.msvc and not program.endswith('.exe'):
-        program += '.exe'
-    if (System.linux or System.macos) and (not target.msvc) and program.endswith('.exe'):
-        program = program[:-4]
+    # add or remove the platform's executable suffix
+    suffix = target.config.platform.exe_suffix()
+    if suffix and not program.endswith(suffix): program += suffix
+    elif not suffix and program.endswith('.exe'): program = program[:-4]
 
     if root_dir:
         # if root_dir is set, then command will be run relative to it

@@ -16,32 +16,12 @@ def _get_cmake_path_list(paths):
 
 
 def _get_exported_libs(target):
-    filtered = []
-    allowed = []
-    is_linux_like = False
-    if target.android or target.linux or target.raspi or target.mips or target.yocto_linux:
-        is_linux_like = True
-    elif target.msvc:
-        allowed = ['.lib']
-    elif target.macos:
-        allowed = ['.a', '.dylib', '.bundle']
-    elif target.ios:
-        allowed = ['.a', '.dylib', '.framework']
-
-    #print(f'{target.name: <16} exported: {target.exported_libs}')
-    for lib in target.exported_libs:
-        if not lib: continue
-        if is_linux_like:
-            # for linux-like targets allow .a, .so and versioned .so.1.2.3 files
-            if lib.endswith('.a') or lib.endswith('.so') \
-                or (str.isdigit(lib[-1]) and '.so.' in lib):
-                filtered.append(lib)
-        else:
-            for ext in allowed:
-                if lib.endswith(ext):
-                    filtered.append(lib)
-    #print(f'{target.name: <16} filtered: {filtered}')
-    return filtered
+    """The exported libs this platform can actually link. A versioned ELF name (libfoo.so.1.2.3) is a
+    real link target, so it passes wherever plain .so does."""
+    allowed = target.config.platform.lib_extensions()
+    versioned = '.so' in allowed
+    return [lib for lib in target.exported_libs if lib and
+            (lib.endswith(allowed) or (versioned and '.so.' in lib and lib[-1].isdigit()))]
 
 
 def _get_hierarchical_libs(root: BuildDependency):

@@ -16,6 +16,10 @@ class Ios(Platform):
     default_arch = 'arm64'
     supported_arches = ('arm64',)
     toolchain_override_attr = 'cmake_ios_toolchain'
+    syslib_is_framework = True
+    ide_project_ext = '.xcodeproj'
+    ide_project_is_dir = True
+    ide_open_command = 'open'
 
     def system_processor(self) -> str:
         return 'arm64'  # Apple names it arm64 everywhere, never aarch64

@@ -13,6 +13,10 @@ class Macos(Platform):
     default_arch = 'arm64'
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}
+    syslib_is_framework = True
+    ide_project_ext = '.xcodeproj'
+    ide_project_is_dir = True
+    ide_open_command = 'open'
 
     def distro_version(self) -> tuple:
         version = self.config.macos_version.split('.') + ['0']

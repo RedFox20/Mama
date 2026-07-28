@@ -59,6 +59,7 @@ class Platform:
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
     build_dirs = {}            ## arch to build dir name. An arch that is absent falls back to `name`
+    cxx20_flag = 'c++20'       ## `c++2a` where the toolchain predates the final C++20 name
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -193,6 +194,18 @@ class Platform:
     def lib_extensions(self) -> tuple:
         """Library file extensions this platform links. Used to filter the exported libs."""
         return ('.a', '.so')
+
+
+    ## A system library is named differently per platform: Apple links '-framework Foundation', Linux
+    ## has a real file to find under /usr/lib, and everything else leaves it to the system linker.
+    syslib_is_framework = False
+    syslib_is_searchable = False
+
+    ## The IDE project the platform's own generator emits, and the command that opens it. '' means
+    ## mama falls back to VSCode.
+    ide_project_ext = ''
+    ide_project_is_dir = False
+    ide_open_command = ''
 
 
     def gnu_host_triple(self) -> str:

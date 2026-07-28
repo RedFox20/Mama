@@ -3,12 +3,13 @@ graph) and keeps Unix link order - every lib appears after everything that refer
 from types import SimpleNamespace
 
 from mama import dependency_chain as dc
+from mama.platforms.linux import Linux
 
 
-def _dep(name, libs=(), syslibs=(), children=()):
-    target = SimpleNamespace(exported_libs=list(libs), exported_syslibs=list(syslibs),
-                             android=False, linux=True, raspi=False, mips=False, yocto_linux=False,
-                             msvc=False, macos=False, ios=False)
+def _dep(name, libs=(), syslibs=(), children=(), platform_class=Linux):
+    config = SimpleNamespace(arch='x64')
+    config.platform = platform_class(config)
+    target = SimpleNamespace(exported_libs=list(libs), exported_syslibs=list(syslibs), config=config)
     return SimpleNamespace(name=name, target=target, get_children=lambda: list(children))
 
 

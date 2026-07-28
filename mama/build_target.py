@@ -109,25 +109,14 @@ class BuildTarget:
         self.os_linux   = System.linux
         self.os_macos   = System.macos
         self._set_args(args)
-        self._update_platform_aliases()
         self.dep._update_dep_name_and_dirs(self.name)
         self.init()
-        self._update_platform_aliases() # allow init() to redefine the platform
 
 
-    def _update_platform_aliases(self):
-        self.windows = self.config.msvc and self.os_windows
-        self.msvc    = self.config.msvc
-        self.linux   = self.config.linux
-        self.macos   = self.config.macos
-        self.ios     = self.config.ios
-        self.android = self.config.android
-        self.raspi   = self.config.raspi
-        self.oclea   = self.config.oclea
-        self.xilinx  = self.config.xilinx
-        self.mips    = self.config.mips
-        self.imx8mp  = self.config.imx8mp
-        self.yocto_linux = self.config.yocto_linux
+    @property
+    def windows(self):
+        """ An MSVC build running ON Windows, so the built exe can also be run here. """
+        return self.config.msvc and self.os_windows
 
 
     def _set_args(self, args: List[str]):
@@ -882,10 +871,7 @@ class BuildTarget:
 
     def enable_cxx20(self):
         """Enable C++20 standard"""
-        if self.mips or self.raspi or self.yocto_linux:
-            self._set_cxx_std('c++2a') # older toolchains typically need c++2a
-        else:
-            self._set_cxx_std('c++20')
+        self._set_cxx_std(self.config.platform.cxx20_flag)
 
     def is_enabled_cxx20(self):
         if 'CXX20' in self.args: return True
@@ -1837,3 +1823,11 @@ class BuildTarget:
 
 
 ######################################################################################
+
+
+# The platform flags a mamafile reads off `self`, forwarded from config. Properties, not copies: they
+# used to be copied twice per target, once before init() and once after, so an init() that switched
+# platform would be seen. See README "Platform detection properties".
+for _flag in ('msvc', 'linux', 'macos', 'ios', 'android', 'raspi', 'oclea',
+              'xilinx', 'mips', 'imx8mp', 'yocto_linux'):
+    setattr(BuildTarget, _flag, property(lambda self, name=_flag: getattr(self.config, name)))

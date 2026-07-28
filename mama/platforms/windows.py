@@ -14,6 +14,8 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = ('x86', 'x64', 'arm', 'arm64')
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
+    ide_project_ext = '.sln'
+    ide_open_command = 'start'
 
     def distro_version(self) -> tuple:
         version = _os_version().split('.') + ['0']

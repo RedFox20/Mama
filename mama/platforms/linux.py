@@ -10,6 +10,7 @@ class Linux(Platform):
     name = 'linux'
     supported_arches = ('x86', 'x64', 'arm64')
     build_dirs = {'x64': 'linux', 'x86': 'linux32', 'arm64': 'linuxarm'}
+    syslib_is_searchable = True  # a syslib is a real file to find under /usr/lib
 
     def validate_arch(self, arch: str):
         if arch == 'arm':

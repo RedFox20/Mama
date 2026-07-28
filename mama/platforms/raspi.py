@@ -30,6 +30,7 @@ class Raspi(Platform):
     name = 'raspi'
     arch_aliases = {'raspi32': 'arm'}  # legacy ARMv7
     is_cross = True
+    cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
     is_host_runnable = False
     default_arch = 'arm64'  # every Pi since the 3 is ARMv8
     supported_arches = SUPPORTED_ARCHES

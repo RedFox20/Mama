@@ -193,11 +193,12 @@ def export_assets(target: BuildTarget, assets_path: str, pattern_substrings: lis
 
 
 def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
-    if target.ios or target.macos:
+    platform = target.config.platform
+    if platform.syslib_is_framework:
         if not name.startswith('-framework '):
             raise EnvironmentError(f'Expected "-framework name" but got "{name}"')
         return name # '-framework Foundation'
-    elif target.linux:
+    elif platform.syslib_is_searchable:
         roots = [ "/usr/lib" ]
 
         # They may be located in different places

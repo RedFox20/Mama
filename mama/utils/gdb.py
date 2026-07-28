@@ -25,8 +25,9 @@ def _is_running_leak_sanitizer(target: BuildTarget):
 
 
 def run_gdb(target: BuildTarget, command: str, src_dir=True):
-    if target.android or target.ios or target.raspi or target.mips or target.yocto_linux:
-        console('Cannot run tests for Android, iOS, Raspi, MIPS, Oclea, Xilinx, IMX8MP builds.')
+    platform = target.config.platform
+    if not platform.is_host_runnable:
+        console(f'Cannot run tests for a {platform.name} build: this machine cannot execute them.')
         return # nothing to run
 
     root_dir = target.source_dir() if src_dir else target.build_dir()
@@ -35,19 +36,18 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
 
     cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
 
-    if target.msvc:
-        debugger = f'{exe} {args}'
-    elif _is_running_leak_sanitizer(target):
+    tool = platform.debugger()
+    if tool and _is_running_leak_sanitizer(target):
         warning('LEAK/ADDRESS sanitizer was enabled - GDB would disable LEAK detection, running without GDB')
-        debugger = f'{exe} {args}'
-    elif target.macos:
-        # b: batch, q: quiet, -o r: run
-        # -k bt: on crash, backtrace
-        # -k q: on crash, quit 
+        tool = ''
+    if tool == 'lldb':
+        # b: batch, q: quiet, -o r: run, -k bt: on crash backtrace, -k q: on crash quit
         debugger = f'lldb -b -o r -k bt -k q  -- {exe} {args}'
-    else: # linux
+    elif tool == 'gdb':
         # r: run;  bt: give backtrace;  q: quit when done;
         debugger = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args {exe} {args}'
+    else:
+        debugger = f'{exe} {args}'
 
     if not os.path.exists(exe):
         raise IOError(f'Could not find {exe}')

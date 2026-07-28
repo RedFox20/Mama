@@ -139,30 +139,27 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
         console(f'To fetch source, run: mama unshallow {found.name}')
         return
 
-    if config.msvc:
-        solutions = glob_with_extensions(found.build_dir, ['.sln'])
-        if solutions:
-            execute(f'start {solutions[0]}', echo=True)
-        else:
-            console('Could not find any Visual Studio solutions, using VSCode instead.')
-            execute(f'code {found.src_dir}', echo=True)
+    platform = config.platform
+    project = _find_ide_project(platform, found)
+    if project:
+        execute(f'{platform.ide_open_command} {project}', echo=True)
+        return
 
-    elif config.macos or config.ios:
-        projects = glob_folders_with_name_match(found.build_dir, ['.xcodeproj'])
-        if projects:
-            execute(f'open {projects[0]}', echo=True)
-        else:
-            console('Could not find any Xcode projects, using VSCode instead.')
-            execute(f'code {found.src_dir}', echo=True)
-
+    if platform.ide_project_ext:
+        console(f'Could not find any {platform.ide_project_ext} projects, using VSCode instead.')
     elif config.linux:
         console(f'Using VSCode. You can also try opening this folder with CLion: {found.src_dir}')
-        execute(f'code {found.src_dir}', echo=True)
-        #execute(f'xdg-open', echo=True)
+    execute(f'code {found.src_dir}', echo=True)
 
-    elif config.android:
-        console('Android IDE selection not implemented, using VSCode instead.')
-        execute(f'code {found.src_dir}', echo=True)
+
+def _find_ide_project(platform, dep: BuildDependency) -> str:
+    """The IDE project this platform's own generator emits, '' when it has none or none was built.
+    Visual Studio writes a .sln FILE, Xcode a .xcodeproj DIRECTORY."""
+    if not platform.ide_project_ext: return ''
+    matches = glob_folders_with_name_match(dep.build_dir, [platform.ide_project_ext]) \
+              if platform.ide_project_is_dir else glob_with_extensions(dep.build_dir, [platform.ide_project_ext])
+    return matches[0] if matches else ''
+
 
 _RETIRED_ARGS = {'buildtimes': 'buildstats'}  # removed flags worth naming, so they don't read as a target
 
