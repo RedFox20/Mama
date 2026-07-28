@@ -3,7 +3,7 @@ detect the truncated cache or the stage-1 compiler module, wipe it, reconfigure 
 import os, pytest
 from unittest.mock import patch
 
-from testutils import make_configured_target, write_cmake_cache, write_build_file
+from testutils import make_configured_target, write_cmake_cache, write_build_file, run_config_capturing
 from mama import cmake_configure as cc
 
 COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=Release\n'
@@ -53,16 +53,7 @@ def test_cache_without_generated_build_file_is_repaired(tmp_path):
 
 
 def _run_config_recording(t, dep):
-    """run_config with the cmake call + seed coordinator stubbed; returns the recorded conf calls."""
-    calls = []
-    with patch('mama.cmake_configure._rerunnable_cmake_conf', side_effect=lambda *a, **k: calls.append('conf')), \
-         patch('mama.cmake_configure.compute_env', return_value={}), \
-         patch('mama.cmake_configure._seed_coordinator') as coord, \
-         patch.object(dep, 'get_enabled_sanitizers', return_value=''):
-        coord.return_value.prepare.return_value = 'none'
-        coord.return_value.status.return_value = ('fp', False)
-        cc.run_config(t)
-    return calls
+    return ['conf'] * len(run_config_capturing(t, dep))
 
 
 def test_truncated_cache_is_wiped_and_reconfigured(tmp_path):

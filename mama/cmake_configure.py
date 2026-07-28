@@ -368,7 +368,8 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         outcome = role if not cache_exists else 'skip (CMakeCache exists)'
         console(f'  seed[{target.name}] fp={fp} {"hit" if present else "miss"} -> {outcome}', color=Color.BLUE)
 
-    cmd = f'{target.cmake_command} {generator} {type_flags} {cmake_defines} {install_prefix} "{src_dir}"'
+    cmd = f'{target.cmake_command} {_unused_cli_flag(target)}{generator} {type_flags} {cmake_defines}' \
+          f' {install_prefix} "{src_dir}"'
     try:
         _rerunnable_cmake_conf(cmd, target.build_dir(), True, target, env=compute_env(target), out=out)
     except Exception:
@@ -414,6 +415,14 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=N
             run_build(target, install, extraflags, rerun=False, out=out)
         else:
             raise util.BuildError(f'Build failed for {target.name} (exit code {status})')
+
+
+def _unused_cli_flag(target:BuildTarget) -> str:
+    """Silence cmake's `Manually-specified variables were not used by the project` block. mama always
+    passes CMAKE_C_COMPILER, so every C++-only project reports it, and the warning says nothing about
+    that project. Kept under `verbose`, where it is the only signal that an add_cmake_options() name is
+    misspelled."""
+    return '' if target.config.verbose else '--no-warn-unused-cli '
 
 
 def _generator(target:BuildTarget):

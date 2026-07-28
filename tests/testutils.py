@@ -172,6 +172,22 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     return dep.target, dep
 
 
+def run_config_capturing(target, dep):
+    """Drive cmake_configure.run_config with the cmake call + seed coordinator stubbed. Returns the
+    configure command lines it would have run, so a test can assert on the flags without a real cmake."""
+    from unittest.mock import patch
+    from mama import cmake_configure
+    cmds = []
+    with patch('mama.cmake_configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
+         patch('mama.cmake_configure.compute_env', return_value={}), \
+         patch('mama.cmake_configure._seed_coordinator') as coord, \
+         patch.object(dep, 'get_enabled_sanitizers', return_value=''):
+        coord.return_value.prepare.return_value = 'none'
+        coord.return_value.status.return_value = ('fp', False)
+        cmake_configure.run_config(target)
+    return cmds
+
+
 def write_cmake_cache(build_dir, text):
     """Write a raw CMakeCache.txt into build_dir (created if missing)."""
     os.makedirs(build_dir, exist_ok=True)
