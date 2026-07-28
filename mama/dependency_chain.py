@@ -467,8 +467,13 @@ elseif(APPLE)
     endif()
   endif()
 elseif(RASPI)
+    if(MAMA_CMAKE_ARCH MATCHES "(aarch64)|(AARCH64)|(arm64)|(ARM64)")
+        set(MAMA_ARCH_ARM64 TRUE)
+        {get_build_dir_defines(c.build_dir_raspi64())}
+    else()
         set(MAMA_ARCH_ARM32 TRUE)
         {get_build_dir_defines(c.build_dir_raspi32())}
+    endif()
 elseif(OCLEA)
         set(MAMA_ARCH_ARM64 TRUE)
         set(YOCTO_LINUX ON)

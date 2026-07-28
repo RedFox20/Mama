@@ -7,7 +7,7 @@ from mama.platforms.mips import Mips
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
-from mama.platforms.raspi import Raspi
+from mama.platforms.raspi import Raspi, triple_for_arch
 from mama.platforms.ios import Ios
 import mama.util as util
 from .utils.system import System, console, Color, warning
@@ -173,10 +173,6 @@ class BuildConfig:
         self._msbuild_path = None
         self._msvctools_path = None
         self._vswhere_path = None
-        ## Raspberry PI - Raspi
-        self.raspi_compilers  = ''  ## Raspberry g++ and gcc
-        self.raspi_system     = ''  ## path to Raspberry system libraries
-        self.raspi_include_paths = [] ## path to additional Raspberry include dirs
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -281,6 +277,7 @@ class BuildConfig:
             elif arg == 'ios':     self.set_platform(ios=True)
             elif arg == 'android': self.set_platform(android=True)
             elif arg == 'raspi':   self.set_platform(raspi=True)
+            elif arg == 'raspi32': self.set_platform(raspi=True); self.set_arch('arm')
             elif arg == 'oclea':   self.set_platform(oclea=True)
             elif arg == 'xilinx':  self.set_platform(xilinx=True)
             elif arg == 'mips':    self.set_platform(mips=True)
@@ -341,6 +338,8 @@ class BuildConfig:
             elif arg.startswith('install-gcc-'):   self.convenient_install.append('gcc-' + arg[12:])
             elif arg == 'install-msbuild': self.convenient_install.append('msbuild')
             elif arg.startswith('install-ndk-'): self.convenient_install.append('ndk-' + arg[12:])
+            elif arg == 'install-raspi':   self.convenient_install.append('raspi-arm64')
+            elif arg == 'install-raspi32': self.convenient_install.append('raspi-arm')
             else:
                 self.unused_args.append(arg)
             continue
@@ -421,7 +420,7 @@ class BuildConfig:
             elif self.ios:        self.set_arch('arm64')
             elif self.android:    self.set_arch('arm64')
             elif self.yocto_linux:self.set_arch('arm64')
-            elif self.raspi:      self.set_arch('arm')
+            elif self.raspi:      self.set_arch('arm64')  # every Pi since the 3 is ARMv8
             elif self.mips:       self.set_arch(self.mips.mips_arch)
             else:
                 if System.aarch64:  self.set_arch('arm64')
@@ -435,8 +434,9 @@ class BuildConfig:
                 raise RuntimeError(f'Unsupported arch={self.arch} on {self.yocto_linux.name} platform! Supported=arm64')
             if self.linux and self.arch == 'arm':
                 raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
-            if self.raspi and self.arch != 'arm':
-                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform! Supported=arm')
+            if self.raspi and self.arch not in self.raspi.supported_arches:
+                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform!' + \
+                                   f' Supported={self.raspi.supported_arches}')
             if self.mips and self.arch not in self.mips.supported_arches:
                 raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
 
@@ -530,7 +530,8 @@ class BuildConfig:
     def build_dir_ios(self): return 'ios' # arm64
     def build_dir_android64(self): return 'android'
     def build_dir_android32(self): return 'android32'
-    def build_dir_raspi32(self): return 'raspi'
+    def build_dir_raspi64(self): return Raspi.BUILD_DIR
+    def build_dir_raspi32(self): return Raspi.BUILD_DIR_32
     def build_dir_oclea64(self): return Oclea.BUILD_DIR
     def build_dir_xilinx64(self): return Xilinx.BUILD_DIR
     def build_dir_imx8mp(self): return Imx8mp.BUILD_DIR
@@ -586,7 +587,7 @@ class BuildConfig:
         if self.android:
             if self.is_target_arch_arm64(): return self.build_dir_android64()
             return self.build_dir_android32()
-        if self.raspi: return self.build_dir_raspi32()  # Only 32-bit raspi
+        if self.raspi: return self.raspi.build_dir()
         if self.mips: return self.build_dir_mips()
 
         return self.build_dir_default()
@@ -763,8 +764,8 @@ class BuildConfig:
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.raspi:  # only GCC available for this platform
             ext = '.exe' if System.windows else ''
-            self.cc_path  = f'{self.raspi_bin()}arm-linux-gnueabihf-gcc{ext}'
-            self.cxx_path = f'{self.raspi_bin()}arm-linux-gnueabihf-g++{ext}'
+            self.cc_path  = f'{self.raspi.compiler_prefix()}gcc{ext}'
+            self.cxx_path = f'{self.raspi.compiler_prefix()}g++{ext}'
             self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
         elif self.mips:
             self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
@@ -918,44 +919,6 @@ class BuildConfig:
         if path: paths.append(path)
 
 
-    def raspi_bin(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_compilers
-
-
-    def raspi_sysroot(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_system
-
-
-    def raspi_includes(self):
-        if not self.raspi_compilers: self.init_raspi_path()
-        return self.raspi_include_paths
-
-
-    def init_raspi_path(self):
-        paths = []
-        self.append_env_path(paths, 'RASPI_HOME')
-        self.append_env_path(paths, 'RASPBERRY_HOME')
-        if System.windows: paths += ['/SysGCC/raspberry']
-        elif System.linux: paths += ['/usr/bin/raspberry', '/usr/local/bin/raspberry', '/opt/raspberry']
-        compiler = ''
-        if System.windows: compiler = 'bin/arm-linux-gnueabihf-gcc.exe'
-        elif System.linux: compiler = 'arm-bcm2708/arm-linux-gnueabihf/bin/arm-linux-gnueabihf-gcc'
-        for raspi_path in paths:
-            if os.path.exists(f'{raspi_path}/{compiler}'):
-                if not System.windows:
-                    raspi_path = f'{raspi_path}/arm-bcm2708/arm-linux-gnueabihf/'
-                self.raspi_compilers = f'{raspi_path}/bin/'
-                self.raspi_system    = f'{raspi_path}/arm-linux-gnueabihf/sysroot'
-                self.raspi_include_paths = [f'{raspi_path}/arm-linux-gnueabihf/lib/include']
-                if self.print: console(f'Found RASPI TOOLS: {self.raspi_compilers}\n    sysroot: {self.raspi_system}')
-                return
-        raise EnvironmentError(f'''No Raspberry PI toolchain compilers detected!
-Default search paths: {paths}
-Define env RASPI_HOME with path to Raspberry tools.''')
-
-
     def set_android_toolchain(self, toolchain_file):
         """
         Sets the toolchain file for Android NDK.
@@ -969,7 +932,7 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         MUST run after the ROOT mamafile's settings(), so an explicit set_*_toolchain() there wins:
         each of these is a no-op once settings() already picked a toolchain dir."""
         if self.android:     self.android.android_home()
-        if self.raspi:       self.raspi_bin()
+        if self.raspi:       self.raspi.init_default()
         if self.yocto_linux: self.yocto_linux.init_default()
         if self.mips:        self.mips.init_default()
 
@@ -1323,9 +1286,31 @@ Define env RASPI_HOME with path to Raspberry tools.''')
         execute(f'echo "export ANDROID_NDK_HOME={final_dest}" >> ~/.bashrc')
 
 
+    def install_raspi(self, arch: str):
+        """Install the Raspberry Pi cross toolchain from apt. The packages land in /usr/bin/<triple>-gcc,
+        which Raspi.init_default() already searches, so a build works straight afterwards with no env var."""
+        if System.windows: raise OSError('install-raspi is linux only. On Windows install SysGCC/raspberry')
+        if System.macos:   raise OSError('install-raspi not implemented for macOS')
+        id, _, _ = self.get_distro_info()
+        if id not in ('ubuntu', 'debian'): raise OSError(f'install-raspi only supports ubuntu/debian, not {id}')
+
+        triple = triple_for_arch(arch)
+        console(f'Installing {triple} cross toolchain from apt repositories', color=Color.MAGENTA)
+        execute('sudo apt-get update')
+        execute(f'sudo apt-get install -y gcc-{triple} g++-{triple}')
+
+        gcc = f'/usr/bin/{triple}-gcc'
+        if not os.path.exists(gcc):
+            raise RuntimeError(f'Failed to install the raspi {arch} toolchain: {gcc} is still missing')
+        version = execute_piped([gcc, '-dumpfullversion'], throw=False) or '?'
+        console(f'Installed {triple} gcc {version}', color=Color.GREEN)
+        console(f'Build with: mama build {"raspi" if arch == "arm64" else "raspi32"}')
+
+
     def run_convenient_installs(self):
         for tool in self.convenient_install:
-            if 'clang-' in tool: self.install_clang(tool[6:])
+            if tool.startswith('raspi-'): self.install_raspi(tool[6:])
+            elif 'clang-' in tool: self.install_clang(tool[6:])
             elif 'gcc-' in tool: self.install_gcc(tool[4:])
             elif 'msbuild' in tool: self.install_msbuild()
             elif 'ndk-'    in tool: self.install_ndk(tool[4:])

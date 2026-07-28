@@ -582,9 +582,7 @@ def _default_options(target:BuildTarget):
         if target.enable_cxx_build:
             add_flag('-stdlib', 'libc++')
     elif config.raspi:
-        add_flag('--sysroot', config.raspi_sysroot())
-        for path in config.raspi_includes():
-            add_flag(f'-I {path}')
+        config.raspi.get_cxx_flags(add_flag)
     elif config.yocto_linux:
         config.yocto_linux.get_cxx_flags(add_flag)
     elif config.mips:
