@@ -1,14 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os, re
 
 from .platform import Platform
 from .toolchain import Toolchain
 from mama.utils.system import System, console, warning, Color, get_colored_text
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
-
-if TYPE_CHECKING:
-    from ..build_target import BuildTarget
 
 
 class GenericYocto(Platform):
@@ -208,8 +204,9 @@ class GenericYocto(Platform):
                          system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', version=self.version,
                          tool_prefix=prefix, sysroot=self.sysroot(),
                          include_paths=tuple(self.includes()),
-                         toolchain_file=self.toolchain_file,
-                         # ONLY, so cmake takes the target's libs and headers, never the host's
+                         toolchain_file=self.cmake_toolchain(), toolchain_file_is_complete=True,
+                         # NEVER, so the build system takes the cross binutils named above, and the
+                         # target's own libs and headers instead of the host's
                          find_root_program='NEVER', install_rpath=True)
 
 
@@ -217,31 +214,6 @@ class GenericYocto(Platform):
         # -Wl,--as-needed keeps an embedded binary from linking libraries it never calls, which
         # bloats it and can break at runtime on a resource-constrained device
         add_ld_flag('-Wl,--as-needed')
-
-
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        config = self.config
-        # CMAKE_SYSTEM_NAME and _PROCESSOR go out even with a toolchain file. A seeded compiler cache
-        # makes cmake skip system determination, and the processor then falls back to the HOST's.
-        opts = [f'{self.platform_define}=TRUE', *cross_system_opts(config, self.system_name, self.system_processor())]
-        toolchain = self.cmake_toolchain()  # accessor: reading the field skips SDK discovery
-        if toolchain:
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-            return opts + [use_toolchain_file(config, toolchain)]
-        # NOTE: CMAKE_C_COMPILER and CMAKE_CXX_COMPILER is already configured
-        #       by get_preferred_compiler_paths()
-        return opts + [
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSROOT='+self.sysroot(),
-            'CMAKE_AR='+self.cc_prefix+'ar',
-            'CMAKE_READELF='+self.cc_prefix+'readelf',
-            'CMAKE_STRIP='+self.cc_prefix+'strip',
-            'CMAKE_RANLIB='+self.cc_prefix+'ranlib',
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-        ]
 
 
     def get_gnu_build_env(self, environ: dict = {}):

@@ -2,8 +2,8 @@
 them - it transplants compiler detection only, never project flags. Skipped without cmake."""
 import os, glob, shutil, subprocess
 import pytest
-from mama import cmake_compiler_cache as cc
-from mama.cmake_configure import _SEED_PROJECT
+from mama.buildsys.cmake import compiler_cache as cc
+from mama.buildsys.cmake.configure import _SEED_PROJECT
 
 pytestmark = pytest.mark.skipif(not shutil.which('cmake'), reason='needs a real cmake')
 

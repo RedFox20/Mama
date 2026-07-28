@@ -55,6 +55,7 @@ class Platform:
     default_arch = ''          ## '' means use the host arch
     supported_arches = ()      ## every arch this platform accepts. The first is not special
     build_system = 'make'      ## the build system this platform prefers: make, xcode or visualstudio
+    toolchain_override_attr = ''  ## BuildTarget attribute a mamafile sets to override the toolchain file
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
     build_dirs = {}            ## arch to build dir name. An arch that is absent falls back to `name`
@@ -202,8 +203,3 @@ class Platform:
     def debugger(self) -> str:
         """'gdb', 'lldb' or '' when tests run without one."""
         return 'gdb'
-
-
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        """Build-system options this platform adds. Phase 4 moves this into mama/buildsys/cmake."""
-        return []

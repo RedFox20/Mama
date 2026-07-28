@@ -10,7 +10,7 @@ change; a failed seeded configure self-heals. Pure file/string ops + injected cl
 
 from __future__ import annotations
 import os, shutil, hashlib, json, time, threading
-from .util import path_join, normalized_path, read_text_from
+from mama.util import path_join, normalized_path, read_text_from
 
 # lang -> (compiler module file, ABI probe binary or None)
 _LANG_FILES = {

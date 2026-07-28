@@ -4,7 +4,7 @@ import os, pytest
 from unittest.mock import patch
 
 from testutils import make_configured_target, write_cmake_cache, write_build_file, run_config_capturing
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 
 COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=Release\n'
 NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_BUILD_TYPE:STRING=Release\n'
@@ -84,7 +84,7 @@ def test_killed_detection_is_wiped_and_reconfigured(tmp_path, with_cache):
     t, dep = make_configured_target(tmp_path)
     if with_cache: write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir(), 'build.ninja')
     _write_compiler_module(t.build_dir(), abi_done=False)
-    with patch('mama.cmake_configure._cmake_version_number', return_value='4.3.1'):  # no `cmake --version` shell-out
+    with patch('mama.buildsys.cmake.configure._cmake_version_number', return_value='4.3.1'):  # no `cmake --version` shell-out
         assert _run_config_recording(t, dep) == ['conf']  # the dir looks complete but cmake would trust
     assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeFiles'))  # the stage-1 module: wipe, redetect
 
@@ -93,7 +93,7 @@ def test_a_completed_detection_is_left_alone(tmp_path):
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir(), 'build.ninja')
     _write_compiler_module(t.build_dir(), abi_done=True)
-    with patch('mama.cmake_configure._cmake_version_number', return_value='4.3.1'):
+    with patch('mama.buildsys.cmake.configure._cmake_version_number', return_value='4.3.1'):
         assert _run_config_recording(t, dep) == []  # nothing broken -> no needless reconfigure
 
 

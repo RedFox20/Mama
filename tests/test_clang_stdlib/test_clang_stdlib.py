@@ -1,6 +1,6 @@
 """Pins clang's -stdlib selection: libc++ by default, libstdc++ after use_gcc_stdlib_for_clang()."""
 from testutils import make_mock_local_dep, platform_config
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 from mama.platforms.linux import Linux
 
 

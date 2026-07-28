@@ -16,10 +16,10 @@ from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_di
 from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to
 from .papa_upload import papa_upload_to
-import mama.msbuild as msbuild
+import mama.buildsys.msbuild as msbuild
 import mama.util as util
 from ._version import __version__
-import mama.cmake_configure as cmake
+import mama.buildsys.cmake.configure as cmake
 import mama.package as package
 
 if TYPE_CHECKING:

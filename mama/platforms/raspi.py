@@ -1,14 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os
 
 from .platform import Platform
 from .toolchain import Toolchain
 from mama.utils.system import System, console
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
-
-if TYPE_CHECKING:
-    from ..build_target import BuildTarget
 
 
 # Every Raspberry Pi since the Pi 3 is ARMv8, so arm64 is the default and arm is the legacy path. The
@@ -38,6 +34,7 @@ class Raspi(Platform):
     default_arch = 'arm64'  # every Pi since the 3 is ARMv8
     supported_arches = SUPPORTED_ARCHES
     platform_define = 'RASPI'
+    toolchain_override_attr = 'cmake_raspi_toolchain'
     build_dirs = {'arm64': 'raspi', 'arm': 'raspi32'}
 
     def __init__(self, config):
@@ -127,10 +124,10 @@ class Raspi(Platform):
         ext = '.exe' if System.windows else ''
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc{ext}', cxx=f'{prefix}g++{ext}',
-                         tool_prefix=prefix, sysroot=self.get_sysroot(),
                          include_paths=tuple(self.get_includes()),
-                         # NEVER, not ONLY: the toolchain has no binutils of its own on a distro cross
-                         # package, so cmake must take the compiler tools mama named
+                         # NEVER, not ONLY: a distro cross package ships no binutils of its own, so the
+                         # build system must take the compiler tools mama named. The sysroot goes out as
+                         # a compiler flag instead, because a distro package has none at all.
                          find_root_program='NEVER')
 
 
@@ -141,18 +138,3 @@ class Raspi(Platform):
         sysroot = self.get_sysroot()
         if sysroot: add_flag('--sysroot', sysroot)
         super().get_cxx_flags(add_flag)
-
-
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        config = self.config
-        opts = ['RASPI=TRUE'] + cross_system_opts(config, self.system_name, self.system_processor()) + [
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libs and headers in the target dirs only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-        ]
-        if target.cmake_raspi_toolchain:
-            toolchain = target.source_dir(target.cmake_raspi_toolchain)
-            opts.append(use_toolchain_file(config, toolchain))
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-        return opts

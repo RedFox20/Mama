@@ -7,7 +7,7 @@ import pytest
 from testutils import make_configured_target, set_mock_platform
 from mama.build_config import BuildConfig
 from mama.platforms.raspi import Raspi
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 
 
 def _raspi(arch='arm64', **over):

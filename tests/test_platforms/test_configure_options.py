@@ -2,7 +2,7 @@
 import pytest
 
 from testutils import make_configured_target, set_mock_platform
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.ios import Ios
@@ -150,9 +150,16 @@ def test_a_yocto_board_drops_libraries_it_never_calls(tmp_path, fake_toolchains)
     assert '-Wl,--as-needed' in t.cmake_ldflags
 
 
-def test_mips_defines_itself_and_adds_the_toolchain_libs(tmp_path, fake_toolchains):
-    flags = _cxx_flags(tmp_path, Mips, 'mipsel')
-    assert flags['-DMIPS'] == '1'
+def test_mips_defines_itself(tmp_path, fake_toolchains):
+    assert _cxx_flags(tmp_path, Mips, 'mipsel')['-DMIPS'] == '1'
+
+
+@pytest.mark.parametrize('tool', ['ar', 'readelf', 'strip', 'ranlib'])
+def test_mips_names_the_cross_binutils_it_ships(tool, tmp_path, fake_toolchains):
+    """FIND_ROOT_PATH_MODE_PROGRAM=ONLY restricts cmake's own search to the target root, and mama sets
+    no find root for MIPS, so the tools have to be named or cmake can end up with the host's."""
+    opts = _opts(tmp_path, Mips, 'mipsel')
+    assert any(o.startswith(f'CMAKE_{tool.upper()}=') and o.endswith(f'-{tool}') for o in opts)
 
 
 @pytest.mark.parametrize('platform_class,stdlib', [(Macos, 'libc++'), (Ios, 'libc++'), (Linux, '')])

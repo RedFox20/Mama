@@ -157,6 +157,25 @@ def platform_config(platform_class, arch=None, **overrides):
     return cfg
 
 
+_MAMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mama')
+CMAKE_OPTIONS = 'buildsys/cmake/options.py'  # the ONE module allowed to format a cmake option
+
+
+def grep_mama_sources(needles, skip=()) -> list:
+    """Every `<rel path>:<line no>` under mama/ whose source line holds any of `needles`, skipping the
+    files in `skip`. Backs the layering tests: one module formats a build-system option, never eleven."""
+    hits = []
+    for root, _, files in os.walk(_MAMA_DIR):
+        for f in files:
+            if not f.endswith('.py'): continue
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, _MAMA_DIR).replace('\\', '/')
+            if rel in skip: continue
+            with open(path, encoding='utf-8') as handle:
+                hits += [f'{rel}:{n}' for n, line in enumerate(handle, 1) if any(x in line for x in needles)]
+    return hits
+
+
 def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
                   branch='main', tag='', mamafile=None, **config_overrides):
     """Real BuildDependency wired to a mock BuildConfig + a Git dep_source.
@@ -199,7 +218,7 @@ def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **
 
 def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '13.3'), **config_overrides):
     """A real BuildTarget on a fresh pkg/ dir with the preferred compiler paths mocked - the shared starting
-    point for cmake_configure tests. Returns (target, dep)."""
+    point for cmake configure tests. Returns (target, dep)."""
     sub = tmp_path / 'pkg'; sub.mkdir(exist_ok=True)
     dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False, **config_overrides)
     dep.config.get_preferred_compiler_paths.return_value = compiler
@@ -207,14 +226,14 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
 
 
 def run_config_capturing(target, dep):
-    """Drive cmake_configure.run_config with the cmake call + seed coordinator stubbed. Returns the
+    """Drive cmake configure.run_config with the cmake call + seed coordinator stubbed. Returns the
     configure command lines it would have run, so a test can assert on the flags without a real cmake."""
     from unittest.mock import patch
-    from mama import cmake_configure
+    from mama.buildsys.cmake import configure as cmake_configure
     cmds = []
-    with patch('mama.cmake_configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
-         patch('mama.cmake_configure.compute_env', return_value={}), \
-         patch('mama.cmake_configure._seed_coordinator') as coord, \
+    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
+         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
+         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
          patch.object(dep, 'get_enabled_sanitizers', return_value=''):
         coord.return_value.prepare.return_value = 'none'
         coord.return_value.status.return_value = ('fp', False)

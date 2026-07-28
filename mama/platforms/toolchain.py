@@ -21,7 +21,9 @@ class Toolchain:
     tool_prefix: str = ''        ## path prefix for ar, ranlib, strip and readelf
     sysroot: str = ''            ## target root holding the system headers and libs
     include_paths: tuple = ()    ## extra include dirs the compiler does not find by itself
-    toolchain_file: str = ''     ## a CMake toolchain file the SDK ships. '' if there is none
-    find_root_program: str = ''  ## NEVER or ONLY. '' leaves the find-root modes untouched
+    toolchain_file: str = ''     ## a build-system toolchain file the SDK ships. '' if there is none
+    toolchain_file_is_complete: bool = False  ## the SDK's file already sets the sysroot and the tools
+    find_root_program: str = ''  ## NEVER or ONLY. '' leaves the find-root search modes untouched
     install_rpath: bool = False  ## link with the install rpath. Embedded targets need this
+    host_toolset: str = ''       ## host tool variant, eg 'x86' to build with the 32-bit MSVC toolset
     extra_opts: tuple = ()       ## raw build-system options only this platform needs

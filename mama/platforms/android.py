@@ -1,15 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os
 
 from .platform import Platform
 from .toolchain import Toolchain
 from mama.utils.system import System, console, warning
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
 from mama import util
-
-if TYPE_CHECKING:
-    from ..build_target import BuildTarget
 
 
 # mama arch to the NDK's own tokens: the clang driver name and the ABI dir name.
@@ -26,6 +22,7 @@ class Android(Platform):
     default_arch = 'arm64'
     supported_arches = ('arm64', 'arm')
     build_dirs = {'arm64': 'android', 'arm': 'android32'}
+    toolchain_override_attr = 'cmake_ndk_toolchain'
     compiler_dumpfullversion = False  # the NDK ships clang, which dropped -dumpfullversion
 
     def __init__(self, config):
@@ -189,9 +186,18 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
 
     def _build_toolchain(self) -> Toolchain:
+        # The NDK variables only its own toolchain file understands go through the escape hatch
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
-                         cc=self.cc_path(), cxx=self.cxx_path(),
-                         toolchain_file=self._toolchain_path(), install_rpath=True)
+                         cc=self.cc_path(), cxx=self.cxx_path(), install_rpath=True,
+                         toolchain_file=self._toolchain_path(),
+                         extra_opts=(f'ANDROID_ABI={self.android_abi()}',
+                                     f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
+                                     'ANDROID_ARM_NEON=TRUE',
+                                     f'ANDROID_NDK="{self.android_ndk()}"',
+                                     f'ANDROID_STL={self.android_ndk_stl}',
+                                     f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
+                                     'ANDROID_TOOLCHAIN=clang',
+                                     'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE'))
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
@@ -213,37 +219,13 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
         return os.path.join(self.android_ndk(), 'prebuilt', platform_dir, 'bin', 'make')
 
 
-    def _toolchain_path(self, target: BuildTarget = None) -> str:
-        """The NDK CMake toolchain file. A target override wins, then a mamafile override, then the
-        one the NDK ships."""
-        if target and target.cmake_ndk_toolchain:
-            toolchain = target.cmake_ndk_toolchain
-            if not os.path.isabs(toolchain): toolchain = target.source_dir(toolchain)
-            if os.path.exists(toolchain): return toolchain
+    def _toolchain_path(self) -> str:
+        """The NDK toolchain file: a mamafile override, else the one the NDK ships. A per-target
+        override is resolved by the build system, through `toolchain_override_attr`."""
         if self.toolchain_file and os.path.exists(self.toolchain_file):
             return self.toolchain_file
         toolchain = f'{self.android_ndk()}/build/cmake/android.toolchain.cmake'
         return toolchain if os.path.exists(toolchain) else ''
-
-
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        config = self.config
-        opts = cross_system_opts(config, self.system_name, self.system_processor()) + [
-            f'ANDROID_ABI={self.android_abi()}',
-            f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
-            'ANDROID_ARM_NEON=TRUE',
-            f'ANDROID_NDK="{self.android_ndk()}"',
-            f'ANDROID_STL={self.android_ndk_stl}',
-            f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
-            'ANDROID_TOOLCHAIN=clang',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-            'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE'
-        ]
-        toolchain = self._toolchain_path(target)
-        if toolchain:
-            opts.append(use_toolchain_file(config, toolchain))
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-        return opts
 
 
     def inject_env(self):

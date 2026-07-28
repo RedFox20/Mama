@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
 from .platform import Platform
+from .toolchain import Toolchain
 
 
 class Windows(Platform):
@@ -24,10 +25,10 @@ class Windows(Platform):
         return f'msvc{toolset.split(".")[0]}'
 
 
-    def get_cmake_build_opts(self, target) -> list:
-        # host=x86 picks the 32-bit toolset, the only one that can target x86. Not a cross build:
-        # everything else about the compiler comes from the toolset and the Windows SDK.
-        return ['CMAKE_GENERATOR_TOOLSET=host=x86'] if self.arch() == 'x86' else []
+    def _build_toolchain(self) -> Toolchain:
+        # An x86 target needs the 32-bit host toolset. Everything else about the compiler comes from
+        # the toolset and the Windows SDK, so mama names no compiler path here.
+        return Toolchain(system_name=self.system_name, host_toolset='x86' if self.arch() == 'x86' else '')
 
 
     def exe_suffix(self) -> str:

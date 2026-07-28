@@ -1,7 +1,7 @@
 import os
-from .utils.system import console
-from .build_config import BuildConfig
-from .utils.sub_process import SubProcess
+from mama.utils.system import console
+from mama.build_config import BuildConfig
+from mama.utils.sub_process import SubProcess
 
 
 def _run_msbuild(cmd, cwd, config:BuildConfig):

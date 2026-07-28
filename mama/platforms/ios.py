@@ -1,12 +1,9 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os
 
 from .platform import Platform
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
-
-if TYPE_CHECKING:
-    from ..build_target import BuildTarget
+from .toolchain import Toolchain
 
 
 class Ios(Platform):
@@ -18,6 +15,7 @@ class Ios(Platform):
     is_host_runnable = False  # an arm64 device binary does not run on the mac that built it
     default_arch = 'arm64'
     supported_arches = ('arm64',)
+    toolchain_override_attr = 'cmake_ios_toolchain'
 
     def system_processor(self) -> str:
         return 'arm64'  # Apple names it arm64 everywhere, never aarch64
@@ -54,15 +52,9 @@ class Ios(Platform):
         return ''  # tests cannot run on the host, so there is nothing to debug
 
 
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        config = self.config
-        opts = ['IOS_PLATFORM=OS'] + cross_system_opts(config, self.system_name, self.system_processor()) + [
-            'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
-            'CMAKE_OSX_ARCHITECTURES=arm64', # ALWAYS ARM64
-            'CMAKE_OSX_SYSROOT=iphoneos',
-        ]
-        if target.cmake_ios_toolchain:
-            toolchain = target.source_dir(target.cmake_ios_toolchain)
-            opts.append(use_toolchain_file(config, toolchain))
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-        return opts
+    def _build_toolchain(self) -> Toolchain:
+        # Xcode SDK selection has no build-system-neutral form, so it goes through the escape hatch
+        return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
+                         extra_opts=('IOS_PLATFORM=OS', 'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
+                                     'CMAKE_OSX_ARCHITECTURES=arm64',  # ALWAYS ARM64
+                                     'CMAKE_OSX_SYSROOT=iphoneos'))

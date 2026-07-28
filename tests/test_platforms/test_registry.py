@@ -81,7 +81,7 @@ def test_no_two_platform_and_arch_pairs_share_a_build_dir():
             dirs[name] = f'{platform_class.name}/{arch}'
 
 
-_HOOKS = ('get_cmake_build_opts', 'get_cxx_flags', 'get_ld_flags', 'init_toolchain', 'init_default',
+_HOOKS = ('_build_toolchain', 'get_cxx_flags', 'get_ld_flags', 'init_toolchain', 'init_default',
           'build_dir_name', 'distro_version', 'compiler_version_tag', 'lib_extensions', 'inject_env')
 
 
