@@ -264,7 +264,7 @@ class ProgressBar:
         self.done = 0
         self.percent = 0
         self.label = ''
-        console(f'{indent}|{" ":50}<| {0:>3}%', end='')
+        self._draw(0)  # via progress(), so a headless run throttles the opening bar like every redraw
 
     def _percent(self) -> int:
         return int((self.done / self.total) * 100.0) if self.total else 100

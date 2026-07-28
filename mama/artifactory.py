@@ -181,7 +181,7 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 left = '=' * n
                 right = ' ' * int(50 - n)
                 progress(f'{indent}|{left}>{right}| {percent:>3} %')
-        console(f'{indent}|>{" ":50}| {0:>3} %', end='')
+        progress(f'{indent}|>{" ":50}| {0:>3} %')  # via progress(), so a headless run throttles it
         # chdir into FTP_ROOT/target_name/
         try:
             ftp.cwd(target_name)

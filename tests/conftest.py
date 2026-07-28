@@ -11,6 +11,14 @@ sys.path.insert(0, _repo_root)
 
 
 @pytest.fixture
+def interactive_terminal(monkeypatch):
+    """Pretend stdout is a terminal. pytest captures stdout, so is_headless() reads True by default and
+    every progress redraw would throttle away."""
+    from mama.utils import system
+    monkeypatch.setattr(system, 'is_headless', lambda: False)
+
+
+@pytest.fixture
 def no_cmake_writes(monkeypatch):
     """Silence the two disk writes every execute_unified run does. The scheduler fakes have no build
     dir, so mama.cmake and c_cpp_properties.json have nowhere to go."""

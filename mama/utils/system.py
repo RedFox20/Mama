@@ -1,4 +1,4 @@
-import sys, subprocess, platform, threading, contextlib
+import os, sys, subprocess, platform, threading, contextlib, time
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -55,6 +55,36 @@ _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
 _active_display = None  # duck-typed BuildDisplay; routes normal lines above its live region
 _capture = threading.local()  # per-thread sink: a running job's console() lines go to its display task
+
+# Set by GitHub Actions and GitLab CI (CI), Azure Pipelines, Jenkins and TeamCity.
+_CI_ENV_VARS = ('CI', 'TF_BUILD', 'JENKINS_URL', 'TEAMCITY_VERSION')
+_HEADLESS_PROGRESS_INTERVAL = 5.0  # seconds between progress redraws when nothing can redraw in place
+_headless = None  # tri-state cache for is_headless()
+_progress_at = threading.local()  # per-thread time of the last headless progress redraw
+
+
+def is_headless() -> bool:
+    """True when no terminal redraws a progress bar in place: a CI runner, or a piped or redirected
+    stdout. Decided ONCE - the environment and the output stream are constant for the whole process."""
+    global _headless
+    if _headless is None:
+        isatty = getattr(sys.stdout, 'isatty', lambda: False)  # a redirected stdout may not have it
+        _headless = any(os.environ.get(v) for v in _CI_ENV_VARS) or not isatty()
+    return _headless
+
+
+def _redraw_due() -> bool:
+    """True when a progress redraw may print. Without a terminal a redraw appends a line instead of
+    overwriting one, so a CI log collects one flood of bars per download. Throttle those to one line
+    per _HEADLESS_PROGRESS_INTERVAL per thread, and let the first call only start the timer, so a
+    transfer that finishes inside one interval prints its final line and nothing else. A captured
+    redraw is exempt: it feeds the live display, which already decides what reaches the screen."""
+    if not is_headless() or getattr(_capture, 'sink', None) is not None: return True
+    now = time.monotonic()
+    last = getattr(_progress_at, 'at', None)
+    due = last is not None and (now - last) >= _HEADLESS_PROGRESS_INTERVAL
+    if due or last is None: _progress_at.at = now
+    return due
 
 
 def set_active_display(display):
@@ -139,7 +169,9 @@ def console(text:str, color=None, end="\n"):
 
 def progress(text:str, color=None, final=False):
     """Redraw an in-place progress line, always cleared to end-of-line. `final=True`
-    commits it with a newline; otherwise the cursor stays put for the next redraw."""
+    commits it with a newline; otherwise the cursor stays put for the next redraw. A final line always
+    prints; see _redraw_due() for why the rest throttle without a terminal."""
+    if not final and not _redraw_due(): return
     console('\r' + text, color=color, end='\n' if final else '')
 
 

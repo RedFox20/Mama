@@ -1,5 +1,6 @@
 """Parallel-aware console() finalizer: progress redraws + status lines must not tear."""
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,7 @@ from mama.utils import system
 @pytest.fixture
 def reset_progress_state():
     system._progress_active = False
+    if hasattr(system._progress_at, 'at'): del system._progress_at.at  # else the headless throttle leaks between tests
     yield
     system._progress_active = False
 
@@ -60,7 +62,7 @@ class TestProgressFinalization:
 
 
 class TestProgressHelper:
-    def test_redraw_clears_to_eol(self, capsys, reset_progress_state):
+    def test_redraw_clears_to_eol(self, capsys, reset_progress_state, interactive_terminal):
         system.progress('  50% |')
         assert capsys.readouterr().out == f'\r  50% |{system._ERASE_EOL}'
 
@@ -82,3 +84,37 @@ class TestThreadSafety:
         # Every message must appear intact exactly once on its own line.
         lines = [l for l in out.split('\n') if l]
         assert sorted(lines) == sorted(msgs)
+
+
+class TestHeadlessThrottle:
+    """No terminal (a CI runner or a redirected stdout): a redraw appends a line instead of
+    overwriting one, so the bars throttle to one every _HEADLESS_PROGRESS_INTERVAL."""
+
+    def test_a_fast_transfer_prints_only_its_final_line(self, capsys, reset_progress_state):
+        for pct in (10, 40, 90): system.progress(f'  {pct}% |')
+        assert capsys.readouterr().out == ''
+        system.progress('  100% |', final=True)
+        assert '100%' in capsys.readouterr().out
+
+    def test_a_slow_transfer_prints_one_line_per_interval(self, capsys, reset_progress_state, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(system, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+        system.progress('  10% |')                              # starts the timer, prints nothing
+        clock[0] += system._HEADLESS_PROGRESS_INTERVAL - 0.1
+        system.progress('  40% |')
+        assert capsys.readouterr().out == ''
+        clock[0] += 0.2
+        system.progress('  70% |')
+        assert '70%' in capsys.readouterr().out
+
+    def test_a_captured_redraw_still_reaches_the_display(self, capsys, reset_progress_state):
+        sink = []
+        with system.capture_to(sink.append):
+            for pct in (10, 40): system.progress(f'  {pct}% |')
+        assert sink == ['  10% |', '  40% |']  # the display owns this line and decides what to render
+
+    def test_a_ci_env_var_forces_headless_even_on_a_terminal(self, monkeypatch):
+        monkeypatch.setattr(system, '_headless', None)
+        monkeypatch.setattr(system.sys.stdout, 'isatty', lambda: True, raising=False)
+        monkeypatch.setenv('CI', 'true')
+        assert system.is_headless()

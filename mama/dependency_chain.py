@@ -630,7 +630,7 @@ def _make_display(config):
     from .utils.build_display import BuildDisplay
     from .utils.log_writer import open_build_log
     out = sys.stdout
-    isatty = bool(getattr(out, 'isatty', lambda: False)())
+    isatty = not system.is_headless()  # a CI runner with a pty still must not get cursor-up escapes
     root = config.workspaces_root
     log = open_build_log(os.path.join(root, 'packages', 'mamabuild.log')) if root else None
     return BuildDisplay(out, isatty=isatty, clock=time.monotonic,

@@ -13,7 +13,8 @@ from mama.papa_upload import (_archive_entries, _write_archive, _write_file, _co
 
 
 @pytest.fixture(autouse=True)
-def reset_progress_state():
+def reset_progress_state(interactive_terminal):
+    # these pin the size-based redraw throttle, which only runs when a terminal can redraw in place
     yield
     system._progress_active = False  # a bar left mid-redraw makes the next test's console() insert \n
 
