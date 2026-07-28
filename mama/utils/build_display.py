@@ -32,6 +32,63 @@ _DIAG_RE = re.compile(r'\bcmake\s+(?P<cm>error|warning)\b|\b(?P<sev>error|warnin
 _CMAKE_HEAD = re.compile(r'^cmake\s+(error|warning)\b', re.IGNORECASE)
 _MAX_BODY = 8  # continuation lines kept per cmake block, so one chatty warning can't bury the rest
 
+# GCC and Clang wrap a diagnostic in context. The lines BEFORE it name the call site - which template
+# instantiated this, or which of the user's functions this system header got inlined into - and that is
+# where the bug usually is. The numbered source snippet AFTER it shows the expression that broke.
+# Without both, a diagnostic reads as one line pointing deep inside a header nobody edited.
+# The `In function` header carries no file prefix when it opens an inlining chain, so the prefix is
+# optional here; `inlined from` and `from` are its indented continuation lines.
+_DIAG_ROLE = (r'In (instantiation of|substitution of|(static |member |lambda )*function|constructor|destructor)\b'
+              r'|At global scope:')
+_DIAG_CONTEXT = re.compile(r'^(In file included from |\s+(inlined )?from \S'
+                           rf'|(.*:\s+)?({_DIAG_ROLE})'
+                           r'|.*:\s+(recursively )?required (from|by)\b'
+                           r'|.*:\s*note:\s+in instantiation of\b)')
+_DIAG_SNIPPET = re.compile(r'^\s*(\d+\s*\||\||[\^~])')  # `  566 | expr` and `      |     ~~~^~~~`
+_DIAG_NOTE = re.compile(r'.*:\s*note:\s')
+_MAX_CONTEXT = 5  # an instantiation chain runs dozens deep; the innermost frames are the useful ones
+_MAX_SNIPPET = 3  # the numbered source line plus its caret line, and one spare for a multi-line caret
+_MAX_NOTES = 2    # clang reports the instantiation site in the notes AFTER the error, not above it
+
+
+def _diag_context(lines, i):
+    """The instantiation chain immediately above the diagnostic at `i`, outermost frame first."""
+    out = []
+    j = i - 1
+    while j >= 0 and len(out) < _MAX_CONTEXT:
+        text = _ANSI_RE.sub('', lines[j]).rstrip()
+        if not _DIAG_CONTEXT.match(text): break
+        out.append(text if text[:1].isspace() else text.strip())  # keep an include chain's alignment
+        j -= 1
+    return list(reversed(out))
+
+
+def _diag_snippet(lines, i):
+    """The source snippet the compiler prints under a diagnostic. Returns (snippet, next_i). Leading
+    whitespace is kept, so the caret still points at the right column."""
+    out = []
+    while i < len(lines) and len(out) < _MAX_SNIPPET:
+        text = _ANSI_RE.sub('', lines[i]).rstrip()
+        if not _DIAG_SNIPPET.match(text): break
+        out.append(text)
+        i += 1
+    return out, i
+
+
+def _diag_trailer(lines, i):
+    """Everything the compiler prints under a diagnostic: the source snippet, then the `note:` lines with
+    their own snippets. Clang reports the instantiation site in those notes rather than above the error,
+    so without them a Clang template failure keeps the same one-line-inside-a-header problem."""
+    out, i = _diag_snippet(lines, i)
+    for _ in range(_MAX_NOTES):
+        if i >= len(lines): break
+        text = _ANSI_RE.sub('', lines[i]).rstrip()
+        if not _DIAG_NOTE.match(text): break
+        out.append(text.strip())
+        snippet, i = _diag_snippet(lines, i + 1)
+        out += snippet
+    return out, i
+
 
 def _cmake_body(lines, i):
     """A cmake diagnostic is a header plus an INDENTED body that ends on a blank pair - scanning by line
@@ -70,7 +127,9 @@ def scan_diagnostics(lines, limit=8):
             body, i = _cmake_body(lines, i)
             if body: text = text + '\n' + '\n'.join(body)
         else:
-            i += 1
+            context = _diag_context(lines, i)
+            trailer, i = _diag_trailer(lines, i + 1)
+            if context or trailer: text = '\n'.join(context + [text] + trailer)
         if text in seen: continue
         seen.add(text)
         severity = (m.group('cm') or m.group('sev')).lower()

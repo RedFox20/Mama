@@ -530,3 +530,70 @@ def test_print_above_after_close_still_reaches_the_terminal():
     out.truncate(0); out.seek(0)
     d.print_above('  - Target foo   OK')
     assert 'Target foo' in strip(out.getvalue())
+
+
+_GCC_TEMPLATE_ERROR = [
+    '[42/180] Building CXX object CMakeFiles/krattgcs.dir/src/main.cpp.o',
+    'In file included from /w/src/link.h:9,',
+    '                 from /w/src/main.cpp:3:',
+    "/w/pkg/rpp/delegate.h: In instantiation of 'void rpp::delegate<R(A ...)>::reset(Obj*, MemFun)':",
+    "/w/src/link.h:120:31:   required from 'void Link::bind() [with T = Telemetry]'",
+    '/w/src/main.cpp:88:17:   required from here',
+    "/w/pkg/rpp/delegate.h:566:27: error: must use '.*' or '->*' to call pointer-to-member function",
+    '  566 |         return (obj->func)(args...);',
+    '      |                 ~~~~~~~~~^~~~~~~~~~',
+    'ninja: build stopped: subcommand failed.',
+]
+
+
+def test_a_template_error_keeps_the_instantiation_site():
+    """One line pointing inside a header nobody edited is useless - the bug lives at the call site that
+    instantiated the template, which GCC prints ABOVE the error."""
+    diags, n_err, _ = scan_diagnostics(_GCC_TEMPLATE_ERROR)
+    text = diags[0][1]
+    assert n_err == 1
+    assert '/w/src/main.cpp:88:17:   required from here' in text   # the call site the user has to fix
+    assert 'In instantiation of' in text
+    assert 'return (obj->func)(args...);' in text                  # the expression that broke
+    assert 'ninja: build stopped' not in text
+
+
+def test_a_clang_template_error_keeps_the_note_that_names_the_site():
+    # clang reports the instantiation site in a `note:` AFTER the error, not above it
+    diags, n_err, _ = scan_diagnostics([
+        "/w/src/main.cpp:88:17: error: no matching member function for call to 'reset'",
+        '   88 |     d.reset(this, &Link::onData);',
+        '      |     ~~^~~~~',
+        "/w/pkg/rpp/delegate.h:566:10: note: in instantiation of function template specialization "
+        "'Link::bind<Telemetry>' requested here",
+        'ninja: build stopped: subcommand failed.'])
+    assert n_err == 1 and "'Link::bind<Telemetry>' requested here" in diags[0][1]
+
+
+def test_a_deep_instantiation_chain_keeps_the_innermost_frames():
+    lines = ([f"/w/h.h:{i}:1:   required from 'void f{i}()'" for i in range(20)]
+             + ['/w/h.h:99:1: error: no match'])
+    text = scan_diagnostics(lines)[0][0][1]
+    assert text.count('required from') == 5          # _MAX_CONTEXT, not all 20
+    assert "'void f19()'" in text and "'void f0()'" not in text  # the frames nearest the error
+
+
+def test_context_lines_are_not_re_reported_as_their_own_diagnostics():
+    _, n_err, n_warn = scan_diagnostics(_GCC_TEMPLATE_ERROR)
+    assert (n_err, n_warn) == (1, 0)
+
+
+def test_an_inlined_system_header_warning_keeps_the_callers_that_inlined_it():
+    """A -Wstringop-overread inside string_fortified.h is unfixable as one line: the caller GCC inlined
+    it into is the code that passes the wrong size. That chain has no file prefix on its header line."""
+    diags, _, n_warn = scan_diagnostics([
+        "In function 'void* memcpy(void*, const void*, size_t)',",
+        "    inlined from 'void Telemetry::packHeader(const Frame&)' at /w/src/telemetry.cpp:212:11,",
+        "    inlined from 'void Telemetry::send(const Frame&)' at /w/src/telemetry.cpp:240:9:",
+        '/usr/include/bits/string_fortified.h:29:33: warning: reading 50 bytes from a region of size 35',
+        '   29 |   return __builtin___memcpy_chk (__dest, __src, __len);',
+        "/w/src/telemetry.cpp:208:18: note: source object 'hdr' of size 35"])
+    text = diags[0][1]
+    assert n_warn == 1
+    assert '/w/src/telemetry.cpp:240:9' in text     # the caller that passes the wrong size
+    assert "note: source object 'hdr' of size 35" in text
