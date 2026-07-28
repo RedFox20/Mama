@@ -2,6 +2,7 @@ import os
 from typing import Callable
 from mama.utils.system import System, console
 from mama.util import path_join, read_lines_from
+from mama.cmake_configure import cross_system_opts, use_toolchain_file
 
 class Mips:
     def __init__(self, config):
@@ -107,18 +108,14 @@ class Mips:
         for path in self.includes():
             add_flag(f'-I {path}')
 
-    def get_cmake_build_opts(self) -> list:
+    def get_cmake_build_opts(self, target) -> list:
         if self.toolchain_file:
             self.config.announce_once('toolchain', f'MIPS Toolchain: {self.toolchain_file}')
-            return [
-                'MIPS=TRUE',
-                f'CMAKE_TOOLCHAIN_FILE="{self.toolchain_file}"'
-            ]
+            return ['MIPS=TRUE', use_toolchain_file(self.config, self.toolchain_file)]
         opt = [
             'MIPS=TRUE',
-            'CMAKE_SYSTEM_NAME=Linux',
+            *cross_system_opts(self.config, 'Linux', self.mips_arch),
             'CMAKE_SYSTEM_VERSION=1',
-            f'CMAKE_SYSTEM_PROCESSOR={self.mips_arch}',
             'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=ONLY', # Search for compiler tools
             'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
             'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',

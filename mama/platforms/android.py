@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import os
 from mama.utils.system import Color, System, console
-from mama.cmake_configure import _make_program
+from mama.cmake_configure import _make_program, cross_system_opts, use_toolchain_file
 from mama import util
 
 if TYPE_CHECKING:
@@ -212,8 +212,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
     def get_cmake_build_opts(self, target: BuildTarget) -> list:
         arch = 'ARM64' if self.config.is_target_arch_arm64() else 'arm'
-        opts = [
-            'CMAKE_SYSTEM_NAME=Android',
+        opts = cross_system_opts(self.config, 'Android') + [
             f'ANDROID_ABI={self.android_abi()}',
             f'ANDROID_ARCH={arch}',
             'ANDROID_ARM_NEON=TRUE',
@@ -235,7 +234,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
             toolchain = f'{self.android_ndk()}/build/cmake/android.toolchain.cmake'
 
         if toolchain:
-            opts.append(f'CMAKE_TOOLCHAIN_FILE="{toolchain}"')
+            opts.append(use_toolchain_file(self.config, toolchain))
             self.config.announce_once('toolchain', f'Toolchain: {toolchain}')
 
         make = self._get_make(target)

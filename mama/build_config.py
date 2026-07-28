@@ -7,6 +7,8 @@ from mama.platforms.mips import Mips
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
+from mama.platforms.raspi import Raspi
+from mama.platforms.ios import Ios
 import mama.util as util
 from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
@@ -65,11 +67,11 @@ class UpdateStats:
         return f'Updated {self.total} target(s): {", ".join(parts)} in {get_time_str(self._duration)}'
 
 
-###
-# Mama Build Configuration is created only once in the root project working directory
-# This configuration is then passed down to dependencies
-#
 class BuildConfig:
+    """
+    Mama Build Configuration is created only once in the root project working directory.
+    This configuration is then passed down to dependencies.
+    """
     @staticmethod
     def _default_build_jobs() -> int:
         """Default parallel build jobs. Linux leaves ONE core free so a perfectly-parallel build can't
@@ -181,6 +183,9 @@ class BuildConfig:
         self.parallel_load = False  ## Whether to load dependencies in parallel?
         self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
         self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
+        # The toolchain file a platform picked, '' for a native build. cmake_configure records it and
+        # reads it back: a toolchain file owns compiler selection, so mama must not name a compiler too.
+        self.cmake_toolchain_file = ''
         self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
         self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
@@ -378,9 +383,9 @@ class BuildConfig:
         self.msvc    = get_new_value(self.msvc,    platforms[0])
         self.linux   = get_new_value(self.linux,   platforms[1])
         self.macos   = get_new_value(self.macos,   platforms[2])
-        self.ios     = get_new_value(self.ios,     platforms[3])
+        self.ios     = get_new_value(self.ios,     platforms[3], Ios)
         self.android = get_new_value(self.android, platforms[4], Android)
-        self.raspi   = get_new_value(self.raspi,   platforms[5])
+        self.raspi   = get_new_value(self.raspi,   platforms[5], Raspi)
         self.oclea   = get_new_value(self.oclea,   platforms[6], Oclea)
         self.mips    = get_new_value(self.mips,    platforms[7], Mips)
         self.xilinx  = get_new_value(self.xilinx,  platforms[8], Xilinx)

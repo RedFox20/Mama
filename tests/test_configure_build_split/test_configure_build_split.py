@@ -164,7 +164,9 @@ def test_toolchain_inputs_cover_the_cross_setup_but_never_project_flags(tmp_path
     platform = [f'CMAKE_TOOLCHAIN_FILE="{tc}"', 'CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk/sysroot',
                 'CMAKE_AR=/opt/sdk/bin/aarch64-ar']
     monkeypatch.setattr(cc, '_platform_opts', lambda t: list(platform))
-    target = SimpleNamespace(cmake_opts=['CMAKE_CXX_FLAGS="-DX"', 'FOO=bar'])
+    # _platform_opts is what records the effective toolchain file, and it is stubbed out here
+    target = SimpleNamespace(cmake_opts=['CMAKE_CXX_FLAGS="-DX"', 'FOO=bar'],
+                             config=SimpleNamespace(cmake_toolchain_file=str(tc)))
     out = cc._toolchain_inputs(target)
     assert out['CMAKE_SYSTEM_NAME'] == 'Linux'
     assert out['CMAKE_SYSROOT'] == '/opt/sdk/sysroot'          # an SDK move must change the fingerprint

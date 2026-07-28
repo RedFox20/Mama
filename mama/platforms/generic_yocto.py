@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 import os
 from typing import Callable
 from mama.utils.system import System, console, warning, Color, get_colored_text
+from mama.cmake_configure import cross_system_opts, use_toolchain_file
 
 
 if TYPE_CHECKING:
@@ -202,20 +203,16 @@ class GenericYocto:
         return ldflags
 
 
-    def get_cmake_build_opts(self) -> list:
+    def get_cmake_build_opts(self, target) -> list:
         if self.toolchain_file:
             self.config.announce_once('toolchain', f'Toolchain: {self.toolchain_file}')
-            return [
-                f'{self.platform_define}=TRUE',
-                f'CMAKE_TOOLCHAIN_FILE="{self.toolchain_file}"'
-            ]
+            return [f'{self.platform_define}=TRUE', use_toolchain_file(self.config, self.toolchain_file)]
         # NOTE: CMAKE_C_COMPILER and CMAKE_CXX_COMPILER is already configured
         #       by get_preferred_compiler_paths()
         opt = [
             f'{self.platform_define}=TRUE',
-            'CMAKE_SYSTEM_NAME=Linux',
+            *cross_system_opts(self.config, 'Linux', 'arm64'),
             'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSTEM_PROCESSOR=arm64',
             'CMAKE_SYSROOT='+self.sysroot(),
             'CMAKE_AR='+self.cc_prefix+'ar',
             'CMAKE_READELF='+self.cc_prefix+'readelf',

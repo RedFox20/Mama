@@ -48,12 +48,52 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     target.dep.save_enabled_coverage()
 
 
+# CMake's own token per target arch. NOT the host's: CMAKE_SYSTEM_PROCESSOR describes what we build FOR,
+# CMAKE_HOST_SYSTEM_PROCESSOR what we build ON. A project branching on the former (googletest adds
+# -march=x86-64-v3 the moment it reads x86_64) compiles host instructions into a cross build if it leaks.
+_SYSTEM_PROCESSORS = {'arm64': 'aarch64', 'arm': 'armv7-a', 'x64': 'x86_64', 'x86': 'i686'}
+
+
+def target_system_processor(config:BuildConfig) -> str:
+    """CMAKE_SYSTEM_PROCESSOR for the TARGET arch. '' when the arch has no CMake token."""
+    return _SYSTEM_PROCESSORS.get(config.arch, '')
+
+
+def cross_system_opts(config:BuildConfig, system_name:str, processor:str='') -> list:
+    """CMAKE_SYSTEM_NAME + CMAKE_SYSTEM_PROCESSOR for a cross build. EVERY cross platform emits both
+    through here. Leaving the processor to the toolchain file is what broke android: the compiler seed
+    writes CMAKE_PLATFORM_INFO_INITIALIZED, cmake then skips system determination, the toolchain file
+    never runs, and CMAKE_SYSTEM_PROCESSOR silently falls back to the host's x86_64."""
+    opts = [f'CMAKE_SYSTEM_NAME={system_name}']
+    processor = processor or target_system_processor(config)
+    if processor: opts.append(f'CMAKE_SYSTEM_PROCESSOR={processor}')
+    return opts
+
+
+def use_toolchain_file(config:BuildConfig, toolchain:str) -> str:
+    """Record the toolchain file a platform picked and return its cmake option. Every platform that has
+    one routes through here, so `config.cmake_toolchain_file` answers "is a toolchain file in play" with
+    one bool read - nothing has to scan the option list.
+
+    It also decides whether mama may name the compiler. A toolchain file REWRITES that choice: the
+    Android NDK's takes our `bin/aarch64-linux-android29-clang` and puts `bin/clang` in the cache,
+    driving the target with `--target=` instead. Same compiler, different string - and the string is all
+    cmake compares. On a build dir that already holds a cache (a warm dir, or one the compiler seed
+    pre-populated) our -DCMAKE_C_COMPILER then reads as a CHANGED variable, so cmake deletes the cache
+    and re-runs. That second pass loses the seeded platform info and re-detects, which is how a cross
+    build ends up compiling with host flags."""
+    config.cmake_toolchain_file = toolchain
+    return f'CMAKE_TOOLCHAIN_FILE="{toolchain}"'
+
+
 def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     """
     Configures compilers for CMake, this needs to be done every time to prevent Ninja
     or other backends incorrectly picking wrong compilers. CC/CXX are stripped from the
     subprocess env by `compute_env` (not the global os.environ), so this is thread-safe.
+    A toolchain file picks the compiler itself, so mama must not name one too - see use_toolchain_file.
     """
+    if target.config.cmake_toolchain_file: return
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
     if cc:
         opt.append(f'CMAKE_C_COMPILER={util.forward_slashes(cc)}')
@@ -123,12 +163,14 @@ _TOOLCHAIN_KEYS = ('CMAKE_TOOLCHAIN_FILE', 'CMAKE_SYSTEM_NAME', 'CMAKE_SYSTEM_PR
 
 def _toolchain_inputs(target:BuildTarget) -> dict:
     """Cross-compile inputs that change compiler detection but aren't caught by cc/cxx stat. Keyed off the
-    whole platform opt set (an SDK move changes CMAKE_SYSROOT, not the 7 obvious keys); the toolchain file
-    is stat'd so an edit in place invalidates too. Empty dict for a native build."""
-    out = {}
-    for opt in _platform_opts(target) + [o for o in target.cmake_opts if o.partition('=')[0] in _TOOLCHAIN_KEYS]:
-        k, _, v = opt.partition('=')
-        out[k] = seedcache.compiler_stat(v.strip('"')) if k == 'CMAKE_TOOLCHAIN_FILE' else v
+    whole platform opt set (an SDK move changes CMAKE_SYSROOT, not the 7 obvious keys). Empty dict for a
+    native build."""
+    pairs = [o.partition('=') for o in _platform_opts(target)]  # one split per option, not two
+    out = {k: v for k, _, v in pairs}
+    out.update({k: v for k, _, v in (o.partition('=') for o in target.cmake_opts) if k in _TOOLCHAIN_KEYS})
+    # _platform_opts recorded the effective toolchain file; stat it so an edit in place invalidates too
+    tc = target.config.cmake_toolchain_file
+    if tc: out['CMAKE_TOOLCHAIN_FILE'] = seedcache.compiler_stat(tc)
     return out
 
 
@@ -144,14 +186,27 @@ def _seed_probe(target:BuildTarget) -> str:
     return util.normalized_path(cxx) if cxx else ''
 
 
+def _seed_id(target:BuildTarget) -> str:
+    """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. The hash alone already covers platform
+    and arch, but a HOST seed reaching a cross build dir is catastrophic and silent - cmake sees
+    CMAKE_PLATFORM_INFO_INITIALIZED, skips system determination, never runs the toolchain file, and the
+    project compiles with host flags. The directory name carries the platform so that mistake cannot
+    happen by hash collision and is obvious on disk."""
+    config = target.config
+    fp = seedcache.compute_fingerprint(_seed_inputs(target))
+    return f'{config.platform_build_dir_name()}-{config.arch}-{fp}'
+
+
 def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
     inputs = {
         'cmake': _cmake_version_number(config), 'gen': _generator(target),
         'arch': config.arch, 'platform': config.platform_build_dir_name(),
-        'cc': seedcache.compiler_stat(cc) if cc else {}, 'cxx': seedcache.compiler_stat(cxx) if cxx else {},
-        'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''), 'toolchain': _toolchain_inputs(target),
+        'cc': seedcache.compiler_stat(cc) if cc else {},
+        'cxx': seedcache.compiler_stat(cxx) if cxx else {},
+        'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
+        'toolchain': _toolchain_inputs(target),
         'stdlib': _abi_stdlib(config),  # libc++ vs libstdc++ changes the CXX ABI probe's implicit link libs
     }
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
@@ -185,9 +240,10 @@ def _probe_toolchain(target:BuildTarget):
     config = target.config
     c_abi, cxx_abi = _abi_flags(config)  # same ABI inputs as the real targets, per language
     flags = (f' -DCMAKE_C_FLAGS="{c_abi}"' if c_abi else '') + (f' -DCMAKE_CXX_FLAGS="{cxx_abi}"' if cxx_abi else '')
-    opts = []
+    # platform opts FIRST: they carry the sysroot + cross binutils (without them the probe detects the
+    # HOST), and they record whether a toolchain file owns the compiler, which _set_compiler_paths reads
+    opts = _platform_opts(target)
     _set_compiler_paths(target, opts)
-    opts += _platform_opts(target)  # sysroot + cross binutils: without these the probe detects the HOST
     with tempfile.TemporaryDirectory(prefix='mama_seed_', ignore_cleanup_errors=True) as tmp:
         tmp = util.normalized_path(tmp)  # shlex eats backslashes: never interpolate a raw Windows path
         src, bld = util.path_join(tmp, 'src'), util.path_join(tmp, 'b')
@@ -212,7 +268,7 @@ def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
         if co is None:
             root = util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
             log = (lambda m: console(m, color=Color.BLUE)) if config.verbose else None
-            co = seedcache.Coordinator(root, fp_fn=lambda t: seedcache.compute_fingerprint(_seed_inputs(t)),
+            co = seedcache.Coordinator(root, fp_fn=_seed_id,
                                        paths_fn=_seed_paths, probe_fn=_seed_probe, seed_fn=_probe_toolchain,
                                        log_fn=log,
                                        enabled=not config.no_compiler_cache)
@@ -298,6 +354,8 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     cache was built with is DEFINITELY not the current one - the recorded path differs from the preferred
     compiler, or no longer exists on disk. No explicit compiler (MSVC) or no cached compiler -> False: never
     wipe on missing evidence, so shipping this can't mass-invalidate warm dirs whose toolchain is unchanged."""
+    if target.config.cmake_toolchain_file:
+        return False  # the cache holds the toolchain's own choice, which never equals ours
     cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
     if not cc_path: return False  # MSVC/unresolved: mama writes no CMAKE_*_COMPILER define to compare against
     try: cache_text = util.read_text_from(util.path_join(build_dir, 'CMakeCache.txt'))
@@ -448,51 +506,26 @@ def _make_program(target:BuildTarget):
     return ''
 
 
+# Every cross platform is an object exposing get_cmake_build_opts(target). Checked in this order; the
+# first one set wins, exactly as the old if/elif chain did. MSVC stays a flag - it is not a cross build
+# and contributes one toolset option - and a native linux/macos build contributes nothing.
+_CROSS_PLATFORMS = ('android', 'yocto_linux', 'mips', 'raspi', 'ios')
+
+
 def _platform_opts(target:BuildTarget) -> list:
-    """The cross-compile setup that shapes toolchain DETECTION: sysroot, cross binutils, find-root modes,
-    toolchain file. Config-level only - no project flags - so the seed probe and the seed fingerprint can
-    both use it and stay target-independent."""
+    """The cross-compile setup that shapes toolchain DETECTION: system name + processor, sysroot, cross
+    binutils, find-root modes, toolchain file. Config-level only - no project flags - so the seed probe
+    and the seed fingerprint can both use it and stay target-independent.
+
+    One dispatch, no per-platform branches: the option lists live with the platforms that own them, so
+    adding a platform cannot forget CMAKE_SYSTEM_PROCESSOR or the toolchain-file recording again."""
     config:BuildConfig = target.config
-    opt = []
-    if config.msvc:
-        if config.is_target_arch_x86(): ## need to override the toolset host
-            opt.append('CMAKE_GENERATOR_TOOLSET=host=x86')
-    elif config.android:
-        opt += config.android.get_cmake_build_opts(target)
-    elif config.raspi:
-        opt += [
-            'RASPI=TRUE',
-            'CMAKE_SYSTEM_NAME=Linux',
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSTEM_PROCESSOR=armv7-a', # ALWAYS ARMv7
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-        ]
-        if target.cmake_raspi_toolchain:
-            toolchain = target.source_dir(target.cmake_raspi_toolchain)
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
-    elif config.yocto_linux:
-        opt += config.yocto_linux.get_cmake_build_opts()
-    elif config.mips:
-        opt += config.mips.get_cmake_build_opts()
-    elif config.macos:
-        pass
-    elif config.ios:
-        opt += [
-            'IOS_PLATFORM=OS',
-            'CMAKE_SYSTEM_NAME=Darwin',
-            'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
-            'CMAKE_OSX_ARCHITECTURES=arm64', # ALWAYS ARM64
-            #'CMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk',
-            'CMAKE_OSX_SYSROOT=iphoneos',
-        ]
-        if target.cmake_ios_toolchain:
-            toolchain = target.source_dir(target.cmake_ios_toolchain)
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-            opt += [f'CMAKE_TOOLCHAIN_FILE="{toolchain}"']
-    return opt
+    if config.msvc:  # host toolset override, not a cross build
+        return ['CMAKE_GENERATOR_TOOLSET=host=x86'] if config.is_target_arch_x86() else []
+    for name in _CROSS_PLATFORMS:
+        platform = getattr(config, name, None)
+        if platform: return platform.get_cmake_build_opts(target)
+    return []
 
 
 def _default_options(target:BuildTarget):
@@ -600,6 +633,7 @@ def _default_options(target:BuildTarget):
         opt += [f'CMAKE_C_CLANG_TIDY="{config.clang_tidy_path}"',
                 f'CMAKE_CXX_CLANG_TIDY="{config.clang_tidy_path}"']
 
+    opt += _platform_opts(target)  # before _set_compiler_paths: it records the toolchain-file flag
     _set_compiler_paths(target, opt)
 
     if target.enable_fortran_build and config.fortran:
@@ -628,8 +662,6 @@ def _default_options(target:BuildTarget):
 
     make = _make_program(target)
     if make: opt.append(f'CMAKE_MAKE_PROGRAM="{make}"')
-
-    opt += _platform_opts(target)
     return opt
 
 

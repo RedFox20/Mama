@@ -94,6 +94,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.reclone = False
     cfg.run_cmake_configure = False
     cfg.target = None
+    cfg.cmake_toolchain_file = ''  # a toolchain-file build takes a different compiler path
     cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
     # platform aliases (BuildTarget.__init__ pokes these)

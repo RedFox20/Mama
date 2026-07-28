@@ -413,7 +413,7 @@ def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
     from mama import cmake_configure as cfg
     opts = ['CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk-1.0/sysroot']
     monkeypatch.setattr(cfg, '_platform_opts', lambda t: list(opts))
-    target = SimpleNamespace(cmake_opts=[])
+    target = SimpleNamespace(cmake_opts=[], config=SimpleNamespace(cmake_toolchain_file=''))
     before = cc.compute_fingerprint(cfg._toolchain_inputs(target))
     opts[1] = 'CMAKE_SYSROOT=/opt/sdk-2.0/sysroot'
     assert cc.compute_fingerprint(cfg._toolchain_inputs(target)) != before
