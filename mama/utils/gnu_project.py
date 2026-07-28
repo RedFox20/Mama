@@ -182,8 +182,7 @@ class GnuProject:
         build_root = self.target.build_dir()
         if self.git:
             console(f'>>> Cloning {source} from {self.git}', color=Color.GREEN)
-            if os.system(f'git clone {self.git} {source}') != 0:
-                raise Exception(f'Failed to clone {self.git} to {source}')
+            proc.execute_echo(build_root, f'git clone {self.git} {source}')
         else:
             url = self.url.replace('{{project}}', self.name_with_version)
             try:
@@ -336,8 +335,7 @@ class GnuProject:
         prefix = self.target.get_cc_prefix()
         striptool = prefix + 'strip' if prefix else 'strip'
         out = f'-o {dest_path}' if dest_path else ''
-        if os.system(f'{striptool} {src_path} {out}') != 0:
-            raise Exception(f'Failed to strip {src_path}')
+        proc.execute_echo(self.target.build_dir(), f'{striptool} {src_path} {out}')
 
 
     def copy_file_or_link(self, src_file, dst_file):

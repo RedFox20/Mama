@@ -447,3 +447,12 @@ class TestMasterOwnership:
         monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {'controlpath': str(theirs)})
         sm._remove_stale_socket('git', 'example.com', None, self._opts(tmp_path))
         assert theirs.exists()  # a user-configured ControlPath is theirs to manage
+
+
+def test_the_fetch_semaphore_is_clamped_to_the_session_limit(monkeypatch):
+    """`parallel_max` also sizes the scheduler's LOAD pool, where artifactory downloads want a high
+    number. Every git session past the server's MaxSessions is refused outright on the shared master,
+    so the git cap cannot follow it up."""
+    monkeypatch.setattr(sm, '_fetch_semaphore', None)
+    sm.init_fetch_semaphore(40)
+    assert sm._fetch_semaphore._value == sm.DEFAULT_MAX_CONCURRENT_FETCHES

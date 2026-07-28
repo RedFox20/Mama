@@ -352,6 +352,11 @@ def execute(command, echo=False, throw=True):
     - echo: if True, prints the command to console
     - throw: if True, throws exception on status_code != 0
     - returns: status code
+
+    os.system, so the child gets the real terminal and a shell: this is for INTERACTIVE commands only
+    (`code`, `open`, an apt-get install that prompts for a sudo password). It inherits stdout and
+    stderr, so it tears the live display and no filter can reach its output. Use execute_echo or
+    SubProcess.run for anything on the build path.
     """
     if echo: console(command)
     retcode = os.system(command)
@@ -368,11 +373,16 @@ def execute_piped(command, cwd=None, timeout=None, throw=True):
     - timeout: timeout in seconds
     - throw: if True, throws exception on status_code != 0
     - returns: output string or None if throw=False
+
+    stderr is CAPTURED, never inherited. A child that writes straight to the terminal (ssh complaining
+    about the user's ssh_config, git's `fatal: Could not read from remote repository`) bypasses every
+    mama filter, and it tears the live display, which redraws by counting the lines it wrote itself. The
+    caller wants stdout; a real failure still surfaces through the clone or fetch that follows.
     """
     if not isinstance(command, list):
         command = shlex.split(command)
     try:
-        cp = subprocess.run(command, stdout=subprocess.PIPE, cwd=cwd, timeout=timeout)
+        cp = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, timeout=timeout)
         return cp.stdout.decode('utf-8').rstrip()
     except Exception as e:
         if throw:

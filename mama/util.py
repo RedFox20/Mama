@@ -2,7 +2,6 @@ import os, re, stat, shutil, zipfile, subprocess, hashlib
 from typing import List
 import time, ssl, pathlib, random
 from .utils.system import System, console, progress
-from .utils.sub_process import execute
 from urllib import request
 from datetime import datetime
 from dateutil import tz
@@ -58,7 +57,7 @@ def deploy_framework(framework: str, deployFolder: str):
         name = os.path.basename(framework)
         deployPath = os.path.join(deployFolder, name)
         console(f'Deploying framework to {deployPath}')
-        execute(f'rm -rf {deployPath}')
+        remove_tree(deployPath)  # not `rm -rf`: a shell splits a path with a space and deletes the wrong tree
         shutil.copytree(framework, deployPath)
         return True
     return False

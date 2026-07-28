@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 from mama.utils import system
-from mama.utils.sub_process import SubProcess
+from mama.utils.sub_process import SubProcess, execute_piped
 
 
 PY = sys.executable
@@ -393,3 +393,12 @@ def test_echoed_output_goes_through_console_not_raw_print(monkeypatch):
     monkeypatch.setattr(sp.SubProcess, 'run', lambda cmd, cwd, env=None, io_func=None: (io_func(None, 'hello'), 0)[1])
     status, out = sp.execute_piped_echo('.', 'anything', echo=True)
     assert seen == ['hello'] and out == 'hello' and status == 0
+
+
+def test_execute_piped_never_lets_a_child_write_to_the_terminal(capfd):
+    """A grandchild's stderr (ssh complaining about ~/.ssh/config, git's `fatal: Could not read from
+    remote repository`) bypasses every mama filter AND tears the live display, which redraws by
+    counting the lines it wrote itself. `git ls-remote` leaked 16 such lines per dep under a nix shell."""
+    noisy = 'import sys; sys.stderr.write("boom\\n"); print("ok")'
+    assert execute_piped([sys.executable, '-c', noisy]) == 'ok'
+    assert capfd.readouterr().err == ''

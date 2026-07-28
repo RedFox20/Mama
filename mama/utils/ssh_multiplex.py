@@ -121,6 +121,11 @@ def probe_ssh_config(ssh_args: list[str], timeout: float = 5.0) -> dict[str, str
 
     `ssh_args` is whatever you'd pass to ssh after `-G` - typically just
     `[f'{user}@{host}']`, optionally with `-p PORT` etc.
+
+    Raw subprocess.run with capture_output, not SubProcess.run: every ssh helper in this module must
+    stay silent. ssh writes a warning per bad line in the user's ssh_config, and a probe that echoed
+    those would print the same block once per dependency. It also runs from mama_ssh.py, a standalone
+    wrapper process with no display to route output to. The same applies to every other ssh call below.
     """
     try:
         cp = subprocess.run(['ssh', '-G', *ssh_args],
@@ -368,9 +373,12 @@ def _set_git_ssh_command() -> None:
 # Concurrent-fetch semaphore -----------------------------------------------
 
 def init_fetch_semaphore(max_concurrent: int = DEFAULT_MAX_CONCURRENT_FETCHES) -> None:
-    """Initialise the global semaphore that caps concurrent git fetches."""
+    """Initialise the global semaphore that caps concurrent git fetches. Clamped to
+    DEFAULT_MAX_CONCURRENT_FETCHES whatever the caller asks for: `parallel_max` also sizes the
+    scheduler's LOAD pool, where artifactory downloads want a high number, but every git session above
+    the server's MaxSessions is refused outright on the shared master."""
     global _fetch_semaphore
-    n = max(1, int(max_concurrent))
+    n = max(1, min(int(max_concurrent), DEFAULT_MAX_CONCURRENT_FETCHES))
     with _state_lock:
         if _fetch_semaphore is None:
             _fetch_semaphore = threading.Semaphore(n)
