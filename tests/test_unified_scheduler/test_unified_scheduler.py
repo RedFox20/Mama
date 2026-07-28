@@ -1,53 +1,16 @@
 """Pins execute_unified: the graph grows as fake LOADs discover children, and a parent only
 configures after its children have built (leaf nodes build while deeper deps still load)."""
 import threading
-from types import SimpleNamespace
-from unittest.mock import Mock
-from testutils import FakeBuildTarget
+from testutils import FakeUnifiedDep, make_unified_config
 from mama import dependency_chain as dc
 from mama.utils import system
 
 
-class _Target(FakeBuildTarget):
-    def __init__(self, dep, ev, lock):
-        self.dep = dep; self._ev = ev; self._lock = lock; self._out_sink = None
-    def _rec(self, tag):
-        with self._lock: self._ev.append((tag, self.dep.name))
-    def configure_phase(self, out=None): self._rec('cfg')
-    def build_phase(self, out=None): self._rec('bld')
-    def _execute_deploy_tasks(self): pass
-    def _execute_run_tasks(self): pass
-
-
-class _Dep:
-    def __init__(self, name, config, ev, lock, child_specs=(), shared_children=None):
-        self.name = name; self.config = config; self._ev = ev; self._lock = lock
-        self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
-        self._child_specs = child_specs; self._shared = shared_children  # share an instance -> diamond
-        self._children = []; self.already_executed = False
-        self.is_root = False; self.load_action = 'check'; self.target = _Target(self, ev, lock)
-    def load(self):
-        with self._lock: self._ev.append(('load', self.name))
-        self._children = self._shared if self._shared is not None else \
-            [_Dep(n, self.config, self._ev, self._lock, cs) for n, cs in self._child_specs]  # discovered now
-    def get_children(self): return self._children
-    def is_root_or_config_target(self): return False
-    def is_real_clone(self): return False  # load label resolves to 'clone'
-
-
-def _cfg():
-    return SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
-                           workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
-                           rebuild=False, update=False, clean=False, name=lambda: 'linux')
-
-
-def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
-    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
-    monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = _cfg()
+def test_unified_grows_graph_and_orders_parent_after_children(no_cmake_writes):
+    cfg = make_unified_config()
     ev, lock = [], threading.Lock()
     # root -> {A (leaf), B -> {C (leaf)}}
-    root = _Dep('root', cfg, ev, lock, child_specs=[('A', ()), ('B', [('C', ())])])
+    root = FakeUnifiedDep('root', cfg, ev, lock, child_specs=[('A', ()), ('B', [('C', ())])])
     dc.execute_unified(root)
 
     names = lambda tag: [n for t, n in ev if t == tag]
@@ -62,33 +25,42 @@ def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
     assert root.already_executed
 
 
-def test_unified_dedups_a_diamond_dependency(monkeypatch):
-    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
-    monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = _cfg()
+def test_unified_dedups_a_diamond_dependency(no_cmake_writes):
+    cfg = make_unified_config()
     ev, lock = [], threading.Lock()
-    d = _Dep('D', cfg, ev, lock)                                   # one shared instance...
-    a = _Dep('A', cfg, ev, lock, shared_children=[d])             # ...reached via both A...
-    b = _Dep('B', cfg, ev, lock, shared_children=[d])             # ...and B (diamond)
-    dc.execute_unified(_Dep('root', cfg, ev, lock, shared_children=[a, b]))
+    d = FakeUnifiedDep('D', cfg, ev, lock)                       # one shared instance...
+    a = FakeUnifiedDep('A', cfg, ev, lock, shared_children=[d])   # ...reached via both A...
+    b = FakeUnifiedDep('B', cfg, ev, lock, shared_children=[d])   # ...and B (diamond)
+    dc.execute_unified(FakeUnifiedDep('root', cfg, ev, lock, shared_children=[a, b]))
     names = lambda tag: [n for t, n in ev if t == tag]
     assert names('load').count('D') == 1   # grow() dedups the shared child: cloned once, not per-parent
     assert names('bld').count('D') == 1     # and built once
 
 
-def test_unified_loads_the_root_before_the_display_exists(monkeypatch):
+def test_unified_loads_the_root_before_the_display_exists(no_cmake_writes, monkeypatch):
     """The root's settings() picks the toolchain everything else needs, so it runs first - and its
     output must reach the terminal instead of a captured task line nobody scrolls back to."""
-    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
-    monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = _cfg()
+    cfg = make_unified_config()
     ev, lock = [], threading.Lock()
     make_display = dc._make_display
     monkeypatch.setattr(dc, '_make_display', lambda c: (ev.append(('display', '-')), make_display(c))[1])
-    root = _Dep('root', cfg, ev, lock)
+    root = FakeUnifiedDep('root', cfg, ev, lock)
     sinks, load = [], root.load
     root.load = lambda: (sinks.append(system.capture_context()[0]), load())[1]
     dc.execute_unified(root)
 
     assert ev.index(('load', 'root')) < ev.index(('display', '-'))
     assert sinks[0] is None  # no capture sink: settings() prints to the terminal (the L job replays it captured)
+
+
+def test_unified_propagates_a_changed_child_up_to_its_parent(no_cmake_writes, monkeypatch):
+    """after_load() is what turns 'child rebuilt' into 'parent rebuilds too'. The unified path has to
+    run it per dep at configure time - by then every child has loaded AND built."""
+    ev, lock = [], threading.Lock()
+    root = FakeUnifiedDep('root', make_unified_config(), ev, lock, child_specs=[('A', ())])
+    seen = []
+    root.after_load = lambda: seen.append([c.should_rebuild for c in root.get_children()])
+    old_load = FakeUnifiedDep.load
+    monkeypatch.setattr(FakeUnifiedDep, 'load', lambda d: (old_load(d), setattr(d, 'should_rebuild', d.name == 'A'))[0])
+    dc.execute_unified(root)
+    assert seen == [[True]]  # A's load result is visible to the root's after_load

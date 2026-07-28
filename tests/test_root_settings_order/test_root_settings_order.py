@@ -37,7 +37,7 @@ def yocto_project(tmp_path, monkeypatch):
 
 def test_unified_dispatch_does_not_probe_the_toolchain_before_loading_the_root(yocto_project, monkeypatch):
     probes_at_dispatch, configs = [], []
-    def fake_unified(root):
+    def fake_unified(root, scope=None):
         probes_at_dispatch.extend(root.config.yocto_linux.probes)
         configs.append(root.config)
         root.load()  # the scheduler's first job: root LOAD -> settings() -> set_yocto_toolchain()

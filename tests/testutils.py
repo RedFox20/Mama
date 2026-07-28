@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 from typing import Iterable, Optional
 from unittest.mock import Mock
 
@@ -20,6 +21,50 @@ class FakeBuildTarget:
     _build_jobs = None
     def _has_custom_build(self): return False
     def _reserved_cores(self): return 4
+
+
+class FakeUnifiedTarget(FakeBuildTarget):
+    """Target half of the execute_unified fakes: every phase appends (tag, dep-name) to a shared list."""
+    def __init__(self, dep, ev, lock):
+        self.dep = dep; self._ev = ev; self._lock = lock; self._out_sink = None
+    def _rec(self, tag):
+        with self._lock: self._ev.append((tag, self.dep.name))
+    def configure_phase(self, out=None): self._rec('cfg')
+    def build_phase(self, out=None): self._rec('bld')
+    def clean(self): self._rec('clean')
+    def _execute_deploy_tasks(self): pass
+    def _execute_run_tasks(self): pass
+
+
+class FakeUnifiedDep:
+    """Dep half of the execute_unified fakes: load() discovers `child_specs` (name, grandchild-specs)
+    on the spot, so the scheduler grows the graph the way a real clone does. Pass `shared_children`
+    instead to hand two parents the SAME instance and form a diamond."""
+    def __init__(self, name, config, ev, lock, child_specs=(), shared_children=None):
+        self.name = name; self.config = config; self._ev = ev; self._lock = lock
+        self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
+        self._child_specs = child_specs; self._shared = shared_children
+        self._children = []; self.already_executed = False
+        self.is_root = False; self.load_action = 'check'; self.target = FakeUnifiedTarget(self, ev, lock)
+    def load(self):
+        with self._lock: self._ev.append(('load', self.name))
+        self._children = self._shared if self._shared is not None else \
+            [FakeUnifiedDep(n, self.config, self._ev, self._lock, cs) for n, cs in self._child_specs]
+    def get_children(self): return self._children
+    def after_load(self): pass
+    def clean(self): self.target.clean()
+    def create_build_dir_if_needed(self): pass
+    def is_root_or_config_target(self): return False
+    def is_real_clone(self): return False  # load label resolves to 'clone'
+
+
+def make_unified_config(**overrides):
+    """The BuildConfig fields execute_unified and its display/scheduler touch."""
+    cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
+                          workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
+                          rebuild=False, update=False, clean=False, target=None, name=lambda: 'linux')
+    for k, v in overrides.items(): setattr(cfg, k, v)
+    return cfg
 
 
 def make_mock_config(tmp_path, **overrides):

@@ -18,7 +18,12 @@ def test_a_plain_full_build_unifies():
     assert _can_unify(_cfg(build=False, update=True))
 
 
-@pytest.mark.parametrize('flags', [{'list': True}, {'deps_only': True}, {'dirty': True},
+def test_deps_only_unifies_with_and_without_a_target():
+    assert _can_unify(_cfg(deps_only=True, target='all'))
+    assert _can_unify(_cfg(deps_only=True, target='ReCpp'))  # the scheduler scopes it to ReCpp's deps
+
+
+@pytest.mark.parametrize('flags', [{'list': True}, {'dirty': True},
                                    {'mama_init': True}, {'serial_load': True}, {'target': 'ReCpp'}])
 def test_paths_that_need_the_loaded_tree_do_not_unify(flags):
     # each of these reads the fully-resolved tree (target lookup, filtering, listing) that only the

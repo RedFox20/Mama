@@ -1,5 +1,10 @@
+import threading
 from unittest.mock import Mock
-from mama.dependency_chain import get_flat_deps, get_flat_child_deps, get_deps_only_targets, find_dependency
+import pytest
+from testutils import FakeUnifiedDep, make_unified_config
+from mama import dependency_chain as dc
+from mama.dependency_chain import (get_flat_deps, get_flat_child_deps, get_deps_only_targets,
+                                   find_dependency, DepsOnlyScope)
 
 
 def make_dep(name, children=None):
@@ -211,3 +216,75 @@ def test_find_dependency_case_insensitive():
     assert find_dependency(root, 'ROOT') is root
     assert find_dependency(root, 'd') is D
     assert find_dependency(root, 'nonexistent') is None
+
+
+# --- deps_only on the unified scheduler ---
+
+
+@pytest.fixture
+def unified(no_cmake_writes):
+    """Run execute_unified over a fake tree and return the recorded (tag, name) events."""
+    def run(child_specs, target_name=None, **config):
+        cfg = make_unified_config(target=target_name or 'all', **config)
+        ev, lock = [], threading.Lock()
+        root = FakeUnifiedDep('root', cfg, ev, lock, child_specs=child_specs)
+        root.is_root = True  # without a target name the root IS the scope root, so it must not build
+        dc.execute_unified(root, DepsOnlyScope(cfg, target_name))
+        return ev, cfg, root
+    return run
+
+
+def _named(ev, tag):
+    return {n for t, n in ev if t == tag}
+
+
+def test_unified_deps_only_builds_every_dep_but_not_the_root(unified):
+    ev, _, _root = unified([('A', ()), ('B', [('C', ())])])
+    assert _named(ev, 'load') == {'root', 'A', 'B', 'C'}  # the root still loads: it declares the tree
+    assert _named(ev, 'bld') == {'A', 'B', 'C'}
+
+
+def test_unified_deps_only_target_builds_only_that_targets_deps(unified):
+    # root -> {A -> {C -> {E}}, B -> {D}}; deps_only A must build C and E, not A, B, D or root
+    ev, _, _root = unified([('A', [('C', [('E', ())])]), ('B', [('D', ())])], target_name='A')
+    assert _named(ev, 'load') == {'root', 'A', 'B', 'C', 'D', 'E'}
+    assert _named(ev, 'bld') == {'C', 'E'}
+
+
+def test_unified_deps_only_promotes_a_dep_first_seen_outside_the_scope(no_cmake_writes):
+    """Shared dep D sits under both A and the unrelated branch B, and B is two levels shallower, so the
+    scheduler always discovers D outside A's subtree first. Reaching D again through A must give it
+    build jobs, or `deps_only A` silently skips a dep that A needs."""
+    cfg = make_unified_config(target='A')
+    ev, lock = [], threading.Lock()
+    mk = lambda name, kids: FakeUnifiedDep(name, cfg, ev, lock, shared_children=kids)
+    d = FakeUnifiedDep('D', cfg, ev, lock, child_specs=[('E', ())])
+    root = mk('root', [mk('B', [d]), mk('A1', [mk('A2', [mk('A', [d])])])])
+    dc.execute_unified(root, DepsOnlyScope(cfg, 'A'))
+    assert _named(ev, 'bld') == {'D', 'E'}  # E sits below D and inherits the promotion
+
+
+def test_unified_deps_only_target_forces_a_rebuild_of_its_deps(unified):
+    _, _, root = unified([('A', [('C', ())]), ('B', ())], target_name='A')
+    assert {d.name for d in get_flat_deps(root) if d.should_rebuild} == {'C'}
+
+
+def test_unified_deps_only_rebuild_cleans_the_targets_deps_only(unified):
+    ev, _, _root = unified([('A', [('C', ())]), ('B', ())], target_name='A', clean=True)
+    assert _named(ev, 'clean') == {'C'}
+
+
+def test_unified_deps_only_without_a_target_never_cleans(unified):
+    """No target means the normal up-to-date check decides, so an unchanged dep stays cached."""
+    ev, _, _root = unified([('A', ()), ('B', ())], clean=True)
+    assert _named(ev, 'clean') == set()
+
+
+def test_unified_deps_only_widens_the_target_for_deploy(unified):
+    _, cfg, _root = unified([('A', [('C', ())])], target_name='A')
+    assert cfg.target == 'all'  # deploy/upload gate on config.target, which still named the excluded A
+
+
+def test_unified_deps_only_exits_when_the_named_target_is_absent(unified):
+    with pytest.raises(SystemExit):
+        unified([('A', ())], target_name='NoSuchTarget')

@@ -135,6 +135,63 @@ def get_deps_only_targets(root: BuildDependency, deps_only_target_name: str, con
     return flat_deps, flat_deps_reverse
 
 
+class DepsOnlyScope:
+    """`deps_only` for the unified scheduler: which deps may configure and build. Every dep still LOADs,
+    because the graph is only discovered by loading it. Without a target name the scope root is the
+    project root, so every dependency builds and the root does not. With a target name the scope root is
+    that target, so only the deps below it build. A named target also forces its deps to rebuild, and a
+    `rebuild` cleans them first. This matches get_deps_only_targets on the classic path."""
+
+    def __init__(self, config: BuildConfig, target_name: str = None):
+        self.config = config
+        self.target_name = target_name.lower() if target_name else None
+        self.found = target_name is None  # a named target must turn up somewhere in the tree
+        self._under = {}  # dep -> True when the dep is the scope root or below it
+
+    def _is_scope_root(self, dep: BuildDependency) -> bool:
+        return dep.name.lower() == self.target_name if self.target_name else dep.is_root
+
+    def enter(self, dep: BuildDependency, parent: BuildDependency):
+        """Place `dep` relative to the scope root. Call once, when the scheduler discovers the dep."""
+        at_root = self._is_scope_root(dep)
+        if at_root: self.found = True
+        self._under[dep] = at_root or bool(parent and self._under.get(parent))
+
+    def is_inside(self, dep: BuildDependency) -> bool:
+        """True if `dep` is the scope root or below it, so every child of `dep` builds."""
+        return self._under.get(dep, False)
+
+    def includes(self, dep: BuildDependency) -> bool:
+        """True if `dep` itself builds: below the scope root, and not the scope root."""
+        return self.is_inside(dep) and not self._is_scope_root(dep)
+
+    def promote(self, dep: BuildDependency) -> List[BuildDependency]:
+        """A dep first discovered outside the scope, now reached through it - a shared dep of both the
+        named target and an unrelated branch. Mark it and everything already discovered below it, and
+        return the deps that gained build work."""
+        if self.is_inside(dep): return []
+        self._under[dep] = True
+        gained = [dep]
+        for child in dep.get_children(): gained += self.promote(child)
+        return gained
+
+    def prepare(self, dep: BuildDependency):
+        """`deps_only <target>` rebuilds that target's deps, so force the rebuild before configure, and
+        clean first when the command is a `rebuild`. `deps_only` with no target keeps the normal
+        up-to-date check, so an unchanged dep stays cached."""
+        if not self.target_name: return
+        if self.config.clean:
+            dep.clean()
+            dep.create_build_dir_if_needed()
+        dep.should_rebuild = True
+
+    def widen_for_deploy(self):
+        """After the build, the deps of a named target must still deploy and upload. Those tasks gate on
+        `config.target`, which still names the excluded target, so widen it - the same reset main() does
+        on the classic path."""
+        if self.target_name: self.config.target = 'all'
+
+
 def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency, deps = []) -> List[BuildDependency]:
     discovered_new = False
     """ Gets all dependencies that depend on the target """
@@ -970,12 +1027,14 @@ def print_build_banner(config, count=None):
             color=Color.GREEN)
 
 
-def execute_unified(root: BuildDependency):
+def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
     """Dynamic DAG scheduler interleaving cloning with configure+build: each dep is a LOAD job whose
     completion GROWS the graph with its children's LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits
     on its own LOAD + its children's BUILDs. So leaf nodes build while deeper deps still clone. Used
     for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial.
-    The ROOT is loaded up front, before the display: everything below it needs what its settings() picks."""
+    The ROOT is loaded up front, before the display: everything below it needs what its settings() picks.
+    A `deps_only` run passes a DepsOnlyScope: every dep still loads, but only the deps the scope includes
+    get a CONFIGURE and a BUILD job."""
     import time
     from .build_scheduler import Job, LOAD, CONFIGURE, BUILD, assign_priorities
     config = root.config
@@ -988,14 +1047,23 @@ def execute_unified(root: BuildDependency):
     display = _make_display(config)
     sched = _make_scheduler(config, max_load=config.parallel_max, pending_log=display.set_pending)
     load_jobs: dict = {}; cfg_jobs: dict = {}; bld_jobs: dict = {}  # dep -> Job (mutated under sched lock)
+    builds = lambda d: scope is None or scope.includes(d)  # a `deps_only` run gives some deps a LOAD only
 
-    def make_jobs(dep, parent_load):
+    def make_jobs(dep, parent_load, parent=None):
         L = Job((dep, 'L'), LOAD, (lambda d=dep: _do_load(d)), deps=({parent_load} if parent_load else set()), node=dep)
-        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), deps={L}, node=dep)
+        load_jobs[dep] = L
+        if scope is not None: scope.enter(dep, parent)
+        return [L] + (make_build_jobs(dep) if builds(dep) else [])
+
+    def make_build_jobs(dep):
+        """The dep's CONFIGURE + BUILD pair: configure waits on its own load and on the builds of every
+        child known so far, and _do_load's grow() adds the rest as the graph discovers them."""
+        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep,
+                deps={load_jobs[dep], *(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)})
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
                 weight=(lambda d=dep: _reserve_weight(d)), ungated=dep.is_root)
-        load_jobs[dep] = L; cfg_jobs[dep] = C; bld_jobs[dep] = B
-        return [L, C, B]
+        cfg_jobs[dep] = C; bld_jobs[dep] = B
+        return [C, B]
 
     def _do_load(dep):
         def body(sink):
@@ -1004,14 +1072,24 @@ def execute_unified(root: BuildDependency):
                 new = []
                 for child in dep.get_children():
                     if child not in load_jobs:
-                        new += make_jobs(child, load_jobs[dep])
-                cfg_jobs[dep].deps.update(bld_jobs[c] for c in dep.get_children())  # configure waits on child builds
+                        new += make_jobs(child, load_jobs[dep], dep)
+                    elif scope is not None and scope.is_inside(dep):  # shared dep, now reached from inside the scope
+                        for d in scope.promote(child): new += make_build_jobs(d)
+                C = cfg_jobs.get(dep)  # absent when the scope excludes this dep
+                if C is not None: C.deps.update(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
                 return new
             sched.grow(grow)
-        _run_phase(display, dep, 'load', body, sched.build_slot)  # the root's is already done: a no-op replay
+        # the root's load is already done: a no-op replay. A dep the scope excludes never gets another
+        # phase, so its load is the final one and has to commit the summary line.
+        _run_phase(display, dep, 'load', body, sched.build_slot, final=not builds(dep))
 
-    def _do_configure(d): _run_phase(display, d, 'configure', lambda s: _configure_body(d, s), sched.build_slot)
+    def _do_configure(d):
+        def body(sink):
+            d.after_load()  # children have loaded AND built by now: propagate their 'changed' up to this dep
+            if scope is not None: scope.prepare(d)
+            _configure_body(d, sink)
+        _run_phase(display, d, 'configure', body, sched.build_slot)
     def _do_build(d):
         _run_phase(display, d, 'build', lambda s: _build_body(d, s), sched.build_slot, _build_detail(d), final=True)
 
@@ -1026,15 +1104,21 @@ def execute_unified(root: BuildDependency):
             config.update_stats.stop()
             SubProcess.clear_abort()  # re-arm spawning (run() returned -> all workers drained)
     flat = get_flat_deps(root)
+    built = [d for d in flat if builds(d)]  # a `deps_only` run reports on its own deps, not the whole tree
     if failed is not None:
         _handle_failure(display, failed)      # replay the failed target + traceback (scroll up for detail)
-        _print_diagnostics(display, flat, failed.node.name); exit(-1)  # ...then the aggregate summary last
-    _print_build_summary(flat, time.monotonic() - start)
-    _print_diagnostics(display, flat)
+        _print_diagnostics(display, built, failed.node.name); exit(-1)  # ...then the aggregate summary last
+    if scope is not None and not scope.found:
+        console(f"ERROR: specified target='{config.target}' not found!"
+                f" Available targets: {', '.join(sorted(d.name for d in flat))}")
+        exit(-1)
+    _print_build_summary(built, time.monotonic() - start)
+    _print_diagnostics(display, built)
     if config.buildstats:
-        print_buildstats(flat)
-        _print_build_insights(config, flat)
-    _deploy_run_postpass(reversed(flat), config)
+        print_buildstats(flat)  # every dep loaded, so the load bars are worth showing even for excluded deps
+        _print_build_insights(config, built)
+    if scope is not None: scope.widen_for_deploy()
+    _deploy_run_postpass(reversed(built), config)
 
 
 def find_dependency(root: BuildDependency, name: str) -> BuildDependency:

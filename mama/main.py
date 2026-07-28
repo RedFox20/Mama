@@ -10,7 +10,7 @@ from .build_target import BuildTarget
 from .build_dependency import BuildDependency
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
-                               get_deps_only_targets, get_deps_that_depend_on_target,
+                               get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
                                mark_unbuilt_target_deps, sweep_orphaned_build_dirs)
 from .init_project import mama_init_project
 from ._version import __version__
@@ -182,11 +182,12 @@ def set_target_from_unused_args(config: BuildConfig):
 
 
 def _can_unify(config: BuildConfig) -> bool:
-    """True for a plain full build/update that the unified clone+build scheduler handles. Targeted /
-    list / deps_only / dirty / mama_init / serial runs need the classic load->execute path (which
-    resolves the whole tree up front for target lookup and filtering)."""
+    """True for a build/update the unified clone+build scheduler handles: a full tree, or a `deps_only`
+    run, which the scheduler scopes to the named target's dependencies as the graph grows. Targeted /
+    list / dirty / mama_init / serial runs need the classic load->execute path (which resolves the whole
+    tree up front for target lookup and filtering)."""
     return (not config.serial_load and (config.build or config.update)
-            and config.no_specific_target() and not config.list and not config.deps_only
+            and (config.no_specific_target() or config.deps_only) and not config.list
             and not config.dirty and not config.mama_init)
 
 
@@ -319,10 +320,10 @@ def mamabuild(args, source_dir=os.getcwd()):
         print_sched_debug(root)
         return
 
-    # Plain full build/update -> unified clone+configure+build scheduler; everything else (which
-    # needs the fully-loaded tree up front for lookup/filtering) -> classic load->execute path.
+    # Full build/update and deps_only -> unified clone+configure+build scheduler; everything else
+    # (which needs the fully-loaded tree up front for lookup/filtering) -> classic load->execute path.
     if _can_unify(config):
-        execute_unified(root)
+        execute_unified(root, DepsOnlyScope(config, deps_only_target_name) if config.deps_only else None)
         dep = root
         flat_deps = get_flat_deps(root)  # the graph is fully grown by now; keep it defined for the code below
     else:
