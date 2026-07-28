@@ -578,7 +578,7 @@ def _make_display(config):
     log = open_build_log(os.path.join(root, 'packages', 'mamabuild.log')) if root else None
     return BuildDisplay(out, isatty=isatty, clock=time.monotonic,
                         term_size=lambda: tuple(shutil.get_terminal_size((100, 24))),
-                        verbose=config.verbose, log=log)
+                        verbose=config.verbose, log=log, platform=config.name())
 
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).

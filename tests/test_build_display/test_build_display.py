@@ -169,6 +169,14 @@ def test_truncate_keeps_colour_while_dropping_cursor_moves():
     assert d._truncate('\x1b[32m+\x1b[0m \x1b[1Aok', 80) == '\x1b[32m+\x1b[0m ok'
 
 
+def test_platform_tags_every_status_line():
+    d, _, clk = _disp(isatty=True, platform='android')
+    d.start_task(1, 'build', 'protobuf'); clk.tick(2.0)
+    assert '[android] bld' in strip(d._task_line(d._tasks[1], clk(), 80))
+    d.finish_task(1, ok=True)
+    assert '[android] bld' in strip(d._summary_line(d._tasks[1]))
+
+
 def test_build_detail_shows_core_count_after_kind():
     d, _, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'compression', detail='J16'); clk.tick(0.5)

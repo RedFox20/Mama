@@ -33,7 +33,8 @@ class _D:
 def _graph(monkeypatch, fail_child=False):
     monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
-    cfg = SimpleNamespace(jobs=2, verbose=False, test=False, workspaces_root=None, buildstats=False)
+    cfg = SimpleNamespace(jobs=2, verbose=False, test=False, workspaces_root=None, buildstats=False,
+                          name=lambda: 'linux')
     ev, lock = [], threading.Lock()
     child = _D('child', cfg); parent = _D('parent', cfg, [child])
     for d in (child, parent): d.target = _T(d, ev, lock)

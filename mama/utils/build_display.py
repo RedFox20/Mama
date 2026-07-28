@@ -136,7 +136,8 @@ class Task:
 
 class BuildDisplay:
     def __init__(self, out, isatty: bool, term_size, clock, verbose=False, color=True,
-                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.5, log=None):
+                 min_interval=0.1, margin=1, reveal_delay=0.1, cpu_sampler=None, sample_interval=1.5, log=None,
+                 platform=''):
         self._out = out
         self._log = log  # optional AsyncLogWriter: full per-target output + permanent lines -> mamabuild.log
         self._isatty = isatty
@@ -144,6 +145,7 @@ class BuildDisplay:
         self._clock = clock          # () -> float
         self._verbose = verbose
         self._color = color
+        self._platform = f'[{platform}] ' if platform else ''  # tells apart parallel builds of different platforms
         self._min_interval = min_interval
         self._margin = margin
         self._reveal = reveal_delay  # hide tasks that start+finish faster than this (instant no-ops)
@@ -342,7 +344,7 @@ class BuildDisplay:
         # Always tag every phase (even a lone build -> 'bld 4.0s'), so the timing column stays
         # consistent whether or not configure/load did visible work.
         phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
-        return '  '.join(f'{self._tag(k)} {_fmt_dur(d)}' for d, k, _ in phases)
+        return self._platform + '  '.join(f'{self._tag(k)} {_fmt_dur(d)}' for d, k, _ in phases)
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])

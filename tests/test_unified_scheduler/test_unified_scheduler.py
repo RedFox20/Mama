@@ -38,7 +38,7 @@ class _Dep:
 def _cfg():
     return SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
                            workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
-                           rebuild=False, update=False, clean=False)
+                           rebuild=False, update=False, clean=False, name=lambda: 'linux')
 
 
 def test_unified_grows_graph_and_orders_parent_after_children(monkeypatch):
