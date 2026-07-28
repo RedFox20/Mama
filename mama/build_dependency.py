@@ -8,7 +8,8 @@ from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, resolve_pinned_version
-from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, MAMA_SHIM_FILENAME
+from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
+                  has_shim_marker, MAMA_SHIM_FILENAME
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
 
@@ -377,10 +378,21 @@ class BuildDependency:
         return (self.config.rebuild or self.config.unshallow) and self.is_current_target()
 
 
+    def _drop_stale_shim_marker(self):
+        """Remove a marker left in the build dir of a dep that now has a real clone. A rebuild, an
+        unshallow, or a build for another platform can clone the source without dropping this marker.
+        The two shim tests then disagree: is_artifactory_shim() reads False, so deploy is not skipped,
+        but papa_deploy refuses any directory with a marker."""
+        if self.is_real_clone() and has_shim_marker(self.build_dir):
+            if self.config.verbose: console(f'  - Target {self.name: <16} STALE shim marker dropped (real clone on disk)')
+            self.remove_shim_marker()
+
+
     def _try_artifactory_shim(self) -> bool:
         """Pre-clone artifactory load for non-root git deps. Either honours a
         cached shim or probes artifactory via ls-remote. Returns True when the
         dep was satisfied without a clone."""
+        self._drop_stale_shim_marker()
         # rebuild/unshallow target: drop the shim marker so the git path clones source.
         if self._force_source_clone():
             if self.is_artifactory_shim():

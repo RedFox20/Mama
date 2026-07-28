@@ -9,6 +9,7 @@ from testutils import make_mock_dep, make_mock_shim_dep
 from mama.build_dependency import BuildDependency
 from mama.types.git import Git
 from mama.papa_deploy import papa_deploy_to
+from mama.util import has_shim_marker
 
 
 def test_update_mamafile_tag_returns_false_for_shim(tmp_path):
@@ -59,6 +60,24 @@ def test_papa_deploy_to_refuses_with_shim_marker_in_destination(tmp_path):
     with pytest.raises(RuntimeError, match='mama_shim marker'):
         papa_deploy_to(target, dep.build_dir,
                        r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)
+
+
+def test_stale_shim_marker_dropped_when_real_clone_exists(tmp_path):
+    # A marker surviving next to a clone made the deploy skip and papa_deploy's check disagree.
+    dep = make_mock_shim_dep(tmp_path, build=True)
+    os.makedirs(os.path.join(dep.src_dir, '.git'), exist_ok=True)
+    assert dep._try_artifactory_shim() is False
+    assert not has_shim_marker(dep.build_dir)  # papa_deploy_to's check now agrees
+    assert not dep.is_artifactory_shim()
+
+
+def test_shim_marker_kept_when_no_clone_exists(tmp_path):
+    dep = make_mock_shim_dep(tmp_path, build=True)
+    with patch.object(BuildDependency, 'try_load_cached_shim', return_value=None), \
+         patch('mama.build_dependency.try_load_artifactory_shim', return_value=(None, None)):
+        assert dep._try_artifactory_shim() is False
+    assert has_shim_marker(dep.build_dir)
+    assert dep.is_artifactory_shim()
 
 
 def test_git_checkout_if_needed_short_circuits_for_shim(tmp_path):
