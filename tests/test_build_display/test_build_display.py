@@ -154,6 +154,21 @@ def test_tty_preview_strips_ansi_but_buffer_keeps_it():
     assert d._tasks[1].lines == [colored]  # raw output preserved for replay
 
 
+def test_region_line_drops_cursor_moves_smuggled_in_by_a_nested_display():
+    """A nested build's own live region (a `mama` host-binary bootstrap, ninja) arrives as preview
+    text; one cursor-up reaching the terminal strands every finished task line in the scrollback."""
+    d, _, clk = _disp(isatty=True)
+    d.start_task(1, 'build', 'protobuf'); clk.tick(0.5)
+    d.feed(1, '\x1b[1A\x1b[2Knested frame')
+    line = d._task_line(d._tasks[1], clk(), 80)
+    assert '\x1b[' not in line and 'nested frame' in line
+
+
+def test_truncate_keeps_colour_while_dropping_cursor_moves():
+    d, _, _ = _disp(isatty=True)
+    assert d._truncate('\x1b[32m+\x1b[0m \x1b[1Aok', 80) == '\x1b[32m+\x1b[0m ok'
+
+
 def test_build_detail_shows_core_count_after_kind():
     d, _, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'compression', detail='J16'); clk.tick(0.5)

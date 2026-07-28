@@ -20,6 +20,7 @@ _CURSOR_UP = '\x1b[1A'
 _ERASE_EOL = '\x1b[K'  # erase to end of line (colorama enables it on Windows)
 _ERASE_EOL_LF = _ERASE_EOL + '\n'  # clear-to-EOL then newline: one written task/permanent line
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct previews
+_ESC_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]|\x1b.')  # ANY escape sequence, colour ones included
 # A diagnostic line: MSVC 'warning C4996:' / 'error C2065:' / 'error LNK2019:', GCC/Clang 'warning:' /
 # 'error:', and CMake's 'CMake Error at <file>' (no colon, so the generic form below never caught it -
 # which is exactly how a failing target's real error went missing from the summary).
@@ -413,9 +414,12 @@ class BuildDisplay:
     def _truncate(self, text: str, cols: int) -> str:
         # Cap to cols-1 to avoid wrapping that would break the cursor math. If it
         # fits, keep colours; if not, truncate the plain text (drops the icon colour).
-        # Newlines are neutralized first: ONE stray \n in a region line shifts the cursor and
-        # desyncs the whole redraw, so the region must be physically unable to emit one.
+        # Cursor movers are neutralized first: ONE stray \n - or a \x1b[1A/\x1b[2K smuggled in from a
+        # child's OWN live display (a nested `mama` bootstrap, ninja, aqtinstall) via a task preview -
+        # shifts the cursor and desyncs the whole redraw, stranding finished task lines on screen.
+        # So the region must be physically unable to emit one. Colour is width-free, and survives.
         if '\n' in text or '\r' in text: text = text.replace('\r', ' ').replace('\n', ' ')
+        if '\x1b' in text: text = _ESC_RE.sub(lambda m: m[0] if m[0].endswith('m') else '', text)
         limit = max(1, cols - 1)
         plain = _ANSI_RE.sub('', text)
         return text if len(plain) <= limit else plain[:limit]
