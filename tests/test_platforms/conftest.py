@@ -2,10 +2,10 @@
 import os
 import pytest
 
-from mama.platforms.android import Android
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
 from mama.platforms.raspi import Raspi, triple_for_arch
+from mama.platforms.registry import platform_named
 
 
 def _touch(path):
@@ -74,12 +74,9 @@ def fake_toolchains(tmp_path, monkeypatch):
 
 
 def _patch_yocto_paths(monkeypatch, roots):
-    """Force each board's search to see ONLY its fake root, so a real /opt SDK cannot win."""
-    original = GenericYocto._yocto_toolchain_init
-    def only_fake_root(self, toolchain_dir=None, toolchain_file=None, **kwargs):
-        kwargs['paths'] = [roots[self.name]]
-        return original(self, toolchain_dir, toolchain_file, **kwargs)
-    monkeypatch.setattr(GenericYocto, '_yocto_toolchain_init', only_fake_root)
+    """Point each board at ONLY its fake root, so a real /opt SDK on this machine cannot win."""
+    for name, root in roots.items():
+        monkeypatch.setattr(platform_named(name), 'search_paths', (root,))
 
 
 def _patch_mips_paths(monkeypatch, root):

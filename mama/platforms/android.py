@@ -186,18 +186,14 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
 
     def _build_toolchain(self) -> Toolchain:
-        # The NDK variables only its own toolchain file understands go through the escape hatch
+        # variables only the NDK's own toolchain file understands, so they take the escape hatch
+        ndk = (f'ANDROID_ABI={self.android_abi()}', 'ANDROID_ARM_NEON=TRUE', 'ANDROID_TOOLCHAIN=clang',
+               f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
+               f'ANDROID_NDK="{self.android_ndk()}"', f'ANDROID_STL={self.android_ndk_stl}',
+               f'ANDROID_NATIVE_API_LEVEL={self.android_api}', 'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE')
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          cc=self.cc_path(), cxx=self.cxx_path(), install_rpath=True,
-                         toolchain_file=self._toolchain_path(),
-                         extra_opts=(f'ANDROID_ABI={self.android_abi()}',
-                                     f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
-                                     'ANDROID_ARM_NEON=TRUE',
-                                     f'ANDROID_NDK="{self.android_ndk()}"',
-                                     f'ANDROID_STL={self.android_ndk_stl}',
-                                     f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
-                                     'ANDROID_TOOLCHAIN=clang',
-                                     'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE'))
+                         toolchain_file=self._toolchain_path(), extra_opts=ndk)
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):

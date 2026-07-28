@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 import os
-from .system import console, Color, warning
+from .system import console, warning
 from .run import get_cwd_exe_args
 from .sub_process import execute_echo
 

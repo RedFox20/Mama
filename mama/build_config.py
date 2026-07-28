@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, platform, psutil, shutil, threading, time
+import os, sys, tempfile, psutil, shutil, threading, time
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx

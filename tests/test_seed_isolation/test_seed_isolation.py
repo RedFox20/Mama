@@ -1,8 +1,7 @@
 """Pins that a seed carries its own platform's defaults and that two platforms cannot clobber each other."""
 import os
 import threading
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 

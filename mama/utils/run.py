@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 import os, shlex, shutil
-from .system import System
 from .sub_process import execute_echo
 from ..util import normalized_path
 

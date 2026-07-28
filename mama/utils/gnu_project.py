@@ -1,10 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 import os
 import shlex
 import mama.util
 import mama.utils.sub_process as proc
-from mama.utils.system import console, Color
+from mama.utils.system import console, warning, Color
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget

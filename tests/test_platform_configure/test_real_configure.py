@@ -1,9 +1,5 @@
-"""Runs a REAL cmake configure and build per platform, and checks the object file's target machine.
-
-Slow (a real toolchain per case), so it is excluded from the default run. Run it before a release:
-    python -m pytest tests/test_platform_configure -m slow
-A platform whose toolchain is not installed on this machine skips.
-"""
+"""Pins that a REAL cmake configure and build emits the right target machine, per installed toolchain.
+Excluded from the default run: `python -m pytest tests/test_platform_configure -m slow`."""
 import os
 import struct
 import pytest

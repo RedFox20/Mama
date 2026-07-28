@@ -3,10 +3,10 @@ import ast
 import os
 import pytest
 
-from testutils import grep_mama_sources, CMAKE_OPTIONS, _MAMA_DIR
+from testutils import grep_mama_sources, CMAKE_OPTIONS, MAMA_DIR
 from mama.platforms.registry import PLATFORMS
 
-_PLATFORMS_DIR = os.path.join(_MAMA_DIR, 'platforms')
+_PLATFORMS_DIR = os.path.join(MAMA_DIR, 'platforms')
 
 
 def _platform_modules():
@@ -57,6 +57,6 @@ def test_only_the_renderer_formats_the_toolchain_file_option():
 def test_every_cmake_module_lives_under_buildsys():
     """One build system, one package. cmake logic scattered at the top level is what made a platform
     reach for it in the first place."""
-    stray = [f'{root}/{f}' for root, _, files in os.walk(_MAMA_DIR) for f in files
+    stray = [f'{root}/{f}' for root, _, files in os.walk(MAMA_DIR) for f in files
              if 'cmake' in f and f.endswith('.py') and 'buildsys' not in root]
     assert stray == []

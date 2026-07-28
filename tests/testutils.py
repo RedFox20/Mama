@@ -157,7 +157,7 @@ def platform_config(platform_class, arch=None, **overrides):
     return cfg
 
 
-_MAMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mama')
+MAMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mama')
 CMAKE_OPTIONS = 'buildsys/cmake/options.py'  # the ONE module allowed to format a cmake option
 
 
@@ -165,11 +165,11 @@ def grep_mama_sources(needles, skip=()) -> list:
     """Every `<rel path>:<line no>` under mama/ whose source line holds any of `needles`, skipping the
     files in `skip`. Backs the layering tests: one module formats a build-system option, never eleven."""
     hits = []
-    for root, _, files in os.walk(_MAMA_DIR):
+    for root, _, files in os.walk(MAMA_DIR):
         for f in files:
             if not f.endswith('.py'): continue
             path = os.path.join(root, f)
-            rel = os.path.relpath(path, _MAMA_DIR).replace('\\', '/')
+            rel = os.path.relpath(path, MAMA_DIR).replace('\\', '/')
             if rel in skip: continue
             with open(path, encoding='utf-8') as handle:
                 hits += [f'{rel}:{n}' for n, line in enumerate(handle, 1) if any(x in line for x in needles)]

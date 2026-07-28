@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
-from .utils.system import console, System, Color, warning
+from .utils.system import console, System, warning
 from .util import normalized_path, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
@@ -32,12 +32,11 @@ def target_root_path(target: BuildTarget, path: str, build_dir: bool):
 
 
 def get_lib_basename(lib: str|tuple):
-    if isinstance(lib, tuple):
-        return os.path.basename(lib[0])
-    elif lib.startswith('-framework '):
-        return lib.split(' ', 1)[1]
-    else:
-        return os.path.basename(lib)
+    """The name a lib is identified by, for dedup and for the papa manifest. A tuple is
+    (path, alias). An Apple framework has no file of its own, so it IS its own name."""
+    if isinstance(lib, tuple): return os.path.basename(lib[0])
+    if lib.startswith('-framework '): return lib
+    return os.path.basename(lib)
 
 
 def get_unique_libnames(items: list):
@@ -248,12 +247,6 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
             raise
     warning(f'WARNING: SysLib {name} not found for target {target.name}, ignoring.')
     return False
-
-
-def get_lib_basename(syslib: str):
-    if syslib.startswith('-framework '):
-        return syslib
-    return os.path.basename(syslib)
 
 
 def _reset_syslib_name(syslib: str):

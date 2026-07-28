@@ -1,5 +1,4 @@
 from __future__ import annotations
-from .platform import Platform, host_arch
 from .windows import Windows
 from .linux import Linux
 from .macos import Macos

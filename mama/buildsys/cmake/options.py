@@ -38,6 +38,11 @@ def _toolchain_file(target:BuildTarget, platform:Platform, tc:Toolchain) -> str:
     return tc.toolchain_file
 
 
+# The cross binutils a toolchain names explicitly. cmake derives them from the compiler path when
+# they are not given, which picks the host's wherever the find-root modes restrict its own search.
+_BINUTILS = ('ar', 'readelf', 'strip', 'ranlib')
+
+
 def platform_opts(target:BuildTarget) -> list:
     """Render the active platform's Toolchain into cmake options.
 
@@ -71,8 +76,8 @@ def platform_opts(target:BuildTarget) -> list:
 
     if tc.system_version: opts.append(f'CMAKE_SYSTEM_VERSION={tc.system_version}')
     if tc.sysroot: opts.append(f'CMAKE_SYSROOT={tc.sysroot}')
-    for var, tool in (('AR', 'ar'), ('READELF', 'readelf'), ('STRIP', 'strip'), ('RANLIB', 'ranlib')):
-        if tc.tool_prefix: opts.append(f'CMAKE_{var}={tc.tool_prefix}{tool}')
+    if tc.tool_prefix:
+        opts += [f'CMAKE_{tool.upper()}={tc.tool_prefix}{tool}' for tool in _BINUTILS]
     if tc.find_root_program:
         opts += [f'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM={tc.find_root_program}',
                  # search for libraries and headers in the target directories only

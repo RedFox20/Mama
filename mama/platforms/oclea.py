@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Callable
 from .generic_yocto import GenericYocto
 
 
@@ -7,26 +6,10 @@ class Oclea(GenericYocto):
     """Ambarella CV25 by Oclea. A Cortex-A53 based SoC with a hardware video encoder."""
     name = 'oclea'
     host_triple = 'aarch64-oclea-linux'
-
-    def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        paths = []
-        if toolchain_dir: paths += [ toolchain_dir ]
-        # this is the primary search path for Linux cross-builds:
-        paths += [ '/opt/oclea/1.0' ]
-        # these are generic ones:
-        paths += [ 'oclea-toolchain', 'oclea-toolchain/toolchain' ]
-
-        self._yocto_toolchain_init(toolchain_dir, toolchain_file,
-                                   paths=paths,
-                                   envs=['OCLEA_HOME', 'OCLEA_SDK'],
-                                   compiler_name='usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc',
-                                   sdk_name='x86_64-ocleasdk-linux',
-                                   sysroot_name='cortexa53-oclea-linux',
-                                   default_toolchain='aarch64_oclea_toolchain.cmake')
-
-
-    def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
-        add_flag('-march', 'armv8-a')
-        add_flag('-mcpu', 'cortex-a53+crypto')
-        add_flag('-mlittle-endian')
-        super().get_cxx_flags(add_flag)
+    search_paths = ('/opt/oclea/1.0', 'oclea-toolchain', 'oclea-toolchain/toolchain')
+    search_envs = ('OCLEA_HOME', 'OCLEA_SDK')
+    compiler_name = 'usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc'
+    sdk_name = 'x86_64-ocleasdk-linux'
+    sysroot_name = 'cortexa53-oclea-linux'
+    default_toolchain = 'aarch64_oclea_toolchain.cmake'
+    cpu_flags = {'-march': 'armv8-a', '-mcpu': 'cortex-a53+crypto', '-mlittle-endian': ''}

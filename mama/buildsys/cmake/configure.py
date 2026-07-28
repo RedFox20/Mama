@@ -5,7 +5,7 @@ from mama.utils.system import System, console, Color, warning
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
 from mama import util
 from mama.buildsys.cmake import compiler_cache as seedcache
-from mama.buildsys.cmake.options import platform_opts as _platform_opts, use_toolchain_file
+from mama.buildsys.cmake.options import platform_opts as _platform_opts
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget

@@ -5,7 +5,6 @@ from ..utils.system import System
 
 if TYPE_CHECKING:
     from ..build_config import BuildConfig
-    from ..build_target import BuildTarget
 
 
 # The canonical processor name per mama arch. This names what the TARGET runs on, never the host.
@@ -58,6 +57,7 @@ class Platform:
     toolchain_override_attr = ''  ## BuildTarget attribute a mamafile sets to override the toolchain file
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
+    cpu_flags = {}             ## the SoC's compiler flags, eg {'-mcpu':'cortex-a53+crypto'}
     build_dirs = {}            ## arch to build dir name. An arch that is absent falls back to `name`
     cxx20_flag = 'c++20'       ## `c++2a` where the toolchain predates the final C++20 name
 
@@ -159,6 +159,8 @@ class Platform:
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
         """Add the compiler flags this platform always needs. `add_flag` keeps an existing value,
         so a mamafile that already set the flag wins."""
+        for flag, value in self.cpu_flags.items():
+            add_flag(flag, value)
         for define, value in self.compile_defines.items():
             add_flag(f'-D{define}', value)
         for path in self.toolchain().include_paths:

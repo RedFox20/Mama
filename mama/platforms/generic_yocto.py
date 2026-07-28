@@ -16,7 +16,14 @@ class GenericYocto(Platform):
     is_host_runnable = False
     default_arch = 'arm64'
     supported_arches = ('arm64',)
-    host_triple = 'aarch64-poky-linux'  ## the GNU --host triple, overridden per board
+    ## Everything a board declares. The SDK layout is identical across vendors, so a board is data.
+    host_triple  = 'aarch64-poky-linux'  ## the GNU --host triple
+    search_paths = ()                    ## where to look for the SDK, most specific first
+    search_envs  = ()                    ## env vars naming the SDK root. Defaults to <NAME>_SDK_HOME
+    compiler_name = 'usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc'  ## relative to the host sysroot
+    sdk_name      = 'x86_64-pokysdk-linux'          ## sysroots/<sdk_name>/ holds the cross compilers
+    sysroot_name  = 'cortexa53-crypto-poky-linux'   ## sysroots/<sysroot_name>/ holds the target libs
+    default_toolchain = 'usr/share/cmake/cortexa53-crypto-poky-linux-toolchain.cmake'  ## in the SDK root
 
     def __init__(self, config):
         super().__init__(config)
@@ -40,34 +47,10 @@ class GenericYocto(Platform):
             cls.compile_defines = {cls.platform_define: '1', 'YOCTO_LINUX': '1'}
 
 
-    def bin(self):
-        """ {sdk_path}/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/ """
-        if not self.compilers: self.init_default()
-        return self.compilers
-
-
-    def sdk(self):
-        """ {sdk_path}/sysroots/x86_64-pokysdk-linux/ """
-        if not self.compilers: self.init_default()
-        return self.sdk_path
-
-
     def sysroot(self):
         """ {sdk_path}/sysroots/cortexa53-crypto-poky-linux/ """
         if not self.compilers: self.init_default()
         return self.sysroot_path
-
-
-    def includes(self):
-        """ [ '{sdk_path}/sysroots/cortexa53-crypto-poky-linux/usr/include' ] """
-        if not self.compilers: self.init_default()
-        return self.include_paths
-
-
-    def cmake_toolchain(self):
-        """ {sdk_path}/aarch64_oclea_toolchain.cmake, or '' when the SDK ships none """
-        if not self.compilers: self.init_default()
-        return self.toolchain_file
 
 
     def gcc_prefix(self):
@@ -98,24 +81,20 @@ class GenericYocto(Platform):
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        raise NotImplementedError('init_toolchain must be implemented by subclass')
-
-
-    def _yocto_toolchain_init(self, toolchain_dir=None, toolchain_file=None,
-                              paths=[], envs=[],
-                              compiler_name='usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc',
-                              sdk_name='x86_64-pokysdk-linux',
-                              sysroot_name='cortexa53-crypto-poky-linux',
-                              default_toolchain='usr/share/cmake/cortexa53-crypto-poky-linux-toolchain.cmake'):
+        """Find the SDK. An explicit `toolchain_dir` is searched first, then the board's own paths,
+        then whatever its env vars name."""
         # TODO: expand support to enable Windows host cross-compilation?
         if not System.linux:
             raise RuntimeError(f'{self.name} only supported on Linux')
 
-        # add fallback define for user configuration e.g. XILINX_SDK_HOME
-        if not envs:
-            envs = [ f'{self.platform_define}_SDK_HOME' ]
+        paths = ([toolchain_dir] if toolchain_dir else []) + list(self.search_paths)
+        # fallback env for user configuration, e.g. XILINX_SDK_HOME
+        envs = list(self.search_envs) or [f'{self.platform_define}_SDK_HOME']
         for env in envs:
             self.append_env_path(paths, env)
+
+        compiler_name, sdk_name = self.compiler_name, self.sdk_name
+        sysroot_name, default_toolchain = self.sysroot_name, self.default_toolchain
 
         for path in paths:
             # Check for Yocto structure
@@ -200,15 +179,14 @@ class GenericYocto(Platform):
 
 
     def _build_toolchain(self) -> Toolchain:
-        prefix = self.gcc_prefix()
+        prefix = self.cc_prefix  # discovery already ran: Platform.toolchain() calls init_default() first
+        # find_root_program NEVER, so the build system takes the cross binutils named here, and the
+        # target's own libs and headers instead of the host's
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', version=self.version,
-                         tool_prefix=prefix, sysroot=self.sysroot(),
-                         include_paths=tuple(self.includes()),
-                         toolchain_file=self.cmake_toolchain(), toolchain_file_is_complete=True,
-                         # NEVER, so the build system takes the cross binutils named above, and the
-                         # target's own libs and headers instead of the host's
-                         find_root_program='NEVER', install_rpath=True)
+                         tool_prefix=prefix, sysroot=self.sysroot_path, find_root_program='NEVER',
+                         include_paths=tuple(self.include_paths), install_rpath=True,
+                         toolchain_file=self.toolchain_file, toolchain_file_is_complete=True)
 
 
     def get_ld_flags(self, add_ld_flag: Callable[[str, str], None]):
@@ -218,7 +196,7 @@ class GenericYocto(Platform):
 
 
     def get_gnu_build_env(self, environ: dict = {}):
-        sysroot = f'--sysroot={self.sysroot()}'
+        sysroot = f'--sysroot={self.sysroot()}'  # accessor: it resolves the SDK if nothing has yet
         environ['LDFLAGS'] = sysroot
         environ['CFLAGS'] = sysroot
         environ['CXXFLAGS'] = sysroot

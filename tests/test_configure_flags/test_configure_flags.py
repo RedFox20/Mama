@@ -1,10 +1,8 @@
 """Pins the flags mama puts on the cmake configure command line."""
-import os
-from unittest.mock import Mock
-
 from testutils import make_configured_target, run_config_capturing, write_cmake_cache, set_mock_platform
 from mama.platforms.mips import Mips
 from mama.buildsys.cmake import configure as cc
+from mama.buildsys.cmake.options import use_toolchain_file
 
 
 
@@ -26,7 +24,7 @@ def test_verbose_keeps_the_unused_variable_warning(tmp_path):
 def test_use_toolchain_file_records_and_formats(tmp_path):
     """The one contract every platform relies on: record the path, hand back the cmake option."""
     _, dep = make_configured_target(tmp_path)
-    assert cc.use_toolchain_file(dep.config, '/ndk/android.toolchain.cmake') \
+    assert use_toolchain_file(dep.config, '/ndk/android.toolchain.cmake') \
         == 'CMAKE_TOOLCHAIN_FILE="/ndk/android.toolchain.cmake"'
     assert dep.config.cmake_toolchain_file == '/ndk/android.toolchain.cmake'
 
