@@ -59,13 +59,17 @@ def test_no_override_leaves_url(tmp_path):
     "Reset branch 'main'", "branch 'main' set up to track 'origin/main'.",
     "Your branch is up to date with 'origin/main'.", 'Already up to date.', "Switched to branch 'main'",
     'HEAD is now at 98f23d8 QCoro 0.13.0',  # post reset/checkout chatter from a parallel-mode git checkout
-    "Your configuration specifies to merge with the ref 'refs/heads/x'", 'from the remote, but no such ref was fetched.'])
+    "Your configuration specifies to merge with the ref 'refs/heads/x'", 'from the remote, but no such ref was fetched.',
+    '/etc/ssh/ssh_config line 53: Unsupported option "gssapiauthentication"',  # ssh built without GSSAPI
+    '/home/ci/.ssh/config line 7: Unsupported option "gssapikeyexchange"'])
 def test_update_noise_is_filtered(line):
     assert _is_git_status_noise(line)
 
 
 @pytest.mark.parametrize('line', [
-    'error: pathspec broke', 'remote: Enumerating objects: 12, done.', "fatal: couldn't find remote ref x"])
+    'error: pathspec broke', 'remote: Enumerating objects: 12, done.', "fatal: couldn't find remote ref x",
+    'ControlSocket /home/ci/.ssh/cm/99ac79e already exists, disabling multiplexing',  # a real multiplex fault
+    'mux_client_request_session: session request failed: Session open refused by peer'])
 def test_real_git_output_is_kept(line):
     assert not _is_git_status_noise(line)
 

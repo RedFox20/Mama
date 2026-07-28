@@ -28,8 +28,15 @@ _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to
               'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
               'There is no tracking information for the current branch')
 
+# An ssh client built without GSSAPI warns about the `GSSAPIAuthentication` line Debian and Ubuntu ship
+# in /etc/ssh/ssh_config, once per fetch. Auth still works and mama never sets that option, so the line
+# says nothing about the build. Which ssh build sits in PATH differs per machine image, which is why the
+# warning comes and goes between CI runners.
+_SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
+
 def _is_git_status_noise(line: str) -> bool:
-    return line.startswith(_GIT_NOISE) or 'set up to track ' in line
+    return line.startswith(_GIT_NOISE) or 'set up to track ' in line \
+        or _SSH_CONFIG_WARNING.match(line) is not None
 
 
 def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
