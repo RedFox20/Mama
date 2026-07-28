@@ -102,3 +102,32 @@ def test_rerunnable_error_covers_every_broken_build_dir_flavour():
     assert cc.is_rerunnable_error('make: *** Makefile: No such file or directory')   # missing makefile
     assert cc.is_rerunnable_error("ninja: error: loading 'build.ninja': No such file or directory")
     assert not cc.is_rerunnable_error('error: undefined reference to `foo()`')       # a real build error
+
+
+def test_install_prefix_defaults_to_the_build_dir(tmp_path):
+    # every dependency's package()/export_libs() reads artifacts out of its own build dir
+    t, _ = make_configured_target(tmp_path)
+    assert t.cmake_install_prefix == '.'
+
+
+def test_add_cmake_options_routes_the_install_prefix_to_its_field(tmp_path):
+    # a plain -D would lose: run_config appends CMAKE_INSTALL_PREFIX after cmake_opts
+    t, _ = make_configured_target(tmp_path)
+    t.add_cmake_options('CMAKE_INSTALL_PREFIX=staging/usr', 'FOO=1')
+    assert t.cmake_install_prefix == 'staging/usr'
+    assert 'FOO=1' in t.cmake_opts
+    assert not any('CMAKE_INSTALL_PREFIX' in o for o in t.cmake_opts)
+
+
+def test_install_prefix_routing_works_through_a_list_and_strips_quotes(tmp_path):
+    t, _ = make_configured_target(tmp_path)
+    t.add_cmake_options(['BAR=2', 'CMAKE_INSTALL_PREFIX="AppDir/usr"'])
+    assert t.cmake_install_prefix == 'AppDir/usr'
+    assert t.cmake_opts == ['BAR=2']
+
+
+def test_a_similarly_named_option_is_not_captured(tmp_path):
+    t, _ = make_configured_target(tmp_path)
+    t.add_cmake_options('CMAKE_INSTALL_PREFIX_OVERRIDE=x')
+    assert t.cmake_install_prefix == '.'
+    assert t.cmake_opts == ['CMAKE_INSTALL_PREFIX_OVERRIDE=x']

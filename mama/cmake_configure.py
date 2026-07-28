@@ -412,9 +412,8 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     cmake_defines = _opts_to_defines(options)
     generator = _generator(target)
     src_dir = _seed_src_dir(target)
-    install_prefix = '-DCMAKE_INSTALL_PREFIX="."'
-    # # use install prefix override for libraries, but for root target, leave it open-ended
-    # install_prefix = '' if target.dep.is_root else '-DCMAKE_INSTALL_PREFIX="."'
+    # Last, so cmake_opts can never override it by accident; set target.cmake_install_prefix instead.
+    install_prefix = f'-DCMAKE_INSTALL_PREFIX="{target.cmake_install_prefix}"'
 
     # Reuse cached compiler detection on a fresh build dir: prepare() injects a CMakeFiles seed +
     # a PLATFORM_INFO_INITIALIZED CMakeCache so cmake skips ALL detection (~5s) (validated correct).

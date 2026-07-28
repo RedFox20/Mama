@@ -79,6 +79,7 @@ class BuildTarget:
         self.cmake_cflags     = dict()
         self.cmake_ldflags    = dict()
         self.cmake_build_type = 'Debug' if config.debug else 'RelWithDebInfo'
+        self.cmake_install_prefix = '.' # default CMake install: '.' = own build dir, which package()/export_libs() read
         self.cmake_lists_path = 'CMakeLists.txt' # can be relative to src_dir (default), or absolute
         self.cmake_command = config.cmake_command # allow override from config, but also from target
         self.enable_exceptions = True
@@ -777,9 +778,19 @@ class BuildTarget:
             self.add_cmake_options(['ZLIB_STATIC=TRUE', 'NO_GUI=1'])
         ```
         """
+        def add(opt: str):
+            # -DCMAKE_INSTALL_PREFIX is appended after cmake_opts, so a plain -D here would lose.
+            key, sep, value = opt.partition('=')
+            if sep and key.strip() == 'CMAKE_INSTALL_PREFIX':
+                self.cmake_install_prefix = value.strip().strip('"\'')
+            else:
+                self.cmake_opts.append(opt)
+
         for option in options:
-            if isinstance(option, list): self.cmake_opts += option
-            else:                        self.cmake_opts.append(option)
+            if isinstance(option, list):
+                for opt in option: add(opt)
+            else:
+                add(option)
 
 
     def enable_from_env(self, name, enabled='ON', force=False):
