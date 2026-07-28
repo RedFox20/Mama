@@ -3,6 +3,19 @@
 Hand-written notes for Claude. Capture style rules and codebase invariants that
 keep biting future-Claude. Update as the codebase teaches new lessons.
 
+## Default output style (always on)
+
+Two rule sets are always active in this project. They need no invocation and they
+do not expire. They compose. The first controls **shape**: what comes first, how
+long, what to cut. The second controls **wording**: which word, how long a sentence.
+
+@.claude/skills/output-style/SKILL.md
+@.claude/skills/ste-writing/SKILL.md
+
+To turn off the response shape for a session, say "normal mode". Confirm in one
+line, then use the default style. `ste-writing` stays on, because it governs text
+that gets committed.
+
 ## Code style
 
 - **Line length: up to 130 columns.** Don't wrap a single expression unless it
