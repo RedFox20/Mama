@@ -486,15 +486,24 @@ class Git(DepSource):
                 self.run_git(dep, f"checkout {branch}")
 
 
-    def reclone_wipe(self, dep: BuildDependency):
+    def reclone_wipe(self, dep: BuildDependency, source_only: bool = False):
+        """Drop this dep's tree so it can be cloned fresh.
+
+        `source_only` removes ONLY src_dir, and is what every AUTOMATIC recovery must use. dep_dir is shared
+        by every platform: its `<dep_dir>/<platform>/` siblings hold OTHER platforms' artifactory packages,
+        shim markers and build output, plus the cached package zip. A git tree that's broken for THIS platform
+        is no reason to destroy those - and with a nested `mama <host> build` (build_host_binary) running
+        concurrently, that sibling dir may be the include tree another build is compiling against right now.
+        The whole dep_dir goes only on an explicit `mama wipe`, where discarding everything is the intent."""
+        target = dep.src_dir if source_only else dep.dep_dir
         if dep.config.print:
-            console(f'  - Target {dep.name: <16} RECLONE WIPE')
-        if os.path.exists(dep.dep_dir):
+            console(f'  - Target {dep.name: <16} RECLONE WIPE{" (source)" if source_only else ""}')
+        if target and os.path.exists(target):
             if System.windows: # chmod everything to user so we can delete:
-                for root, dirs, files in os.walk(dep.dep_dir):
+                for root, dirs, files in os.walk(target):
                     for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
                     for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
-            shutil.rmtree(dep.dep_dir)
+            shutil.rmtree(target)
 
 
     def _run_git_with_filtered_progress(self, dep: BuildDependency, cmd: str, label: str):
@@ -625,7 +634,10 @@ class Git(DepSource):
         # local dev): that must never be clobbered, so build it as-is.
         if not dep.is_real_clone() or self._is_repo_broken(dep):
             if self._refuse_destructive_clone(dep): return False
-            if dep.source_dir_exists(): self.reclone_wipe(dep)
+            # source_only: a broken tree here says nothing about the sibling platforms sharing this dep_dir.
+            # An explicit `mama wipe` still means everything - that's the one case the user asked for it.
+            if dep.source_dir_exists():
+                self.reclone_wipe(dep, source_only=not (dep.is_current_target() and dep.config.reclone))
             self.clone_or_pull(dep)
             return True
 
@@ -642,8 +654,10 @@ class Git(DepSource):
 
         wiped = False
         should_wipe = self.url_changed and not self.missing_status
-        if should_wipe or (is_target and config.reclone):
-            self.reclone_wipe(dep)
+        explicit_wipe = is_target and config.reclone  # `mama wipe <target>`: the user asked for everything
+        if should_wipe or explicit_wipe:
+            # a url change re-clones the source, but the sibling platform dirs are not ours to delete
+            self.reclone_wipe(dep, source_only=not explicit_wipe)
             wiped = True
         elif dep.config.unshallow and is_target: # unshallow was specified, we should at least pull
             pass # fallthrough to clone_or_pull

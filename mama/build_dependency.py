@@ -459,10 +459,9 @@ class BuildDependency:
             if self.dep_source.is_git:
                 # One cross-process lock over BOTH the shim setup and the checkout: a sibling `mama <host>
                 # build` (build_host_binary's bootstrap) can be materialising this SAME dep_dir, and a
-                # checkout's reclone-wipe rmtree's the ENTIRE dep_dir - so it must never run while another
-                # process shims or clones into it. Keyed on dep_dir; different deps never contend, so parallel
-                # loads stay fully concurrent. Once the checkout returns the tree is a real clone, so the
-                # mamefile parse below is safe unlocked (no other process will wipe a healthy clone).
+                # half-written clone must never be read as a broken tree by the other process. Keyed on
+                # dep_dir; different deps never contend, so parallel loads stay fully concurrent. Once the
+                # checkout returns the tree is a real clone, so the mamefile parse below is safe unlocked.
                 with interprocess_dir_lock(self.dep_dir, timeout=_LOAD_LOCK_TIMEOUT_SEC):
                     loaded_from_pkg = self._try_artifactory_shim()
                     # A clean deletes build dirs; it never needs source. Without this a dep whose shim marker a
