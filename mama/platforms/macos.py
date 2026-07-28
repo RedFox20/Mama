@@ -1,5 +1,7 @@
 from __future__ import annotations
-from .platform import Platform
+from typing import Callable
+import os
+from .platform import Platform, native_march
 
 
 class Macos(Platform):
@@ -7,12 +9,36 @@ class Macos(Platform):
     since the M1, so only x64 and arm64 remain."""
     name = 'macos'
     system_name = 'Darwin'
+    build_system = 'xcode'
     default_arch = 'arm64'
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}
 
+    def distro_version(self) -> tuple:
+        version = self.config.macos_version.split('.') + ['0']
+        return (self.name, int(version[0]), int(version[1]))
+
+
+    def compiler_version_tag(self) -> str:
+        return self.config.macos_version
+
+
+    def cxx_stdlib(self) -> str:
+        return 'libc++'
+
+
+    def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
+        add_flag('-march', native_march(self.arch()))
+        super().get_cxx_flags(add_flag)
+
+
+    def inject_env(self):
+        os.environ['MACOSX_DEPLOYMENT_TARGET'] = self.config.macos_version
+
+
     def lib_extensions(self) -> tuple:
         return ('.a', '.dylib', '.bundle')
+
 
     def debugger(self) -> str:
         return 'lldb'

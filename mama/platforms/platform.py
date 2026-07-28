@@ -24,6 +24,15 @@ def host_arch() -> str:
     return 'x86'
 
 
+def native_march(arch: str) -> str:
+    """-march for a NATIVE build: 'native' when the host IS the target, else the baseline for the
+    arch. Only a native platform may use this - 'native' on a cross build compiles host instructions."""
+    if arch == 'arm64': return 'native' if System.aarch64 else 'armv8-a'
+    if arch == 'x64':   return 'native' if System.x86_64 else 'x86-64'
+    if arch == 'x86':   return 'native' if System.x86 else 'pentium4'
+    raise RuntimeError(f'Unsupported arch: {arch}')
+
+
 class Platform:
     """One target platform: what to build FOR, and how to find the tools that build it.
 
@@ -45,6 +54,7 @@ class Platform:
     is_host_runnable = True    ## True when mama may run the built tests on this machine
     default_arch = ''          ## '' means use the host arch
     supported_arches = ()      ## every arch this platform accepts. The first is not special
+    build_system = 'make'      ## the build system this platform prefers: make, xcode or visualstudio
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
     build_dirs = {}            ## arch to build dir name. An arch that is absent falls back to `name`
@@ -60,6 +70,11 @@ class Platform:
         return self.default_arch or host_arch()
 
 
+    def arch(self) -> str:
+        """The target arch, falling back to the default before BuildConfig has resolved one."""
+        return self.config.arch or self.get_default_arch()
+
+
     def validate_arch(self, arch: str):
         """Raise when `arch` cannot be built for this platform. Called once, after arg parsing."""
         if self.supported_arches and arch not in self.supported_arches:
@@ -69,7 +84,7 @@ class Platform:
 
     def system_processor(self) -> str:
         """The processor token for the CURRENT target arch. '' when the arch has no token."""
-        return SYSTEM_PROCESSORS.get(self.config.arch, '')
+        return SYSTEM_PROCESSORS.get(self.arch(), '')
 
 
     ## --- toolchain discovery ---
@@ -100,10 +115,16 @@ class Platform:
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor())
 
 
+    ## clang dropped -dumpfullversion, so only ask gcc-based toolchains for the full x.y.z version
+    compiler_dumpfullversion = True
+
     def compiler_paths(self) -> tuple:
         """(cc, cxx, version) for a cross toolchain, or ('','','') when BuildConfig should search.
         A cross platform always answers, because a fallback to the host compiler is silent and wrong."""
         tc = self.toolchain()
+        if not tc.cc: return ('', '', '')
+        if not tc.version:  # one probe per run: Toolchain is cached, so this caches with it
+            tc.version = self.config.get_gcc_clang_fullversion(tc.cc, self.compiler_dumpfullversion)
         return (tc.cc, tc.cxx, tc.version)
 
 
@@ -112,12 +133,23 @@ class Platform:
     def build_dir_name(self) -> str:
         """Build dir under packages/<target>/. Must be unique per (platform, arch) pair, or two
         builds clobber each other's cache."""
-        return self.build_dirs.get(self.config.arch, self.name)
+        return self.build_dirs.get(self.arch(), self.name)
 
 
     def distro_version(self) -> tuple:
         """(id, major, minor) for the artifactory archive name."""
         return (self.name, 0, 0)
+
+
+    def compiler_version_tag(self) -> str:
+        """Compiler id for the artifactory archive name, eg 'gcc14.3'. Named from the RESOLVED
+        compiler, never from config.gcc/clang: those describe the host, so a cross build reported
+        the host compiler's version for the NDK's clang."""
+        cc, _, version = self.config.get_preferred_compiler_paths()
+        major, minor = version.split('.')[:2]
+        if 'gcc' in cc:   return f'gcc{major}.{minor}'
+        if 'clang' in cc: return f'clang{major}.{minor}'
+        raise EnvironmentError(f'Unrecognized compiler {cc}!')
 
 
     ## --- flags ---
@@ -134,6 +166,16 @@ class Platform:
     def get_ld_flags(self, add_ld_flag: Callable[[str, str], None]):
         """Add the linker flags this platform always needs."""
         pass
+
+
+    def cxx_stdlib(self) -> str:
+        """The -stdlib value for a C++ build. '' where the platform does not choose one."""
+        return ''
+
+
+    def make_program(self, target=None) -> str:
+        """The build tool cmake drives when the generator picks none. '' lets cmake decide."""
+        return ''
 
 
     def inject_env(self):

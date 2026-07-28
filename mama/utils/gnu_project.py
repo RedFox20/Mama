@@ -72,9 +72,8 @@ class GnuProject:
             raise RuntimeError('build_product must be a BuildProduct or a list of BuildProducts')
         self.install_dir_suffix = '-built'
         self.make_opts = '' # default options for make
-        self.host = ''
-        if   self.target.config.mips:         self.host = 'mipsel-linux-gnu'
-        elif self.target.config.yocto_linux:  self.host = self.target.config.yocto_linux.host_name
+        # the --host triple for a cross build, '' for a native one
+        self.host = self.target.config.platform.gnu_host_triple()
 
         # the configure command, by default it's 'configure'
         # however using something other than 'configure' will completely override it

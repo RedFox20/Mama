@@ -1,22 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
 from typing import Callable
 from .generic_yocto import GenericYocto
 
 
-if TYPE_CHECKING:
-    from ..build_config import BuildConfig
-
-
 class Oclea(GenericYocto):
-    BUILD_DIR = 'oclea' # Constant: Oclea Ambarella CV25 build dir name
-
-    def __init__(self, config: BuildConfig):
-        ## Ambarella CV25 by Oclea is a Cortex-A53 based SoC with a HW Encoder.
-        super().__init__(Oclea.BUILD_DIR, Oclea.BUILD_DIR.upper(), config)
-        self.build_dir = Oclea.BUILD_DIR  # override generic build dir
-        self.host_name = 'aarch64-oclea-linux' # override generic host name
-
+    """Ambarella CV25 by Oclea. A Cortex-A53 based SoC with a hardware video encoder."""
+    name = 'oclea'
+    host_triple = 'aarch64-oclea-linux'
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
         paths = []
@@ -39,5 +29,4 @@ class Oclea(GenericYocto):
         add_flag('-march', 'armv8-a')
         add_flag('-mcpu', 'cortex-a53+crypto')
         add_flag('-mlittle-endian')
-        self._add_common_cxx_flags(add_flag)
-
+        super().get_cxx_flags(add_flag)

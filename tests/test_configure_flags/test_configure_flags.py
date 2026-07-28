@@ -65,11 +65,9 @@ def test_the_platform_records_its_toolchain_before_the_compiler_is_decided(tmp_p
     """Ordering pin: _platform_opts is what calls use_toolchain_file, so it MUST run before
     _set_compiler_paths reads the flag. Swap the two and this build starts naming the compiler again."""
     t, dep = make_configured_target(tmp_path)
-    platform = Mock()
-    platform.get_cmake_build_opts.side_effect = \
-        lambda t: ['MIPS=TRUE', cc.use_toolchain_file(dep.config, '/opt/mips/toolchain.cmake')]
-    dep.config.mips = platform
-    dep.config.linux = False
+    dep.config.platform = Mock(build_system='make', get_cmake_build_opts=lambda t:
+                               ['MIPS=TRUE', cc.use_toolchain_file(dep.config, '/opt/mips/toolchain.cmake')])
+    dep.config.msvc = dep.config.linux = False
     assert '-DCMAKE_C_COMPILER=' not in run_config_capturing(t, dep)[0]
 
 

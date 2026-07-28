@@ -104,11 +104,12 @@ def test_the_seed_probe_configures_with_the_platform_settings(tmp_path):
     """'Inherits actual platform defaults': the throwaway probe project gets the SAME cross opts as a real
     target, so its CMakeSystem.cmake records the cross system rather than the host's."""
     t, dep = make_configured_target(tmp_path, arch='arm64')
-    platform = Mock()
+    platform = Mock(build_system='make')
     platform.get_cmake_build_opts.side_effect = lambda t: (
         cc.cross_system_opts(dep.config, 'Linux') + ['CMAKE_SYSROOT=/opt/sdk/sysroot',
                                                  cc.use_toolchain_file(dep.config, '/opt/sdk/tc.cmake')])
-    dep.config.mips = platform
+    dep.config.platform = platform
+    dep.config.msvc = False
     dep.config.linux = False
     cmds = []
     with patch.object(cc.SubProcess, 'run', side_effect=lambda cmd, *a, **k: cmds.append(cmd) or 1):
@@ -139,11 +140,14 @@ def test_every_cross_platform_exposes_the_same_entry_point(name, cls, system, tm
         assert list(sig.parameters) == ['self', 'target'], f'{cls}.get_cmake_build_opts{sig}'
 
 
-def test_the_dispatch_covers_every_cross_platform_attribute(tmp_path):
-    """_CROSS_PLATFORMS is the whole list; a platform missing from it is never asked for its options."""
-    _, dep = make_configured_target(tmp_path)
-    for name in cc._CROSS_PLATFORMS:
-        assert hasattr(dep.config, name), f'{name} is dispatched on but BuildConfig has no such attribute'
+def test_the_registry_lists_every_platform_mama_can_build_for():
+    """_platform_opts dispatches through config.platform, and set_platform() builds that from the
+    registry - a platform missing from it can never be selected at all."""
+    from mama.platforms.registry import PLATFORMS
+    from mama.build_config import BuildConfig
+    registered = {p.__name__ for p in PLATFORMS}
+    dispatched = {name for _, name in BuildConfig._PLATFORM_FLAGS}
+    assert dispatched == registered
 
 
 def test_a_native_build_contributes_no_cross_options(tmp_path):

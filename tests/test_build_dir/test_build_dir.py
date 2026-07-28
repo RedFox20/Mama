@@ -1,15 +1,16 @@
-from types import SimpleNamespace
-from mama.build_config import BuildConfig
+import pytest
+from testutils import platform_config
+from mama.platforms.linux import Linux
+from mama.platforms.macos import Macos
+from mama.platforms.ios import Ios
+from mama.platforms.android import Android
+from mama.platforms.windows import Windows
+from mama.platforms.oclea import Oclea
 
 
 def linux_config():
     """A BuildConfig pinned to linux/x64 so dir names are host-independent."""
-    c = BuildConfig([])
-    c.msvc = c.macos = c.ios = c.android = c.raspi = False
-    c.mips = c.oclea = c.xilinx = c.imx8mp = c.yocto_linux = None
-    c.linux = True
-    c.arch = 'x64'
-    return c
+    return platform_config(Linux, 'x64')
 
 
 def test_no_sanitizer_dir_unchanged():
@@ -68,12 +69,12 @@ def test_arm_linux_also_gets_the_clang_suffix():
     assert c.platform_build_dir_name() == 'linuxarm-clang'
 
 
-def test_non_linux_platforms_are_unaffected_by_clang():
+@pytest.mark.parametrize('platform_class', [Macos, Ios, Android, Windows, Oclea])
+def test_non_linux_platforms_are_unaffected_by_clang(platform_class):
     # set_platform() is exclusive: these never see the suffix, toolset/SDK fixes their compiler
-    for platform in ('macos', 'ios', 'android', 'msvc'):
-        c = linux_config()
-        c.linux = False; setattr(c, platform, True); c.clang = True
-        assert '-clang' not in c.platform_build_dir_name()
-    yocto = linux_config()
-    yocto.linux = False; yocto.yocto_linux = SimpleNamespace(build_dir='oclea'); yocto.clang = True
-    assert yocto.platform_build_dir_name() == 'oclea'
+    c = platform_config(platform_class, clang=True)
+    assert '-clang' not in c.platform_build_dir_name()
+
+
+def test_a_yocto_board_is_named_by_its_own_build_dir():
+    assert platform_config(Oclea).platform_build_dir_name() == 'oclea'

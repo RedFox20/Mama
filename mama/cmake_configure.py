@@ -482,33 +482,28 @@ def _unused_cli_flag(target:BuildTarget) -> str:
     return '' if target.config.verbose else '--no-warn-unused-cli '
 
 
+# The cmake generator per platform build system. MSVC is not here: its generator carries the
+# detected Visual Studio version and the target arch, so it is built from config.
+_GENERATORS = {'make': '-G "Unix Makefiles"', 'xcode': '-G "Xcode"'}
+
+
 def _generator(target:BuildTarget):
     config:BuildConfig = target.config
     if target.enable_ninja_build: return '-G "Ninja"'
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.msvc:               return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
-    if config.android:            return '-G "Unix Makefiles"'
-    if config.linux:              return '-G "Unix Makefiles"'
-    if config.yocto_linux:        return '-G "Unix Makefiles"'
-    if config.raspi:              return '-G "Unix Makefiles"'
-    if config.mips:               return '-G "Unix Makefiles"'
-    if config.ios:                return '-G "Xcode"'
-    if config.macos:              return '-G "Xcode"'
-    else:                         return ''
+    if config.msvc: return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
+    return _GENERATORS.get(config.platform.build_system, '')
 
 
-def _make_program(target:BuildTarget):
+def _make_program(target:BuildTarget) -> str:
+    """The build tool cmake drives. Ninja when the target enabled it, else whatever the platform
+    provides (only the Android NDK ships one). Asked from ONE place: appending the platform's make
+    here AND inside the platform's own option list passed CMAKE_MAKE_PROGRAM twice."""
     config:BuildConfig = target.config
     if target.enable_ninja_build: return config.ninja_path
     if config.msvc: return ''
-    if target.enable_unix_make: return ''
+    if config.android: return config.android.make_program(target)
     return ''
-
-
-# Every cross platform is an object exposing get_cmake_build_opts(target). Checked in this order; the
-# first one set wins, exactly as the old if/elif chain did. MSVC stays a flag - it is not a cross build
-# and contributes one toolset option - and a native linux/macos build contributes nothing.
-_CROSS_PLATFORMS = ('android', 'yocto_linux', 'mips', 'raspi', 'ios')
 
 
 def _platform_opts(target:BuildTarget) -> list:
@@ -521,10 +516,7 @@ def _platform_opts(target:BuildTarget) -> list:
     config:BuildConfig = target.config
     if config.msvc:  # host toolset override, not a cross build
         return ['CMAKE_GENERATOR_TOOLSET=host=x86'] if config.is_target_arch_x86() else []
-    for name in _CROSS_PLATFORMS:
-        platform = getattr(config, name, None)
-        if platform: return platform.get_cmake_build_opts(target)
-    return []
+    return config.platform.get_cmake_build_opts(target)
 
 
 def _default_options(target:BuildTarget):
@@ -565,27 +557,10 @@ def _default_options(target:BuildTarget):
     if config.buildstats and config.clang:  # instrument for the Linux/Clang buildstats deep dive
         add_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
 
-    if config.android:
-        config.android.get_cxx_flags(add_flag)
-    elif config.linux:
-        add_flag('-march', config.get_gcc_linux_march())
-        if config.clang and target.enable_cxx_build:
-            add_flag('-stdlib', config.clang_stdlib)  # config.use_gcc_stdlib_for_clang() picks libstdc++
-    elif config.macos:
-        add_flag('-march', config.get_gcc_linux_march())
-        if target.enable_cxx_build:
-            add_flag('-stdlib', 'libc++')
-    elif config.ios:
-        add_flag('-arch arm64')
-        add_flag('-miphoneos-version-min', config.ios_version)
-        if target.enable_cxx_build:
-            add_flag('-stdlib', 'libc++')
-    elif config.raspi:
-        config.raspi.get_cxx_flags(add_flag)
-    elif config.yocto_linux:
-        config.yocto_linux.get_cxx_flags(add_flag)
-    elif config.mips:
-        config.mips.get_cxx_flags(add_flag)
+    config.platform.get_cxx_flags(add_flag)
+    if target.enable_cxx_build:
+        stdlib = config.platform.cxx_stdlib()  # only linux clang, macos and ios pick one
+        if stdlib: add_flag('-stdlib', stdlib)
 
     if config.flags:
         add_flag(config.flags)
@@ -641,7 +616,7 @@ def _default_options(target:BuildTarget):
         opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
     if config.yocto_linux:
-        config.yocto_linux.get_ldflags_with_defaults(ldflags)
+        config.yocto_linux.get_ld_flags(add_ldflag)
 
     ldflags_str = get_flags_string(ldflags)
     if ldflags_str:
@@ -663,13 +638,7 @@ def _default_options(target:BuildTarget):
 
 
 def inject_env(target:BuildTarget):
-    config:BuildConfig = target.config
-    if config.android:
-        config.android.inject_env()
-    elif config.ios:
-        os.environ['IPHONEOS_DEPLOYMENT_TARGET'] = config.ios_version
-    elif config.macos:
-        os.environ['MACOSX_DEPLOYMENT_TARGET'] = config.macos_version
+    target.config.platform.inject_env()
 
 
 def _build_config(target:BuildTarget, install:bool):
@@ -691,25 +660,21 @@ def _mp_flags(target:BuildTarget):
     config:BuildConfig = target.config
     if not target.enable_multiprocess_build: return ''
     jobs = _jobs(target)
-    if config.msvc:       return f'/maxcpucount:{jobs}'
-    if target.enable_unix_make:   return f'-j{jobs}'
-    if config.ios:         return f'-jobs {jobs}'
-    if config.macos:       return f'-jobs {jobs}'
-    return f'-j{jobs}'
+    if config.msvc: return f'/maxcpucount:{jobs}'
+    # a target that forced Unix Makefiles takes make's flag, whatever the platform prefers
+    if target.enable_unix_make: return f'-j{jobs}'
+    return f'-jobs {jobs}' if config.platform.build_system == 'xcode' else f'-j{jobs}'
 
 
 def _buildsys_flags(target:BuildTarget):
     if target.enable_ninja_build: return '' # ninja does not need extra flags
     config:BuildConfig = target.config
-    def get_flags():
-        mpf = _mp_flags(target)
-        if config.msvc:               return f'/v:m {mpf} /nologo'
-        if target.enable_unix_make:   return mpf
-        if config.android:            return mpf
-        if config.ios or config.macos:
-            if not target.config.verbose:
-                return f'-quiet {mpf}'
-        return mpf
-    flags = get_flags()
+    mpf = _mp_flags(target)
+    if config.msvc:
+        flags = f'/v:m {mpf} /nologo'
+    elif config.platform.build_system == 'xcode' and not (target.enable_unix_make or config.verbose):
+        flags = f'-quiet {mpf}'  # xcodebuild is extremely chatty unless it is told not to be
+    else:
+        flags = mpf
     return f'-- {flags}' if flags else ''
 

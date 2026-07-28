@@ -11,6 +11,9 @@ from unittest.mock import Mock
 import mama
 import pytest
 
+from mama.platforms.platform import Platform
+from mama.platforms.linux import Linux
+
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves
 def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
 
@@ -97,18 +100,20 @@ def make_mock_config(tmp_path, **overrides):
     cfg.cmake_toolchain_file = ''  # a toolchain-file build takes a different compiler path
     cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
-    # platform aliases (BuildTarget.__init__ pokes these)
+    # platform: a REAL Linux instance, so option builders get real strings instead of Mocks
     cfg.msvc = False
     cfg.linux = True
     cfg.macos = False
-    cfg.ios = False
+    cfg.ios = None
     cfg.android = None
-    cfg.raspi = False
+    cfg.raspi = None
     cfg.oclea = None
     cfg.xilinx = None
     cfg.mips = None
     cfg.imx8mp = None
     cfg.yocto_linux = None
+    cfg.clang = False
+    cfg.gcc = True
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
@@ -120,6 +125,27 @@ def make_mock_config(tmp_path, **overrides):
     cfg.release = True
     cfg.sanitize = None
     cfg.sanitizer_suffix.return_value = ''
+    for k, v in overrides.items(): setattr(cfg, k, v)
+    if not isinstance(getattr(cfg, 'platform', None), Platform):
+        set_mock_platform(cfg, Linux)  # after overrides, so a test can pass its own platform=
+    return cfg
+
+
+def set_mock_platform(cfg, platform_class):
+    """Install a REAL platform instance on a mock config and refresh the mamafile-facing flags, the
+    way BuildConfig.set_platform_class() does. Mock() would answer every option builder with a Mock."""
+    from mama.build_config import BuildConfig
+    cfg.platform = platform_class(cfg)
+    BuildConfig._update_platform_flags(cfg)
+    return cfg.platform
+
+
+def platform_config(platform_class, arch=None, **overrides):
+    """A REAL BuildConfig on `platform_class`, the way a `mama build <platform>` run produces one."""
+    from mama.build_config import BuildConfig
+    cfg = BuildConfig([])
+    cfg.set_platform_class(platform_class)
+    cfg.arch = arch or platform_class.default_arch or cfg.arch
     for k, v in overrides.items(): setattr(cfg, k, v)
     return cfg
 

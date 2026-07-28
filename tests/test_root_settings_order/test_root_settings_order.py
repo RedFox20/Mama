@@ -4,18 +4,19 @@ import pytest
 from testutils import make_mock_local_dep
 from mama import main as mama_main
 from mama.build_config import BuildConfig
+from mama.platforms.imx8mp import Imx8mp
 
 
-class FakeYocto:
-    """Stand-in for Imx8mp/Oclea/Xilinx: records every toolchain probe without touching a real SDK."""
+class FakeYocto(Imx8mp):
+    """A real Yocto board whose SDK probe is recorded instead of hitting the disk."""
     def __init__(self, config):
-        self.build_dir = 'imx8mp'; self.probes = []; self.toolchain_dir = ''
-    def init_default(self):
-        if not self.toolchain_dir: self.init_toolchain()
+        super().__init__(config)
+        self.probes = []
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
         self.probes.append(toolchain_dir)
         self.toolchain_dir = toolchain_dir or '/opt/default-sdk'
-    def gcc_prefix(self): return f'{self.toolchain_dir}/bin/aarch64-poky-linux-'
+        self.compilers = f'{self.toolchain_dir}/bin/'
+        self.cc_prefix = f'{self.compilers}aarch64-poky-linux-'
 
 
 ROOT_MAMAFILE = '''import mama
