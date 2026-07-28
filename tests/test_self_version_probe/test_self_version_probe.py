@@ -95,6 +95,7 @@ def _run_filtered_progress_lines(lines, monotonic_values):
          patch('mama.types.git.progress', side_effect=lambda text, **_kw: printed.append(text)), \
          patch('mama.types.git.SubProcess.run', side_effect=fake_run), \
          patch('mama.types.git.ssh_multiplex.ensure_master_for_url'), \
+         patch('mama.types.git.ssh_multiplex.pace_new_connection'), \
          patch('mama.types.git.ssh_multiplex.fetch_slot',
                side_effect=lambda: contextlib.nullcontext()):
         git._run_git_with_filtered_progress(dep, 'git clone fake target', label='PROBE')

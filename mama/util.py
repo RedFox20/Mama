@@ -156,6 +156,17 @@ def glob_folders_with_name_match(rootdir: str, pattern_substrings: List[str]):
     return results
 
 
+def remove_tree(dir: str):
+    """Delete a directory tree, including a git clone. Windows refuses to unlink the read-only files git
+    writes under `.git/objects/`, so make everything writable first. A missing dir is a no-op."""
+    if not dir or not os.path.exists(dir): return
+    if System.windows:
+        for root, dirs, files in os.walk(dir):
+            for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
+            for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
+    shutil.rmtree(dir)
+
+
 def is_dir_empty(dir: str): # no files?
     if not os.path.exists(dir): return True
     _, _, filenames = next(os.walk(dir))

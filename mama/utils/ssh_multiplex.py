@@ -32,12 +32,16 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 
 from .system import System
 
 
-DEFAULT_MAX_CONCURRENT_FETCHES = 20
+# One master carries every parallel fetch as a separate SSH session, and sshd's default MaxSessions is
+# 10. Above that the server answers `mux_client_request_session: session request failed: Session open
+# refused by peer` and the fetch dies. Raise it per project with `parallel=N` when the host allows more.
+DEFAULT_MAX_CONCURRENT_FETCHES = 8
 
 _OUR_CONTROL_DIR = os.path.expanduser('~/.ssh/cm')
 _OUR_CONTROL_PATH = os.path.join(_OUR_CONTROL_DIR, '%C')
@@ -218,18 +222,25 @@ def ensure_master_for_url(url: str) -> None:
         probe = probe_ssh_config(_probe_args(user, host, port))
         opts, we_own_master = options_to_add(probe)
 
-        if we_own_master and not _start_master(user, host, port, opts):
-            # Pre-warm failed (auth declined, network blip, host key prompt,
-            # MFA timeout). If we left ControlMaster/ControlPath in opts,
-            # every subsequent fetch would race to BECOME the master and
-            # we'd trigger N concurrent auths instead of one - the exact
-            # thing multiplexing is meant to prevent. Strip the multiplex
-            # flags so each fetch makes its own simple connection.
-            opts = [o for o in opts
-                    if not (o.startswith('-oControlMaster=')
-                            or o.startswith('-oControlPath=')
-                            or o.startswith('-oControlPersist='))]
-            we_own_master = False
+        if we_own_master:
+            state = _open_master(user, host, port, opts)
+            # ADOPTED: a master was already listening (a parallel mama run, or an earlier run's
+            # ControlPersist master on a runner that keeps $HOME). Use it, but never `ssh -O exit` it at
+            # exit - closing another job's connection kills its fetches mid-transfer.
+            if state == _MASTER_ADOPTED:
+                we_own_master = False
+            elif state == _MASTER_FAILED:
+                # Pre-warm failed (auth declined, network blip, host key prompt,
+                # MFA timeout). If we left ControlMaster/ControlPath in opts,
+                # every subsequent fetch would race to BECOME the master and
+                # we'd trigger N concurrent auths instead of one - the exact
+                # thing multiplexing is meant to prevent. Strip the multiplex
+                # flags so each fetch makes its own simple connection.
+                opts = [o for o in opts
+                        if not (o.startswith('-oControlMaster=')
+                                or o.startswith('-oControlPath=')
+                                or o.startswith('-oControlPersist='))]
+                we_own_master = False
 
         with _state_lock:
             _warmed[ep] = {'opts': opts, 'we_own_master': we_own_master}
@@ -246,13 +257,48 @@ def _master_control_args(opts: list[str]) -> list[str]:
             if o.startswith('-oControlPath=') or o.startswith('-oControlPersist=')]
 
 
-def _start_master(user: str, host: str, port: str | None, opts: list[str]) -> bool:
+_MASTER_ADOPTED, _MASTER_STARTED, _MASTER_FAILED = 'adopted', 'started', 'failed'
+
+
+def _master_alive(user: str, host: str, port: str | None, opts: list[str]) -> bool:
+    """True when a master already answers on this ControlPath."""
+    cmd = ['ssh', '-Ocheck'] + _master_control_args(opts)
+    if port:
+        cmd += ['-p', port]
+    cmd += [f'{user}@{host}']
+    try:
+        return subprocess.run(cmd, timeout=2, capture_output=True).returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _remove_stale_socket(user: str, host: str, port: str | None, opts: list[str]) -> None:
     """
-    Open a master in the background with `ssh -fN` and verify it's listening
-    via `ssh -O check`. Returns True only if the master is confirmed ready -
-    callers should downgrade to non-multiplexed mode on False so concurrent
-    fetches don't all race to be the master and trigger N parallel auths.
+    `ssh -fN -oControlMaster=yes` refuses to open a master while the socket file exists, even when
+    nothing listens on it - it prints `ControlSocket ... already exists, disabling multiplexing` and
+    connects unmultiplexed. A killed master, or a CI runner that keeps $HOME between jobs, leaves
+    exactly that. Delete the dead socket, but ONLY under our own control dir: a user-configured
+    ControlPath is theirs to manage. `ssh -G` expands the %C token for us.
     """
+    probe = probe_ssh_config(_master_control_args(opts) + _probe_args(user, host, port))
+    path = probe.get('controlpath', '')
+    if not path.startswith(_OUR_CONTROL_DIR):
+        return
+    with contextlib.suppress(OSError):
+        os.remove(path)
+
+
+def _open_master(user: str, host: str, port: str | None, opts: list[str]) -> str:
+    """
+    Make a master usable on this ControlPath. Returns one of:
+      _MASTER_ADOPTED - one was already listening. Use it, but it is not ours to close.
+      _MASTER_STARTED - we opened it, so we own its cleanup.
+      _MASTER_FAILED  - none available. The caller must drop the multiplex flags, so concurrent
+                        fetches don't all race to be the master and trigger N parallel auths.
+    """
+    if _master_alive(user, host, port, opts):
+        return _MASTER_ADOPTED
+    _remove_stale_socket(user, host, port, opts)
     # Force ControlMaster=yes for the master itself; replace any =auto.
     cmd = ['ssh', '-fN'] + [o for o in opts if not o.startswith('-oControlMaster=')]
     cmd += ['-oControlMaster=yes']
@@ -264,10 +310,10 @@ def _start_master(user: str, host: str, port: str | None, opts: list[str]) -> bo
         # but BEFORE the ControlPath socket is bound, so we still need to poll.
         cp = subprocess.run(cmd, timeout=30, capture_output=True, text=True)
         if cp.returncode != 0:
-            return False
+            return _MASTER_FAILED
     except (subprocess.TimeoutExpired, OSError):
-        return False
-    return _wait_master_ready(user, host, port, opts)
+        return _MASTER_FAILED
+    return _MASTER_STARTED if _wait_master_ready(user, host, port, opts) else _MASTER_FAILED
 
 
 def _wait_master_ready(user: str, host: str, port: str | None,
@@ -278,21 +324,12 @@ def _wait_master_ready(user: str, host: str, port: str | None,
     can take a brief moment to bind. Without this poll the first racing
     fetches see "no socket yet" and each open their own connection.
     """
-    import time as _t
-    check = ['ssh', '-Ocheck'] + _master_control_args(opts)
-    if port:
-        check += ['-p', port]
-    check += [f'{user}@{host}']
-    end = _t.monotonic() + deadline_s
+    end = time.monotonic() + deadline_s
     delay = 0.05
-    while _t.monotonic() < end:
-        try:
-            cp = subprocess.run(check, timeout=2, capture_output=True)
-        except (subprocess.TimeoutExpired, OSError):
-            return False
-        if cp.returncode == 0:
+    while time.monotonic() < end:
+        if _master_alive(user, host, port, opts):
             return True
-        _t.sleep(delay)
+        time.sleep(delay)
         delay = min(delay * 2, 0.5)
     return False
 
@@ -345,3 +382,37 @@ def fetch_slot():
     `init_fetch_semaphore` has not been called (e.g. for non-parallel runs).
     """
     return _fetch_semaphore or contextlib.nullcontext()
+
+
+# Connection pacing --------------------------------------------------------
+
+# Pacing is REACTIVE, and off until a host pushes back. A wave of parallel clones opens its TCP and
+# auth handshakes inside a few milliseconds, and a git host can answer that by closing the connection
+# mid-handshake. Multiplexing removes the handshakes on a shared SSH host, but an https remote still
+# connects per clone and Windows has no multiplexing at all. An unconditional stagger would cost wall
+# clock on every run to protect the few that need it, so the first dropped connection turns it on
+# instead and everything after that arrives spread out.
+THROTTLED_CONNECT_INTERVAL = 0.25  # seconds between the START of two git network commands, once throttled
+_connect_lock = threading.Lock()
+_connect_interval = 0.0
+_last_connect = 0.0
+
+
+def note_connection_throttled() -> None:
+    """A git command died on a dropped or refused connection: pace every later one for this run."""
+    global _connect_interval
+    with _connect_lock:
+        _connect_interval = THROTTLED_CONNECT_INTERVAL
+
+
+def pace_new_connection() -> None:
+    """Hold a git network command back until the pacing interval has passed since the last one
+    started. No-op until note_connection_throttled() fires. Only the START of each connection is
+    staggered, so the transfers themselves stay fully parallel."""
+    global _last_connect
+    with _connect_lock:  # held across the sleep, so N waiters stagger instead of waking together
+        if not _connect_interval: return
+        # capped at the interval itself: a clock that jumps backwards must never stall a build
+        wait = min(_last_connect + _connect_interval - time.monotonic(), _connect_interval)
+        if wait > 0: time.sleep(wait)
+        _last_connect = time.monotonic()

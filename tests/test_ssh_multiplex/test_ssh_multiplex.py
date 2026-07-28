@@ -1,7 +1,9 @@
 """ssh_multiplex pure-logic: URL parsing, options decision, wrapper arg parsing."""
 import os
+import subprocess
 import sys
 from unittest import mock
+from unittest.mock import Mock
 
 import pytest
 
@@ -240,10 +242,10 @@ class TestEnsureMasterIdempotent:
                             lambda args, timeout=5.0: {})
 
         master_calls = []
-        def fake_start(user, host, port, opts):
+        def fake_open(user, host, port, opts):
             master_calls.append((user, host, port, list(opts)))
-            return True
-        monkeypatch.setattr(sm, '_start_master', fake_start)
+            return sm._MASTER_STARTED
+        monkeypatch.setattr(sm, '_open_master', fake_open)
 
         sm.ensure_master_for_url('git@example.com:foo.git')
         sm.ensure_master_for_url('git@example.com:bar.git')  # same host
@@ -251,7 +253,7 @@ class TestEnsureMasterIdempotent:
         assert sm._warmed[('git', 'example.com', None)]['we_own_master'] is True
 
     def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
-        # When _start_master fails, we MUST clear ControlMaster/Path/Persist
+        # When _open_master fails, we MUST clear ControlMaster/Path/Persist
         # from opts. Otherwise N parallel fetches would race to be the master
         # and trigger N concurrent auths - the exact thing this is meant to
         # prevent.
@@ -261,8 +263,8 @@ class TestEnsureMasterIdempotent:
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         monkeypatch.setattr(sm, 'probe_ssh_config',
                             lambda args, timeout=5.0: {})
-        monkeypatch.setattr(sm, '_start_master',
-                            lambda u, h, p, o: False)
+        monkeypatch.setattr(sm, '_open_master',
+                            lambda u, h, p, o: sm._MASTER_FAILED)
 
         sm.ensure_master_for_url('git@example.com:foo.git')
         info = sm._warmed[('git', 'example.com', None)]
@@ -396,3 +398,52 @@ class TestWrapperMain:
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     monkeypatch.delenv('GIT_SSH_COMMAND', raising=False)
+
+
+class TestMasterOwnership:
+    """`ssh -O check` decides ownership. Getting it wrong makes mama `ssh -O exit` a master another
+    parallel job owns, killing its fetches mid-transfer."""
+
+    def _opts(self, tmp_path):
+        return ['-oControlMaster=auto', f'-oControlPath={tmp_path}/cm/%C', '-oControlPersist=10m']
+
+    def test_a_live_master_is_adopted_not_restarted(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sm, '_master_alive', lambda u, h, p, o: True)
+        monkeypatch.setattr(subprocess, 'run', lambda *a, **k: pytest.fail('must not start a second master'))
+        assert sm._open_master('git', 'example.com', None, self._opts(tmp_path)) == sm._MASTER_ADOPTED
+
+    def test_an_adopted_master_is_never_ours_to_close(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sm.System, 'windows', False)
+        monkeypatch.setattr(sm, '_warmed', {})
+        monkeypatch.setattr(sm, '_per_host_locks', {})
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
+        monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {})
+        monkeypatch.setattr(sm, '_open_master', lambda u, h, p, o: sm._MASTER_ADOPTED)
+
+        sm.ensure_master_for_url('git@example.com:foo.git')
+        info = sm._warmed[('git', 'example.com', None)]
+        assert info['we_own_master'] is False
+        assert any(o.startswith('-oControlPath=') for o in info['opts'])  # ...but we still use the socket
+
+    def test_a_dead_socket_is_removed_before_starting(self, monkeypatch, tmp_path):
+        # ssh refuses to open a master while the file exists, even with nothing listening on it
+        sock = tmp_path / 'cm' / 'deadbeef'
+        sock.parent.mkdir(parents=True)
+        sock.touch()
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, '_master_alive', lambda u, h, p, o: False)
+        monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {'controlpath': str(sock)})
+        monkeypatch.setattr(sm, '_wait_master_ready', lambda u, h, p, o: True)
+        monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Mock(returncode=0))
+        assert sm._open_master('git', 'example.com', None, self._opts(tmp_path)) == sm._MASTER_STARTED
+        assert not sock.exists()
+
+    def test_a_socket_outside_our_control_dir_is_left_alone(self, monkeypatch, tmp_path):
+        theirs = tmp_path / 'user' / 'sock'
+        theirs.parent.mkdir(parents=True)
+        theirs.touch()
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {'controlpath': str(theirs)})
+        sm._remove_stale_socket('git', 'example.com', None, self._opts(tmp_path))
+        assert theirs.exists()  # a user-configured ControlPath is theirs to manage

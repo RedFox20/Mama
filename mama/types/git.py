@@ -1,13 +1,14 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-import os, shutil, stat, string, time, re, tempfile, subprocess
+import os, string, time, re, random, tempfile, subprocess
 from .dep_source import DepSource
-from ..utils.system import Color, System, console, error, warning, progress
+from ..utils.system import Color, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
-                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status)
+                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
+                    remove_tree)
 
 
 if TYPE_CHECKING:
@@ -37,6 +38,27 @@ _SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
 def _is_git_status_noise(line: str) -> bool:
     return line.startswith(_GIT_NOISE) or 'set up to track ' in line \
         or _SSH_CONFIG_WARNING.match(line) is not None
+
+
+# A clone that died from throttling or a dropped connection is worth another attempt. A bad url, a
+# missing ref or a denied key is not - retrying those only makes the build slower before it fails.
+_TRANSIENT_GIT_ERRORS = ('kex_exchange_identification', 'ssh_exchange_identification', 'session request failed',
+                         'connection closed by remote host', 'connection reset', 'connection timed out',
+                         'early eof', 'remote end hung up unexpectedly', 'rpc failed', 'failed to connect to',
+                         'could not resolve host', 'operation timed out', 'unable to access',
+                         'too many requests', 'rate limit', 'try again later', 'temporarily unavailable',
+                         'error: 429', 'error: 500', 'error: 502', 'error: 503')
+_CLONE_ATTEMPTS = 3
+_CLONE_RETRY_BASE = 0.5  # seconds, doubled per attempt and jittered so a throttled wave does not retry in lockstep
+
+# git subcommands that open a connection. The rest are local and must not pay the pacing delay.
+_NETWORK_GIT_CMDS = ('fetch', 'pull', 'push', 'clone', 'ls-remote', 'submodule')
+
+
+def is_transient_git_failure(output: str) -> bool:
+    """True when git output names a throttle or a dropped connection, so another attempt can succeed."""
+    low = output.lower()
+    return any(err in low for err in _TRANSIENT_GIT_ERRORS)
 
 
 def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
@@ -181,6 +203,7 @@ class Git(DepSource):
             if not dep.config.verbose and _is_git_status_noise(line): return  # drop benign reset/track/up-to-date chatter
             console(f'  {dep.name: <16} {line}')
         with ssh_multiplex.fetch_slot():
+            if git_command.split(' ', 1)[0] in _NETWORK_GIT_CMDS: ssh_multiplex.pace_new_connection()
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
             # idle_timeout: kill a fetch stuck on an auth prompt so a parallel run never freezes.
             try:
@@ -350,6 +373,7 @@ class Git(DepSource):
                 elif self.tag:  arguments = self.tag
                 ssh_multiplex.ensure_master_for_url(self.url)
                 with ssh_multiplex.fetch_slot():
+                    ssh_multiplex.pace_new_connection()
                     result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
                 if result: result = result.split(' ')[0][0:7]
                 if dep.config.verbose:
@@ -505,12 +529,7 @@ class Git(DepSource):
         target = dep.src_dir if source_only else dep.dep_dir
         if dep.config.print:
             console(f'  - Target {dep.name: <16} RECLONE WIPE{" (source)" if source_only else ""}')
-        if target and os.path.exists(target):
-            if System.windows: # chmod everything to user so we can delete:
-                for root, dirs, files in os.walk(target):
-                    for d in dirs:  os.chmod(os.path.join(root, d), stat.S_IWUSR)
-                    for f in files: os.chmod(os.path.join(root, f), stat.S_IWUSR)
-            shutil.rmtree(target)
+        remove_tree(target)
 
 
     def _run_git_with_filtered_progress(self, dep: BuildDependency, cmd: str, label: str):
@@ -539,6 +558,7 @@ class Git(DepSource):
             console(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
         with ssh_multiplex.fetch_slot():
+            ssh_multiplex.pace_new_connection()  # no-op unless a host already pushed back this run
             # idle_timeout: kill a clone stuck on a passphrase prompt so a parallel wave never
             # freezes; a real download streams progress and is never wrongly aborted.
             try:
@@ -551,19 +571,33 @@ class Git(DepSource):
 
     def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
         cmd = f'git clone {clone_args} {clone_to_dir}'
-        result, output, elapsed = self._run_git_with_filtered_progress(dep, cmd, label='CLONE')
-        if result == 0:
-            dep.config.update_stats.record_clone()
-        if dep.config.print:
+        for attempt in range(1, _CLONE_ATTEMPTS + 1):
+            result, output, elapsed = self._run_git_with_filtered_progress(dep, cmd, label='CLONE')
             if result == 0:
-                progress(f'  - Target {dep.name: <16} CLONE SUCCESS {elapsed}', color=Color.BLUE, final=True)
-                if dep.config.verbose and output:
-                    console(output, end='')
-            else:
+                dep.config.update_stats.record_clone()
+                if dep.config.print:
+                    progress(f'  - Target {dep.name: <16} CLONE SUCCESS {elapsed}', color=Color.BLUE, final=True)
+                    if dep.config.verbose and output: console(output, end='')
+                return
+            if attempt < _CLONE_ATTEMPTS and is_transient_git_failure(output):
+                self._backoff_before_reclone(dep, clone_to_dir, attempt, elapsed)
+                continue
+            if dep.config.print:
                 progress(f'  - Target {dep.name: <16} CLONE FAILED ({result}) after {elapsed}', color=Color.RED, final=True)
-                if output:
-                    console(output, end='')
-                raise RuntimeError(f'Target {self.name} clone failed after {elapsed}: {cmd}')
+                if output: console(output, end='')
+            raise RuntimeError(f'Target {self.name} clone failed after {elapsed}: {cmd}')
+
+
+    def _backoff_before_reclone(self, dep: BuildDependency, clone_to_dir: str, attempt: int, elapsed: str):
+        """Wait out a throttle, then clear the partial tree git left behind - a second `git clone` into a
+        non-empty directory fails on the directory and hides the error that actually needs fixing."""
+        ssh_multiplex.note_connection_throttled()  # the host pushed back: stagger every later connection
+        delay = _CLONE_RETRY_BASE * (2 ** (attempt - 1)) * random.uniform(0.5, 1.5)
+        if dep.config.print:
+            warning(f'  - Target {dep.name: <16} CLONE dropped after {elapsed}, retry '
+                    f'{attempt + 1}/{_CLONE_ATTEMPTS} in {get_time_str(delay)}')
+        remove_tree(clone_to_dir)
+        time.sleep(delay)
 
 
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
