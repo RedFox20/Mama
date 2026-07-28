@@ -925,27 +925,23 @@ def _command_verb(config) -> str:
     return 'building'
 
 
-def _compiler_version(config) -> str:
-    """Version for the banner: MSVC's toolset major.minor, else the detected cc/cxx version. '' when it
-    can't be resolved - a banner must never fail a build."""
+def _toolchain_name(config) -> str:
+    """'clang 18.1 libstdc++' / 'gcc 14.3' / 'msvc 14.44' - what this run actually builds with. Named
+    from the RESOLVED compiler, not config.clang/gcc: those describe the host, so a cross build read
+    'gcc 21.0' for the android NDK's clang. '' when unresolvable - a banner must never fail a build."""
     try:
         if config.msvc:
             toolset = os.path.basename(config.get_msvc_tools_path().rstrip('\\/'))  # 14.44.35207 -> 14.44
-            return '.'.join(toolset.split('.')[:2])
-        _, _, ver = config.get_preferred_compiler_paths()
-        return '.'.join(ver.split('.')[:2]) if ver else ''
+            return 'msvc ' + '.'.join(toolset.split('.')[:2])
+        cc, _, ver = config.get_preferred_compiler_paths()
+        cc = os.path.basename(cc)  # basename: only the compiler itself, never a 'gcc-toolchain' dir above it
+        name = 'clang' if 'clang' in cc else ('gcc' if 'gcc' in cc else '')
+        if not name: return ''
+        ver = '.'.join(ver.split('.')[:2]) if ver else ''
+        stdlib = f' {config.clang_stdlib}' if (name == 'clang' and config.linux) else ''
+        return f'{name}{" " + ver if ver else ""}{stdlib}'
     except Exception:
         return ''
-
-
-def _toolchain_name(config) -> str:
-    """'clang 18.1 libstdc++' / 'gcc 14.3' / 'msvc 14.44' - what this run actually builds with. The
-    stdlib only distinguishes a linux clang build."""
-    name = 'msvc' if config.msvc else ('clang' if config.clang else ('gcc' if config.gcc else ''))
-    if not name: return ''
-    ver = _compiler_version(config)
-    stdlib = f' {config.clang_stdlib}' if (config.clang and config.linux) else ''
-    return f'{name}{" " + ver if ver else ""}{stdlib}'
 
 
 def print_build_banner(config, count=None):
