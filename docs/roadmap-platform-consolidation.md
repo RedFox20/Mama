@@ -1,6 +1,7 @@
 # Roadmap: consolidate every platform into one `config.platform` object
 
-**Status:** planning only. No code written.
+**Status:** LANDED on branch `feature/platform-consolidation`. See section 12 for what shipped
+and where it differs from the plan below.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Baseline:** commit `e4040d7`, mama `0.13.06`. Test suite: 921 passed, 3 skipped, 44s.
 **Verified on:** WSL2 Ubuntu, cmake 4.3.1, ninja 1.11.1.
@@ -721,3 +722,63 @@ These came up during the analysis. They are real, but they are not this work.
    platform selection. Touch it only where Phase 3 step 4.4 requires.
 5. **The msvc toolset and Visual Studio discovery block** (`build_config.py:1005-1170`, 165 lines).
    It belongs in a `Windows` platform class. Move it in a follow-up, once Phase 3 proves the shape.
+
+---
+
+## 12. What actually landed
+
+Branch `feature/platform-consolidation`, 8 commits, all green at every step.
+
+### 12.1 Differences from the plan
+
+| Plan | Reality | Why |
+|---|---|---|
+| Phases 1, 2 and 3 land separately | Landed as one commit | The 11 mamafile flags had to become properties in the same change that installed `config.platform`, or the tree is broken in between |
+| `cmake_configure.py` stays put with a re-export shim | Moved to `mama/buildsys/cmake/configure.py` | A shim breaks every `patch('mama.cmake_configure.X')` target, so the honest move was cheaper than the shim |
+| `select()` takes positional args | Takes `**platforms` | Positional could not carry 11 platforms, and it is what made `windows=` disagree with `msvc=` |
+| A Yocto board keeps an `init_toolchain` method | A Yocto board is pure class attributes | Every Yocto SDK has the same layout, so the method was the same code three times |
+
+### 12.2 Extra defects found and fixed while building it
+
+Beyond D1, D2 and D3 from section 1.3:
+
+1. **The four MIPS arches shared one build dir.** `mips`, `mipsel`, `mips64` and `mips64el` all
+   built into `packages/<target>/mips`, so a big-endian build overwrote a little-endian one in
+   place. `mipsel` keeps the bare dir, so existing packages do not churn. The others got their own.
+   Found by the new `test_no_two_platform_and_arch_pairs_share_a_build_dir`.
+2. **MIPS named no cross binutils.** It sets `CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=ONLY` and no find
+   root, so cmake's search for `ar` and `ranlib` was not restricted to the toolchain.
+3. **`package.get_lib_basename` was defined twice.** The second definition shadowed the first, so
+   the tuple-aware version was dead and a tuple lib name would raise `AttributeError`.
+4. **`gnu_project.py` called `warning()` without importing it.** A deploy that copied zero files
+   raised `NameError` instead of printing the warning.
+5. **A Yocto board read its toolchain file before SDK discovery ran.** It worked only because
+   `init_platform_toolchain()` happens to run first on the normal path.
+
+### 12.3 Measured result
+
+| Metric | Before | After |
+|---|---|---|
+| Platform classes | 8 (of 11 platforms) | 11 |
+| `if/elif` chains over platforms | ~50 | 0 outside `mama/platforms/` |
+| `mama/build_config.py` | 1359 lines | 1193 lines |
+| A Yocto board | 32 to 47 lines of code | 15 to 17 lines of declarations |
+| Files to touch to add a platform | 9 | 2 (the new file, plus one registry line) |
+| Tests | 921 | 1173, plus 8 real-toolchain tests |
+
+`mama/platforms/` grew (3 new platforms, a base class, a registry, a Toolchain type) while every
+consumer shrank. The branch count is the metric that mattered, and it went to zero.
+
+### 12.4 Verified on real toolchains
+
+`python -m pytest tests/test_platform_configure -m slow` runs a real cmake configure and build and
+reads the ELF header of the object each platform produced. On this machine: linux, android, raspi,
+raspi32, mips, oclea and imx8mp all pass. xilinx skips (no PetaLinux SDK installed).
+
+### 12.5 Still open
+
+- Section 11 items 2 to 5 are unchanged and still out of scope.
+- The MSVC and Visual Studio discovery block (`build_config.py`, ~165 lines) still belongs in the
+  `Windows` platform class. Phase 3 proved the shape, so this is now a mechanical follow-up.
+- `Android.inject_env()` sets `CMAKE_MAKE_PROGRAM` in the environment. That is the variable name the
+  NDK's own tooling reads, so it stayed, but it is the last cmake name left in `mama/platforms/`.

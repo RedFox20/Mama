@@ -47,16 +47,21 @@ class GenericYocto(Platform):
             cls.compile_defines = {cls.platform_define: '1', 'YOCTO_LINUX': '1'}
 
 
+    def _resolved(self):
+        """Run SDK discovery if it has not run yet, then return self. Reading a path field before
+        that silently hands back ''."""
+        if not self.compilers: self.init_default()
+        return self
+
+
     def sysroot(self):
         """ {sdk_path}/sysroots/cortexa53-crypto-poky-linux/ """
-        if not self.compilers: self.init_default()
-        return self.sysroot_path
+        return self._resolved().sysroot_path
 
 
     def gcc_prefix(self):
         """ e.g. {sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux- """
-        if not self.compilers: self.init_default()
-        return self.cc_prefix
+        return self._resolved().cc_prefix
 
 
     def gnu_host_triple(self) -> str:
@@ -66,8 +71,7 @@ class GenericYocto(Platform):
     def distro_version(self) -> tuple:
         """The SDK version, eg (5, 0, 4). Unlike every other platform this carries no name, and the
         artifactory archive name has always been built from it that way."""
-        if not self.compilers: self.init_default()
-        return self.sdk_version
+        return self._resolved().sdk_version
 
 
     def append_env_path(self, paths, env):
@@ -93,14 +97,11 @@ class GenericYocto(Platform):
         for env in envs:
             self.append_env_path(paths, env)
 
-        compiler_name, sdk_name = self.compiler_name, self.sdk_name
-        sysroot_name, default_toolchain = self.sysroot_name, self.default_toolchain
-
         for path in paths:
             # Check for Yocto structure
-            yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{sdk_name}')
-            yocto_sysroot = os.path.abspath(f'{path}/sysroots/{sysroot_name}')
-            yocto_compiler = f'{yocto_sdkpath}/{compiler_name}'
+            yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{self.sdk_name}')
+            yocto_sysroot = os.path.abspath(f'{path}/sysroots/{self.sysroot_name}')
+            yocto_compiler = f'{yocto_sdkpath}/{self.compiler_name}'
 
             if self.config.verbose:
                 console(f'Checking for {self.name} toolchain in: {yocto_compiler} and {yocto_sysroot}')
@@ -116,12 +117,12 @@ class GenericYocto(Platform):
                 if toolchain_file and path == toolchain_dir:
                     self._set_toolchain_file(toolchain_file)
                 else:
-                    self._set_toolchain_file(f'{self.toolchain_dir}/{default_toolchain}')
+                    self._set_toolchain_file(f'{self.toolchain_dir}/{self.default_toolchain}')
 
                 self.compilers = os.path.dirname(yocto_compiler) + '/' # e.g. f'{self.sdk_path}/usr/bin/aarch64-poky-linux/'
                 # replace -gcc at the end with '-' to get the prefix
                 # e.g '{self.sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
-                self.cc_prefix = self.compilers + os.path.basename(compiler_name).replace('-gcc', '-')
+                self.cc_prefix = self.compilers + os.path.basename(self.compiler_name).replace('-gcc', '-')
                 self.include_paths = [ f'{self.sysroot_path}/usr/include' ]
                 self.version = self.config.get_gcc_clang_fullversion(yocto_compiler, dumpfullversion=True)
                 break

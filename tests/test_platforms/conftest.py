@@ -32,13 +32,10 @@ def make_yocto_tree(root, sdk_name, sysroot_name, compiler_name, toolchain_rel) 
     return root
 
 
-def make_cross_bin_tree(root, triple, with_sysroot=False) -> str:
-    """A distro cross package: bin/<triple>-gcc and nothing else. A standalone toolchain also
-    carries <triple>/sysroot, which is what `with_sysroot` adds."""
+def make_cross_bin_tree(root, triple) -> str:
+    """A distro cross package: bin/<triple>-gcc and nothing else, no sysroot of its own."""
     for suffix in ('gcc', 'g++'):
         _touch(f'{root}/bin/{triple}-{suffix}')
-    if with_sysroot:
-        os.makedirs(f'{root}/{triple}/sysroot', exist_ok=True)
     return root
 
 

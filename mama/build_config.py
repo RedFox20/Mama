@@ -458,30 +458,6 @@ class BuildConfig:
         return 'linux'
 
 
-    ## These are the hard references to all build directory variations
-    ## All parts of the codebase should use these, instead of raw strings
-    ## This will avoid accidental mismatches
-    def build_dir_win64(self): return 'windows'
-    def build_dir_win32(self): return 'windows32'
-    def build_dir_winarm64(self): return 'winarm'
-    def build_dir_winarm32(self): return 'winarm32'
-    def build_dir_linux64(self): return 'linux'
-    def build_dir_linux32(self): return 'linux32'
-    def build_dir_linuxarm64(self): return 'linuxarm' # arm64
-    def build_dir_macosarm64(self): return 'macosarm' # arm64
-    def build_dir_macos64(self): return 'macos' # x64
-    def build_dir_ios(self): return 'ios' # arm64
-    def build_dir_android64(self): return 'android'
-    def build_dir_android32(self): return 'android32'
-    def build_dir_raspi64(self): return Raspi.build_dirs['arm64']
-    def build_dir_raspi32(self): return Raspi.build_dirs['arm']
-    def build_dir_oclea64(self): return Oclea.name
-    def build_dir_xilinx64(self): return Xilinx.name
-    def build_dir_imx8mp(self): return Imx8mp.name
-    def build_dir_mips(self): return 'mips'
-    def build_dir_default(self): return 'build'
-
-
     # per-sanitizer build dir suffix so flavors don't share a dir and force a reconfigure
     SANITIZER_SUFFIX = { 'address':'-asan', 'leak':'-lsan', 'thread':'-tsan', 'undefined':'-ubsan' }
 
@@ -509,7 +485,7 @@ class BuildConfig:
 
 
     def _platform_build_dir_name(self):
-        return self.platform.build_dir_name() if self.platform else self.build_dir_default()
+        return self.platform.build_dir_name() if self.platform else 'build'
 
 
     def set_build_config(self, release=False, debug=False):

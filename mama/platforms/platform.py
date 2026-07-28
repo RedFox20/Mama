@@ -60,6 +60,17 @@ class Platform:
     cpu_flags = {}             ## the SoC's compiler flags, eg {'-mcpu':'cortex-a53+crypto'}
     build_dirs = {}            ## arch to build dir name. An arch that is absent falls back to `name`
     cxx20_flag = 'c++20'       ## `c++2a` where the toolchain predates the final C++20 name
+    ## clang dropped -dumpfullversion, so only ask a gcc-based toolchain for the full x.y.z version
+    compiler_dumpfullversion = True
+    ## A system library is named differently per platform: Apple links '-framework Foundation', Linux
+    ## has a real file to find under /usr/lib, and everything else leaves it to the system linker.
+    syslib_is_framework = False
+    syslib_is_searchable = False
+    ## The IDE project this platform's own generator emits, and the command that opens it. '' means
+    ## mama falls back to VSCode.
+    ide_project_ext = ''
+    ide_project_is_dir = False
+    ide_open_command = ''
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -116,9 +127,6 @@ class Platform:
         search in BuildConfig owns that choice, because the user can pick gcc or clang."""
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor())
 
-
-    ## clang dropped -dumpfullversion, so only ask gcc-based toolchains for the full x.y.z version
-    compiler_dumpfullversion = True
 
     def compiler_paths(self) -> tuple:
         """(cc, cxx, version) for a cross toolchain, or ('','','') when BuildConfig should search.
@@ -196,18 +204,6 @@ class Platform:
     def lib_extensions(self) -> tuple:
         """Library file extensions this platform links. Used to filter the exported libs."""
         return ('.a', '.so')
-
-
-    ## A system library is named differently per platform: Apple links '-framework Foundation', Linux
-    ## has a real file to find under /usr/lib, and everything else leaves it to the system linker.
-    syslib_is_framework = False
-    syslib_is_searchable = False
-
-    ## The IDE project the platform's own generator emits, and the command that opens it. '' means
-    ## mama falls back to VSCode.
-    ide_project_ext = ''
-    ide_project_is_dir = False
-    ide_open_command = ''
 
 
     def gnu_host_triple(self) -> str:
