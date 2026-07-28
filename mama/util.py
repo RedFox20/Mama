@@ -166,10 +166,18 @@ def remove_tree(dir: str):
     shutil.rmtree(dir)
 
 
-def is_dir_empty(dir: str): # no files?
+# Subdirs that prove a checkout is already here, even with no file at the top level. `.git` is the
+# strongest of them: a working tree whose root holds only directories used to read as empty, so mama
+# cloned over a perfectly good clone and git failed with 'already exists and is not an empty directory'.
+_OCCUPIED_SUBDIRS = {'.git', 'include', 'src', 'lib', 'bin'}
+
+
+def is_dir_empty(dir: str) -> bool:
+    """True if there is nothing here worth keeping: no top-level file and no _OCCUPIED_SUBDIRS entry.
+    The caller uses it to choose between cloning into `dir` and pulling what is already there."""
     if not os.path.exists(dir): return True
-    _, _, filenames = next(os.walk(dir))
-    return len(filenames) == 0
+    _, dirnames, filenames = next(os.walk(dir))
+    return not filenames and not any(d.lower() in _OCCUPIED_SUBDIRS for d in dirnames)
 
 
 # Entries mama itself drops into a dep's src_dir, plus `.git` (metadata, not working-tree source).

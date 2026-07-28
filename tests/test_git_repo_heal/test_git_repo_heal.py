@@ -1,5 +1,6 @@
 """Pins broken-.git handling: an effectively empty dir is wiped and re-cloned, real source never is."""
-import contextlib, os
+import contextlib, os, pathlib
+import pytest
 from unittest.mock import patch
 from testutils import make_mock_dep
 from mama.util import has_source_content, is_dir_empty
@@ -29,18 +30,6 @@ def _checkout(dep, broken=False):
     return result, wipe.called, clone.called
 
 
-def test_is_repo_broken_true_when_head_unresolvable(tmp_path):
-    dep = make_mock_dep(tmp_path)
-    with patch('mama.types.git.execute_piped', return_value=''):  # rev-parse -q printed nothing -> broken
-        assert dep.dep_source._is_repo_broken(dep)
-
-
-def test_is_repo_broken_false_for_healthy_head(tmp_path):
-    dep = make_mock_dep(tmp_path)
-    with patch('mama.types.git.execute_piped', return_value='a1b2c3d'):
-        assert not dep.dep_source._is_repo_broken(dep)
-
-
 def test_has_source_content_ignores_what_mama_generated(tmp_path):
     d = tmp_path / 'dep'
     assert not has_source_content(str(d))             # doesn't exist
@@ -55,11 +44,27 @@ def test_has_source_content_ignores_what_mama_generated(tmp_path):
 
 
 def test_has_source_content_sees_source_hidden_in_subdirs(tmp_path):
-    # is_dir_empty only counts top-level files, so an rsync'd tree with no root-level file reads as
-    # 'empty' to it; the wipe guard must not inherit that blind spot
+    # is_dir_empty only names the subdirs that prove a checkout; an rsync'd tree of project-specific
+    # dirs still reads as 'empty' to it, so the wipe guard must not inherit that blind spot
     d = tmp_path / 'dep'
     (d / 'libavcodec').mkdir(parents=True)
     assert is_dir_empty(str(d)) and has_source_content(str(d))
+
+
+@pytest.mark.parametrize('subdir', ['.git', 'include', 'src', 'lib', 'bin', 'SRC'])
+def test_a_checkout_with_only_subdirs_is_not_empty(tmp_path, subdir):
+    """`git clone` into a dir holding one of these dies with 'already exists and is not an empty
+    directory'. `.git` is the worst case: mama cloned over a valid working tree whose root happens to
+    hold no file."""
+    d = tmp_path / 'dep'
+    (d / subdir).mkdir(parents=True)
+    assert not is_dir_empty(str(d))
+
+
+def test_a_dir_with_nothing_in_it_is_still_empty(tmp_path):
+    d = tmp_path / 'dep'
+    d.mkdir()
+    assert is_dir_empty(str(d))
 
 
 def test_a_dir_holding_only_mama_generated_files_heals(tmp_path):
@@ -146,3 +151,36 @@ def test_reclone_wipe_source_only_keeps_sibling_platforms_and_the_cached_zip(tmp
 
     dep.dep_source.reclone_wipe(dep)  # explicit wipe: everything goes
     assert not os.path.exists(dep.dep_dir)
+
+
+def _real_repo(path):
+    import subprocess
+    path.mkdir(parents=True, exist_ok=True)
+    for args in (['init', '-q'], ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-q',
+                                  '--allow-empty', '-m', 'x']):
+        subprocess.run(['git', '-C', str(path), *args], check=True, capture_output=True)
+
+
+def test_a_corrupt_git_inside_a_parent_repo_is_broken_not_healthy(tmp_path):
+    """git does NOT stop discovery at a corrupt `.git`, it resumes upward. A local workspace lives
+    inside the project's own repo, so an unscoped `rev-parse HEAD` answers with the PARENT - the dep
+    read as healthy and the pull path would run `reset --hard` against the user's project checkout."""
+    _real_repo(tmp_path / 'project')
+    dep = make_mock_dep(tmp_path)
+    dep.src_dir = str(tmp_path / 'project' / 'packages' / 'libfoo' / 'libfoo')
+    os.makedirs(os.path.join(dep.src_dir, '.git'))          # present but corrupt
+    assert dep.dep_source._is_repo_broken(dep)
+
+
+def test_a_healthy_repo_is_not_reported_broken(tmp_path):
+    _real_repo(tmp_path / 'project')
+    dep = make_mock_dep(tmp_path)
+    dep.src_dir = str(tmp_path / 'project' / 'packages' / 'libfoo' / 'libfoo')
+    _real_repo(pathlib.Path(dep.src_dir))                    # its own repo, nested in the project's
+    assert not dep.dep_source._is_repo_broken(dep)
+
+
+def test_a_dir_with_no_git_at_all_is_broken(tmp_path):
+    dep = make_mock_dep(tmp_path)
+    os.makedirs(dep.src_dir, exist_ok=True)
+    assert dep.dep_source._is_repo_broken(dep)

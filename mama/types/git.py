@@ -40,6 +40,8 @@ def _is_git_status_noise(line: str) -> bool:
         or _SSH_CONFIG_WARNING.match(line) is not None
 
 
+_STALL_MARKER = 'git stalled'  # what mama itself writes when its idle timeout kills a hung git
+
 # A clone that died from throttling or a dropped connection is worth another attempt. A bad url, a
 # missing ref or a denied key is not - retrying those only makes the build slower before it fails.
 _TRANSIENT_GIT_ERRORS = ('kex_exchange_identification', 'ssh_exchange_identification', 'session request failed',
@@ -47,7 +49,8 @@ _TRANSIENT_GIT_ERRORS = ('kex_exchange_identification', 'ssh_exchange_identifica
                          'early eof', 'remote end hung up unexpectedly', 'rpc failed', 'failed to connect to',
                          'could not resolve host', 'operation timed out', 'unable to access',
                          'too many requests', 'rate limit', 'try again later', 'temporarily unavailable',
-                         'error: 429', 'error: 500', 'error: 502', 'error: 503')
+                         'error: 429', 'error: 500', 'error: 502', 'error: 503',
+                         _STALL_MARKER)  # our own idle-timeout kill: a hung server is the textbook retry case
 _CLONE_ATTEMPTS = 3
 _CLONE_RETRY_BASE = 0.5  # seconds, doubled per attempt and jittered so a throttled wave does not retry in lockstep
 
@@ -209,7 +212,7 @@ class Git(DepSource):
             try:
                 result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
-                error(f'  {dep.name: <16} git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                error(f'  {dep.name: <16} {_STALL_MARKER} {dep.config.git_timeout}s, killed (auth prompt or hung server)')
                 result = -1
         if result != 0 and throw:
             raise RuntimeError(f'{cmd} (in {dep.src_dir}) failed with return code {result}')
@@ -388,8 +391,19 @@ class Git(DepSource):
 
 
     def _is_repo_broken(self, dep: BuildDependency) -> bool:
-        """`.git` present but HEAD unresolvable - a corrupt/half-cloned tree. -q keeps git silent on failure."""
-        return not execute_piped(['git', 'rev-parse', '--verify', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
+        """`.git` present but this dir is not a usable repo OF ITS OWN. -q keeps git silent on failure.
+
+        --show-toplevel is what makes it safe. A corrupt `.git` does not stop git's discovery walk, it
+        resumes UPWARD - and a local workspace lives inside the project's own repo, so `rev-parse HEAD`
+        then answers with the PARENT. The dep read as healthy and the pull path ran `reset --hard`
+        against the user's project checkout. Anything we cannot prove is this dir's own repo counts as
+        broken, which is the safe bias: a wrong 'broken' only reaches _refuse_destructive_clone, which
+        keeps real source and builds it as-is."""
+        out = execute_piped(['git', 'rev-parse', '--show-toplevel', '--verify', '-q', 'HEAD'],
+                            cwd=dep.src_dir, throw=False)
+        lines = out.splitlines() if out else []
+        if len(lines) < 2: return True  # no toplevel and/or no HEAD
+        return os.path.realpath(lines[0]) != os.path.realpath(dep.src_dir)
 
 
     def _refuse_destructive_clone(self, dep: BuildDependency) -> bool:
@@ -564,7 +578,7 @@ class Git(DepSource):
             try:
                 result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
-                output.append(f'[mama] git stalled {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                output.append(f'[mama] {_STALL_MARKER} {dep.config.git_timeout}s, killed (auth prompt or hung server)')
                 result = -1
         return result, '\n'.join(output), get_time_str(time.monotonic() - start)
 

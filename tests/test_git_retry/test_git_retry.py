@@ -31,6 +31,7 @@ def unpaced(monkeypatch):
     'mux_client_request_session: session request failed: Session open refused by peer',
     'error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly',
     'You have exceeded a secondary rate limit. Please wait a few minutes',
+    '[mama] git stalled 30s, killed (auth prompt or hung server)',  # mama's own idle-timeout kill
 ])
 def test_a_dropped_connection_is_transient(output):
     assert is_transient_git_failure(output)

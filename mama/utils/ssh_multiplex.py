@@ -163,6 +163,18 @@ def multiplex_known_broken() -> bool:
     return System.windows
 
 
+def _control_dir_usable() -> bool:
+    """Make our control dir, and report False instead of raising when we cannot. A CI container often
+    runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh` gives Errno 13), and
+    multiplexing is an optimization - it must never be the thing that fails a build. Without the dir we
+    just skip the multiplex flags and every fetch opens its own connection, as it always could."""
+    try:
+        os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     Return (-o args, we_own_master). `we_own_master` is True when we are the
@@ -172,9 +184,8 @@ def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
     """
     opts: list[str] = list(_SAFETY_OPTS)
     we_own_master = False
-    if not multiplex_known_broken() and not is_multiplex_configured(probe):
+    if not multiplex_known_broken() and not is_multiplex_configured(probe) and _control_dir_usable():
         we_own_master = True
-        os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
         opts += [
             '-oControlMaster=auto',
             f'-oControlPath={_OUR_CONTROL_PATH}',

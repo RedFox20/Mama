@@ -456,3 +456,17 @@ def test_the_fetch_semaphore_is_clamped_to_the_session_limit(monkeypatch):
     monkeypatch.setattr(sm, '_fetch_semaphore', None)
     sm.init_fetch_semaphore(40)
     assert sm._fetch_semaphore._value == sm.DEFAULT_MAX_CONCURRENT_FETCHES
+
+
+def test_an_unwritable_control_dir_disables_multiplex_instead_of_raising(monkeypatch, tmp_path):
+    """A CI container often runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh`
+    gives Errno 13). Multiplexing is an optimization and must never be what fails a build."""
+    monkeypatch.setattr(sm.System, 'windows', False)
+    monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+    def denied(*a, **k): raise PermissionError(13, 'Permission denied')
+    monkeypatch.setattr(sm.os, 'makedirs', denied)
+
+    opts, we_own_master = sm.options_to_add({})
+    assert we_own_master is False
+    assert not any(o.startswith('-oControlMaster=') or o.startswith('-oControlPath=') for o in opts)
+    assert any(o.startswith('-oServerAliveInterval=') for o in opts)  # keepalives still help
