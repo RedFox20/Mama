@@ -1,7 +1,7 @@
 # Mama - Claude Notes
 
-Hand-written notes for Claude. Capture style rules and codebase invariants that
-keep biting future-Claude. Update as the codebase teaches new lessons.
+Style rules and codebase invariants that future sessions get wrong.
+Update this file when the codebase shows a new rule.
 
 ## Default output style (always on)
 
@@ -18,28 +18,29 @@ that gets committed.
 
 ## Code style
 
-- **Line length: up to 130 columns.** Don't wrap a single expression unless it
-  actually exceeds 130 cols.
-- **Never split a single expression over 3+ lines.** Two lines max, joined with
-  `+ \` for string concatenation.
+- **Line length: up to 130 columns.** Do not wrap a single expression unless it
+  goes over 130 columns.
+- **Never split a single expression over 3+ lines.** Use two lines maximum. Join
+  the parts with `+ \` for string concatenation.
 - **When wrapping at a `(`, continue on the same line, then align the
   continuation under the character just inside the opening parenthesis.** Do NOT
   break right after `(`.
 - **One-liner `if` for a single short statement.** Use `if cond: do_thing()` on
   one line when the body is a single short call.
-- **No em-dashes (`-`) in code, comments, or docs.** Use a regular ASCII dash
-  `-` instead. Em-dashes look fancy in prose but are noise in source files and
-  hard to grep for.
+- **No em-dashes (U+2014) in code, comments, or docs.** Use a regular ASCII dash
+  `-` instead. An em-dash looks fancy in prose, but it is noise in a source file
+  and hard to grep for. The same applies to any other non-ASCII punctuation, such
+  as the arrow `→`. Write `->`.
 - **Yellow output goes through `warning(text)`** (from `mama.utils.system`),
-  not `console(text, color=Color.YELLOW)`. The helper exists so warnings have
-  a single chokepoint and a consistent shape.
-- **Lean and mean: cache repeated/invariant calculations.** Never compute the
-  same value twice. A `sum()` / probe / `.encode()` / `stat` evaluated twice in
-  one expression (e.g. in a filter AND the value it builds), or recomputed per
-  loop iteration when it's loop-invariant, is a finding - hoist it out and
-  compute once. Results that are constant for the whole process (terminal
-  encoding, cpu count, a compiled regex) get memoized a single time, not
-  re-derived per call. Less work and less code, same result.
+  not `console(text, color=Color.YELLOW)`. The helper exists so every warning
+  passes through one function and looks the same.
+- **Cache a repeated or invariant calculation.** Never compute the same value
+  twice. A `sum()`, probe, `.encode()` or `stat` evaluated twice in one
+  expression (for example in a filter AND in the value it builds) is a finding.
+  So is a value recomputed on each loop iteration when the loop does not change
+  it. Hoist it out and compute it once. A result that stays constant for the
+  whole process (terminal encoding, cpu count, a compiled regex) gets memoized
+  one time, not re-derived per call. Less work and less code, same result.
 
 ### Examples
 
@@ -75,151 +76,148 @@ raise RuntimeError(
 
 ## Path handling - forward slashes everywhere
 
-The project standardises on forward slashes on every platform, including
-Windows. The utility is `mama.util.normalized_path()` (which calls
-`os.path.abspath` then `.replace('\\', '/')`).
+The project uses forward slashes on every platform, including Windows. The
+utility is `mama.util.normalized_path()`. It calls `os.path.abspath`, then
+`.replace('\\', '/')`.
 
-- After any function that may return a backslash path (notably
-  `tempfile.TemporaryDirectory()` on Windows), pass the result through
-  `normalized_path()` BEFORE interpolating into a shell command string.
-- `shlex.split()` (which `SubProcess` uses) eats backslashes as escapes - a raw
-  Windows path embedded in a command string silently corrupts.
-- For directory cleanup on Windows: `tempfile.TemporaryDirectory(prefix='...',
-  ignore_cleanup_errors=True)` - git leaves read-only files in `.git/objects/`
-  that trip `shutil.rmtree`.
+- Some functions return a backslash path, in particular
+  `tempfile.TemporaryDirectory()` on Windows. Pass the result through
+  `normalized_path()` BEFORE you put it into a shell command string.
+- `shlex.split()`, which `SubProcess` uses, reads a backslash as an escape. A raw
+  Windows path in a command string corrupts without a warning.
+- For directory cleanup on Windows, use `tempfile.TemporaryDirectory(prefix='...',
+  ignore_cleanup_errors=True)`. Git leaves read-only files in `.git/objects/` that
+  make `shutil.rmtree` fail.
 
 ## Subprocess: the two-tool rule
 
 There are two primitives. They are NOT interchangeable.
 
-- **`SubProcess.run(cmd, cwd=, io_func=, timeout=)`** - the project's standard
-  wrapper. Uses `subprocess.Popen` + `pty.openpty()` on UNIX (child sees a real
-  TTY for git's progress output) and plain `Popen` with pipes on Windows.
-  Multi-thread safe. Has timeout. **Use this for everything by default.**
-- **`subprocess.run(...)` directly** - only for the rare case where you need to
-  suppress stderr entirely (`stderr=subprocess.DEVNULL`) and a timeout but don't
-  want the live progress UI. The current example is the post-blob:none `git
-  show HEAD:<file>` in `Git.fetch_self_version_from_remote` - its lazy fetch
-  spews `remote: ...` chatter we don't want surfaced.
+- **`SubProcess.run(cmd, cwd=, io_func=, timeout=)`** - the standard wrapper of
+  this project. It uses `subprocess.Popen` with `pty.openpty()` on UNIX, so the
+  child gets a real TTY for the git progress output. On Windows it uses plain
+  `Popen` with pipes. It is multi-thread safe and it has a timeout. **Use this
+  for everything by default.**
+- **`subprocess.run(...)` directly** - only for the rare case that must suppress
+  stderr (`stderr=subprocess.DEVNULL`) and keep a timeout, but does not want the
+  live progress UI. The current example is the post-blob:none `git show
+  HEAD:<file>` in `Git.fetch_self_version_from_remote`. Its lazy fetch prints
+  `remote: ...` lines that must not reach the user.
 
-When deviating from `SubProcess.run`, document why in the function docstring.
+When you deviate from `SubProcess.run`, document why in the function docstring.
 
-**Never** use `os.system("cd <dir> && cmd")` - `SubProcess.run(cmd,
-cwd=<dir>)` is the correct idiom. SubProcess uses `execve`, not a shell, so
-`cd` and `&&` aren't valid.
+**Never** use `os.system("cd <dir> && cmd")`. `SubProcess.run(cmd, cwd=<dir>)` is
+the correct idiom. SubProcess uses `execve`, not a shell, so `cd` and `&&` are not
+valid.
 
-**Never** use `os.forkpty()` directly anywhere in this codebase. Python 3.12
-flags it as unsafe in multi-threaded programs, and mama runs heavy parallel
-loads.
+**Never** use `os.forkpty()` directly anywhere in this codebase. Python 3.12 marks
+it as unsafe in a multi-threaded program, and mama runs many threads in parallel.
 
 ## Git commit style
 
 - Single line, `<type>: <message>` prefix. Examples:
   `feature:`, `fix:`, `refactor:`, `release:`, `cleanup:`.
-- No `Co-Authored-By` trailer in this repo (different from many others).
-- Atomic commits: one logical change per commit. Bug fix + refactor → two
-  commits, even when in one session.
+- No `Co-Authored-By` trailer in this repo. Many other repos want one.
+- Atomic commits: one logical change per commit. A bug fix and a refactor go into
+  two commits, even in one session.
 
 ## Artifactory + git status invariants
 
-- **A 404 from artifactory for a git dep is NORMAL** (no prebuilt for current
-  commit). It must NOT wipe the `git_status` file. Wiping the status causes the
-  next `mama update` to read empty status → `check_status` → "SCM change
-  detected" → spurious full rebuild. `check_status` already detects real
-  url/tag/branch/commit changes via direct comparison.
-- A 404 IS fatal for `is_pkg` deps (those URLs are mandatory).
-- Shim probe (`try_load_artifactory_shim`) only runs when there's NO existing
-  working tree (`not self.is_real_clone()`). For an already-cloned dep, the
-  regular `fetch + reset` path is correct; running the probe in addition just
-  re-clones into a tempdir and does nothing useful.
+- **A 404 from artifactory for a git dep is NORMAL.** It means there is no prebuilt
+  package for the current commit. The 404 must NOT wipe the `git_status` file. If
+  the status is wiped, the next `mama update` reads an empty status. `check_status`
+  then reports "SCM change detected" and forces a full rebuild. `check_status`
+  already detects a real url, tag, branch or commit change by direct comparison.
+- A 404 IS fatal for `is_pkg` deps. Those URLs are mandatory.
+- The shim probe (`try_load_artifactory_shim`) only runs when there is no existing
+  working tree (`not self.is_real_clone()`). For an already-cloned dep, the regular
+  `fetch + reset` path is correct. The extra probe only re-clones into a tempdir
+  and does nothing useful.
 
 ## SSH multiplex / parallel loading
 
-- `mama update` auto-enables `parallel_load`. The `fetch_slot` semaphore caps
-  concurrent git fetches at `parallel_max` (default 20). Independent of the
-  worker thread count.
-- The shim probe's `SubProcess.run` calls go through `fetch_slot` too - count
-  the slot acquisitions per probe (one for the clone, possibly one for `git
-  show`).
-- `ensure_master_for_url` is idempotent and serialised per-host.
+- `mama update` auto-enables `parallel_load`. The `fetch_slot` semaphore caps the
+  concurrent git fetches at `parallel_max`, which defaults to 20. This is
+  independent of the worker thread count.
+- The `SubProcess.run` calls of the shim probe also go through `fetch_slot`. Count
+  the slot acquisitions per probe: one for the clone, and one more for `git show`.
+- `ensure_master_for_url` is idempotent and serialized per host.
 
 ## Tests
 
-- Test directories under `tests/test_<feature>/`. Each is a pytest package.
-- Mock external IO (subprocess, urlopen, ftplib) heavily. Tests must not hit
-  the network unless integration-flavored (`test_git_pin_change/`,
+- Test directories live under `tests/test_<feature>/`. Each one is a pytest package.
+- Mock external IO (subprocess, urlopen, ftplib) heavily. A test must not use the
+  network unless it is an integration test (`test_git_pin_change/`,
   `test_papa_deploy/`).
-- When patching: `patch('mama.<module>.<name>')` - patch where it's looked up,
-  not where it's defined.
-- Always run the **full** suite (`python -m pytest tests/`) before committing.
-  Total runtime ≈ 35 seconds.
+- When you patch, write `patch('mama.<module>.<name>')`. Patch where the code looks
+  the name up, not where the code defines it.
+- Always run the **full** suite (`python -m pytest tests/`) before you commit. The
+  full suite takes about 35 seconds.
 
 ### Test code style
 
-The same brevity and DRY rules that apply to `mama/` apply to `tests/`. The
-historical bias was "tests are throwaway, verbosity is fine" - in this repo
-that bias compounded into ~13% removable noise across the new test suite.
-Don't repeat that:
+The same brevity and DRY rules that apply to `mama/` apply to `tests/`. The old
+habit was "tests are throwaway, verbosity is fine". In this repo that habit added
+about 13% removable noise to the new test suite. Do not repeat it.
 
-- **Shared stub-builders live in `tests/testutils.py`**, not duplicated
-  per-file. A second `def _make_dep(tmpdir): config = Mock(); ...` in a new
-  test file is a smell - check `testutils.py` first; extend or parameterise
-  the existing helper. The current `_make_dep` / `_make_target_with_status`
-  duplication across 6 shim/probe/noart/404 test files is the worst offender.
-- **Use pytest's `tmp_path` fixture**, not `tempfile.mkdtemp() + try /
-  shutil.rmtree() finally`. `tmp_path` is function-scoped, auto-cleans, and
-  is a `pathlib.Path` - shorter, no boilerplate, no chance of leaks.
-- **No `sys.path.insert(...)` boilerplate** in test files. `tests/conftest.py`
-  is the right place for any test-bootstrap path manipulation.
-- **Module docstring: 1-2 lines max, "what this file pins".** The bug
-  background, the fix design, the why-this-was-tricky - that's all in the
-  commit message. Don't duplicate it into the test file's docstring; it
-  rots faster there.
-- **No class docstrings that paraphrase what every test in the class checks.**
-  The test method names + their assertions already say it.
-- **Per-test docstrings only when an unusual invariant needs explaining.**
-  Don't write `"""The bug: a 404 fetch was deleting git_status..."""` above
-  `def test_404_does_not_wipe_git_status` - the name already conveys it.
-- **Comments explain WHY, not WHAT** - same rule as for `mama/` code. The
-  assertion already says what; only add a comment when the choice would
-  surprise a reader (e.g. why `ls-remote` failure is treated as
-  "cache still fresh" rather than "drop the cache").
-- **Patches scoped to the smallest needed block.** Repeated `with patch(...)`
-  setup across tests in the same file is a fixture or helper opportunity.
+- **Shared stub-builders live in `tests/testutils.py`**, not duplicated per file.
+  A second `def _make_dep(tmpdir): config = Mock(); ...` in a new test file is
+  duplication. Check `testutils.py` first. Extend or parameterize the existing
+  helper. The current `_make_dep` and `_make_target_with_status` duplication across
+  6 shim/probe/noart/404 test files is the largest case.
+- **Use the pytest `tmp_path` fixture**, not `tempfile.mkdtemp()` with a
+  `try / shutil.rmtree() finally`. `tmp_path` is function-scoped, it cleans itself
+  up, and it is a `pathlib.Path`. Shorter, no boilerplate, no chance of a leak.
+- **No `sys.path.insert(...)` boilerplate** in a test file. `tests/conftest.py` is
+  the right place for any test-bootstrap path manipulation.
+- **Module docstring: 1-2 lines max, "what this file pins".** The bug background,
+  the fix design and the why-this-was-tricky belong in the commit message. Do not
+  copy them into the test file docstring. The copy goes stale faster there.
+- **No class docstring that paraphrases what every test in the class checks.** The
+  test method names and their assertions already say it.
+- **Per-test docstrings only when an unusual invariant needs an explanation.** Do
+  not write `"""The bug: a 404 fetch was deleting git_status..."""` above
+  `def test_404_does_not_wipe_git_status`. The name already says it.
+- **Comments explain WHY, not WHAT.** This is the same rule as for `mama/` code.
+  The assertion already says what. Add a comment only when the choice surprises a
+  reader. For example, explain why the code treats an `ls-remote` failure as "cache
+  still fresh" and not as "drop the cache".
+- **Scope a patch to the smallest block that needs it.** A repeated `with patch(...)`
+  setup across tests in one file is a fixture or helper opportunity.
 
-## The work cycle (default behaviour for every change)
+## The work cycle (default behavior for every change)
 
 ```
 Edit -> Review -> Refactor -> Test -> (Edit) -> Review  [until 0 issues]
 ```
 
-**This loop is the default behaviour, not an option.** Every change set
-- one-line fixes, doc edits, "obviously trivial" diffs - goes through it.
-The skill exists because verbosity and duplication appear most often in
-the changes that looked fine on first write.
+**This loop is the default behavior, not an option.** Every change set goes through
+it: a one-line fix, a doc edit, an "obviously trivial" diff. The skill exists
+because verbosity and duplication appear most often in the changes that looked fine
+on first write.
 
-Concretely, every task ends with:
-1. Implement the change + run the test suite.
-2. Invoke `/mama-style-review` (or spawn a sub-agent with that skill's
-   prompt). The skill reports findings as `<file>:<line> - <rule>: <fix>`.
-3. **Apply the fixes** - not just acknowledge them. Aim for the line-count
-   reduction the skill targets; that is the success metric, not "all
-   findings addressed".
-4. Re-run the suite, re-run the review. Loop until `REVIEW PASSED - 0 issues`.
-5. **Never commit until a human has reviewed the diff and explicitly approved.**
-   A green suite and a passed review are necessary but NOT sufficient. Small
-   quirks (a wrong guard clause, an over-broad `and not ...` condition) can pass
-   every test yet silently break the feature - exactly the class of bug tests
-   don't catch because the test was written with the same blind spot. Present
-   the diff, wait for the human's go-ahead, then commit.
+Every task ends with these steps:
+1. Implement the change and run the test suite.
+2. Invoke `/mama-style-review`, or spawn a sub-agent with the prompt of that skill.
+   The skill reports each finding as `<file>:<line> - <rule>: <fix>`.
+3. **Apply the fixes.** Do not only acknowledge them. Aim for the line-count
+   reduction that the skill targets. That is the success metric, not "all findings
+   addressed".
+4. Re-run the suite and re-run the review. Loop until `REVIEW PASSED - 0 issues`.
+5. **Never commit until a human has reviewed the diff and approved it.** A green
+   suite and a passed review are necessary but NOT sufficient. A small quirk, such
+   as a wrong guard clause or an over-broad `and not ...` condition, can pass every
+   test and still break the feature. Tests do not catch that class of bug, because
+   the test carries the same wrong assumption as the code. Present the diff, wait
+   for the approval of the human, then commit.
 
-The skill checks: 130-col limit, no 3+ line single expressions, no break
+The skill checks: the 130-column limit, no 3+ line single expressions, no break
 after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
 `normalized_path()` for paths, `SubProcess.run` over raw `subprocess.run`,
-helper-reuse vs duplication (especially against `util.py` /
-`utils/system.py` / `tests/testutils.py`), terse test docstrings, drop
-tautological tests, and that any added behaviour has a test pinning it.
+helper-reuse against duplication (in particular against `util.py`,
+`utils/system.py` and `tests/testutils.py`), terse test docstrings, dropped
+tautological tests, and that a test pins every added behavior.
 
-**Less code means fewer bugs.** Reductions of 30-60% on a refactored file
-are normal when applying these rules; a refactor that doesn't move the
-line count meaningfully was too timid.
+**Less code means fewer bugs.** A reduction of 30-60% on a refactored file is
+normal under these rules. A refactor that does not reduce the line count was too
+timid.
