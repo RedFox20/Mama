@@ -83,19 +83,27 @@ def sweep_orphaned_build_dirs(root: BuildDependency, config: BuildConfig) -> int
     """`clean all` promises to clean EVERYTHING for this platform, but the tree walk can't reach a dep
     whose source is gone (an earlier clean removed its shim, so it parses no mamafile and declares no
     children) - those children's build dirs would then survive every future clean. Enumerate from disk
-    as well, deleting only dirs that carry a mama marker file. Returns how many were removed."""
+    as well, deleting only dirs that carry a mama marker file. Returns how many were removed.
+
+    One dep can hold several build dirs of ONE config, because a dep the consumer added with args=[...]
+    names its own (linux, linux-lgpl). An unreachable dep's args are unknown, so list what is on disk and
+    ask build_names which dirs belong to this config."""
     workspace = os.path.dirname(root.dep_dir)
-    platform = root.build_dir_name  # the root carries no dep args, so this is the config's own dir name
+    config_dir = root.build_dir_name  # the root carries no dep args, so this is the config's own dir name
     removed = 0
     try: names = os.listdir(workspace)
     except OSError: return 0
     for name in names:
-        build_dir = os.path.join(workspace, name, platform)
-        if not os.path.isdir(build_dir): continue
-        if not any(os.path.exists(os.path.join(build_dir, m)) for m in _BUILD_DIR_MARKERS): continue
-        if config.print: console(f'  - Target {name: <16} CLEAN  {platform} (orphaned)')
-        shutil.rmtree(build_dir, ignore_errors=True)
-        removed += 1
+        dep_dir = os.path.join(workspace, name)
+        try: subdirs = os.listdir(dep_dir)
+        except OSError: continue  # a file in the workspace, or a dir mama may not read
+        for sub in subdirs:
+            build_dir = os.path.join(dep_dir, sub)
+            if not build_names.is_build_dir_of(sub, config_dir) or not os.path.isdir(build_dir): continue
+            if not any(os.path.exists(os.path.join(build_dir, m)) for m in _BUILD_DIR_MARKERS): continue
+            if config.print: console(f'  - Target {name: <16} CLEAN  {sub} (orphaned)')
+            shutil.rmtree(build_dir, ignore_errors=True)
+            removed += 1
     return removed
 
 

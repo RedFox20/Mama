@@ -54,6 +54,22 @@ def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
     return ''.join('-' + t for t in tokens)
 
 
+CONFIG_TOKENS = frozenset(_SANITIZER_SHORT_NAMES.values()) | {'cov', 'clang'}
+
+
+def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
+    """True when `dir_name` is a build dir of the config that names itself `config_dir_name`: that dir, or
+    that dir plus dep-arg tokens, because a dep the consumer added with args=[...] gets its own.
+
+    `mama <platform> clean all` cleans ONE config, so a dir that carries another config's token (a
+    sanitizer, cov, clang) is not ours even though it starts with the same platform name. A dep arg that
+    happens to spell a config token reads as another config's dir and stays: a wrong delete costs more
+    than a leftover dir."""
+    if dir_name == config_dir_name: return True
+    if not dir_name.startswith(config_dir_name + '-'): return False
+    return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & CONFIG_TOKENS)
+
+
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:
     """The build folder name: the platform dir, the compiler, then the variant, coarsest axis first, eg
     'linux', 'windows32', 'linux-clang-cov-asan-lgpl'. A 64-bit arch uses the bare platform name and
