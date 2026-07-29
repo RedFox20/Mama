@@ -8,6 +8,11 @@ from mama.platforms.raspi import Raspi, triple_for_arch
 from mama.platforms.registry import platform_named
 
 
+# every env var android toolchain discovery reads, in the order it reads them
+_ANDROID_ENVS = ('ANDROID_NDK_LATEST_HOME', 'ANDROID_NDK_HOME', 'ANDROID_NDK_ROOT', 'ANDROID_NDK',
+                 'ANDROID_HOME', 'ANDROID_SDK_ROOT')
+
+
 def _touch(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f: f.write('')
@@ -61,6 +66,9 @@ def fake_toolchains(tmp_path, monkeypatch):
         make_cross_bin_tree(raspi, triple_for_arch(arch))
     mips = make_cross_bin_tree(f'{root}/mips', 'mipsel-linux-gnu')
 
+    # a CI runner ships its own Android SDK and sets several of these, and ANDROID_NDK_LATEST_HOME
+    # is read FIRST, so the fake NDK only wins once every one of them is gone
+    for env in _ANDROID_ENVS: monkeypatch.delenv(env, raising=False)
     monkeypatch.setenv('ANDROID_HOME', f'{root}/android-sdk')
     monkeypatch.setenv('ANDROID_NDK_HOME', ndk)
     monkeypatch.setattr(Raspi, '_search_paths', lambda self: [raspi])
