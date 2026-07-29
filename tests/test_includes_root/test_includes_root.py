@@ -20,7 +20,8 @@ from unittest.mock import Mock
 from mama.util import normalized_path
 import mama.package as package
 from mama.papa_deploy import _append_includes, papa_deploy_to, PapaFileInfo
-from mama.dependency_chain import _get_dependency_cmake_defines, _get_cmake_path_list
+from mama.dependency_chain import _get_dependency_cmake_defines
+from mama.platforms.linux import Linux
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +40,7 @@ def make_mock_target(source_dir, build_dir=None):
     target.includes_root = ('', '', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
+    target.config.platform = Linux(target.config)
     return target
 
 

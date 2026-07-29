@@ -1,18 +1,32 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os
-from mama.utils.system import Color, System, console
-from mama.cmake_configure import _make_program, cross_system_opts, use_toolchain_file
+
+from .platform import Platform
+from .toolchain import Toolchain
+from mama.utils.system import System, console, warning
 from mama import util
 
-if TYPE_CHECKING:
-    from ..build_config import BuildConfig
-    from ..build_target import BuildTarget
 
-class Android:
-    def __init__(self, config: BuildConfig):
-        ## Android NDK Clang
-        self.config = config
+# mama arch to the NDK's own tokens: the clang driver name and the ABI dir name.
+_NDK_ARCH = {'arm64': 'aarch64', 'arm': 'armv7a', 'x64': 'x86_64', 'x86': 'i686'}
+_NDK_ABI = {'arm64': 'arm64-v8a', 'arm': 'armeabi-v7a'}
+
+
+class Android(Platform):
+    """Android NDK cross build with the NDK's own clang and its CMake toolchain file."""
+    name = 'android'
+    system_name = 'Android'
+    is_cross = True
+    is_host_runnable = False
+    default_arch = 'arm64'
+    supported_arches = ('arm64', 'arm')
+    build_dirs = {'arm64': 'android', 'arm': 'android32'}
+    toolchain_override_attr = 'cmake_ndk_toolchain'
+    compiler_dumpfullversion = False  # the NDK ships clang, which dropped -dumpfullversion
+
+    def __init__(self, config):
+        super().__init__(config)
         self.toolchain_file = None  ## possibility to override the toolchain file
         self.android_sdk_path = ''
         self.android_ndk_path = ''
@@ -22,9 +36,9 @@ class Android:
 
 
     def android_abi(self):
-        if self.config.is_target_arch_armv7(): return 'armeabi-v7a'
-        elif self.config.arch == 'arm64': return 'arm64-v8a'
-        else: raise RuntimeError(f'Unrecognized android arch: {self.config.arch}')
+        abi = _NDK_ABI.get(self.arch())
+        if not abi: raise RuntimeError(f'Unrecognized android arch: {self.config.arch}')
+        return abi
 
 
     def android_home(self):
@@ -41,32 +55,44 @@ class Android:
 
     def bin(self):
         """ /opt/android-sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin """
-        if not self.android_ndk_path: self.init_ndk_path()
-        platform_dir = 'linux-x86_64'
-        if System.windows: platform_dir = 'windows-x86_64'
-        return f'{self.android_ndk_path}/toolchains/llvm/prebuilt/{platform_dir}/bin'
+        platform_dir = 'windows-x86_64' if System.windows else 'linux-x86_64'
+        return f'{self.android_ndk()}/toolchains/llvm/prebuilt/{platform_dir}/bin'
+
+
+    def _clang_path(self, suffix: str) -> str:
+        """`<ndk bin>/aarch64-linux-android29-clang`, or the `clang++` variant."""
+        arch = _NDK_ARCH.get(self.config.arch, 'aarch64')
+        ext = '.cmd' if System.windows else ''
+        return f'{self.bin()}/{arch}-linux-{self.android_api.replace("-", "")}-{suffix}{ext}'
 
 
     def cc_path(self):
-        platform_ver = self.android_api.replace('-', '')
-        arch = 'aarch64'
-        if self.config.arch == 'arm64': arch = 'aarch64'
-        elif self.config.arch == 'arm': arch = 'armv7a'
-        elif self.config.arch == 'x64': arch = 'x86_64'
-        elif self.config.arch == 'x86': arch = 'i686'
-        ext = '.cmd' if System.windows else ''
-        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang{ext}'
+        return self._clang_path('clang')
 
 
     def cxx_path(self):
-        platform_ver = self.android_api.replace('-', '')
-        arch = 'aarch64'
-        if self.config.arch == 'arm64': arch = 'aarch64'
-        elif self.config.arch == 'arm': arch = 'armv7a'
-        elif self.config.arch == 'x64': arch = 'x86_64'
-        elif self.config.arch == 'x86': arch = 'i686'
-        ext = '.cmd' if System.windows else ''
-        return f'{self.bin()}/{arch}-linux-{platform_ver}-clang++{ext}'
+        return self._clang_path('clang++')
+
+
+    def distro_version(self) -> tuple:
+        return (self.name, int(self.android_api.split('-')[1]), 0)
+
+
+    def banner_name(self) -> str:
+        ndk = os.path.basename(self.android_ndk().rstrip('/\\'))
+        # android_api is already 'android-36', so it names the platform on its own
+        return ' '.join(p for p in (self.android_api, self.config.arch, f'ndk-{ndk}' if ndk else '') if p)
+
+
+    def init_default(self):
+        if not self.android_ndk_path: self.init_ndk_path()
+
+
+    def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """A root mamafile points mama at an explicit NDK CMake toolchain file. The NDK itself is
+        still discovered, because the toolchain file alone does not name the clang binaries."""
+        if toolchain_file: self.set_toolchain_path(toolchain_file)
+        self.init_default()
 
 
     def set_toolchain_path(self, toolchain_file: str):
@@ -165,86 +191,46 @@ Define env ANDROID_NDK_HOME with path to the preferred NDK installation
 Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
 
+    def _build_toolchain(self) -> Toolchain:
+        # variables only the NDK's own toolchain file understands, so they take the escape hatch
+        ndk = (f'ANDROID_ABI={self.android_abi()}', 'ANDROID_ARM_NEON=TRUE', 'ANDROID_TOOLCHAIN=clang',
+               f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
+               f'ANDROID_NDK="{self.android_ndk()}"', f'ANDROID_STL={self.android_ndk_stl}',
+               f'ANDROID_NATIVE_API_LEVEL={self.android_api}', 'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE')
+        return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
+                         cc=self.cc_path(), cxx=self.cxx_path(), install_rpath=True,
+                         toolchain_file=self._toolchain_path(), extra_opts=ndk)
+
+
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
-        if self.config.is_target_arch_armv7():
+        if self.arch() == 'arm':
             add_flag('-march', 'armv7-a')
             add_flag('-mfpu', 'neon')
         else:
             add_flag('-march', 'armv8-a')
-
-        # this was only needed for legacy NDK toolchains
-        # but on latest toolchains these issues are fixed
-        # add_flag(f'-I"{self.android_ndk()}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"')
-        # add_flag(f'-I"{self.android_ndk()}/sources/cxx-stl/llvm-libc++/include"')
+        super().get_cxx_flags(add_flag)
 
 
-    def _get_make(self, target: BuildTarget = None):
-        if target:
-            make = _make_program(target)
-            if make: return make
+    def make_program(self, target=None) -> str:
+        """The NDK ships its own make for hosts that have none. Linux always has one, so '' there
+        lets the build system find it. This is the ONLY place android names a make program: naming it
+        here AND in the generic option builder passed it to cmake twice."""
+        if System.windows: platform_dir = 'windows-x86_64'
+        elif System.macos: platform_dir = 'darwin-x86_64'
+        else: return ''
+        return os.path.join(self.android_ndk(), 'prebuilt', platform_dir, 'bin', 'make')
 
-        if System.windows:
-            platform = 'windows-x86_64'
-        elif System.macos:
-            platform = 'darwin-x86_64'
-        else:
-            return ''
 
-        return os.path.join(self.android_ndk(), 'prebuilt', platform, 'bin', 'make') # CodeBlocks - Unix Makefiles
-
-    def _get_toolchain_path(self, target: BuildTarget) -> str:
-        if target.cmake_ndk_toolchain:
-            if os.path.isabs(target.cmake_ndk_toolchain):
-                toolchain = target.cmake_ndk_toolchain
-            else:
-                toolchain = target.source_dir(target.cmake_ndk_toolchain)
-            if os.path.exists(toolchain):
-                return toolchain
-
+    def _toolchain_path(self) -> str:
+        """The NDK toolchain file: a mamafile override, else the one the NDK ships. A per-target
+        override is resolved by the build system, through `toolchain_override_attr`."""
         if self.toolchain_file and os.path.exists(self.toolchain_file):
             return self.toolchain_file
-
         toolchain = f'{self.android_ndk()}/build/cmake/android.toolchain.cmake'
-        if os.path.exists(toolchain):
-            return toolchain
-        return ''
+        return toolchain if os.path.exists(toolchain) else ''
 
 
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        arch = 'ARM64' if self.config.is_target_arch_arm64() else 'arm'
-        opts = cross_system_opts(self.config, 'Android') + [
-            f'ANDROID_ABI={self.android_abi()}',
-            f'ANDROID_ARCH={arch}',
-            'ANDROID_ARM_NEON=TRUE',
-            f'ANDROID_NDK="{self.android_ndk()}"',
-            f'ANDROID_STL={self.android_ndk_stl}',
-            f'ANDROID_NATIVE_API_LEVEL={self.android_api}',
-            'ANDROID_TOOLCHAIN=clang',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-            'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE'
-        ]
-
-        # get the toolchain file overriden by build target
-        target_toolchain = target.source_dir(target.cmake_ndk_toolchain)
-        if target.cmake_ndk_toolchain and os.path.exists(target_toolchain):
-            toolchain = target_toolchain
-        elif self.toolchain_file and os.path.exists(self.toolchain_file):
-            toolchain = self.toolchain_file
-        else:
-            toolchain = f'{self.android_ndk()}/build/cmake/android.toolchain.cmake'
-
-        if toolchain:
-            opts.append(use_toolchain_file(self.config, toolchain))
-            self.config.announce_once('toolchain', f'Toolchain: {toolchain}')
-
-        make = self._get_make(target)
-        if make: opts.append(f'CMAKE_MAKE_PROGRAM="{make}"')
-        return opts
-
-    # injects android specific env vars
     def inject_env(self):
-        make = self._get_make()
-        if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
         os.environ['ANDROID_HOME'] = self.android_home()
         os.environ['ANDROID_NDK'] = self.android_ndk()
         os.environ['ANDROID_ABI'] = self.android_abi()

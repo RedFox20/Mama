@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, platform, psutil, shutil, threading, time
+import os, sys, tempfile, psutil, shutil, threading, time
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -9,6 +9,11 @@ from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.raspi import Raspi, triple_for_arch
 from mama.platforms.ios import Ios
+from mama.platforms.windows import Windows
+from mama.platforms.linux import Linux
+from mama.platforms.macos import Macos
+from mama.platforms.platform import Platform
+from mama.platforms.registry import platform_for_arg
 import mama.util as util
 from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
@@ -118,18 +123,20 @@ class BuildConfig:
         self.update_stats = UpdateStats() # clone/pull/shim counters for the load phase summary
         self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
-        # supported platforms
+        # The ONE active platform. set_platform() installs it and derives the mamafile-facing
+        # flags below from it, so nothing else stores platform state.
+        self.platform : Platform = None
         self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
         self.macos   = False
-        self.ios     = False
+        self.ios     : Ios = None
         self.android : Android = None
-        self.raspi   = False # TODO: modernize to Class based impl
-        self.mips : Mips = None
-        self.oclea : Oclea = None
-        self.xilinx : Xilinx = None
-        self.imx8mp : Imx8mp = None
-        self.yocto_linux : GenericYocto = None # whether this is a generic Yocto Linux embedded platform (e.g. Oclea, Xilinx, IMX8MP)
+        self.raspi   : Raspi = None
+        self.mips    : Mips = None
+        self.oclea   : Oclea = None
+        self.xilinx  : Xilinx = None
+        self.imx8mp  : Imx8mp = None
+        self.yocto_linux : GenericYocto = None # any generic Yocto Linux board (Oclea, Xilinx, IMX8MP)
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
         # compiler preferences
@@ -167,12 +174,6 @@ class BuildConfig:
         ## Ninja
         self.ninja_path = self.find_ninja_build()
         self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
-        ## MSVC, MSBuild
-        self._visualstudio_path = None
-        self._visualstudio_cmake_id = None
-        self._msbuild_path = None
-        self._msvctools_path = None
-        self._vswhere_path = None
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -270,18 +271,7 @@ class BuildConfig:
             elif arg.startswith('coverage-report='):
                 self.coverage_report = arg[16:]
                 self.add_coverage_option()
-            elif arg == 'windows': self.set_platform(msvc=True)
-            elif arg == 'msvc':    self.set_platform(msvc=True)
-            elif arg == 'linux':   self.set_platform(linux=True)
-            elif arg == 'macos':   self.set_platform(macos=True)
-            elif arg == 'ios':     self.set_platform(ios=True)
-            elif arg == 'android': self.set_platform(android=True)
-            elif arg == 'raspi':   self.set_platform(raspi=True)
-            elif arg == 'raspi32': self.set_platform(raspi=True); self.set_arch('arm')
-            elif arg == 'oclea':   self.set_platform(oclea=True)
-            elif arg == 'xilinx':  self.set_platform(xilinx=True)
-            elif arg == 'mips':    self.set_platform(mips=True)
-            elif arg == 'imx8mp':  self.set_platform(imx8mp=True)
+            elif platform_for_arg(arg): self.select_platform_arg(arg)
             elif arg == 'x86':     self.set_arch('x86')
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
@@ -356,51 +346,61 @@ class BuildConfig:
         return args + ' ' + arg
 
 
-    def set_platform(self, msvc=False, linux=False, macos=False, \
-                           ios=False, android=False, raspi=False, \
-                           oclea=False, mips=False, xilinx=False, imx8mp=False):
-        """ Ensures only a single platform is set """
+    ## set_platform() flag to platform class name, in resolution order. Only the FIRST enabled flag
+    ## wins, exactly as the old if/elif chain did. Looked up through this module's globals, so a test
+    ## can swap a platform out with monkeypatch.setattr('mama.build_config.Imx8mp', Fake).
+    _PLATFORM_FLAGS = (('msvc','Windows'), ('linux','Linux'), ('macos','Macos'), ('ios','Ios'),
+                       ('android','Android'), ('raspi','Raspi'), ('oclea','Oclea'), ('mips','Mips'),
+                       ('xilinx','Xilinx'), ('imx8mp','Imx8mp'))
 
-        platforms = [False]*10
-        if   msvc:   platforms[0] = True
-        elif linux:  platforms[1] = True
-        elif macos:  platforms[2] = True
-        elif ios:    platforms[3] = True
-        elif android:platforms[4] = True
-        elif raspi:  platforms[5] = True
-        elif oclea:  platforms[6] = True
-        elif mips:   platforms[7] = True
-        elif xilinx: platforms[8] = True
-        elif imx8mp: platforms[9] = True
-
-        def get_new_value(old_value, enable, type=None):
-            if old_value and not enable:
-                return None if type else False
-            if enable and not old_value:
-                return type(self) if type else True
-            return old_value
-        self.msvc    = get_new_value(self.msvc,    platforms[0])
-        self.linux   = get_new_value(self.linux,   platforms[1])
-        self.macos   = get_new_value(self.macos,   platforms[2])
-        self.ios     = get_new_value(self.ios,     platforms[3], Ios)
-        self.android = get_new_value(self.android, platforms[4], Android)
-        self.raspi   = get_new_value(self.raspi,   platforms[5], Raspi)
-        self.oclea   = get_new_value(self.oclea,   platforms[6], Oclea)
-        self.mips    = get_new_value(self.mips,    platforms[7], Mips)
-        self.xilinx  = get_new_value(self.xilinx,  platforms[8], Xilinx)
-        self.imx8mp  = get_new_value(self.imx8mp,  platforms[9], Imx8mp)
-
-        # convenience alias for detecting embedded Yocto Linux platforms (e.g. Oclea, Xilinx, IMX8MP)
-        if self.imx8mp: self.yocto_linux = self.imx8mp
-        if self.oclea:  self.yocto_linux = self.oclea
-        if self.xilinx: self.yocto_linux = self.xilinx
+    def set_platform(self, **flags) -> bool:
+        """Select the ONE active platform by flag, eg set_platform(android=True). The first enabled
+        flag wins. All-False clears the platform."""
+        for flag, class_name in BuildConfig._PLATFORM_FLAGS:
+            if flags.get(flag):
+                self.set_platform_class(globals()[class_name])
+                return True
+        self.set_platform_class(None)
         return True
 
 
+    def select_platform_arg(self, arg: str):
+        """Select the platform a CLI arg names, eg `raspi32` -> Raspi pinned to arm."""
+        cls, arch = platform_for_arg(arg)
+        self.set_platform_class(cls)
+        if arch: self.set_arch(arch)
+
+
+    def set_platform_class(self, cls):
+        """Install `cls` as the one active platform. Selecting the SAME platform twice keeps the
+        existing instance, so `mama build android-31 ndk-28` does not throw away the api level."""
+        if cls is None:                     self.platform = None
+        elif type(self.platform) is not cls: self.platform = cls(self)
+        self._update_platform_flags()
+
+
+    def _update_platform_flags(self):
+        """Refresh the per-platform mamafile properties from `self.platform`. `msvc`, `linux` and
+        `macos` stay bools. The rest hand back the platform object, because a mamafile reads
+        `config.android.android_api` off them. Both forms are documented API - see README."""
+        p = self.platform
+        def obj(cls): return p if isinstance(p, cls) else None
+        self.msvc  = isinstance(p, Windows)
+        self.linux = isinstance(p, Linux)
+        self.macos = isinstance(p, Macos)
+        self.ios     = obj(Ios)
+        self.android = obj(Android)
+        self.raspi   = obj(Raspi)
+        self.oclea   = obj(Oclea)
+        self.mips    = obj(Mips)
+        self.xilinx  = obj(Xilinx)
+        self.imx8mp  = obj(Imx8mp)
+        # convenience alias for detecting embedded Yocto Linux platforms (e.g. Oclea, Xilinx, IMX8MP)
+        self.yocto_linux = obj(GenericYocto)
+
+
     def is_platform_set(self):
-        return self.msvc or self.linux or self.macos \
-            or self.ios or self.android or self.raspi or self.mips \
-            or self.yocto_linux
+        return self.platform is not None
 
 
     def check_platform(self):
@@ -413,32 +413,8 @@ class BuildConfig:
         if not self.msvc and not (self.gcc or self.clang):
             self.gcc = True # default to GCC on non-MSVC platforms
 
-        # set defaults if arch was not specified
-        if not self.arch:
-            # macos has now moved to arm64 starting with M1 series chips
-            if self.macos:        self.set_arch('arm64')
-            elif self.ios:        self.set_arch('arm64')
-            elif self.android:    self.set_arch('arm64')
-            elif self.yocto_linux:self.set_arch('arm64')
-            elif self.raspi:      self.set_arch('arm64')  # every Pi since the 3 is ARMv8
-            elif self.mips:       self.set_arch(self.mips.mips_arch)
-            else:
-                if System.aarch64:  self.set_arch('arm64')
-                elif System.x86_64: self.set_arch('x64')
-                else:               self.set_arch('x86')
-
-        # Arch itself is validated in set_arch(),
-        # however we need to validate if arch is allowed on platform
-        if self.arch:
-            if self.yocto_linux and self.arch != 'arm64':
-                raise RuntimeError(f'Unsupported arch={self.arch} on {self.yocto_linux.name} platform! Supported=arm64')
-            if self.linux and self.arch == 'arm':
-                raise RuntimeError(f'Unsupported arch={self.arch} on linux platform! Build with android instead')
-            if self.raspi and self.arch not in self.raspi.supported_arches:
-                raise RuntimeError(f'Unsupported arch={self.arch} on raspi platform!' + \
-                                   f' Supported={self.raspi.supported_arches}')
-            if self.mips and self.arch not in self.mips.supported_arches:
-                raise RuntimeError(f'Unsupported arch={self.arch} on MIPS platform! Supported={self.mips.supported_arches}')
+        if not self.arch: self.set_arch(self.platform.get_default_arch())
+        self.platform.validate_arch(self.arch) # set_arch() only checks the arch name itself
 
         if self.enable_clang_tidy:
             # resolve clang-tidy path based on platform
@@ -446,39 +422,8 @@ class BuildConfig:
 
 
     def get_distro_info(self):
-        if self.distro:
-            return self.distro
-        if self.msvc:
-            version = platform.version().split('.') + ['0']
-            self.distro = (self.name(), int(version[0]), int(version[1]))
-        elif self.macos:
-            version = self.macos_version.split('.') + ['0']
-            self.distro = (self.name(), int(version[0]), int(version[1]))
-        elif self.ios:
-            version = self.ios_version.split('.') + ['0']
-            self.distro = (self.name(), int(version[0]), int(version[1]))
-        elif self.android:
-            version = self.android.android_api.split('-')[1]
-            self.distro = (self.name(), int(version), 0)
-        elif self.yocto_linux:
-            self.distro = self.yocto_linux.distro_version
-        elif self.raspi:
-            # TODO: RASPI version
-            self.distro = (self.name(), 0, 0)
-        elif self.mips:
-            # TODO: MIPS version
-            self.distro = (self.name(), self.mips.toolchain_major, self.mips.toolchain_minor)
-        elif self.linux:
-            try:
-                dist = distro.info()
-                major = int(dist['version_parts']['major'])
-                minor = int(dist['version_parts']['minor'])
-                self.distro = (dist['id'], major, minor)
-            except Exception as err:
-                console(f'Failed to parse linux distro; falling back to Ubuntu 16.04 LTS: {err}', color=Color.RED)
-                self.distro = ('ubuntu', 16, 4)
-        else:
-            self.distro = (platform.system().lower(), int(platform.release()), 0)
+        if not self.distro:
+            self.distro = self.platform.distro_version()
         return self.distro
 
 
@@ -494,15 +439,7 @@ class BuildConfig:
 
 
     def name(self):
-        if self.msvc:    return 'windows' # TODO: maybe rename to MSVC?
-        if self.linux:   return 'linux'
-        if self.macos:   return 'macos'
-        if self.ios:     return 'ios'
-        if self.android: return 'android'
-        if self.raspi:   return 'raspi'
-        if self.yocto_linux: return self.yocto_linux.name # imx8mp, oclea, xilinx
-        if self.mips:        return self.mips.name
-        return 'build'
+        return self.platform.name if self.platform else 'build'
 
 
     def host_platform_name(self):
@@ -513,30 +450,6 @@ class BuildConfig:
         if System.windows: return 'windows'
         if System.macos:   return 'macos'
         return 'linux'
-
-
-    ## These are the hard references to all build directory variations
-    ## All parts of the codebase should use these, instead of raw strings
-    ## This will avoid accidental mismatches
-    def build_dir_win64(self): return 'windows'
-    def build_dir_win32(self): return 'windows32'
-    def build_dir_winarm64(self): return 'winarm'
-    def build_dir_winarm32(self): return 'winarm32'
-    def build_dir_linux64(self): return 'linux'
-    def build_dir_linux32(self): return 'linux32'
-    def build_dir_linuxarm64(self): return 'linuxarm' # arm64
-    def build_dir_macosarm64(self): return 'macosarm' # arm64
-    def build_dir_macos64(self): return 'macos' # x64
-    def build_dir_ios(self): return 'ios' # arm64
-    def build_dir_android64(self): return 'android'
-    def build_dir_android32(self): return 'android32'
-    def build_dir_raspi64(self): return Raspi.BUILD_DIR
-    def build_dir_raspi32(self): return Raspi.BUILD_DIR_32
-    def build_dir_oclea64(self): return Oclea.BUILD_DIR
-    def build_dir_xilinx64(self): return Xilinx.BUILD_DIR
-    def build_dir_imx8mp(self): return Imx8mp.BUILD_DIR
-    def build_dir_mips(self): return 'mips'
-    def build_dir_default(self): return 'build'
 
 
     # per-sanitizer build dir suffix so flavors don't share a dir and force a reconfigure
@@ -566,31 +479,7 @@ class BuildConfig:
 
 
     def _platform_build_dir_name(self):
-        if self.msvc:
-            if self.is_target_arch_x64(): return self.build_dir_win64()
-            if self.is_target_arch_x86(): return self.build_dir_win32()
-            if self.is_target_arch_armv7(): return self.build_dir_winarm32()
-            return self.build_dir_winarm64()
-        if self.yocto_linux:
-            # Only arm64 i.MX8M Plus, Xilinx Zync, Oclea Aarch64...
-            return self.yocto_linux.build_dir
-        if self.linux:
-            if self.is_target_arch_x64(): return self.build_dir_linux64()
-            if self.is_target_arch_arm64(): return self.build_dir_linuxarm64()
-            return self.build_dir_linux32()
-        if self.macos: # Apple dropped 32-bit support
-            # and new default should be arm64 starting from M1 series chips
-            if self.is_target_arch_arm64(): return self.build_dir_macosarm64()
-            return self.build_dir_macos64()
-        if self.ios: # Apple dropped 32-bit support
-            return self.build_dir_ios()
-        if self.android:
-            if self.is_target_arch_arm64(): return self.build_dir_android64()
-            return self.build_dir_android32()
-        if self.raspi: return self.raspi.build_dir()
-        if self.mips: return self.build_dir_mips()
-
-        return self.build_dir_default()
+        return self.platform.build_dir_name() if self.platform else 'build'
 
 
     def set_build_config(self, release=False, debug=False):
@@ -753,24 +642,11 @@ class BuildConfig:
         if self.msvc:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
-        if self.android:
-            self.cc_path  = self.android.cc_path()
-            self.cxx_path = self.android.cxx_path()
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=False)
-        elif self.yocto_linux:
-            prefix = self.yocto_linux.gcc_prefix() # accessor, not raw cc_prefix: an uninit toolchain silently picks HOST gcc
-            self.cc_path  = f'{prefix}gcc'
-            self.cxx_path = f'{prefix}g++'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
-        elif self.raspi:  # only GCC available for this platform
-            ext = '.exe' if System.windows else ''
-            self.cc_path  = f'{self.raspi.compiler_prefix()}gcc{ext}'
-            self.cxx_path = f'{self.raspi.compiler_prefix()}g++{ext}'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
-        elif self.mips:
-            self.cc_path  = f'{self.mips.compiler_prefix()}gcc'
-            self.cxx_path = f'{self.mips.compiler_prefix()}g++'
-            self.cxx_version = self.get_gcc_clang_fullversion(self.cc_path, dumpfullversion=True)
+        # a cross platform always names its own compilers: falling back to the host compiler
+        # search would silently build x86 binaries for an arm64 board
+        cc, cxx, ver = self.platform.compiler_paths()
+        if cc:
+            self.cc_path, self.cxx_path, self.cxx_version = cc, cxx, ver
         elif self.clang:
             suffixes = ['-20','-19','-18','-17','-16','-15','-14','-13','-12','-11','-10','-9','-8','-7','-6','']
             self.clang_path, suffix, ver = self.find_compiler_root(self.clang_path, 'clang++', suffixes, dumpfullversion=False)
@@ -800,23 +676,7 @@ class BuildConfig:
 
 
     def compiler_version(self):
-        if self.msvc:
-            msvc_tools = self.get_msvc_tools_path()
-            version = os.path.basename(msvc_tools.rstrip('\\//')).split('.')[0]
-            return f'msvc{version}'
-        elif self.macos:
-            return self.macos_version
-        elif self.ios:
-            return self.ios_version
-        elif self.linux or self.raspi or self.mips or self.android or self.yocto_linux:
-            cc, _, version = self.get_preferred_compiler_paths()
-            version_parts = version.split('.')
-            major_version, minor_version = version_parts[0], version_parts[1]
-            if 'gcc' in cc: return f'gcc{major_version}.{minor_version}'
-            if 'clang' in cc: return f'clang{major_version}.{minor_version}'
-            raise EnvironmentError(f'Unrecognized compiler {cc}!')
-        else:
-            raise EnvironmentError(f'Unknown compiler version!')
+        return self.platform.compiler_version_tag()
 
 
     def find_ninja_build(self):
@@ -919,75 +779,50 @@ class BuildConfig:
         if path: paths.append(path)
 
 
+    def set_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """Point the active platform at an explicit toolchain, from the ROOT mamafile settings().
+
+        `toolchain_dir` is the SDK root holding the cross compilers and the sysroot. `toolchain_file`
+        is the CMake toolchain file the SDK ships. A platform uses whichever of the two it needs.
+        ```
+            def settings(self):
+                self.config.set_toolchain('/opt/my-imx8mp-sdk')
+        ```
+        """
+        self.platform.init_toolchain(toolchain_dir, toolchain_file)
+
+
+    ## Platform-named aliases of set_toolchain(), kept because mamafiles and the README use them.
+    def set_yocto_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """ i.MX8M Plus, Xilinx, Oclea and other Yocto Linux boards. @see set_toolchain() """
+        self.set_toolchain(toolchain_dir, toolchain_file)
+
+    def set_oclea_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """ Ambarella CV25 by Oclea. @see set_toolchain() """
+        self.set_toolchain(toolchain_dir, toolchain_file)
+
+    def set_imx8mp_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """ NXP i.MX8M Plus. @see set_toolchain() """
+        self.set_toolchain(toolchain_dir, toolchain_file)
+
+    def set_xilinx_toolchain(self, toolchain_dir=None, toolchain_file=None):
+        """ Xilinx Zynq UltraScale+ MPSoC. @see set_toolchain() """
+        self.set_toolchain(toolchain_dir, toolchain_file)
+
     def set_android_toolchain(self, toolchain_file):
-        """
-        Sets the toolchain file for Android NDK.
-        This should be abspath such as `/opt/android-sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake`
-        """
+        """ Android NDK, eg `/opt/android-sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake` """
         self.android.set_toolchain_path(toolchain_file)
+
+    def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):
+        """ MIPS, whose toolchain dir must hold a bin/ subdir. @see set_toolchain() """
+        self.mips.init_toolchain(toolchain_dir, toolchain_file, arch)
 
 
     def init_platform_toolchain(self):
         """Resolve the cross-compile toolchain (NDK/sysroot paths) from the default search paths.
-        MUST run after the ROOT mamafile's settings(), so an explicit set_*_toolchain() there wins:
-        each of these is a no-op once settings() already picked a toolchain dir."""
-        if self.android:     self.android.android_home()
-        if self.raspi:       self.raspi.init_default()
-        if self.yocto_linux: self.yocto_linux.init_default()
-        if self.mips:        self.mips.init_default()
-
-
-    def set_yocto_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """
-        For i.MX8M Plus, Xilinx, Oclea and other Yocto Linux based platforms.
-        Sets the toolchain dir where these subdirs exist:
-            aarch64-poky-linux/
-            x86_64-pokysdk-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_file`.
-        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
-        """
-        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
-
-
-    def set_oclea_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """
-        Sets the toolchain dir where these subdirs exist:
-            aarch64-oclea-linux/
-            x86_64-ocleasdk-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_file`.
-        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
-        """
-        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
-
-
-    def set_imx8mp_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """
-        Sets the toolchain dir where these subdirs exist:
-            aarch64-imx8mp-linux/
-            x86_64-imx8mp-sdk-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_file`.
-        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
-        """
-        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
-
-
-    def set_xilinx_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """
-        Sets the toolchain dir where these subdirs exist:
-            aarch64-xilinx-linux/
-            x86_64-petalinux-linux/
-        And optionally also sets the CMake toolchain file via `toolchain_file`.
-        The `toolchain_file` is only used if `toolchain_dir` chosen as valid.
-        """
-        self.yocto_linux.init_toolchain(toolchain_dir, toolchain_file)
-
-
-    def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):
-        """
-        Sets the toolchain dir for MIPS platform where at least the `bin` dir should exist
-        And optionally also sets the CMake toolchain file via `toolchain_file`
-        """
-        self.mips.init_toolchain(arch, toolchain_dir, toolchain_file)
+        MUST run after the ROOT mamafile's settings(), so an explicit set_toolchain() there wins:
+        this is a no-op once settings() already picked a toolchain dir."""
+        self.platform.init_default()
 
 
     def find_default_fortran_compiler(self):
@@ -1002,172 +837,19 @@ class BuildConfig:
         return None
 
 
-    def get_vswhere(self, fail_on_error=True):
-        if self._vswhere_path:
-            return self._vswhere_path
-        if not System.windows:
-            raise EnvironmentError('VisualStudio tools support not available on this platform!')
-
-        vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        if os.path.exists(vswhere_exe):
-            self._vswhere_path = vswhere_exe
-            return vswhere_exe
-
-        vswhere_exe = util.find_executable_from_system('vswhere.exe')
-        if vswhere_exe and os.path.exists(vswhere_exe):
-            self._vswhere_path = vswhere_exe
-            return vswhere_exe
-
-        if fail_on_error:
-            raise EnvironmentError('Failed to find vswhere.exe for detecting Visual Studio installations!' \
-                                   'Please install Visual Studio with C++ workload and try again.')
-        return None
-
-
-    def get_visualstudio_path(self):
-        if self._visualstudio_path:
-            return self._visualstudio_path
-        if not System.windows:
-            raise EnvironmentError('VisualStudio tools support not available on this platform!')
-
-        vswhere_exe = self.get_vswhere(fail_on_error=False)
-        if vswhere_exe:
-            vspath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
-            if vspath and os.path.exists(vspath):
-                self._visualstudio_path = vspath
-                if self.verbose: console(f'Detected VisualStudio: {vspath}')
-                return vspath
-
-        paths = []
-        vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-        for version in [ '18', '2022' ]: # new 64-bit VS
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\{version}\\{variant}')
-        for version in [ '2019', '2017' ]:
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version}\\{variant}')
-
-        for path in paths:
-            if path and os.path.exists(path):
-                self._visualstudio_path = path
-                if self.verbose: console(f'Detected VisualStudio: {path}')
-                return path
-
-        if not self._visualstudio_path:
-            raise EnvironmentError('Failed to find Visual Studio installation! Please install Visual Studio with C++ workload and try again.')
-        return self._visualstudio_path
-
-
     def is_target_arch_x64(self): return self.arch == 'x64'
     def is_target_arch_x86(self): return self.arch == 'x86'
     def is_target_arch_arm64(self): return self.arch == 'arm64'
     def is_target_arch_armv7(self): return self.arch == 'arm'
 
 
-    def get_gcc_linux_march(self):
-        if self.is_target_arch_arm64(): return 'native' if System.aarch64 else 'armv8-a'
-        if self.is_target_arch_x64(): return 'native' if System.x86_64 else 'x86-64'
-        if self.is_target_arch_x86(): return 'native' if System.x86 else 'pentium4'
-        raise RuntimeError(f'Unsupported arch: {self.arch}')
-
-
-    def get_visualstudio_cmake_arch(self):
-        if self.is_target_arch_x64(): return 'x64'
-        if self.is_target_arch_x86(): return 'Win32'
-        if self.arch == 'arm':   return 'ARM'
-        if self.arch == 'arm64': return 'ARM64'
-        raise RuntimeError(f'Unsupported arch: {self.arch}')
-
-
-    def get_visualstudio_cmake_id(self):
-        if self._visualstudio_cmake_id:
-            return self._visualstudio_cmake_id
-
-        vspath = self.get_visualstudio_path()
-        if '\\18\\' in vspath:     self._visualstudio_cmake_id = 'Visual Studio 18 2026'
-        elif '\\2022\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
-        elif '\\2019\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
-        else:                      self._visualstudio_cmake_id = 'Visual Studio 15 2017'
-
-        if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
-        return self._visualstudio_cmake_id
-
-
-    def get_msbuild_path(self):
-        if self._msbuild_path:
-            return self._msbuild_path
-
-        paths = [ util.find_executable_from_system('msbuild') ]
-        if System.windows:
-            vswhere_exe = self.get_vswhere(fail_on_error=False)
-            if vswhere_exe:
-                installationPath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
-                paths.append(f"{installationPath}\\MSBuild\\Current\\Bin\\MSBuild.exe")
-                paths.append(f"{installationPath}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
-
-            vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\18\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\2022\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\{variant}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe')
-
-        for path in paths:
-            if path and os.path.exists(path):
-                self._msbuild_path = path
-                if self.verbose: console(f'Detected MSBuild: {path}')
-                return path
-        raise EnvironmentError('Failed to find MSBuild from system PATH. You can easily configure msbuild by running `mama install-msbuild`.')
-
-
-    ## MSVC tools at, for example: "{VisualStudioPath}\VC\Tools\MSVC\14.16.27023"
-    def get_msvc_tools_path(self):
-        if self._msvctools_path:
-            return self._msvctools_path
-        if not System.windows:
-            raise EnvironmentError('MSVC tools not available on this platform!')
-
-        tools_root = f"{self.get_visualstudio_path()}\\VC\\Tools\\MSVC"
-        tools_path = self._latest_msvc_toolset(tools_root)
-        if not tools_path:
-            raise EnvironmentError('Could not detect MSVC Tools')
-        self._msvctools_path = tools_path
-        if self.verbose: console(f'Detected MSVC Tools: {tools_path}')
-        return tools_path
-
-
-    @staticmethod
-    def _latest_msvc_toolset(tools_root: str) -> str:
-        """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
-        version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
-        (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none:
-        every get_msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
-        try:
-            dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
-        except OSError:
-            return ''
-        if not dirs: return ''
-        dirs.sort(key=lambda n: tuple(int(p) if p.isdigit() else 0 for p in n.split('.')), reverse=True)
-        for d in dirs:
-            if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
-                return os.path.join(tools_root, d)
-        return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
-
-
-    def get_msvc_bin64(self):
-        return f'{self.get_msvc_tools_path()}/bin/Hostx64/x64/'
-
-
-    def get_msvc_link64(self):
-        return f'{self.get_msvc_bin64()}link.exe'
-
-
-    def get_msvc_cl64(self):
-        return f'{self.get_msvc_bin64()}cl.exe'
-
-
-    def get_msvc_lib64(self):
-        return f'{self.get_msvc_tools_path()}\\lib\\x64'
+    ## MSVC paths a mamafile links against. The Windows platform owns the discovery behind them.
+    def get_visualstudio_path(self): return self.platform.visualstudio_path()
+    def get_msvc_tools_path(self):   return self.platform.msvc_tools_path()
+    def get_msvc_bin64(self):        return self.platform.msvc_bin64()
+    def get_msvc_cl64(self):         return self.platform.msvc_cl64()
+    def get_msvc_link64(self):       return self.platform.msvc_link64()
+    def get_msvc_lib64(self):        return self.platform.msvc_lib64()
 
 
     def install_clang(self, clang_major):

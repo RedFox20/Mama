@@ -58,7 +58,7 @@ Your builds will not rely on hard to setup system packages, all you need to do i
 - MacOS (64-bit x86_64, 64-bit arm64) via config.macos_version
 - iOS (64-bit arm64) via config.ios_version
 - Android (64-bit arm64, 32-bit armv7) via env ANDROID_NDK_HOME or ANDROID_HOME
-- Raspberry (32-bit armv7) via env RASPI_HOME
+- Raspberry Pi (64-bit arm64 default, 32-bit armv7 via `raspi32`) via env RASPI_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain() or env OCLEA_HOME
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
 - MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain()
@@ -378,8 +378,12 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 ### Platform detection properties
 
 Use these boolean properties in mamafiles for platform-conditional logic:
-`self.windows`, `self.linux`, `self.macos`, `self.ios`, `self.android`,
+`self.windows`, `self.msvc`, `self.linux`, `self.macos`, `self.ios`, `self.android`,
 `self.raspi`, `self.oclea`, `self.xilinx`, `self.imx8mp`, `self.mips`, `self.yocto_linux`
+
+`self.config.platform` is the active platform object, and `self.config.platform.name` is its
+name (`'linux'`, `'imx8mp'`, ...). See [docs/platforms.md](docs/platforms.md) for how platform
+support is structured and how to add one.
 
 Host OS detection: `self.os_windows`, `self.os_linux`, `self.os_macos`
 
@@ -400,12 +404,15 @@ self.add_cl_flags('-fPIC')                           # Both C and C++ flags
 self.add_ld_flags('-lm')                             # Linker flags
 self.add_platform_cxx_flags(linux='-fPIC', windows='/W4')  # Per-platform C++ flags
 self.add_platform_ld_flags(linux='-pthread')               # Per-platform linker flags
+# Any platform name works: windows, linux, macos, ios, android, raspi, mips,
+# oclea, xilinx, imx8mp, plus yocto_linux for any Yocto board
+self.add_platform_cxx_flags(imx8mp='-mcpu=cortex-a53', yocto_linux='-DEMBEDDED=1')
 ```
 
 ### CMake configuration
 ```py
 self.add_cmake_options('BUILD_SHARED_LIBS=ON', 'OPTION=VALUE')
-self.add_platform_options(linux='LINUX_OPT=ON', windows='WIN_OPT=ON')
+self.add_platform_options(linux='LINUX_OPT=ON', windows='WIN_OPT=ON', raspi='USE_NEON=ON')
 self.enable_from_env('CUDA')  # enable CMake option CUDA=ON if CUDA=1 env var is set
 ```
 
@@ -705,11 +712,14 @@ def settings(self):
 ## Custom toolchain overrides
 ```py
 def settings(self):
-    self.config.set_android_toolchain('path/to/toolchain.cmake')
-    self.config.set_yocto_toolchain(toolchain_dir='path/to/sdk')
+    self.config.set_toolchain('path/to/sdk')   # any platform: the SDK root
+    self.config.set_toolchain(toolchain_file='path/to/toolchain.cmake')
     self.config.cc_path = '/usr/bin/gcc-12'    # Override C compiler path
     self.config.cxx_path = '/usr/bin/g++-12'   # Override C++ compiler path
 ```
+The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolchain()`,
+`set_imx8mp_toolchain()`, `set_xilinx_toolchain()`, `set_android_toolchain()` and
+`set_mips_toolchain(arch)`.
 
 
 ## Environment Variables

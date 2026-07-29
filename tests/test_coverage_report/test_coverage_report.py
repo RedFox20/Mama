@@ -4,17 +4,23 @@ from types import SimpleNamespace
 import pytest
 
 from mama import main as mama_main
+from mama.platforms.linux import Linux
+from mama.platforms.windows import Windows
 
 
 def _make_target(*, msvc=False, gcc=False, cc_path=None,
                  coverage_report='.', source_dir='/src', build_dir='/build'):
     """Build a stub BuildTarget with just the attributes run_coverage_report touches."""
+    platform_class = Windows if msvc else Linux
     config = SimpleNamespace(
         msvc=msvc,
         gcc=gcc,
         cc_path=cc_path,
         coverage_report=coverage_report,
+        arch='x64',
+        name=lambda: platform_class.name,
     )
+    config.platform = platform_class(config)
     return SimpleNamespace(
         config=config,
         source_dir=lambda _arg=None: source_dir,

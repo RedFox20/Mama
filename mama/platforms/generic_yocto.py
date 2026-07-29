@@ -1,61 +1,77 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
-import os
 from typing import Callable
+import os, re
+
+from .platform import Platform
+from .toolchain import Toolchain
 from mama.utils.system import System, console, warning, Color, get_colored_text
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
 
 
-if TYPE_CHECKING:
-    from ..build_config import BuildConfig
+class GenericYocto(Platform):
+    """A Yocto SDK based embedded Linux board. Every such SDK lays its files out the same way, so a
+    board only declares its search paths, its compiler triple and its sysroot name."""
+    system_name = 'Linux'
+    is_cross = True
+    cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
+    is_host_runnable = False
+    default_arch = 'arm64'
+    supported_arches = ('arm64',)
+    ## Everything a board declares. The SDK layout is identical across vendors, so a board is data.
+    host_triple  = 'aarch64-poky-linux'  ## the GNU --host triple
+    search_paths = ()                    ## where to look for the SDK, most specific first
+    search_envs  = ()                    ## env vars naming the SDK root. Defaults to <NAME>_SDK_HOME
+    compiler_name = 'usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc'  ## relative to the host sysroot
+    sdk_name      = 'x86_64-pokysdk-linux'          ## sysroots/<sdk_name>/ holds the cross compilers
+    sysroot_name  = 'cortexa53-crypto-poky-linux'   ## sysroots/<sysroot_name>/ holds the target libs
+    default_toolchain = 'usr/share/cmake/cortexa53-crypto-poky-linux-toolchain.cmake'  ## in the SDK root
 
-
-class GenericYocto:
-    def __init__(self, name: str, platform_define, config: BuildConfig):
-        self.name = name ## e.g. 'imx8mp' or 'oclea' or 'xilinx'
-        self.platform_define = platform_define ## e.g. 'IMX8MP' or 'OCLEA' or 'XILINX'
-        self.config = config
-        self.toolchain_file = ''  ## for Docker based build, this is the aarch64_toolchain.cmake
+    def __init__(self, config):
+        super().__init__(config)
+        self.toolchain_file = ''  ## for a Docker based build, this is the aarch64_toolchain.cmake
         self.toolchain_dir = ''
-        self.compilers = ''  ## g++, gcc and ld
+        self.compilers = ''  ## dir holding g++, gcc and ld
         self.cc_prefix = '' ## e.g. '{self.compilers}aarch64-poky-linux-'
         self.sdk_path = ''  ## Path to SDK libs root
         self.sysroot_path = ''  ## Path to system libs root
         self.include_paths = []  ## Path to additional include dirs
         self.version = '' ## GCC Version
-        self.build_dir = 'yocto' ## Generic yocto build dir, overridden by subclass
-        self.host_name = 'aarch64-poky-linux' ## default host name, overridden by subclass
-        self.distro_version = (1,0,0) ## distro version tuple, e.g. (1, 0, 0) for version 1.0.0
+        self.sdk_version = (1,0,0) ## SDK version tuple, e.g. (5, 0, 4) for version 5.0.4
 
 
-    def bin(self):
-        """ {sdk_path}/sysroots/x86_64-pokysdk-linux/usr/bin/aarch64-poky-linux/ """
+    def __init_subclass__(cls, **kwargs):
+        """Derive the board's defines from its name, so a board declares the name once. YOCTO_LINUX
+        goes out for every generic Yocto board, on top of the board's own define."""
+        super().__init_subclass__(**kwargs)
+        if cls.name and not cls.platform_define:
+            cls.platform_define = cls.name.upper()
+            cls.compile_defines = {cls.platform_define: '1', 'YOCTO_LINUX': '1'}
+
+
+    def _resolved(self):
+        """Run SDK discovery if it has not run yet, then return self. Reading a path field before
+        that silently hands back ''."""
         if not self.compilers: self.init_default()
-        return self.compilers
-
-
-    def sdk(self):
-        """ {sdk_path}/sysroots/x86_64-pokysdk-linux/ """
-        if not self.compilers: self.init_default()
-        return self.sdk_path
+        return self
 
 
     def sysroot(self):
         """ {sdk_path}/sysroots/cortexa53-crypto-poky-linux/ """
-        if not self.compilers: self.init_default()
-        return self.sysroot_path
+        return self._resolved().sysroot_path
 
-
-    # forced includes that should be added to compiler flags as -I paths
-    def includes(self):
-        """ [ '{sdk_path}/sysroots/cortexa53-crypto-poky-linux/usr/include' ] """
-        if not self.compilers: self.init_default()
-        return self.include_paths
 
     def gcc_prefix(self):
         """ e.g. {sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux- """
-        if not self.compilers: self.init_default()
-        return self.cc_prefix
+        return self._resolved().cc_prefix
+
+
+    def gnu_host_triple(self) -> str:
+        return self.host_triple
+
+
+    def distro_version(self) -> tuple:
+        """The SDK version, eg (5, 0, 4). Unlike every other platform this carries no name, and the
+        artifactory archive name has always been built from it that way."""
+        return self._resolved().sdk_version
 
 
     def append_env_path(self, paths, env):
@@ -69,30 +85,23 @@ class GenericYocto:
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        raise NotImplementedError('init_toolchain must be implemented by subclass')
-
-
-    def _yocto_toolchain_init(self, toolchain_dir=None, toolchain_file=None,
-                              paths=[], envs=[],
-                              compiler_name='usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc',
-                              sdk_name='x86_64-pokysdk-linux',
-                              sysroot_name='cortexa53-crypto-poky-linux',
-                              default_toolchain='usr/share/cmake/cortexa53-crypto-poky-linux-toolchain.cmake'):
+        """Find the SDK. An explicit `toolchain_dir` is searched first, then the board's own paths,
+        then whatever its env vars name."""
         # TODO: expand support to enable Windows host cross-compilation?
         if not System.linux:
             raise RuntimeError(f'{self.name} only supported on Linux')
 
-        # add fallback define for user configuration e.g. XILINX_SDK_HOME
-        if not envs:
-            envs = [ f'{self.platform_define}_SDK_HOME' ]
+        paths = ([toolchain_dir] if toolchain_dir else []) + list(self.search_paths)
+        # fallback env for user configuration, e.g. XILINX_SDK_HOME
+        envs = list(self.search_envs) or [f'{self.platform_define}_SDK_HOME']
         for env in envs:
             self.append_env_path(paths, env)
 
         for path in paths:
             # Check for Yocto structure
-            yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{sdk_name}')
-            yocto_sysroot = os.path.abspath(f'{path}/sysroots/{sysroot_name}')
-            yocto_compiler = f'{yocto_sdkpath}/{compiler_name}'
+            yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{self.sdk_name}')
+            yocto_sysroot = os.path.abspath(f'{path}/sysroots/{self.sysroot_name}')
+            yocto_compiler = f'{yocto_sdkpath}/{self.compiler_name}'
 
             if self.config.verbose:
                 console(f'Checking for {self.name} toolchain in: {yocto_compiler} and {yocto_sysroot}')
@@ -108,58 +117,53 @@ class GenericYocto:
                 if toolchain_file and path == toolchain_dir:
                     self._set_toolchain_file(toolchain_file)
                 else:
-                    self._set_toolchain_file(f'{self.toolchain_dir}/{default_toolchain}')
+                    self._set_toolchain_file(f'{self.toolchain_dir}/{self.default_toolchain}')
 
-                if self.sdk_path and self.sysroot_path:
-                    self.compilers = os.path.dirname(yocto_compiler) + '/' # e.g. f'{self.sdk_path}/usr/bin/aarch64-poky-linux/'
-                    # replace -gcc at the end with '-' to get the prefix
-                    # e.g '{self.sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
-                    self.cc_prefix = self.compilers + os.path.basename(compiler_name).replace('-gcc', '-')
-                    self.include_paths = [ f'{self.sysroot_path}/usr/include' ]
-                    self.version = self.config.get_gcc_clang_fullversion(yocto_compiler, dumpfullversion=True)
-                    break
+                self.compilers = os.path.dirname(yocto_compiler) + '/' # e.g. f'{self.sdk_path}/usr/bin/aarch64-poky-linux/'
+                # replace -gcc at the end with '-' to get the prefix
+                # e.g '{self.sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
+                self.cc_prefix = self.compilers + os.path.basename(self.compiler_name).replace('-gcc', '-')
+                self.include_paths = [ f'{self.sysroot_path}/usr/include' ]
+                self.version = self.config.get_gcc_clang_fullversion(yocto_compiler, dumpfullversion=True)
+                break
 
             # add some helpful debug messages on potentially broken toolchain configurations
-            if found_compiler and not found_sysroot:
-                if self.config.print:
-                    warning(f'Found compiler at {yocto_compiler} but sysroot not found at {yocto_sysroot}')
-            elif not found_compiler and found_sysroot:
-                if self.config.print:
-                    warning(f'Found sysroot at {yocto_sysroot} but compiler not found at {yocto_compiler}')
+            if self.config.print and found_compiler != found_sysroot:
+                if found_compiler: warning(f'Found compiler at {yocto_compiler} but sysroot not found at {yocto_sysroot}')
+                else:              warning(f'Found sysroot at {yocto_sysroot} but compiler not found at {yocto_compiler}')
 
         # fallback
         if not self.toolchain_file and toolchain_file:
             if not self._set_toolchain_file(toolchain_file):
                 raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
 
-        self.distro_version = self._autodetect_version(self.toolchain_dir)
-
-        if self.config.print:
-            OK  = get_colored_text('OK', 'green')
-            BAD = get_colored_text('NOTFOUND', 'red')
-            def get_path_status(path):
-                return OK if path and os.path.exists(path) else BAD
-
-            version = '.'.join(str(x) for x in self.distro_version)
-            tools = 'TOOLS ' + version + ':'
-            console(f'Yocto {self.name} {tools:14} {get_path_status(self.compilers)} {self.compilers}')
-            console(f'      {self.name} SDK path:      {get_path_status(self.sdk_path)} {self.sdk_path}')
-            console(f'      {self.name} sysroot:       {get_path_status(self.sysroot_path)} {self.sysroot_path}')
-            console(f'      {self.name} toolchain:     {get_path_status(self.toolchain_file)} {self.toolchain_file}')
+        self.sdk_version = self._autodetect_version(self.toolchain_dir)
+        if self.config.print: self._print_toolchain_status()
 
         if not os.path.exists(self.compilers):
-            raise EnvironmentError(f'''No {self.name} toolchain compilers detected! 
-    Default search paths: {paths} 
+            raise EnvironmentError(f'''No {self.name} toolchain compilers detected!
+    Default search paths: {paths}
     Define env {envs[0]} with path to {self.name} tools.''')
 
 
+    def _print_toolchain_status(self):
+        OK  = get_colored_text('OK', 'green')
+        BAD = get_colored_text('NOTFOUND', 'red')
+        def status(path):
+            return OK if path and os.path.exists(path) else BAD
+        tools = 'TOOLS ' + '.'.join(str(x) for x in self.sdk_version) + ':'
+        console(f'Yocto {self.name} {tools:14} {status(self.compilers)} {self.compilers}')
+        console(f'      {self.name} SDK path:      {status(self.sdk_path)} {self.sdk_path}')
+        console(f'      {self.name} sysroot:       {status(self.sysroot_path)} {self.sysroot_path}')
+        console(f'      {self.name} toolchain:     {status(self.toolchain_file)} {self.toolchain_file}')
+
+
     def _autodetect_version(self, toolchain_dir):
-        """ Attempts to autodetect the version of the Yocto SDK based on the toolchain_dir name. """
+        """Autodetect the version of the Yocto SDK from the toolchain_dir name."""
         if not toolchain_dir:
             return (1, 0, 0)
         last_part = os.path.basename(toolchain_dir)
         if last_part.count('.') == 2: # e.g. 'toolchain-1.0.0' or '5.0.4'
-            import re
             parts = re.split(r'[-_ +]', last_part) # split using separators
             # find last part that starts with a digit and looks like a version number, e.g. '1.0' or '5.0.4'
             version = [p for p in parts if p and '.' in p and p[0].isdigit()][-1]
@@ -171,63 +175,29 @@ class GenericYocto:
         if os.path.exists(toolchain_file):
             self.toolchain_file = toolchain_file
             return True
-        else:
-            console(f'No toolchain file found at: {toolchain_file}', color=Color.RED)
-            return False
+        console(f'No toolchain file found at: {toolchain_file}', color=Color.RED)
+        return False
 
 
-    def _add_common_cxx_flags(self, add_flag: Callable[[str,str], None]):
-        # e.g -DIMX8MP=1 or -DOCLEA=1 or -DXILINX=1
-        add_flag(f'-D{self.platform_define}', '1')
-        # define YOCTO_LINUX=1 for all generic yocto embedded platforms
-        add_flag(f'-DYOCTO_LINUX', '1')
-        for path in self.includes():
-            add_flag(f'-I {path}')
-
-    def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
-        """ Should be overridden by subclass to add platform-specific cxx flags """
-        self._add_common_cxx_flags(add_flag)
+    def _build_toolchain(self) -> Toolchain:
+        prefix = self.cc_prefix  # discovery already ran: Platform.toolchain() calls init_default() first
+        # find_root_program NEVER, so the build system takes the cross binutils named here, and the
+        # target's own libs and headers instead of the host's
+        return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
+                         system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', version=self.version,
+                         tool_prefix=prefix, sysroot=self.sysroot_path, find_root_program='NEVER',
+                         include_paths=tuple(self.include_paths), install_rpath=True,
+                         toolchain_file=self.toolchain_file, toolchain_file_is_complete=True)
 
 
-    def get_ldflags_with_defaults(self, ldflags: dict):
-        """ Populates ldflags dict with default values if not already set by user configuration. """
-        defaults:dict = {
-             # -Wl,--as-needed is important for embedded builds to avoid unnecessarily linking to libraries that are not actually used,
-             #  which can cause bloated binaries and potential runtime issues on resource-constrained devices
-            '-Wl,--as-needed': ''
-        }
-        # only set default ldflags if not already set by user configuration
-        for k,v in defaults.items():
-            if not k in ldflags:
-                ldflags[k] = v
-        return ldflags
-
-
-    def get_cmake_build_opts(self, target) -> list:
-        if self.toolchain_file:
-            self.config.announce_once('toolchain', f'Toolchain: {self.toolchain_file}')
-            return [f'{self.platform_define}=TRUE', use_toolchain_file(self.config, self.toolchain_file)]
-        # NOTE: CMAKE_C_COMPILER and CMAKE_CXX_COMPILER is already configured
-        #       by get_preferred_compiler_paths()
-        opt = [
-            f'{self.platform_define}=TRUE',
-            *cross_system_opts(self.config, 'Linux', 'arm64'),
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_SYSROOT='+self.sysroot(),
-            'CMAKE_AR='+self.cc_prefix+'ar',
-            'CMAKE_READELF='+self.cc_prefix+'readelf',
-            'CMAKE_STRIP='+self.cc_prefix+'strip',
-            'CMAKE_RANLIB='+self.cc_prefix+'ranlib',
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libraries and headers in the target directories only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-            'CMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-        ]
-        return opt
+    def get_ld_flags(self, add_ld_flag: Callable[[str, str], None]):
+        # -Wl,--as-needed keeps an embedded binary from linking libraries it never calls, which
+        # bloats it and can break at runtime on a resource-constrained device
+        add_ld_flag('-Wl,--as-needed')
 
 
     def get_gnu_build_env(self, environ: dict = {}):
-        sysroot = f'--sysroot={self.sysroot()}'
+        sysroot = f'--sysroot={self.sysroot()}'  # accessor: it resolves the SDK if nothing has yet
         environ['LDFLAGS'] = sysroot
         environ['CFLAGS'] = sysroot
         environ['CXXFLAGS'] = sysroot
@@ -240,4 +210,3 @@ class GenericYocto:
         environ['STRIP'] = self.cc_prefix + 'strip'
         environ['RANLIB'] = self.cc_prefix + 'ranlib'
         return environ
-

@@ -1,13 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 import os
 
+from .platform import Platform
+from .toolchain import Toolchain
 from mama.utils.system import System, console
-from mama.cmake_configure import cross_system_opts, use_toolchain_file
-
-if TYPE_CHECKING:
-    from ..build_config import BuildConfig
-    from ..build_target import BuildTarget
 
 
 # Every Raspberry Pi since the Pi 3 is ARMv8, so arm64 is the default and arm is the legacy path. The
@@ -17,7 +14,6 @@ _MARCH = {'arm64': 'armv8-a', 'arm': 'armv7-a'}
 # armv7-a on its own declares no FPU, but the gnueabihf triple defaults to -mfloat-abi=hard and
 # then refuses to compile at all. neon-vfpv4 is what the Pi 2 and 3 (Cortex-A7/A53) actually have.
 _FPU = {'arm': 'neon-vfpv4'}
-_SYSTEM_PROCESSOR = {'arm64': 'aarch64', 'arm': 'armv7-a'}
 SUPPORTED_ARCHES = tuple(_TRIPLES)
 
 
@@ -28,36 +24,30 @@ def triple_for_arch(arch: str) -> str:
     return _TRIPLES[arch]
 
 
-class Raspi:
-    """Raspberry Pi cross build. Owns its own toolchain discovery, the way Mips and GenericYocto do -
+class Raspi(Platform):
+    """Raspberry Pi cross build. Owns its own toolchain discovery, the way Mips and GenericYocto do.
     BuildConfig stores which platform is active, never how to find its compilers."""
-    BUILD_DIR = 'raspi'        # arm64, the default since every Pi from the 3 onwards is ARMv8
-    BUILD_DIR_32 = 'raspi32'   # legacy ARMv7
+    name = 'raspi'
+    arch_aliases = {'raspi32': 'arm'}  # legacy ARMv7
+    is_cross = True
+    cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
+    is_host_runnable = False
+    default_arch = 'arm64'  # every Pi since the 3 is ARMv8
+    supported_arches = SUPPORTED_ARCHES
+    platform_define = 'RASPI'
+    toolchain_override_attr = 'cmake_raspi_toolchain'
+    build_dirs = {'arm64': 'raspi', 'arm': 'raspi32'}
 
-    def __init__(self, config: BuildConfig):
-        self.config = config
-        self.supported_arches = list(SUPPORTED_ARCHES)
+    def __init__(self, config):
+        super().__init__(config)
         self.toolchain_dir = ''   # root of the cross toolchain
         self.compilers = ''       # the bin/ dir holding <triple>-gcc
         self.sysroot = ''
         self.include_paths = []
 
 
-    def arch(self) -> str:
-        """The target arch, defaulting to arm64 before BuildConfig has resolved one."""
-        return self.config.arch if self.config.arch in _TRIPLES else 'arm64'
-
-
     def triple(self) -> str:
         return triple_for_arch(self.arch())
-
-
-    def system_processor(self) -> str:
-        return _SYSTEM_PROCESSOR[self.arch()]
-
-
-    def build_dir(self) -> str:
-        return Raspi.BUILD_DIR if self.arch() == 'arm64' else Raspi.BUILD_DIR_32
 
 
     def compiler_prefix(self) -> str:
@@ -111,7 +101,7 @@ class Raspi:
                                ' or set env RASPI_HOME to the toolchain root.')
 
 
-    def init_toolchain(self, toolchain_dir: str):
+    def init_toolchain(self, toolchain_dir: str = None, toolchain_file=None):
         """Point every path at `toolchain_dir`, whose bin/ must hold `<triple>-gcc`.
 
         A standalone toolchain carries its own `<triple>/sysroot`; a distro cross package
@@ -130,26 +120,22 @@ class Raspi:
                     (f'\n    sysroot: {self.sysroot}' if self.sysroot else ' (compiler-provided sysroot)'))
 
 
+    def _build_toolchain(self) -> Toolchain:
+        prefix = self.compiler_prefix()
+        ext = '.exe' if System.windows else ''
+        return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
+                         system_version='1', cc=f'{prefix}gcc{ext}', cxx=f'{prefix}g++{ext}',
+                         include_paths=tuple(self.get_includes()),
+                         # NEVER, not ONLY: a distro cross package ships no binutils of its own, so the
+                         # build system must take the compiler tools mama named. The sysroot goes out as
+                         # a compiler flag instead, because a distro package has none at all.
+                         find_root_program='NEVER')
+
+
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
         arch = self.arch()
         add_flag('-march', _MARCH[arch])
         if arch in _FPU: add_flag('-mfpu', _FPU[arch])
         sysroot = self.get_sysroot()
         if sysroot: add_flag('--sysroot', sysroot)
-        for path in self.get_includes():
-            add_flag(f'-I {path}')
-
-
-    def get_cmake_build_opts(self, target: BuildTarget) -> list:
-        config = self.config
-        opts = ['RASPI=TRUE'] + cross_system_opts(config, 'Linux', self.system_processor()) + [
-            'CMAKE_SYSTEM_VERSION=1',
-            'CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER', # Use our definitions for compiler tools
-            'CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY', # Search for libs and headers in the target dirs only
-            'CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY',
-        ]
-        if target.cmake_raspi_toolchain:
-            toolchain = target.source_dir(target.cmake_raspi_toolchain)
-            opts.append(use_toolchain_file(config, toolchain))
-            config.announce_once('toolchain', f'Toolchain: {toolchain}')
-        return opts
+        super().get_cxx_flags(add_flag)

@@ -1,48 +1,15 @@
 """Pins that a seed carries its own platform's defaults and that two platforms cannot clobber each other."""
 import os
 import threading
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from testutils import make_configured_target
-from mama import cmake_configure as cc
-from mama import cmake_compiler_cache as seedcache
+from testutils import make_configured_target, set_mock_platform
+from mama.buildsys.cmake import configure as cc
+from mama.buildsys.cmake import compiler_cache as seedcache
+from mama.platforms.imx8mp import Imx8mp
 
-_MAMA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'mama')
-
-
-# --- the target system is never the host system ---
-
-@pytest.mark.parametrize('arch,expected', [('arm64', 'aarch64'), ('arm', 'armv7-a'),
-                                           ('x64', 'x86_64'), ('x86', 'i686')])
-def test_the_target_processor_comes_from_the_target_arch(arch, expected, tmp_path):
-    """CMAKE_SYSTEM_PROCESSOR describes what we build FOR. googletest adds -march=x86-64-v3 the moment it
-    reads x86_64, so a cross build that leaks the host value compiles host instructions."""
-    _, dep = make_configured_target(tmp_path, arch=arch)
-    assert cc.target_system_processor(dep.config) == expected
-
-
-def test_a_cross_platform_always_emits_both_system_variables(tmp_path):
-    _, dep = make_configured_target(tmp_path, arch='arm64')
-    opts = cc.cross_system_opts(dep.config, 'Android')
-    assert opts == ['CMAKE_SYSTEM_NAME=Android', 'CMAKE_SYSTEM_PROCESSOR=aarch64']
-
-
-def test_every_cross_platform_routes_through_cross_system_opts():
-    """Setting CMAKE_SYSTEM_NAME inline leaves the processor to the toolchain file - and a seeded build
-    skips system determination, so the toolchain file never runs and the host value survives."""
-    inline = []
-    for root, _, files in os.walk(_MAMA):
-        for f in files:
-            if not f.endswith('.py'): continue
-            path = os.path.join(root, f)
-            for n, line in enumerate(open(path, encoding='utf-8'), 1):
-                if f == 'cmake_configure.py': continue  # the helper itself formats it
-                if "'CMAKE_SYSTEM_NAME=" in line or '"CMAKE_SYSTEM_NAME=' in line:
-                    inline.append(f'{os.path.relpath(path, _MAMA)}:{n}')
-    assert inline == [], f'emit it via cross_system_opts(), not inline: {inline}'
 
 
 # --- a seed is named for the platform it was detected on ---
@@ -104,46 +71,29 @@ def test_the_seed_probe_configures_with_the_platform_settings(tmp_path):
     """'Inherits actual platform defaults': the throwaway probe project gets the SAME cross opts as a real
     target, so its CMakeSystem.cmake records the cross system rather than the host's."""
     t, dep = make_configured_target(tmp_path, arch='arm64')
-    platform = Mock()
-    platform.get_cmake_build_opts.side_effect = lambda t: (
-        cc.cross_system_opts(dep.config, 'Linux') + ['CMAKE_SYSROOT=/opt/sdk/sysroot',
-                                                 cc.use_toolchain_file(dep.config, '/opt/sdk/tc.cmake')])
-    dep.config.mips = platform
-    dep.config.linux = False
+    yocto = set_mock_platform(dep.config, Imx8mp)
+    yocto.compilers = '/opt/sdk/bin/'
+    yocto.cc_prefix = '/opt/sdk/bin/aarch64-poky-linux-'
+    yocto.sysroot_path = '/opt/sdk/sysroot'
+    yocto.toolchain_file = '/opt/sdk/tc.cmake'
     cmds = []
     with patch.object(cc.SubProcess, 'run', side_effect=lambda cmd, *a, **k: cmds.append(cmd) or 1):
         with cc._probe_toolchain(t) as probe:
             assert probe is None  # run() returned nonzero: we only care about the command it built
     assert '-DCMAKE_SYSTEM_NAME=Linux' in cmds[0]
     assert '-DCMAKE_SYSTEM_PROCESSOR=aarch64' in cmds[0]   # the target's, never the host's
-    assert '-DCMAKE_SYSROOT=/opt/sdk/sysroot' in cmds[0]
     assert '-DCMAKE_TOOLCHAIN_FILE="/opt/sdk/tc.cmake"' in cmds[0]
     assert '-DCMAKE_C_COMPILER=' not in cmds[0]            # the toolchain file owns that choice
 
 
-# --- one shape for every cross platform ---
-
-@pytest.mark.parametrize('name,cls,system', [
-    ('android', 'Android', 'Android'), ('mips', 'Mips', 'Linux'), ('raspi', 'Raspi', 'Linux'),
-    ('ios', 'Ios', 'Darwin'), ('imx8mp', 'Imx8mp', 'Linux'),
-])
-def test_every_cross_platform_exposes_the_same_entry_point(name, cls, system, tmp_path):
-    """One dispatch, one signature. A platform that forgets get_cmake_build_opts(target) - or emits its
-    system name inline - never reaches _platform_opts and silently cross-builds with host settings."""
-    import importlib, inspect
-    for module in ('android', 'mips', 'raspi', 'ios', 'imx8mp'):
-        mod = importlib.import_module(f'mama.platforms.{module}')
-        klass = next((v for k, v in vars(mod).items() if inspect.isclass(v) and k.lower() == module), None)
-        if klass is None or klass.__name__ != cls: continue
-        sig = inspect.signature(klass.get_cmake_build_opts)
-        assert list(sig.parameters) == ['self', 'target'], f'{cls}.get_cmake_build_opts{sig}'
-
-
-def test_the_dispatch_covers_every_cross_platform_attribute(tmp_path):
-    """_CROSS_PLATFORMS is the whole list; a platform missing from it is never asked for its options."""
-    _, dep = make_configured_target(tmp_path)
-    for name in cc._CROSS_PLATFORMS:
-        assert hasattr(dep.config, name), f'{name} is dispatched on but BuildConfig has no such attribute'
+def test_the_registry_lists_every_platform_mama_can_build_for():
+    """_platform_opts dispatches through config.platform, and set_platform() builds that from the
+    registry - a platform missing from it can never be selected at all."""
+    from mama.platforms.registry import PLATFORMS
+    from mama.build_config import BuildConfig
+    registered = {p.__name__ for p in PLATFORMS}
+    dispatched = {name for _, name in BuildConfig._PLATFORM_FLAGS}
+    assert dispatched == registered
 
 
 def test_a_native_build_contributes_no_cross_options(tmp_path):

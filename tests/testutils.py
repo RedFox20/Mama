@@ -11,6 +11,9 @@ from unittest.mock import Mock
 import mama
 import pytest
 
+from mama.platforms.platform import Platform
+from mama.platforms.linux import Linux
+
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves
 def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
 
@@ -97,18 +100,27 @@ def make_mock_config(tmp_path, **overrides):
     cfg.cmake_toolchain_file = ''  # a toolchain-file build takes a different compiler path
     cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
-    # platform aliases (BuildTarget.__init__ pokes these)
+    # platform: a REAL Linux instance, so option builders get real strings instead of Mocks
     cfg.msvc = False
     cfg.linux = True
     cfg.macos = False
-    cfg.ios = False
+    cfg.ios = None
     cfg.android = None
-    cfg.raspi = False
+    cfg.raspi = None
     cfg.oclea = None
     cfg.xilinx = None
     cfg.mips = None
     cfg.imx8mp = None
     cfg.yocto_linux = None
+    cfg.clang = False
+    cfg.gcc = True
+    cfg.clang_stdlib = 'libc++'
+    cfg.clang_tidy_path = None
+    cfg.fortran = ''
+    cfg.flags = None
+    cfg.coverage = None
+    cfg.with_tests = False
+    cfg.buildstats = False
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
@@ -121,7 +133,47 @@ def make_mock_config(tmp_path, **overrides):
     cfg.sanitize = None
     cfg.sanitizer_suffix.return_value = ''
     for k, v in overrides.items(): setattr(cfg, k, v)
+    if not isinstance(getattr(cfg, 'platform', None), Platform):
+        set_mock_platform(cfg, Linux)  # after overrides, so a test can pass its own platform=
     return cfg
+
+
+def set_mock_platform(cfg, platform_class):
+    """Install a REAL platform instance on a mock config and refresh the mamafile-facing flags, the
+    way BuildConfig.set_platform_class() does. Mock() would answer every option builder with a Mock."""
+    from mama.build_config import BuildConfig
+    cfg.platform = platform_class(cfg)
+    BuildConfig._update_platform_flags(cfg)
+    return cfg.platform
+
+
+def platform_config(platform_class, arch=None, **overrides):
+    """A REAL BuildConfig on `platform_class`, the way a `mama build <platform>` run produces one."""
+    from mama.build_config import BuildConfig
+    cfg = BuildConfig([])
+    cfg.set_platform_class(platform_class)
+    cfg.arch = arch or platform_class.default_arch or cfg.arch
+    for k, v in overrides.items(): setattr(cfg, k, v)
+    return cfg
+
+
+MAMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mama')
+CMAKE_OPTIONS = 'buildsys/cmake/options.py'  # the ONE module allowed to format a cmake option
+
+
+def grep_mama_sources(needles, skip=()) -> list:
+    """Every `<rel path>:<line no>` under mama/ whose source line holds any of `needles`, skipping the
+    files in `skip`. Backs the layering tests: one module formats a build-system option, never eleven."""
+    hits = []
+    for root, _, files in os.walk(MAMA_DIR):
+        for f in files:
+            if not f.endswith('.py'): continue
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, MAMA_DIR).replace('\\', '/')
+            if rel in skip: continue
+            with open(path, encoding='utf-8') as handle:
+                hits += [f'{rel}:{n}' for n, line in enumerate(handle, 1) if any(x in line for x in needles)]
+    return hits
 
 
 def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
@@ -166,22 +218,22 @@ def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **
 
 def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '13.3'), **config_overrides):
     """A real BuildTarget on a fresh pkg/ dir with the preferred compiler paths mocked - the shared starting
-    point for cmake_configure tests. Returns (target, dep)."""
-    sub = tmp_path / 'pkg'; sub.mkdir()
+    point for cmake configure tests. Returns (target, dep)."""
+    sub = tmp_path / 'pkg'; sub.mkdir(exist_ok=True)
     dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False, **config_overrides)
     dep.config.get_preferred_compiler_paths.return_value = compiler
     return dep.target, dep
 
 
 def run_config_capturing(target, dep):
-    """Drive cmake_configure.run_config with the cmake call + seed coordinator stubbed. Returns the
+    """Drive cmake configure.run_config with the cmake call + seed coordinator stubbed. Returns the
     configure command lines it would have run, so a test can assert on the flags without a real cmake."""
     from unittest.mock import patch
-    from mama import cmake_configure
+    from mama.buildsys.cmake import configure as cmake_configure
     cmds = []
-    with patch('mama.cmake_configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
-         patch('mama.cmake_configure.compute_env', return_value={}), \
-         patch('mama.cmake_configure._seed_coordinator') as coord, \
+    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
+         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
+         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
          patch.object(dep, 'get_enabled_sanitizers', return_value=''):
         coord.return_value.prepare.return_value = 'none'
         coord.return_value.status.return_value = ('fp', False)

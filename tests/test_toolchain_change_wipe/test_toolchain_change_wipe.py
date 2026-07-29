@@ -4,7 +4,7 @@ import os, pytest
 from unittest.mock import patch
 
 from testutils import make_configured_target, write_cmake_cache, write_build_file
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 
 NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\n'
 
@@ -34,10 +34,10 @@ def _run(t, dep, fingerprint='FP', configure_raises=False):
     def conf(*a, **k):
         calls.append('conf')
         if configure_raises: raise RuntimeError('cmake exploded')
-    with patch('mama.cmake_configure._rerunnable_cmake_conf', side_effect=conf), \
-         patch('mama.cmake_configure.compute_env', return_value={}), \
-         patch('mama.cmake_configure._seed_coordinator') as coord, \
-         patch('mama.cmake_configure._toolchain_fingerprint', return_value=fingerprint), \
+    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=conf), \
+         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
+         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
+         patch('mama.buildsys.cmake.configure._toolchain_fingerprint', return_value=fingerprint), \
          patch.object(dep, 'get_enabled_sanitizers', return_value=''):
         coord.return_value.prepare.return_value = 'none'
         coord.return_value.status.return_value = (fingerprint, False)
@@ -167,9 +167,9 @@ def test_failed_configure_records_no_fingerprint_baseline(tmp_path):
 # ── the wrapper itself is a pure hash of _seed_inputs (no wrapper-level drift) ─
 
 def test_toolchain_fingerprint_is_a_pure_hash_of_seed_inputs():
-    with patch('mama.cmake_configure._seed_inputs', return_value={'cc': {'path': '/a'}}):
+    with patch('mama.buildsys.cmake.configure._seed_inputs', return_value={'cc': {'path': '/a'}}):
         a = cc._toolchain_fingerprint(object())
         b = cc._toolchain_fingerprint(object())   # same inputs -> stable across runs
-    with patch('mama.cmake_configure._seed_inputs', return_value={'cc': {'path': '/b'}}):
+    with patch('mama.buildsys.cmake.configure._seed_inputs', return_value={'cc': {'path': '/b'}}):
         c = cc._toolchain_fingerprint(object())   # different toolchain -> different hash
     assert a == b and a != c

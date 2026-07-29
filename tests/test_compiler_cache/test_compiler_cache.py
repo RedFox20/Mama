@@ -2,7 +2,7 @@
 probe-seeded Coordinator."""
 import contextlib, os, threading, time
 from types import SimpleNamespace
-from mama import cmake_compiler_cache as cc
+from mama.buildsys.cmake import compiler_cache as cc
 from mama.util import normalized_path, path_join
 
 
@@ -376,7 +376,7 @@ def test_reprobes_when_seed_files_vanished(tmp_path):
 def test_abi_flags_reach_the_probe_and_the_fingerprint():
     # the probe must detect with the same ABI inputs the real targets use, or its implicit link libs
     # (libc++ vs libstdc++, a sanitizer runtime) describe a toolchain nobody is actually building with
-    from mama.cmake_configure import _abi_flags
+    from mama.buildsys.cmake.configure import _abi_flags
     cfg = SimpleNamespace(linux=True, clang=True, msvc=False, clang_stdlib='libstdc++', sanitize=None)
     assert _abi_flags(cfg) == ('', '-stdlib=libstdc++')        # -stdlib is C++-only: clang warns on C
     cfg.sanitize = 'address'
@@ -389,7 +389,7 @@ def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
     # Yocto/raspi inject the sysroot + cross binutils via the platform opts, NOT via the obvious
     # CMAKE_*_COMPILER keys. A probe without them detects the HOST toolchain and publishes it for a
     # cross fingerprint - every seeded cross target then links against host libs.
-    from mama import cmake_configure as cfg
+    from mama.buildsys.cmake import configure as cfg
     platform = ['CMAKE_SYSROOT=/opt/sdk/sysroot', 'CMAKE_SYSTEM_NAME=Linux', 'CMAKE_AR=/opt/sdk/bin/aarch64-ar']
     monkeypatch.setattr(cfg, '_platform_opts', lambda t: list(platform))
     monkeypatch.setattr(cfg, '_set_compiler_paths', lambda t, o: o.append('CMAKE_C_COMPILER=/opt/sdk/bin/aarch64-gcc'))
@@ -410,7 +410,7 @@ def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
 def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
     # Yocto SDKs keep the compiler path stable across upgrades but move the sysroot; if that doesn't
     # reach the fingerprint, a cross build reuses a seed detected against the previous sysroot.
-    from mama import cmake_configure as cfg
+    from mama.buildsys.cmake import configure as cfg
     opts = ['CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk-1.0/sysroot']
     monkeypatch.setattr(cfg, '_platform_opts', lambda t: list(opts))
     target = SimpleNamespace(cmake_opts=[], config=SimpleNamespace(cmake_toolchain_file=''))

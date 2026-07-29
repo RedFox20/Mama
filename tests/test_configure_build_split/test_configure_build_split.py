@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
 from testutils import make_mock_local_dep
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 
 
 def _target(tmp_path, **cfg):
@@ -19,9 +19,9 @@ def _wire(t, dep):
     """Patch the cmake/package boundary + dep hooks to record call order in `ev`."""
     es = contextlib.ExitStack(); ev = []
     rec = lambda name: (lambda *a, **k: ev.append(name))
-    es.enter_context(patch('mama.cmake_configure.run_config', side_effect=rec('run_config')))
-    es.enter_context(patch('mama.cmake_configure.run_build', side_effect=rec('run_build')))
-    es.enter_context(patch('mama.cmake_configure.inject_env', side_effect=rec('inject_env')))
+    es.enter_context(patch('mama.buildsys.cmake.configure.run_config', side_effect=rec('run_config')))
+    es.enter_context(patch('mama.buildsys.cmake.configure.run_build', side_effect=rec('run_build')))
+    es.enter_context(patch('mama.buildsys.cmake.configure.inject_env', side_effect=rec('inject_env')))
     es.enter_context(patch('mama.package.clean_intermediate_files', side_effect=rec('clean')))
     es.enter_context(patch.object(t, 'try_automatic_artifactory_fetch', return_value=None))
     es.enter_context(patch.object(t, '_run_packaging', side_effect=rec('package')))

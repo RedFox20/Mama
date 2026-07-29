@@ -4,10 +4,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from testutils import make_configured_target
+from testutils import make_configured_target, set_mock_platform
 from mama.build_config import BuildConfig
 from mama.platforms.raspi import Raspi
-from mama import cmake_configure as cc
+from mama.buildsys.cmake import configure as cc
 
 
 def _raspi(arch='arm64', **over):
@@ -92,10 +92,7 @@ def test_the_arm64_build_needs_no_fpu_flag(tmp_path):
 @pytest.mark.parametrize('arch,processor', [('arm64', 'aarch64'), ('arm', 'armv7-a')])
 def test_the_cmake_system_processor_is_the_target_not_the_host(arch, processor, tmp_path):
     t, dep = make_configured_target(tmp_path, arch=arch)
-    dep.config.raspi = _raspi(arch)
-    dep.config.linux = False
-    dep.config.raspi.config = dep.config
-    dep.config.raspi.init_toolchain('/opt/rpi')
+    set_mock_platform(dep.config, Raspi).init_toolchain('/opt/rpi')
     opts = cc._platform_opts(t)
     assert 'RASPI=TRUE' in opts
     assert f'CMAKE_SYSTEM_PROCESSOR={processor}' in opts
