@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 import os, shlex, shutil
 from .sub_process import execute_echo
+from .system import System
 from ..util import normalized_path
 
 if TYPE_CHECKING:
@@ -15,10 +16,12 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     args = ' '.join(shell_args[1:]) if shell_args else ''
     #print(f'get_cwd_exe_args: program={program} args={args} cwd={cwd} root_dir={root_dir}')
 
-    # add or remove the platform's executable suffix
+    # Add or strip the executable suffix. Gated on the HOST as well as the target: a mamafile runs
+    # HOST tools during a cross build, so a Windows host must not have `protoc.exe` stripped just
+    # because the TARGET platform (android, raspi, mips) has no suffix of its own.
     suffix = target.config.platform.exe_suffix()
-    if suffix and not program.endswith(suffix): program += suffix
-    elif not suffix and program.endswith('.exe'): program = program[:-4]
+    if System.windows and suffix and not program.endswith(suffix): program += suffix
+    elif not System.windows and not suffix and program.endswith('.exe'): program = program[:-4]
 
     if root_dir:
         # if root_dir is set, then command will be run relative to it
