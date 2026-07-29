@@ -74,6 +74,20 @@ raise RuntimeError(
     f' Check your connection or use a cached artifactory package.')
 ```
 
+## Platform handling (read the doc before you touch it)
+
+Every target platform is one class under `mama/platforms/`, reached through a single
+`config.platform`. Build system logic lives in `mama/buildsys/`, never in a platform.
+No consumer chains over platform names: what it needs, it declares on `Platform` and
+reads back. `tests/test_platforms/test_layering.py` fails the build if a platform
+imports a build system or names a `CMAKE_` variable.
+
+**Read the architecture summary before you add a platform, add a compiler flag or a
+cmake option, or edit `build_config.py`, `buildsys/cmake/options.py` or `mamacmake.py`.**
+A change that adds a platform branch to a consumer is the wrong change.
+
+@docs/platforms.md
+
 ## Path handling - forward slashes everywhere
 
 The project uses forward slashes on every platform, including Windows. The

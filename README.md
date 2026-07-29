@@ -382,7 +382,8 @@ Use these boolean properties in mamafiles for platform-conditional logic:
 `self.raspi`, `self.oclea`, `self.xilinx`, `self.imx8mp`, `self.mips`, `self.yocto_linux`
 
 `self.config.platform` is the active platform object, and `self.config.platform.name` is its
-name (`'linux'`, `'imx8mp'`, ...).
+name (`'linux'`, `'imx8mp'`, ...). See [docs/platforms.md](docs/platforms.md) for how platform
+support is structured and how to add one.
 
 Host OS detection: `self.os_windows`, `self.os_linux`, `self.os_macos`
 
