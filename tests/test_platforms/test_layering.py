@@ -13,8 +13,13 @@ def _platform_modules():
     return [f for f in sorted(os.listdir(_PLATFORMS_DIR)) if f.endswith('.py')]
 
 
+def _source(module_file) -> str:
+    with open(os.path.join(_PLATFORMS_DIR, module_file), encoding='utf-8') as f:
+        return f.read()
+
+
 def _imports(module_file):
-    tree = ast.parse(open(os.path.join(_PLATFORMS_DIR, module_file), encoding='utf-8').read())
+    tree = ast.parse(_source(module_file))
     names = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -41,8 +46,8 @@ _ESCAPE_HATCH = 'ios.py'
 def test_no_platform_names_a_cmake_variable(module_file):
     """A platform describes a toolchain, it does not name build-system variables. Everything that
     used to be a CMAKE_ string here is a Toolchain field now."""
-    source = open(os.path.join(_PLATFORMS_DIR, module_file), encoding='utf-8').read()
-    lines = [f'{module_file}:{n}' for n, line in enumerate(source.splitlines(), 1) if 'CMAKE_' in line]
+    lines = [f'{module_file}:{n}' for n, line in enumerate(_source(module_file).splitlines(), 1)
+             if 'CMAKE_' in line]
     assert lines == [], f'name it as a Toolchain field, not a cmake variable: {lines}'
 
 

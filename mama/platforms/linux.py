@@ -14,7 +14,8 @@ class Linux(Platform):
 
     def validate_arch(self, arch: str):
         if arch == 'arm':
-            raise RuntimeError(f'Unsupported arch={arch} on linux platform! Build with android instead')
+            raise RuntimeError(f'Unsupported arch={arch} on linux platform!' + \
+                               ' Use raspi32 for a 32-bit ARM Linux target.')
         super().validate_arch(arch)
 
 

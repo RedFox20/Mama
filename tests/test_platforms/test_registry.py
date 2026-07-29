@@ -63,6 +63,18 @@ def test_every_platform_declares_a_complete_identity(platform_class):
     assert set(platform_class.build_dirs) <= set(platform_class.supported_arches)
 
 
+@pytest.mark.parametrize('platform_class,arch,hint', [
+    (platform_named('linux'), 'arm', 'raspi32'),   # 32-bit ARM linux is a raspi, never android
+    (platform_named('macos'), 'x86', 'Supported'),
+    (platform_named('android'), 'x64', 'Supported'),
+])
+def test_an_unsupported_arch_names_what_to_use_instead(platform_class, arch, hint):
+    config = BuildConfig([])
+    config.set_platform_class(platform_class)
+    with pytest.raises(RuntimeError, match=hint):
+        config.platform.validate_arch(arch)
+
+
 def test_no_two_platforms_share_a_name():
     names = [p.name for p in PLATFORMS]
     assert len(set(names)) == len(names)
