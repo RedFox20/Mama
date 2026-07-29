@@ -78,6 +78,12 @@ class Android(Platform):
         return (self.name, int(self.android_api.split('-')[1]), 0)
 
 
+    def banner_name(self) -> str:
+        ndk = os.path.basename(self.android_ndk().rstrip('/\\'))
+        # android_api is already 'android-36', so it names the platform on its own
+        return ' '.join(p for p in (self.android_api, self.config.arch, f'ndk-{ndk}' if ndk else '') if p)
+
+
     def init_default(self):
         if not self.android_ndk_path: self.init_ndk_path()
 
@@ -207,8 +213,8 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
     def make_program(self, target=None) -> str:
         """The NDK ships its own make for hosts that have none. Linux always has one, so '' there
-        lets cmake find it. This is the ONLY place android names a make program: appending it here
-        AND from the generic option builder passed CMAKE_MAKE_PROGRAM twice."""
+        lets the build system find it. This is the ONLY place android names a make program: naming it
+        here AND in the generic option builder passed it to cmake twice."""
         if System.windows: platform_dir = 'windows-x86_64'
         elif System.macos: platform_dir = 'darwin-x86_64'
         else: return ''
@@ -225,8 +231,6 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
 
     def inject_env(self):
-        make = self.make_program()
-        if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
         os.environ['ANDROID_HOME'] = self.android_home()
         os.environ['ANDROID_NDK'] = self.android_ndk()
         os.environ['ANDROID_ABI'] = self.android_abi()

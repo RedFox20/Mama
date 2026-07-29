@@ -454,7 +454,7 @@ def _generator(target:BuildTarget):
     config:BuildConfig = target.config
     if target.enable_ninja_build: return '-G "Ninja"'
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.msvc: return f'-G "{config.get_visualstudio_cmake_id()}" -A {config.get_visualstudio_cmake_arch()}'
+    if config.msvc: return f'-G "{config.platform.generator_name()}" -A {config.platform.generator_arch()}'
     return _GENERATORS.get(config.platform.build_system, '')
 
 
@@ -563,8 +563,7 @@ def _default_options(target:BuildTarget):
     if cxxflags_str and target.enable_cxx_build:
         opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
 
-    if config.yocto_linux:
-        config.yocto_linux.get_ld_flags(add_ldflag)
+    config.platform.get_ld_flags(add_ldflag)
 
     ldflags_str = get_flags_string(ldflags)
     if ldflags_str:
@@ -586,7 +585,12 @@ def _default_options(target:BuildTarget):
 
 
 def inject_env(target:BuildTarget):
-    target.config.platform.inject_env()
+    """Environment the build tools read. The platform sets its own SDK variables. The make program
+    is cmake's own variable, so it is set here and not by the platform that supplies the path."""
+    config:BuildConfig = target.config
+    make = config.platform.make_program()
+    if make: os.environ['CMAKE_MAKE_PROGRAM'] = make
+    config.platform.inject_env()
 
 
 def _build_config(target:BuildTarget, install:bool):

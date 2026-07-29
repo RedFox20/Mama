@@ -71,6 +71,7 @@ class Platform:
     ide_project_ext = ''
     ide_project_is_dir = False
     ide_open_command = ''
+    supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -149,6 +150,12 @@ class Platform:
     def distro_version(self) -> tuple:
         """(id, major, minor) for the artifactory archive name."""
         return (self.name, 0, 0)
+
+
+    def banner_name(self) -> str:
+        """What the build banner calls this target. The toolchain alone is ambiguous - 'clang 21.0' is
+        both a host clang and the android NDK's - so the banner names the platform to prove which ran."""
+        return ' '.join(p for p in (self.name, self.config.arch) if p)
 
 
     def compiler_version_tag(self) -> str:

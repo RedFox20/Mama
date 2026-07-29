@@ -1,7 +1,31 @@
 import os
-from mama.utils.system import console
+from mama.platforms.windows import find_vswhere, vswhere_property, VS_ROOTS, VS_VARIANTS
+from mama.util import find_executable_from_system
+from mama.utils.system import System, console
 from mama.build_config import BuildConfig
 from mama.utils.sub_process import SubProcess
+
+
+def find_msbuild(verbose=False) -> str:
+    """MSBuild.exe, which ships inside Visual Studio but also stands alone on PATH (dotnet-sdk on
+    Linux). PATH wins, so a machine with no Visual Studio still builds."""
+    paths = [find_executable_from_system('msbuild')]
+    if System.windows:
+        if find_vswhere(fail_on_error=False):
+            root = vswhere_property('installationPath')
+            paths += [f'{root}\\MSBuild\\Current\\Bin\\MSBuild.exe',
+                      f'{root}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe']
+        # Visual Studio 2017 keeps MSBuild under its own version dir, every later one under Current
+        for root in VS_ROOTS:
+            sub = 'MSBuild\\15.0\\Bin\\amd64' if root.endswith('2017') else 'MSBuild\\Current\\Bin'
+            paths += [f'{root}\\{v}\\{sub}\\MSBuild.exe' for v in VS_VARIANTS]
+
+    for path in paths:
+        if path and os.path.exists(path):
+            if verbose: console(f'Detected MSBuild: {path}')
+            return path
+    raise EnvironmentError('Failed to find MSBuild from system PATH.' \
+                           ' You can easily configure msbuild by running `mama install-msbuild`.')
 
 
 def _run_msbuild(cmd, cwd, config:BuildConfig):
@@ -41,7 +65,7 @@ def _get_msbuild_options(properties):
 
 
 def msbuild_build(config: BuildConfig, projectfile: str, properties: dict):
-    msbuild = config.get_msbuild_path()
+    msbuild = find_msbuild(config.verbose)
     _check_default_properties(config, properties)
 
     options_str = _get_msbuild_options(properties)

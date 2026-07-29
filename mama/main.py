@@ -221,8 +221,8 @@ def mama_dirty(root: BuildDependency, dep: BuildDependency):
 
 
 def run_coverage_report(target: BuildTarget):
-    if target.config.msvc:
-        console('Coverage report not supported yet on Windows')
+    if not target.config.platform.supports_coverage_report:
+        console(f'Coverage report not supported yet on {target.config.name()}')
         return
     root = target.source_dir(target.config.coverage_report)
     gcov_exec = ''

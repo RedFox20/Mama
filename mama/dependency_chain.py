@@ -870,15 +870,10 @@ def _toolchain_name(config) -> str:
 
 
 def _platform_name(config) -> str:
-    """'android-36 arm64 ndk-29.0.14206865' / 'linux x64' - the TARGET this run builds FOR. The toolchain
-    alone is ambiguous ('clang 21.0' is both a host clang and the android NDK's), so the banner has to name
-    the platform to prove the right one was picked. '' when unresolvable - a banner must never fail a build."""
+    """'android-36 arm64 ndk-29.0.14206865' / 'linux x64' - the TARGET this run builds FOR.
+    '' when unresolvable: a banner must never fail a build."""
     try:
-        if config.android:
-            ndk = os.path.basename(config.android.android_ndk().rstrip('/\\'))
-            api = config.android.android_api or 'android'  # already 'android-36', so it names the platform
-            return ' '.join(p for p in (api, config.arch, f'ndk-{ndk}' if ndk else '') if p)
-        return ' '.join(p for p in (config.name(), config.arch) if p)
+        return config.platform.banner_name()
     except Exception:
         return ''
 

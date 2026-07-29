@@ -32,6 +32,20 @@ def test_no_platform_imports_a_build_system(module_file):
     assert leaks == [], f'platforms/{module_file} imports {leaks}'
 
 
+# Toolchain.extra_opts is the documented escape hatch for options only one build system and one
+# platform understand. iOS is its only user: Xcode SDK selection has no neutral form.
+_ESCAPE_HATCH = 'ios.py'
+
+
+@pytest.mark.parametrize('module_file', [f for f in _platform_modules() if f != _ESCAPE_HATCH])
+def test_no_platform_names_a_cmake_variable(module_file):
+    """A platform describes a toolchain, it does not name build-system variables. Everything that
+    used to be a CMAKE_ string here is a Toolchain field now."""
+    source = open(os.path.join(_PLATFORMS_DIR, module_file), encoding='utf-8').read()
+    lines = [f'{module_file}:{n}' for n, line in enumerate(source.splitlines(), 1) if 'CMAKE_' in line]
+    assert lines == [], f'name it as a Toolchain field, not a cmake variable: {lines}'
+
+
 @pytest.mark.parametrize('platform_class', PLATFORMS, ids=lambda p: p.name)
 def test_no_platform_builds_its_own_option_list(platform_class):
     """The option list used to live on each platform, so adding one could forget CMAKE_SYSTEM_PROCESSOR

@@ -174,12 +174,6 @@ class BuildConfig:
         ## Ninja
         self.ninja_path = self.find_ninja_build()
         self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
-        ## MSVC, MSBuild
-        self._visualstudio_path = None
-        self._visualstudio_cmake_id = None
-        self._msbuild_path = None
-        self._msvctools_path = None
-        self._vswhere_path = None
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -843,165 +837,19 @@ class BuildConfig:
         return None
 
 
-    def get_vswhere(self, fail_on_error=True):
-        if self._vswhere_path:
-            return self._vswhere_path
-        if not System.windows:
-            raise EnvironmentError('VisualStudio tools support not available on this platform!')
-
-        vswhere_exe = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        if os.path.exists(vswhere_exe):
-            self._vswhere_path = vswhere_exe
-            return vswhere_exe
-
-        vswhere_exe = util.find_executable_from_system('vswhere.exe')
-        if vswhere_exe and os.path.exists(vswhere_exe):
-            self._vswhere_path = vswhere_exe
-            return vswhere_exe
-
-        if fail_on_error:
-            raise EnvironmentError('Failed to find vswhere.exe for detecting Visual Studio installations!' \
-                                   'Please install Visual Studio with C++ workload and try again.')
-        return None
-
-
-    def get_visualstudio_path(self):
-        if self._visualstudio_path:
-            return self._visualstudio_path
-        if not System.windows:
-            raise EnvironmentError('VisualStudio tools support not available on this platform!')
-
-        vswhere_exe = self.get_vswhere(fail_on_error=False)
-        if vswhere_exe:
-            vspath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
-            if vspath and os.path.exists(vspath):
-                self._visualstudio_path = vspath
-                if self.verbose: console(f'Detected VisualStudio: {vspath}')
-                return vspath
-
-        paths = []
-        vs_variants = [ 'Enterprise', 'Professional', 'Community'  ]
-        for version in [ '18', '2022' ]: # new 64-bit VS
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\{version}\\{variant}')
-        for version in [ '2019', '2017' ]:
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{version}\\{variant}')
-
-        for path in paths:
-            if path and os.path.exists(path):
-                self._visualstudio_path = path
-                if self.verbose: console(f'Detected VisualStudio: {path}')
-                return path
-
-        if not self._visualstudio_path:
-            raise EnvironmentError('Failed to find Visual Studio installation! Please install Visual Studio with C++ workload and try again.')
-        return self._visualstudio_path
-
-
     def is_target_arch_x64(self): return self.arch == 'x64'
     def is_target_arch_x86(self): return self.arch == 'x86'
     def is_target_arch_arm64(self): return self.arch == 'arm64'
     def is_target_arch_armv7(self): return self.arch == 'arm'
 
 
-    def get_visualstudio_cmake_arch(self):
-        if self.is_target_arch_x64(): return 'x64'
-        if self.is_target_arch_x86(): return 'Win32'
-        if self.arch == 'arm':   return 'ARM'
-        if self.arch == 'arm64': return 'ARM64'
-        raise RuntimeError(f'Unsupported arch: {self.arch}')
-
-
-    def get_visualstudio_cmake_id(self):
-        if self._visualstudio_cmake_id:
-            return self._visualstudio_cmake_id
-
-        vspath = self.get_visualstudio_path()
-        if '\\18\\' in vspath:     self._visualstudio_cmake_id = 'Visual Studio 18 2026'
-        elif '\\2022\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 17 2022'
-        elif '\\2019\\' in vspath: self._visualstudio_cmake_id = 'Visual Studio 16 2019'
-        else:                      self._visualstudio_cmake_id = 'Visual Studio 15 2017'
-
-        if self.verbose: console(f'Detected CMake Generator: -G"{self._visualstudio_cmake_id}" -A {self.get_visualstudio_cmake_arch()}')
-        return self._visualstudio_cmake_id
-
-
-    def get_msbuild_path(self):
-        if self._msbuild_path:
-            return self._msbuild_path
-
-        paths = [ util.find_executable_from_system('msbuild') ]
-        if System.windows:
-            vswhere_exe = self.get_vswhere(fail_on_error=False)
-            if vswhere_exe:
-                installationPath = execute_piped(f'"{vswhere_exe}" -latest -nologo -property installationPath')
-                paths.append(f"{installationPath}\\MSBuild\\Current\\Bin\\MSBuild.exe")
-                paths.append(f"{installationPath}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe")
-
-            vs_variants = [ 'Enterprise', 'Professional', 'Community' ]
-            for variant in vs_variants:
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\18\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files\\Microsoft Visual Studio\\2022\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\{variant}\\MSBuild\\Current\\Bin\\MSBuild.exe')
-                paths.append(f'C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\{variant}\\MSBuild\\15.0\\Bin\\amd64\\MSBuild.exe')
-
-        for path in paths:
-            if path and os.path.exists(path):
-                self._msbuild_path = path
-                if self.verbose: console(f'Detected MSBuild: {path}')
-                return path
-        raise EnvironmentError('Failed to find MSBuild from system PATH. You can easily configure msbuild by running `mama install-msbuild`.')
-
-
-    ## MSVC tools at, for example: "{VisualStudioPath}\VC\Tools\MSVC\14.16.27023"
-    def get_msvc_tools_path(self):
-        if self._msvctools_path:
-            return self._msvctools_path
-        if not System.windows:
-            raise EnvironmentError('MSVC tools not available on this platform!')
-
-        tools_root = f"{self.get_visualstudio_path()}\\VC\\Tools\\MSVC"
-        tools_path = self._latest_msvc_toolset(tools_root)
-        if not tools_path:
-            raise EnvironmentError('Could not detect MSVC Tools')
-        self._msvctools_path = tools_path
-        if self.verbose: console(f'Detected MSVC Tools: {tools_path}')
-        return tools_path
-
-
-    @staticmethod
-    def _latest_msvc_toolset(tools_root: str) -> str:
-        """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
-        version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
-        (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none:
-        every get_msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
-        try:
-            dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
-        except OSError:
-            return ''
-        if not dirs: return ''
-        dirs.sort(key=lambda n: tuple(int(p) if p.isdigit() else 0 for p in n.split('.')), reverse=True)
-        for d in dirs:
-            if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
-                return os.path.join(tools_root, d)
-        return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
-
-
-    def get_msvc_bin64(self):
-        return f'{self.get_msvc_tools_path()}/bin/Hostx64/x64/'
-
-
-    def get_msvc_link64(self):
-        return f'{self.get_msvc_bin64()}link.exe'
-
-
-    def get_msvc_cl64(self):
-        return f'{self.get_msvc_bin64()}cl.exe'
-
-
-    def get_msvc_lib64(self):
-        return f'{self.get_msvc_tools_path()}\\lib\\x64'
+    ## MSVC paths a mamafile links against. The Windows platform owns the discovery behind them.
+    def get_visualstudio_path(self): return self.platform.visualstudio_path()
+    def get_msvc_tools_path(self):   return self.platform.msvc_tools_path()
+    def get_msvc_bin64(self):        return self.platform.msvc_bin64()
+    def get_msvc_cl64(self):         return self.platform.msvc_cl64()
+    def get_msvc_link64(self):       return self.platform.msvc_link64()
+    def get_msvc_lib64(self):        return self.platform.msvc_lib64()
 
 
     def install_clang(self, clang_major):
