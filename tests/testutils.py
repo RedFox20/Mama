@@ -5,7 +5,6 @@ import subprocess
 import sys
 import threading
 from types import SimpleNamespace
-from typing import Iterable, Optional
 from unittest.mock import Mock
 
 import mama
@@ -191,6 +190,29 @@ def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
     return dep
 
 
+def make_git_and_mock_dep(name='libfoo', url='git@example.com:foo/libfoo.git', branch='main', tag='',
+                          **config_overrides):
+    """Git dep_source + a Mock dep, no disk: for tests that drive Git's own clone/fetch methods.
+    Returns (git, dep)."""
+    from mama.types.git import Git
+    git = Git(name=name, url=url, branch=branch, tag=tag, mamafile=None, shallow=True, args=[])
+    dep = Mock(is_artifactory_shim=lambda: False)
+    dep.name = name  # Mock(name=..) names the mock itself, not the attribute
+    dep.src_dir = f'/packages/{name}'
+    dep.config = Mock(print=False, verbose=False, update_stats=Mock(), **config_overrides)
+    return git, dep
+
+
+def make_load_root(name='mylib', **config_overrides):
+    """A root dep for load_dependency_chain: only the fields the loader itself touches. Serial by
+    default, so a test drives one load at a time unless it asks for the parallel path."""
+    root = Mock(already_loaded=False, should_rebuild=False, **{'get_children.return_value': []})
+    root.name = name  # Mock(name=..) names the mock itself, not the attribute
+    defaults = dict(serial_load=True, parallel_load=False, parallel_max=20, verbose=False, print=False)
+    root.config = Mock(**(defaults | config_overrides))
+    return root
+
+
 def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **config_overrides):
     """Real BuildDependency wired to a mock BuildConfig + a LocalSource pointing at an existing
     on-disk `src_dir`. build_dir is materialised so src_status round-trips."""
@@ -252,16 +274,19 @@ def write_build_file(build_dir, name='build.ninja'):
     with open(os.path.join(build_dir, name), 'w', encoding='utf-8') as f: f.write('# generated\n')
 
 
-def init(caller_file: str = '', clean_dirs: Optional[Iterable[str]] = None):
-    # Needed for mama commands to perform work in the correct directory
-    if caller_file:
-        os.chdir(os.path.dirname(os.path.abspath(caller_file)))
+# What mama generates into a test project. The copy starts without them, so no test has to remove them.
+_GENERATED = shutil.ignore_patterns('packages', 'bin', 'build', '__pycache__', '*.pyc')
 
-    if clean_dirs is None:
-        clean_dirs = ()
 
-    for d in clean_dirs:
-        rmdir(d)
+def init(caller_file: str, workdir) -> str:
+    """Copy the test project next to `caller_file` into `workdir`, then chdir into the copy. Pass the
+    tmp_path fixture as `workdir`. Returns the new working directory. Two pytest sessions can then run
+    the same test at the same time. In a shared project dir, the `mama update` of one run clones into
+    the tree the other run builds."""
+    project = os.path.join(str(workdir), 'project')
+    shutil.copytree(os.path.dirname(os.path.abspath(caller_file)), project, ignore=_GENERATED)
+    os.chdir(project)
+    return project
 
 def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
     if echo: print(f'exec: {cmd}')
@@ -334,12 +359,3 @@ def native_platform_name() -> str:
     else:
         raise Exception("Unsupported platform")
 
-def onerror(func, path, _):
-    import stat
-    if not os.access(path, os.W_OK):
-        os.chmod(path, stat.S_IWUSR)
-        func(path)
-
-def rmdir(path: str):
-    if os.path.exists(path):
-        shutil.rmtree(path, onerror=onerror)

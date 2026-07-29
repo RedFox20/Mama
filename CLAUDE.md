@@ -232,6 +232,13 @@ helper-reuse against duplication (in particular against `util.py`,
 `utils/system.py` and `tests/testutils.py`), terse test docstrings, dropped
 tautological tests, and that a test pins every added behavior.
 
+It also runs the `ste-writing` lint over the prose the diff adds - every
+docstring, comment, console string and exception message: no contractions, no
+semicolon in prose, no non-ASCII punctuation, sentences under 20 words, active
+voice, plain verbs, no idiom, one name for one thing. A code comment is held to
+the same standard as an error string, because it ships with the code. This is
+the rule set that slips most often, so the greps in the skill are not optional.
+
 **Less code means fewer bugs.** A reduction of 30-60% on a refactored file is
 normal under these rules. A refactor that does not reduce the line count was too
 timid.

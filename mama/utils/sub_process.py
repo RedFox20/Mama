@@ -1,5 +1,6 @@
 import os, shlex, shutil, threading, queue, time, signal
 import subprocess
+from . import abort
 from .system import System, console, error, report_subprocess, capture_to, capture_context
 
 
@@ -19,8 +20,24 @@ READER_CHUNK = 8192
 
 
 _procs_lock = threading.Lock()
-_live_procs = set()   # live SubProcess instances; killed en masse by terminate_all() on Ctrl+C
-_aborting = False     # set by terminate_all(): blocks new spawns so an interrupted build can't relaunch
+_live_procs = set()   # live SubProcess instances. terminate_all() stops every one of them
+
+
+def _kill_group(gid) -> bool:
+    """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows), and report whether the
+    call went through. A group whose members already exited is empty, so the call fails and that is the
+    intended no-op: nothing survived to kill.
+    Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs, and the abort
+    flag must not block it - it runs precisely while mama aborts."""
+    try:
+        if System.windows:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(gid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        else:
+            os.killpg(gid, signal.SIGKILL)
+        return True
+    except Exception:
+        return False
 
 
 class SubProcess:
@@ -75,7 +92,11 @@ class SubProcess:
         if System.windows:
             # No PTY on Windows; merge stderr into stdout pipe. Binary mode so the
             # reader can byte-level split on \r as well as \n (ninja/cmake progress).
-            self.process = subprocess.Popen(args, cwd=cwd, env=env,
+            # CREATE_NEW_PROCESS_GROUP: the child leads its own group, so interrupt() can send it a
+            # console CTRL_BREAK without a signal to mama itself. A console Ctrl+C then stops at mama
+            # and no longer reaches the child, which matches UNIX (start_new_session, below). Mama owns
+            # the shutdown and relays it, instead of a race with the child for the same signal.
+            self.process = subprocess.Popen(args, cwd=cwd, env=env, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self._group = True  # kill() uses taskkill /T to take down cmake's ninja/compiler subtree
         else:
@@ -196,22 +217,54 @@ class SubProcess:
 
 
     @staticmethod
-    def terminate_all():
-        """Ctrl+C handler: block new spawns and kill every live child so a parallel build unwinds
-        fast instead of the thread pool blocking on in-flight compiles. Idempotent."""
-        global _aborting
-        with _procs_lock:  # set the flag + snapshot atomically so a concurrent run() can't slip a
-            _aborting = True  # child past us (it re-checks _aborting under the same lock after spawning)
+    def terminate_all(reason: str, grace=abort.GRACE_SECONDS):
+        """Stop the build in three stages. Idempotent.
+        1. Set the abort flag, so nothing new spawns and every phase gate closes.
+        2. Ask each live child to stop, as a Ctrl+C does, then wait `grace` seconds.
+        3. Kill each child that ignored the request.
+        The grace lets git remove its partial clone and its index.lock, and lets ninja remove the
+        object file it was writing. A hard kill leaves both behind for the next build to trip on."""
+        # The flag and the snapshot go under one lock, so a concurrent run() cannot register a child
+        # that this snapshot misses. run() re-checks the flag under the same lock after it spawns.
+        with _procs_lock:
+            abort.request(reason)
             procs = list(_live_procs)
+        # Read each group id NOW, while its leader still lives: getpgid() fails once the pid is gone,
+        # and stage 3 needs the group after a child of its own has exited.
+        groups = [g for g in (p.group_id() for p in procs) if g]
+        for p in procs: p.interrupt()
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            with _procs_lock: waiting = bool(_live_procs)
+            if not waiting: break  # every child stopped on its own
+            time.sleep(abort.POLL_INTERVAL)
+        with _procs_lock: procs = list(_live_procs)
         for p in procs:
             try: p.kill()
             except Exception: pass
+        # Sweep the groups too. A child that stopped on its own leaves no process to kill above, but a
+        # GRANDCHILD can miss the group signal (it can be mid-exec when the signal lands) and then run
+        # on with nobody left to stop it. A group whose members all exited is empty and this is a no-op.
+        for gid in groups: _kill_group(gid)
 
     @staticmethod
     def clear_abort():
-        """Re-arm spawning after a terminated build (so a later run in the same process starts clean)."""
-        global _aborting
-        _aborting = False
+        """Re-arm spawning after a stopped build (so a later run in the same process starts clean)."""
+        abort.clear()
+
+    def interrupt(self):
+        """Ask the child and its whole tree to stop, as a Ctrl+C does, so it can remove its own
+        leftovers. UNIX sends SIGINT to its session. Windows sends a console CTRL_BREAK to its process
+        group, which is the reason that group exists. A Windows child in mama's own group (io_func is
+        None, an interactive command) gets no signal, because mama cannot signal it without a signal to
+        itself. kill() stops that one."""
+        p = self.process
+        if not p or p.poll() is not None: return
+        try:
+            if self._group and System.windows: os.kill(p.pid, signal.CTRL_BREAK_EVENT)
+            elif self._group: os.killpg(os.getpgid(p.pid), signal.SIGINT)
+            elif not System.windows: p.send_signal(signal.SIGINT)
+        except Exception: pass  # a child that exited between the poll and the signal
 
     def kill(self):
         p = self.process
@@ -233,20 +286,20 @@ class SubProcess:
         except Exception:
             pass
 
+    def group_id(self):
+        """The child's process group, or None. Windows has no group kill, so it reports the pid that
+        taskkill /T walks the tree from."""
+        p = self.process
+        if not p or not self._group: return None
+        if System.windows: return p.pid
+        try: return os.getpgid(p.pid)
+        except Exception: return None
+
     def _kill_tree(self, p):
-        """Kill the child AND its descendants (ninja + compilers). A plain terminate()/kill() hits
-        only the spawned cmake/git pid; on Windows TerminateProcess and on UNIX a single SIGKILL both
-        leave the compiler grandchildren running. taskkill /T walks the child tree; killpg signals the
-        whole session. Falls back to a single-process kill if the tree call fails.
-        Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs nor be
-        blocked by the _aborting guard (it runs precisely while aborting)."""
-        try:
-            if System.windows:
-                subprocess.run(['taskkill', '/F', '/T', '/PID', str(p.pid)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-            else:
-                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
-        except Exception:
+        """Kill the child AND its descendants (ninja + compilers). A plain terminate()/kill() hits only
+        the spawned cmake/git pid. On Windows TerminateProcess and on UNIX a single SIGKILL both leave
+        the compiler grandchildren running. Falls back to a single-process kill if the group call fails."""
+        if not _kill_group(self.group_id() or p.pid):
             try: p.kill()
             except Exception: pass
         try: p.wait(timeout=2.0)
@@ -319,13 +372,13 @@ class SubProcess:
         - idle_timeout: kill if silent this many seconds (raises TimeoutExpired). Needs io_func set.
                    For network git ops that may hang on a prompt; a streaming clone is never killed.
         """
-        if _aborting: raise KeyboardInterrupt('build aborted')  # fast path: don't even spawn after Ctrl+C
+        abort.check()  # fast path: do not even spawn while the build stops
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
         pid = p.process.pid if p.process else None
         with _procs_lock:
-            if _aborting:  # aborted mid-spawn: kill this child now instead of leaking it past terminate_all
-                p.close(); raise KeyboardInterrupt('build aborted')
-            _live_procs.add(p)  # registered so terminate_all() can kill it on Ctrl+C
+            if abort.requested():  # stopped mid-spawn: close this child now, so terminate_all cannot miss it
+                p.close(); abort.check()
+            _live_procs.add(p)  # registered so terminate_all() can stop it
         if pid is not None: report_subprocess(pid, True)  # live CPU sampling for the owning display task
         try:
             try:

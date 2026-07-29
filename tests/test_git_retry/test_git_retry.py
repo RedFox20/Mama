@@ -1,20 +1,12 @@
 """Clone retry on a dropped connection, and the reactive connection pacer it turns on."""
 import threading
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from mama.types.git import Git, is_transient_git_failure
+from mama.types.git import Git
 from mama.utils import ssh_multiplex as sm
-
-
-def _git_and_dep():
-    git = Git(name='libfoo', url='git@example.com:foo/libfoo.git', branch='main', tag='',
-              mamafile=None, shallow=True, args=[])
-    dep = Mock(name_='libfoo')
-    dep.name = 'libfoo'
-    dep.config = Mock(print=False, verbose=False, update_stats=Mock())
-    return git, dep
+from testutils import make_git_and_mock_dep as _git_and_dep
 
 
 @pytest.fixture(autouse=True)
@@ -23,27 +15,6 @@ def unpaced(monkeypatch):
     monkeypatch.setattr(sm, '_connect_interval', 0.0)
     monkeypatch.setattr(sm, '_last_connect', 0.0)
     monkeypatch.setattr('mama.types.git.time.sleep', lambda s: None)
-
-
-@pytest.mark.parametrize('output', [
-    'kex_exchange_identification: Connection closed by remote host',
-    'fatal: unable to access https://git.ffmpeg.org/ffmpeg.git/: Failed to connect to git.ffmpeg.org',
-    'mux_client_request_session: session request failed: Session open refused by peer',
-    'error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly',
-    'You have exceeded a secondary rate limit. Please wait a few minutes',
-    '[mama] git stalled 30s, killed (auth prompt or hung server)',  # mama's own idle-timeout kill
-])
-def test_a_dropped_connection_is_transient(output):
-    assert is_transient_git_failure(output)
-
-
-@pytest.mark.parametrize('output', [
-    "fatal: couldn't find remote ref v9.9.9",
-    'ERROR: Repository not found.',
-    'Permission denied (publickey).',
-])
-def test_a_bad_url_ref_or_key_is_not_transient(output):
-    assert not is_transient_git_failure(output)
 
 
 def _run_clone(git, dep, results, monkeypatch):

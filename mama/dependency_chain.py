@@ -6,7 +6,7 @@ from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
 from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, get_time_str, BuildError
-from .utils import ssh_multiplex, system
+from .utils import abort, ssh_multiplex, system
 from .utils.sub_process import SubProcess
 from .utils.system import Color, console, error, warning, get_colored_text
 
@@ -419,6 +419,7 @@ def load_dependency_chain(root: BuildDependency):
     root.config.update_stats.start()
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency):
+            abort.check()  # a queued load must not start cloning while the build is stopping
             if dep.already_loaded:
                 return dep.should_rebuild
 
@@ -435,7 +436,15 @@ def load_dependency_chain(root: BuildDependency):
 
             dep.after_load()
             return changed
-        load_dependency(root)
+        try:
+            load_dependency(root)
+        except BuildError as err:  # a bad url or a dropped clone: the report is complete, a traceback buries it
+            _report_error(err, root.config.verbose)
+            # Stop the other loads before the exit. SystemExit leaves this `with`, and the pool's
+            # shutdown(wait=True) then runs the ENTIRE queued backlog. That is minutes of clones for a
+            # build that already failed. After the stop, each queued load returns at once.
+            SubProcess.terminate_all('load failed')  # the report above already names the target
+            exit(-1)
     root.config.update_stats.stop()
     summary = root.config.update_stats.summary_line()
     if summary and root.config.print:
@@ -518,6 +527,9 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
     """Run one scheduler phase for `dep` on its single dep-level display task (keyed by name so all
     phases share one line): route this thread's console output + subprocess CPU + build barrier into
     it, run `body(sink)`, then end the phase. `final=True` (the build) commits the merged summary."""
+    # Gate EVERY transition (load -> configure -> build) before the display task opens. A stopping
+    # build then starts no new phase, and marks no phase that never ran as a failed one.
+    abort.check()
     tid = dep.name
     sink = lambda line: display.feed(tid, line)
     name = f'{_node_marker(dep)} {dep.name}' if dep.config.verbose else dep.name  # tree markers: verbose only
@@ -591,22 +603,26 @@ def _handle_failure(display, failed):
     """First failed job -> replay its captured output (TTY) + the reason, then RETURN so the caller can
     still print the aggregate diagnostics summary before exiting nonzero. A Ctrl+C abort prints a terse
     interrupted line (no replay/summary) and exits immediately."""
-    import traceback
     if isinstance(failed.error, KeyboardInterrupt):
         console('  [BUILD INTERRUPTED]  stopped by Ctrl+C', color=Color.RED)
         exit(-1)
     console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
     if display.isatty:  # non-TTY already dumped the output on finish
         display.replay(failed.node.name)
-    if not failed.error: return
-    # A BuildError is the user's build breaking, not a mama bug: the cmake/compiler output above already
-    # explains it, so print a one-liner. A traceback here would bury that under mama's own call stack.
-    # Anything else IS unexpected - keep the traceback (and keep it for BuildError under verbose too).
-    verbose = failed.node.config.verbose
-    if isinstance(failed.error, BuildError) and not verbose:
-        error(f'  {failed.error}')
-    else:
-        console(''.join(traceback.format_exception(type(failed.error), failed.error, failed.error.__traceback__)))
+    if failed.error: _report_error(failed.error, failed.node.config.verbose)
+
+
+def _report_error(err: BaseException, verbose: bool):
+    """A BuildError is the user's build or url breaking, not a mama bug: the cmake/compiler/git report
+    already explains it, so print that alone. A traceback here would bury it under mama's own call
+    stack. Anything else IS unexpected - keep the traceback (and keep it for BuildError under verbose)."""
+    import traceback
+    if isinstance(err, abort.BuildAborted):
+        error(f'  {err}'); return  # a stopped job, not a failure: the FIRST failure printed the reason
+    if isinstance(err, BuildError):
+        error(f'  {err}')
+        if not verbose: return
+    console(''.join(traceback.format_exception(type(err), err, err.__traceback__)))
 
 
 def _deploy_run_postpass(deps, config):

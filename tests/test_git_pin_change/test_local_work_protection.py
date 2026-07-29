@@ -11,8 +11,8 @@ def get_git_status_path():
 
 # Test that mama update does not overwrite local modifications
 # and instead shows an error suggesting mama wipe
-def test_local_work_protection():
-    init(__file__, clean_dirs=['packages'])
+def test_local_work_protection(tmp_path):
+    init(__file__, tmp_path)
 
     # Clone with branch pin (stage 5 = branch 'master')
     os.environ['GIT_PIN_CHANGE_TEST'] = '5'
@@ -42,8 +42,8 @@ def test_local_work_protection():
 
 
 # Test that mama update does not overwrite local modifications even when switching pin types
-def test_local_work_protection_on_pin_change():
-    init(__file__, clean_dirs=['packages'])
+def test_local_work_protection_on_pin_change(tmp_path):
+    init(__file__, tmp_path)
 
     # Clone with tag pin (stage 2 = tag v1.0.0)
     os.environ['GIT_PIN_CHANGE_TEST'] = '2'

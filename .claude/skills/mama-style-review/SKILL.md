@@ -105,7 +105,7 @@ When you find a violation, prefer these proven moves:
    ```
    Identify the set of changed/new files in `mama/`, `tests/`, `CLAUDE.md`, `README.md`.
 
-2. **Re-read CLAUDE.md from disk.** Don't trust memory - the rules evolve.
+2. **Re-read CLAUDE.md from disk.** Do not trust memory - the rules evolve.
 
 3. **Mechanically check every rule below** against the diff. Track findings.
 
@@ -133,6 +133,41 @@ Grep helpers:
 grep -rn "$(printf '\xe2\x80\x94')" mama/ tests/ CLAUDE.md README.md
 awk 'length>130' mama/**/*.py     # over-long lines
 ```
+
+### STE prose - docstrings, comments, strings, commit messages
+
+`.claude/skills/ste-writing/SKILL.md` governs every text the diff adds, and a code comment counts.
+**Review the added prose, not only the added code.** This is the rule set that slips most often,
+because a comment gets written while the attention is on the code it explains.
+
+- **No contractions.** Write "do not", "cannot", "it is".
+- **No semicolon in prose.** A semicolon in a comment or a docstring becomes a period. A `;` between
+  two short code statements is a separate, allowed idiom.
+- **No non-ASCII punctuation.** No em-dash, no arrow, no curly quote. Write `-`, `->`, `'`.
+- **Max 20 words for an instruction, 25 for a description.** Split a longer sentence.
+- **Active voice with a named actor.** "mama kills the child", not "the child is killed".
+- **Plain verbs.** No nominalization ("perform an analysis"), no phrasal verb ("spin up", "clean up",
+  "wait out"), no "-ing" main verb where a simple tense works.
+- **The short common word.** use (not utilize), start (not initiate), make sure (not ensure), before
+  (not prior to), about (not regarding), get (not obtain), also (not additionally).
+- **No idiom.** "says it all", "in the first place", "en masse", "slip past" - name the action.
+- **No marketing adjective.** seamless, robust, powerful, effortless, cutting-edge, world-class.
+- **One name for one thing.** A `BuildDependency` is "the dep" in every line, or "the target" in every
+  line, never both.
+- **A comment says WHY.** A comment that restates the code is a finding on its own.
+
+Grep helpers. The word-level hits are exact, so report each one:
+```bash
+D='git diff -U0'   # also run `git diff -U0 --staged` when you staged part of the change
+$D | grep '^+' | grep -nE "\b(can't|don't|doesn't|won't|isn't|aren't|it's|that's|didn't|hasn't|haven't|we're|you're|let's|there's)\b"
+$D | grep '^+' | grep -nE '^\+[[:space:]]*#.*;'        # semicolon in a comment
+$D | grep '^+' | grep -nE "$(printf '\xe2\x80\x94|\xe2\x86\x92|\xe2\x80\x99|\xe2\x80\x9c|\xe2\x80\x9d')"
+$D | grep '^+' | grep -inE "\b(utilize|facilitate|initiate|prior to|subsequent to|regarding|obtain|demonstrate|additionally|furthermore|leverage|seamless|robust|powerful|effortless)\b"
+$D | grep '^+' | grep -inE "\b(is|are|was|were|be|been|being) [a-z]+ed\b"   # passive-voice candidates
+```
+Sentence length, idiom and one-name-one-thing need judgment, not grep: read every comment and
+docstring the diff adds, once, on purpose. A hit inside this file or inside `ste-writing/SKILL.md` is
+the rule text quoting the forbidden word, not a finding.
 
 ### Yellow output convention
 - All warning-style yellow console output goes through `warning(text)`
@@ -269,7 +304,7 @@ For any new helper added to a file:
 
 Report findings as a numbered list, each entry:
 ```
-N. <file>:<line> - <rule>: <what's wrong> → <suggested fix>
+N. <file>:<line> - <rule>: <the problem> -> <the fix>
 ```
 
 When 0 issues: respond with `REVIEW PASSED - 0 issues`. Then the calling
@@ -285,4 +320,6 @@ new violations.
 - Tests must pass deterministically (run twice if needed - flaky tests are a
   separate concern but block the commit).
 - The review must be invoked even when changes look "obviously trivial" -
-  trivial changes still routinely violate the 130-col rule or sneak in an em-dash.
+  trivial changes still routinely violate the 130-col rule or add an em-dash.
+- Run the STE greps every time. A comment written mid-task is where the prose
+  rules slip, and the diff is the last place to catch it before the commit.

@@ -1,21 +1,33 @@
 ---
 name: ste-writing
-description: Write prose in ASD-STE100 Simplified Technical English - docstrings, code comments, console/warning/error strings, exception messages, commit messages, PR and issue text, README and design docs. Never code, identifiers or command syntax. Always on in this project, imported by CLAUDE.md.
+description: Write prose in ASD-STE100 Simplified Technical English - every text this project writes into a file or a terminal. Docstrings, code comments, console/warning/error strings, exception messages, commit messages, PR and issue text, README and the docs. Identifiers follow the word rules. Always on in this project, imported by CLAUDE.md and enforced by mama-style-review.
 ---
 
 # Prose style - ASD-STE100 Simplified Technical English
 
 Adapted from [ste-writing](https://github.com/woosal1337/blog/blob/main/videos/ep01-the-cure-for-ai-slop/ste-writing-skill.md).
 
-Applies to docstrings and code comments, `console()` / `warning()` / `error()` strings,
-exception messages, commit messages, PR and issue text, README and design docs. It does
-**not** apply to code, identifiers, or command syntax. It is not for marketing copy or
-anything that needs a voice. STE strips voice on purpose.
+## Scope
 
-Use **strict** mode for exception and log strings, comments and commit messages: apply every
-rule and both length caps. Use **STE-flavored** mode for docs, PR text and chat prose: keep
-the sentence, paragraph and active-voice discipline, but keep enough vocabulary to read
-naturally.
+Applies to EVERY text this project writes into a file or a terminal:
+
+- docstrings and code comments
+- `console()` / `warning()` / `error()` strings, and exception messages
+- commit messages, PR and issue text
+- README, CLAUDE.md, the files under `docs/`, and a skill file like this one
+
+**A code comment is not a lower class of text.** It ships with the code, it outlives the change, and
+a future reader trusts it. Comments and docstrings get the same strict treatment as an error string.
+
+**Identifiers follow the word rules, not the sentence rules.** One name for one thing, and the short
+common word. Nothing else in code changes: command syntax, option names, file paths and code
+semantics stay verbatim.
+
+It is not for marketing copy or anything that needs a voice. STE strips voice on purpose.
+
+Use **strict** mode for exception and log strings, comments, docstrings and commit messages: apply
+every rule and both length caps. Use **STE-flavored** mode for docs, PR text and chat prose: keep the
+sentence, paragraph and active-voice discipline, but keep enough vocabulary to read naturally.
 
 ## Rules
 
@@ -50,12 +62,20 @@ Write only the requested text. No preamble, no summary, no closing remarks.
 
 ## Self-lint before you send or commit text
 
+Run this over the text you just wrote, including every comment and docstring in the diff.
+
 1. Any sentence over 20 words? Split it.
-2. Any semicolon? Replace it with a period.
+2. Any semicolon in prose? Replace it with a period. (A `;` between two short code statements is a
+   separate, allowed idiom.)
 3. Any contraction? Expand it.
 4. Any passive voice with a known actor? Make it active.
-5. Any "-ing" main verb, nominalization, or phrasal verb ("spin up")? Use a plain verb.
-6. The same thing named two ways? Pick one name.
+5. Any "-ing" main verb, nominalization, or phrasal verb ("spin up", "clean up", "wait out")? Use a
+   plain verb.
+6. Any idiom ("says it all", "in the first place", "en masse")? Name the action instead.
+7. The same thing named two ways? Pick one name.
+
+The word-level checks are grep-able. `mama-style-review` runs them over the diff and reports each hit,
+so a slip in a comment fails the review the same way an over-long line does.
 
 These rules fix the FORM of weak text. They cannot make a hollow paragraph true.
 

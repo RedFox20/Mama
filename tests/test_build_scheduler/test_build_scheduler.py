@@ -229,8 +229,8 @@ def test_failure_fires_abort_hook_once_to_kill_in_flight():
     # Fail-fast: the first failure fires the child-killer so in-flight compiles are killed, not drained.
     hook = []
     def boom(): raise RuntimeError('kaboom')
-    failed = _sched(abort_hook=lambda: hook.append(1)).run([Job('a', BUILD, boom), Job('b', BUILD, boom)])
-    assert failed is not None and len(hook) == 1   # exactly once - only the first failure aborts
+    failed = _sched(abort_hook=hook.append).run([Job('a', BUILD, boom), Job('b', BUILD, boom)])
+    assert failed is not None and hook == ['a failed']  # once, and it names the job the user has to fix
 
 
 def test_load_governor_caps_concurrency():
@@ -310,9 +310,9 @@ def test_keyboard_interrupt_aborts_build_kills_children_and_returns_interrupted(
         n['i'] += 1
         if n['i'] >= 2: raise KeyboardInterrupt   # 2nd pass = user hits Ctrl+C
         return 0.0
-    sched = _sched(cpu_sampler=sampler, abort_hook=lambda: (hook.append(1), released.set()))
+    sched = _sched(cpu_sampler=sampler, abort_hook=lambda reason: (hook.append(reason), released.set()))
     failed = sched.run([Job('blocker', BUILD, lambda: released.wait(2.0), weight=0)])
-    assert hook == [1] and sched._aborted
+    assert hook == ['stopped by Ctrl+C'] and sched._aborted
     assert failed is not None and isinstance(failed.error, KeyboardInterrupt)
     assert released.is_set()   # the worker was unblocked -> the pool drained
 

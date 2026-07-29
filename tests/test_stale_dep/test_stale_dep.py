@@ -20,8 +20,8 @@ def switch_to_stale_commit(dep_name):
         f.write(Git.format_git_status(REPO_URL, '', '', OLD_SHORT))
 
 # Simulates stale dependency updating
-def test_stale_dep():
-    init(__file__, clean_dirs=['packages'])
+def test_stale_dep(tmp_path):
+    init(__file__, tmp_path)
 
     dep_dir = get_dep_path('ExampleRemote')
     header = f'{dep_dir}/remote.h'

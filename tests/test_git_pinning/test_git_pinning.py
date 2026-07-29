@@ -4,8 +4,8 @@ def remote_file_contains(dep_name, text):
     return file_contains(f'packages/{dep_name}/{dep_name}/remote.h', text)
 
 # Make sure different git pinning methods work
-def test_git_pinning():
-    init(__file__, clean_dirs=['packages'])
+def test_git_pinning(tmp_path):
+    init(__file__, tmp_path)
     mama_exec(['update'])   # clone the pinned deps; `clean` deliberately fetches nothing
 
     # https://github.com/BatteredBunny/MamaExampleRemote repo has different commits that either do or dont have the REMOTE_VERSION line

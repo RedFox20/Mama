@@ -2,13 +2,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import os, string, time, re, random, tempfile, subprocess
+from collections import deque
 from .dep_source import DepSource
 from ..utils.system import Color, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
-                    remove_tree)
+                    remove_tree, GitError)
+from .git_errors import classify_git_failure, format_git_failure, stall_message
 
 
 if TYPE_CHECKING:
@@ -40,28 +42,13 @@ def _is_git_status_noise(line: str) -> bool:
         or _SSH_CONFIG_WARNING.match(line) is not None
 
 
-_STALL_MARKER = 'git stalled'  # what mama itself writes when its idle timeout kills a hung git
-
-# A clone that died from throttling or a dropped connection is worth another attempt. A bad url, a
-# missing ref or a denied key is not - retrying those only makes the build slower before it fails.
-_TRANSIENT_GIT_ERRORS = ('kex_exchange_identification', 'ssh_exchange_identification', 'session request failed',
-                         'connection closed by remote host', 'connection reset', 'connection timed out',
-                         'early eof', 'remote end hung up unexpectedly', 'rpc failed', 'failed to connect to',
-                         'could not resolve host', 'operation timed out', 'unable to access',
-                         'too many requests', 'rate limit', 'try again later', 'temporarily unavailable',
-                         'error: 429', 'error: 500', 'error: 502', 'error: 503',
-                         _STALL_MARKER)  # our own idle-timeout kill: a hung server is the textbook retry case
 _CLONE_ATTEMPTS = 3
 _CLONE_RETRY_BASE = 0.5  # seconds, doubled per attempt and jittered so a throttled wave does not retry in lockstep
 
 # git subcommands that open a connection. The rest are local and must not pay the pacing delay.
 _NETWORK_GIT_CMDS = ('fetch', 'pull', 'push', 'clone', 'ls-remote', 'submodule')
 
-
-def is_transient_git_failure(output: str) -> bool:
-    """True when git output names a throttle or a dropped connection, so another attempt can succeed."""
-    low = output.lower()
-    return any(err in low for err in _TRANSIENT_GIT_ERRORS)
+_ERROR_TAIL = 40  # git lines kept for the failure report. A fetch's output is otherwise unbounded
 
 
 def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
@@ -185,6 +172,15 @@ class Git(DepSource):
         return 'git ' + fields
 
 
+    def _failure_report(self, dep: BuildDependency, action: str, cmd: str, code: int, elapsed: str, output: str,
+                        dest='', attempts=1, cause=None) -> str:
+        """The message a failed git command raises: the cause first, then the url, the branch or tag, the
+        dir and the command mama ran, then the git lines that name the failure. See types/git_errors.py."""
+        fields = {'url': self.url, 'tag' if self.tag else 'branch': self.branch_or_tag(), 'dir': dest or dep.src_dir,
+                  'command': cmd, 'exit': f'{code} after {elapsed}' + (f', {attempts} attempts' if attempts > 1 else '')}
+        return format_git_failure(f'[{action}]  {dep.name}', fields, output, cause or classify_git_failure(output, code))
+
+
     def run_git(self, dep: BuildDependency, git_command, throw=True):
         # Shim has no .git; `cd src_dir && git ...` would walk up and hit the wrong repo.
         if dep.is_artifactory_shim():
@@ -199,12 +195,15 @@ class Git(DepSource):
         # Capture and prefix each line so parallel updates don't tear and the
         # user can see which target said what (e.g. 'remote: Enumerating ...').
         prog: dict = {}
+        tail = deque(maxlen=_ERROR_TAIL)  # the last real lines, which the failure report shows
         def prefixed(p:SubProcess, line:str):
             line = line.rstrip()
             if not line: return
             if _filter_git_progress(dep, line, prog): return  # collapse the transfer-progress flood
-            if not dep.config.verbose and _is_git_status_noise(line): return  # drop benign reset/track/up-to-date chatter
-            console(f'  {dep.name: <16} {line}')
+            noise = _is_git_status_noise(line)  # benign reset/track/up-to-date text
+            if not noise: tail.append(line)     # the report shows the same lines as the screen
+            if dep.config.verbose or not noise: console(f'  {dep.name: <16} {line}')
+        start = time.monotonic()
         with ssh_multiplex.fetch_slot():
             if git_command.split(' ', 1)[0] in _NETWORK_GIT_CMDS: ssh_multiplex.pace_new_connection()
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
@@ -212,10 +211,12 @@ class Git(DepSource):
             try:
                 result = SubProcess.run(cmd, cwd=dep.src_dir, io_func=prefixed, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
-                error(f'  {dep.name: <16} {_STALL_MARKER} {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                stalled = stall_message(dep.config.git_timeout)
+                tail.append(stalled); error(f'  {dep.name: <16} {stalled}')
                 result = -1
         if result != 0 and throw:
-            raise RuntimeError(f'{cmd} (in {dep.src_dir}) failed with return code {result}')
+            raise GitError(self._failure_report(dep, f'GIT {git_command.split(" ", 1)[0].upper()} FAILED', cmd,
+                                                result, get_time_str(time.monotonic() - start), '\n'.join(tail)))
         return result
 
 
@@ -578,7 +579,7 @@ class Git(DepSource):
             try:
                 result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
-                output.append(f'[mama] {_STALL_MARKER} {dep.config.git_timeout}s, killed (auth prompt or hung server)')
+                output.append(stall_message(dep.config.git_timeout))
                 result = -1
         return result, '\n'.join(output), get_time_str(time.monotonic() - start)
 
@@ -593,13 +594,14 @@ class Git(DepSource):
                     progress(f'  - Target {dep.name: <16} CLONE SUCCESS {elapsed}', color=Color.BLUE, final=True)
                     if dep.config.verbose and output: console(output, end='')
                 return
-            if attempt < _CLONE_ATTEMPTS and is_transient_git_failure(output):
+            cause = classify_git_failure(output, result)
+            if attempt < _CLONE_ATTEMPTS and cause.transient:
                 self._backoff_before_reclone(dep, clone_to_dir, attempt, elapsed)
                 continue
             if dep.config.print:
                 progress(f'  - Target {dep.name: <16} CLONE FAILED ({result}) after {elapsed}', color=Color.RED, final=True)
-                if output: console(output, end='')
-            raise RuntimeError(f'Target {self.name} clone failed after {elapsed}: {cmd}')
+            raise GitError(self._failure_report(dep, 'CLONE FAILED', cmd, result, elapsed, output,
+                                                dest=clone_to_dir, attempts=attempt, cause=cause))
 
 
     def _backoff_before_reclone(self, dep: BuildDependency, clone_to_dir: str, attempt: int, elapsed: str):

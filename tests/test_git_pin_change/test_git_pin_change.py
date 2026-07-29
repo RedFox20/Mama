@@ -13,8 +13,8 @@ def stage(num: int, expects: bool, assert_message: str = ""):
         assert not result, assert_message
 
 # Test that switches between having REMOTE_VERSION and not to demonstrate that the contents actually change when changing git_tag pins
-def test_git_pin_change():
-    init(__file__, clean_dirs=['packages'])
+def test_git_pin_change(tmp_path):
+    init(__file__, tmp_path)
 
     stage(0, False, "Failed to pin to a specific commit")
     stage(1, True, "Failed to update commit pin to a new commit")

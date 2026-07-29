@@ -36,7 +36,9 @@ def test_every_allowed_spawn_captures_stderr():
             if not _SPAWN.search(line): continue
             call = ' '.join(lines[n - 1:n + 1])  # keyword args often wrap onto the next line
             if 'stderr=' in call or 'capture_output' in call: continue
-            leaks.append(f'{rel}:{n}')
+            leaks.append(f'{rel}: {line.strip()}')
     # Two stay by design: the no-capture Popen (io_func=None hands the child the real terminal) and
-    # execute(), the interactive launcher for `code` / `open` / a prompting apt-get.
-    assert leaks == ['utils/sub_process.py:72', 'utils/sub_process.py:362']
+    # execute(), the interactive launcher for `code` / `open` / a prompting apt-get. Pinned by code,
+    # not by line number, so an edit above them does not fail this test.
+    assert leaks == ['utils/sub_process.py: self.process = subprocess.Popen(args, cwd=cwd, env=env)',
+                     'utils/sub_process.py: retcode = os.system(command)']

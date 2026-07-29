@@ -304,8 +304,9 @@ class TestCtrlCTermination:
         SubProcess.clear_abort(); yield; SubProcess.clear_abort()
 
     def test_terminate_all_blocks_new_spawns_then_clear_re_arms(self):
-        SubProcess.terminate_all()
-        with pytest.raises(KeyboardInterrupt):
+        from mama.utils.abort import BuildAborted
+        SubProcess.terminate_all('test')
+        with pytest.raises(BuildAborted):
             SubProcess.run([PY, '-c', 'pass'])
         SubProcess.clear_abort()
         assert SubProcess.run([PY, '-c', 'pass'], io_func=lambda p, l: None) == 0
@@ -320,7 +321,7 @@ class TestCtrlCTermination:
         t = threading.Thread(target=run_child); t.start()
         end = time.monotonic() + 5
         while time.monotonic() < end and not sub_process._live_procs: time.sleep(0.01)
-        SubProcess.terminate_all()
+        SubProcess.terminate_all('test')
         t.join(10)
         assert not t.is_alive()         # killed promptly, not blocked for the full 30s
         assert result.get('s', 0) != 0  # nonzero status from the kill
@@ -340,7 +341,7 @@ class TestCtrlCTermination:
         end = time.monotonic() + 8
         while time.monotonic() < end and not os.path.exists(pidfile): time.sleep(0.02)
         gc_pid = int(open(pidfile).read())
-        SubProcess.terminate_all()
+        SubProcess.terminate_all('test')
         end = time.monotonic() + 5
         while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
         alive = psutil.pid_exists(gc_pid)

@@ -1,7 +1,7 @@
 """Parallel DAG scheduler for configure/build jobs: runs a graph of `Job`s honoring dep edges.
 Governors: CONFIGURE jobs (cheap probes) are count-bounded; BUILD jobs (each spawns `cmake
 --build -jN`) are gated by a core budget + CPU-load sample. Fail-fast: the first error stops new
-launches AND fires the abort hook to kill in-flight children (so the build exits fast, not after
+launches AND fires the abort hook to stop the in-flight children (so the build exits fast, not after
 draining every sibling), then returns the failed job. Generic over `Job.run` (the cmake wiring
 lives in the caller), so it unit-tests with fake jobs."""
 
@@ -105,7 +105,7 @@ class Scheduler:
     def __init__(self, *, max_configure: int, core_budget: int, max_load: int = 20,
                  load_threshold: float = 85.0, overprovision: float = 2.0, cpu_sampler: Callable[[], float] = None,
                  poll_interval: float = 1.0, max_workers: int = 256,
-                 abort_hook: Callable[[], None] = None, pending_log: Callable[[Optional[tuple]], None] = None):
+                 abort_hook: Callable[[str], None] = None, pending_log: Callable[[Optional[tuple]], None] = None):
         self._max_configure = max(1, max_configure)
         self._core_budget = max(1, core_budget)
         self._max_load = max(1, max_load)
@@ -114,7 +114,7 @@ class Scheduler:
         self._cpu_sampler = cpu_sampler or (lambda: 0.0)
         self._poll_interval = poll_interval
         self._max_workers = max_workers
-        self._abort_hook = abort_hook # optional ()->None called on Ctrl+C to kill in-flight child processes
+        self._abort_hook = abort_hook # optional (reason)->None: stops the running child processes
         self._pending_log = pending_log # optional ((name,reason)|None)->None: the single next blocked task
         self._aborted = False
         self._cond = threading.Condition()
@@ -195,7 +195,7 @@ class Scheduler:
             self._aborted = True
             if self._error is None: self._error = _make_abort_job()
             self._cond.notify_all()
-        if self._abort_hook: self._abort_hook()
+        if self._abort_hook: self._abort_hook('stopped by Ctrl+C')
 
     # -- governors ---------------------------------------------------------
 
@@ -308,6 +308,7 @@ class Scheduler:
                 self._error = job  # first failure wins; stops further launches
             self._cond.notify_all()
         if first_failure and self._abort_hook:
-            # fail-fast: kill in-flight child processes (outside the lock - kill() blocks ~1s each) so the
-            # build exits now instead of draining every running sibling. notify_all above woke the barriers.
-            self._abort_hook()
+            # Fail fast: stop the running child processes, so the build exits now. Otherwise it drains
+            # every running sibling first. The hook runs outside the lock, because it waits for a grace
+            # period. The notify_all above already woke the barriers.
+            self._abort_hook(f'{job.node.name if job.node else job.key} failed')

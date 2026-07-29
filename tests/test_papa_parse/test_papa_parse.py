@@ -2,8 +2,8 @@ from testutils import init
 from mama.papa_deploy import PapaFileInfo
 
 # Test papa file format parsing
-def test_papa_parse():
-    init(__file__)
+def test_papa_parse(tmp_path):
+    init(__file__, tmp_path)
 
     papa = PapaFileInfo('papa.txt')
 
