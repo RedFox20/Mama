@@ -76,7 +76,6 @@ def make_mock_config(tmp_path, **overrides):
     cfg.artifactory_ftp = 'ftp.example.com'
     cfg.workspaces_root = str(tmp_path)
     cfg.global_workspace = False
-    cfg.platform_build_dir_name.return_value = 'linux'
     cfg.verbose = False
     cfg.print = False
     cfg.loaded_dependencies = {}
@@ -130,7 +129,6 @@ def make_mock_config(tmp_path, **overrides):
     cfg.arch = 'x64'
     cfg.release = True
     cfg.sanitize = None
-    cfg.sanitizer_suffix.return_value = ''
     for k, v in overrides.items(): setattr(cfg, k, v)
     if not isinstance(getattr(cfg, 'platform', None), Platform):
         set_mock_platform(cfg, Linux)  # after overrides, so a test can pass its own platform=
@@ -201,6 +199,33 @@ def make_git_and_mock_dep(name='libfoo', url='git@example.com:foo/libfoo.git', b
     dep.src_dir = f'/packages/{name}'
     dep.config = Mock(print=False, verbose=False, update_stats=Mock(), **config_overrides)
     return git, dep
+
+
+def plain_config(sanitize=None, coverage=None):
+    """A BuildConfig with only the fields the build-name rules read. BuildConfig.__init__ runs platform
+    detection and CLI parsing, and a name test needs neither."""
+    from mama.build_config import BuildConfig
+    cfg = BuildConfig.__new__(BuildConfig)
+    cfg.sanitize = sanitize
+    cfg.coverage = coverage
+    return cfg
+
+
+def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64',
+                             version='abc1234', args=()):
+    """Stub the BuildTarget surface artifactory_archive_name touches. compiler_version() and
+    get_distro_info() read the host, so this answers with fixed values. `args` is what a consumer passed
+    to add_git(..., args=[...]); the variant suffix comes from the same function a dep calls."""
+    from mama import build_names
+    cfg = plain_config(sanitize, coverage)
+    cfg.release = release
+    cfg.arch = arch
+    cfg.compiler_version = lambda: 'gcc14'
+    cfg.get_distro_info = lambda: ('linux', '24', 'noble')
+    dep_source = SimpleNamespace(is_pkg=False, fullname=None, is_git=False, is_src=False)
+    dep = SimpleNamespace(is_root=False, dep_source=dep_source, target_args=list(args),
+                          variant_suffix=build_names.build_variant_suffix(cfg, args))
+    return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)
 
 
 def make_load_root(name='mylib', **config_overrides):

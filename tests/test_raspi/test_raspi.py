@@ -8,6 +8,7 @@ from testutils import make_configured_target, set_mock_platform
 from mama.build_config import BuildConfig
 from mama.platforms.raspi import Raspi
 from mama.buildsys.cmake import configure as cc
+from mama.build_names import build_dir_name
 
 
 def _raspi(arch='arm64', **over):
@@ -43,8 +44,8 @@ def test_raspi_rejects_an_unsupported_arch(arch):
 # --- the two arches never share a build dir ---
 
 def test_the_build_dir_follows_the_arch():
-    assert BuildConfig(['raspi']).platform_build_dir_name() == 'raspi'
-    assert BuildConfig(['raspi32']).platform_build_dir_name() == 'raspi32'
+    assert build_dir_name(BuildConfig(['raspi'])) == 'raspi'
+    assert build_dir_name(BuildConfig(['raspi32'])) == 'raspi32'
 
 
 # --- everything derives from the triple ---

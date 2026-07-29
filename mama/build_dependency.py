@@ -10,6 +10,7 @@ from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, resolve_pinned_version
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
                   has_shim_marker, MAMA_SHIM_FILENAME
+from . import build_names
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
 
@@ -55,7 +56,8 @@ class BuildDependency:
 
         self.src_dir = None # source directory where the code is located
         self.dep_dir = None # dependency dir where platform build dirs are kept
-        self.build_dir = None # {dep_dir}/{config.platform_build_dir_name()}
+        self.build_dir_name = None # this dep's platform+variant dir name, eg 'linux-asan-lgpl'
+        self.build_dir = None # {dep_dir}/{build_dir_name}
         self.dep_source = dep_source
         self.name = dep_source.name
 
@@ -110,6 +112,7 @@ class BuildDependency:
     def update_existing_dependency(self, dep_source: DepSource):
         if dep_source.is_git or dep_source.is_src:
             self._add_args(dep_source.args)
+            self._update_dep_name_and_dirs(self.name)  # new args -> new variant suffix -> new build dir
             if self.target:
                 self.target._set_args(self.target_args)
 
@@ -168,8 +171,13 @@ class BuildDependency:
         #         dep_name = f'{self.name}-{branch_name}'
         #     elif git.tag:
         #         dep_name = f'{self.name}-{git.tag}'
+        # Computed ONCE here, then read by the build dir below and by the artifactory archive name, so a
+        # build and the package it uploads always agree on the variant. Recomputed when a second parent
+        # adds this dep with more args (see update_existing_dependency).
+        self.variant_suffix = build_names.build_variant_suffix(self.config, self.target_args)
         self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
-        self.build_dir = normalized_join(self.dep_dir, self.config.platform_build_dir_name())
+        self.build_dir_name = build_names.build_dir_name(self.config, self.variant_suffix)
+        self.build_dir = normalized_join(self.dep_dir, self.build_dir_name)
 
 
     def has_build_files(self):
@@ -862,7 +870,7 @@ class BuildDependency:
     ## Clean
     def clean(self):
         if self.config.print:
-            console(f'  - Target {self.name: <16} CLEAN  {self.config.platform_build_dir_name()}')
+            console(f'  - Target {self.name: <16} CLEAN  {self.build_dir_name}')
 
         if self.build_dir == '/' or not os.path.exists(self.build_dir):
             return

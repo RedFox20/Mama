@@ -1,5 +1,6 @@
 """Pins compiler-flip ordering: root locks + re-resolves, so no run scatters deps across linux/ and linux-clang/."""
 from mama.build_config import BuildConfig
+from mama.build_names import build_dir_name
 from testutils import make_mock_dep
 
 
@@ -23,15 +24,14 @@ def test_the_root_may_still_pick_the_compiler_before_the_lock():
     c.compiler_cmd = False  # no explicit clang/gcc on the cmdline
     c.prefer_clang('root')
     c.lock_compiler()
-    assert c.clang and c.platform_build_dir_name() == 'linux-clang'
+    assert c.clang and build_dir_name(c) == 'linux-clang'
 
 
 def test_dirs_re_resolve_after_the_compiler_flips(tmp_path):
     # build_dir is computed at BuildTarget construction, before settings() reaches prefer_clang
     dep = make_mock_dep(tmp_path)
-    dep.config.platform_build_dir_name.return_value = 'linux'
     dep._update_dep_name_and_dirs(dep.name)
     assert dep.build_dir.endswith('/linux')
-    dep.config.platform_build_dir_name.return_value = 'linux-clang'
+    dep.config.clang = True; dep.config.gcc = False  # what prefer_clang() flips during settings()
     dep._update_dep_name_and_dirs(dep.name)
     assert dep.build_dir.endswith('/linux-clang')

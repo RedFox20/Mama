@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import os, contextlib, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
-from mama import util
+from mama import util, build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
 
@@ -157,7 +157,9 @@ def _seed_id(target:BuildTarget) -> str:
     happen by hash collision and is obvious on disk."""
     config = target.config
     fp = seedcache.compute_fingerprint(_seed_inputs(target))
-    return f'{config.platform_build_dir_name()}-{config.arch}-{fp}'
+    # Config-only, NOT dep.build_dir_name: this names a COMPILER seed, and a dep's args do not
+    # change compiler detection. Per-dep naming here would re-probe the compiler per arg set.
+    return f'{build_names.build_dir_name(config)}-{config.arch}-{fp}'
 
 
 def _seed_inputs(target:BuildTarget) -> dict:
@@ -165,7 +167,7 @@ def _seed_inputs(target:BuildTarget) -> dict:
     cc, cxx, ver = config.get_preferred_compiler_paths()
     inputs = {
         'cmake': _cmake_version_number(config), 'gen': _generator(target),
-        'arch': config.arch, 'platform': config.platform_build_dir_name(),
+        'arch': config.arch, 'platform': build_names.build_dir_name(config),
         'cc': seedcache.compiler_stat(cc) if cc else {},
         'cxx': seedcache.compiler_stat(cxx) if cxx else {},
         'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),

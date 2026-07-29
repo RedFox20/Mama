@@ -4,6 +4,7 @@ import pytest
 from mama.build_config import BuildConfig
 from mama.buildsys.cmake.mamacmake import _GUARDS, mama_cmake_text, platform_chain
 from mama.platforms.registry import PLATFORMS
+from mama.build_names import build_dir_name
 
 
 def _text():
@@ -24,7 +25,7 @@ def test_every_build_dir_is_reachable(platform_class):
         config = BuildConfig([])
         config.set_platform_class(platform_class)
         config.arch = arch
-        assert f'set(MAMA_BUILD "{config.platform_build_dir_name()}")' in text
+        assert f'set(MAMA_BUILD "{build_dir_name(config)}")' in text
 
 
 def test_the_specific_guards_come_before_the_generic_ones():

@@ -62,11 +62,10 @@ def artifactory_archive_name(target:BuildTarget):
     platform, os_major, _ = target.config.get_distro_info()
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
-    build_type = 'release' if target.config.release else 'debug'
-    sanitizer_suffix = target.config.sanitizer_suffix()
-    # e.g. appends "-asan_tsan" if both of them are enabled
-    if sanitizer_suffix:
-        build_type += '-' + sanitizer_suffix
+    # The SAME suffix the dep's build dir carries, computed once at dep init: e.g. '-cov-asan-lgpl'.
+    # It reads from the dep, not from target.args, because the dep holds what the consumer passed before
+    # any mamafile parse, so the pre-clone shim probe and the upload compose the same name.
+    build_type = ('release' if target.config.release else 'debug') + target.dep.variant_suffix
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 

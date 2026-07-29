@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from testutils import make_configured_target, set_mock_platform
+from mama import build_names
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.platforms.imx8mp import Imx8mp
@@ -13,6 +14,12 @@ from mama.platforms.imx8mp import Imx8mp
 
 
 # --- a seed is named for the platform it was detected on ---
+
+def _named_build_dir(name):
+    """Patch the build dir name the seed id reads. A real Windows or Android platform cannot init on a
+    linux host, and this test is about the NAME keeping two seeds apart, not about platform detection."""
+    return patch.object(build_names, 'build_dir_name', lambda config, variant_suffix=None: name)
+
 
 def _seed_id_for(tmp_path, **overrides):
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -23,8 +30,7 @@ def _seed_id_for(tmp_path, **overrides):
 
 def test_the_seed_id_names_the_platform_and_arch(tmp_path):
     t, dep = make_configured_target(tmp_path, arch='arm64')
-    dep.config.platform_build_dir_name.return_value = 'android'
-    with patch.object(seedcache, 'compute_fingerprint', return_value='deadbeef'):
+    with _named_build_dir('android'), patch.object(seedcache, 'compute_fingerprint', return_value='deadbeef'):
         assert cc._seed_id(t) == 'android-arm64-deadbeef'
 
 
@@ -35,8 +41,7 @@ def test_android_and_linux_cannot_share_a_seed_dir_even_on_a_hash_collision(tmp_
     linux = _seed_id_for(tmp_path / 'a', arch='x64')
     (tmp_path / 'b').mkdir(parents=True, exist_ok=True)
     android_t, android_dep = make_configured_target(tmp_path / 'b', arch='arm64')
-    android_dep.config.platform_build_dir_name.return_value = 'android'
-    with patch.object(seedcache, 'compute_fingerprint', return_value='deadbeef'):
+    with _named_build_dir('android'), patch.object(seedcache, 'compute_fingerprint', return_value='deadbeef'):
         android = cc._seed_id(android_t)
     assert linux != android and linux.startswith('linux-') and android.startswith('android-')
 
@@ -119,8 +124,7 @@ def _seed_ids_for_every_platform(tmp_path):
     for i, (platform, arch) in enumerate(_ALL_PLATFORMS):
         sub = tmp_path / f'p{i}'; sub.mkdir(parents=True)
         t, dep = make_configured_target(sub, arch=arch)
-        dep.config.platform_build_dir_name.return_value = platform
-        with patch.object(seedcache, 'compute_fingerprint', return_value='samehash'):
+        with _named_build_dir(platform), patch.object(seedcache, 'compute_fingerprint', return_value='samehash'):
             ids[(platform, arch)] = cc._seed_id(t)
     return ids
 
@@ -133,8 +137,7 @@ def test_every_platform_gets_its_own_seed_dir(tmp_path):
 @pytest.mark.parametrize('platform,arch', _ALL_PLATFORMS)
 def test_a_seed_id_names_its_own_platform_and_arch(platform, arch, tmp_path):
     t, dep = make_configured_target(tmp_path, arch=arch)
-    dep.config.platform_build_dir_name.return_value = platform
-    with patch.object(seedcache, 'compute_fingerprint', return_value='samehash'):
+    with _named_build_dir(platform), patch.object(seedcache, 'compute_fingerprint', return_value='samehash'):
         assert cc._seed_id(t) == f'{platform}-{arch}-samehash'
 
 

@@ -12,8 +12,8 @@ def _workspace(tmp_path):
     (ws / 'notmine' / 'linux').mkdir(parents=True)              # a dir with no mama marker
     (ws / 'protobuf' / 'windows').mkdir()                       # another platform: out of scope
     (ws / 'protobuf' / 'windows' / 'CMakeCache.txt').write_text('')
-    root = SimpleNamespace(dep_dir=str(ws / 'root'))
-    return ws, root, SimpleNamespace(print=False, platform_build_dir_name=lambda: 'linux')
+    root = SimpleNamespace(dep_dir=str(ws / 'root'), build_dir_name='linux')
+    return ws, root, SimpleNamespace(print=False)
 
 
 def test_sweep_removes_marked_build_dirs_for_this_platform(tmp_path):
@@ -31,5 +31,6 @@ def test_sweep_never_touches_unmarked_or_other_platform_dirs(tmp_path):
 
 
 def test_sweep_on_a_missing_workspace_is_a_noop(tmp_path):
-    config = SimpleNamespace(print=False, platform_build_dir_name=lambda: 'linux')
-    assert sweep_orphaned_build_dirs(SimpleNamespace(dep_dir=str(tmp_path / 'gone' / 'x')), config) == 0
+    config = SimpleNamespace(print=False)
+    root = SimpleNamespace(dep_dir=str(tmp_path / 'gone' / 'x'), build_dir_name='linux')
+    assert sweep_orphaned_build_dirs(root, config) == 0

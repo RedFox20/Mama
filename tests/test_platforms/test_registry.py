@@ -5,6 +5,7 @@ import pytest
 from mama.build_config import BuildConfig
 from mama.platforms.platform import Platform
 from mama.platforms.registry import PLATFORMS, platform_for_arg, host_platform, platform_named
+from mama.build_names import build_dir_name
 
 
 # --- CLI args ---
@@ -38,7 +39,7 @@ def test_the_arg_drives_the_whole_config(arg, name, arch, build_dir):
     config = BuildConfig([arg])
     assert config.name() == name
     assert config.arch == arch
-    assert config.platform_build_dir_name() == build_dir
+    assert build_dir_name(config) == build_dir
 
 
 def test_the_host_platform_is_used_when_no_arg_names_one():
@@ -88,7 +89,7 @@ def test_no_two_platform_and_arch_pairs_share_a_build_dir():
             config = BuildConfig([])
             config.set_platform_class(platform_class)
             config.arch = arch
-            name = config.platform_build_dir_name()
+            name = build_dir_name(config)
             assert name not in dirs, f'{platform_class.name}/{arch} shares {name} with {dirs.get(name)}'
             dirs[name] = f'{platform_class.name}/{arch}'
 

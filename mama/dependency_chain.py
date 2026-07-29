@@ -6,6 +6,7 @@ from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
 from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, get_time_str, BuildError
+from . import build_names
 from .utils import abort, ssh_multiplex, system
 from .utils.sub_process import SubProcess
 from .utils.system import Color, console, error, warning, get_colored_text
@@ -84,7 +85,7 @@ def sweep_orphaned_build_dirs(root: BuildDependency, config: BuildConfig) -> int
     children) - those children's build dirs would then survive every future clean. Enumerate from disk
     as well, deleting only dirs that carry a mama marker file. Returns how many were removed."""
     workspace = os.path.dirname(root.dep_dir)
-    platform = config.platform_build_dir_name()
+    platform = root.build_dir_name  # the root carries no dep args, so this is the config's own dir name
     removed = 0
     try: names = os.listdir(workspace)
     except OSError: return 0
@@ -381,7 +382,7 @@ def _save_mama_cmake(root: BuildDependency):
 
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion has a hard time detecting macro paths
-        build_dir = config.build_dir_with_suffix(build_dir)
+        build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         include = _get_mama_dependencies_cmake(root, build_dir)
         return f'set(MAMA_BUILD "{build_dir}")' + (f'\n        {include}' if include else '')
 

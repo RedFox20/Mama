@@ -452,36 +452,6 @@ class BuildConfig:
         return 'linux'
 
 
-    # per-sanitizer build dir suffix so flavors don't share a dir and force a reconfigure
-    SANITIZER_SUFFIX = { 'address':'-asan', 'leak':'-lsan', 'thread':'-tsan', 'undefined':'-ubsan' }
-
-    def compiler_build_dir_suffix(self):
-        """'-clang' on linux clang builds, else ''. Shared dir = one compiler clobbers the other, then g++
-        links libc++ archives. gcc keeps bare 'linux' (no churn); elsewhere the toolset/SDK fixes the compiler."""
-        return '-clang' if (self.linux and self.clang) else ''
-
-    def build_dir_with_suffix(self, build_dir):
-        build_dir += self.compiler_build_dir_suffix()  # coarsest axis first: linux-clang-coverage-tsan
-        if self.coverage: build_dir += '-coverage'
-        if self.sanitize: build_dir += ''.join(self.SANITIZER_SUFFIX.get(s, '-'+s) for s in self.sanitize.split(','))
-        return build_dir
-
-
-    def platform_build_dir_name(self):
-        """
-        Gets the build folder name depending on platform and architecture.
-        By default 64-bit architectures use the platform name, eg 'windows' or 'linux'
-        And 32-bit architectures add a suffix, eg 'windows32' or 'linux32'
-        Coverage builds add '-coverage' and sanitizer builds add a further
-        suffix, eg 'linux-coverage', 'linux-asan' or 'linux-coverage-asan'.
-        """
-        return self.build_dir_with_suffix(self._platform_build_dir_name())
-
-
-    def _platform_build_dir_name(self):
-        return self.platform.build_dir_name() if self.platform else 'build'
-
-
     def set_build_config(self, release=False, debug=False):
         self.release = release
         self.debug   = debug
@@ -741,32 +711,6 @@ class BuildConfig:
         if self.sanitize: self.sanitize += ',' + option
         else:             self.sanitize = option
 
-
-    # asan/tsan/ubsan/lsan runtimes are mutually incompatible (asan vs tsan
-    # cannot link together; ubsan combos vary). Package archives built with
-    # different sanitizers must therefore have distinct names so a tsan build
-    # isn't downloaded into an asan consumer.
-    _SANITIZER_SHORT_NAMES = {
-        'address':   'asan',
-        'thread':    'tsan',
-        'leak':      'lsan',
-        'undefined': 'ubsan',
-        'memory':    'msan',
-    }
-
-    def sanitizer_suffix(self):
-        """Short package-name suffix for the active sanitizer config:
-        'asan', 'tsan', 'asan_ubsan', etc. Returns '' if no sanitizer is set.
-        Multiple sanitizers are joined with '_' to keep '-' as the field
-        separator in the surrounding archive name."""
-        if not self.sanitize:
-            return ''
-        parts = []
-        for s in self.sanitize.split(','):
-            s = s.strip()
-            if s:
-                parts.append(BuildConfig._SANITIZER_SHORT_NAMES.get(s, s))
-        return '_'.join(parts)
 
 
     def add_coverage_option(self, option='default'):
