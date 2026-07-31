@@ -84,6 +84,24 @@ class GenericYocto(Platform):
             self.init_toolchain()
 
 
+    @staticmethod
+    def expand_versioned_sdks(paths: list) -> list:
+        """Expands each path with its versioned SDK installs, e.g. /opt/imx8mp-sdk/1.4.0,
+        newest first, so a versioned install wins over a flat legacy layout at the same root."""
+        expanded = []
+        for path in paths:
+            if os.path.isdir(path):
+                versions = []
+                for name in os.listdir(path):
+                    if name and all(p.isdigit() for p in name.split('.')):
+                        versions.append(name)
+                # listdir order is not guaranteed cross-platform, sort newest first
+                versions.sort(key=lambda n: [int(p) for p in n.split('.')], reverse=True)
+                expanded += [os.path.join(path, v) for v in versions]
+            expanded.append(path)
+        return expanded
+
+
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """Find the SDK. An explicit `toolchain_dir` is searched first, then the board's own paths,
         then whatever its env vars name."""
@@ -96,6 +114,7 @@ class GenericYocto(Platform):
         envs = list(self.search_envs) or [f'{self.platform_define}_SDK_HOME']
         for env in envs:
             self.append_env_path(paths, env)
+        paths = GenericYocto.expand_versioned_sdks(paths)
 
         for path in paths:
             # Check for Yocto structure
