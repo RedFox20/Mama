@@ -23,3 +23,21 @@ jobs:
 
       - name: Run tests
         run: pytest -v
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14
+
+      - name: Install packaging tools
+        run: pip install -U build "twine>=6.1" "packaging>=24.2"
+
+      # setuptools>=77 writes Metadata 2.4 license fields, and twine rejects them when
+      # packaging is older than 24.2. Only the upload reports that error, so check it here.
+      - name: Build and check distribution metadata
+        run: |
+          python -m build
+          twine check --strict dist/*

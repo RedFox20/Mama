@@ -748,9 +748,9 @@ Mama automatically generates `compile_commands.json` (via `CMAKE_EXPORT_COMPILE_
 We are open for any improvements and feedback via pull requests.
 
 ### Development Setup
-The package `setuptools>=65.0,<77` is required, ensure the version is correct with `pip3 show setuptools`.
+Mama requires `setuptools>=77.0`, because `pyproject.toml` declares the license as a PEP 639 expression. Check the version with `pip3 show setuptools`.
 
-You can set up local development with `$ pip3 install -e . --no-cache-dir` but make sure you have latest setuptools (>=65.0,<77) and latest pip3 (>22.3). This command will fail with older toolkits.
+You can set up local development with `$ pip3 install -e . --no-cache-dir` but make sure you have setuptools (>=77.0) and latest pip3 (>22.3). This command will fail with older toolkits.
 
 ### Running Tests
 
@@ -767,9 +767,10 @@ pytest tests/test_git_pinning/
 
 ### Publishing
 Uploading a source distribution:
-1. Get dependencies: `pip3 install build twine`
+1. Get dependencies: `pip3 install -U build "twine>=6.1" "packaging>=24.2"`
 2. Build sdist: `python -m build`
-3. Upload with twine: `twine upload --skip-existing dist/*`
+3. Verify the metadata: `twine check dist/*`
+4. Upload with twine: `twine upload --skip-existing dist/*`
 It will prompt for Username and Password, unless you set up ~/.pypirc file:
 ```
 [distutils]
@@ -778,4 +779,6 @@ index-servers = pypi
 username=__token__
 password=<pypi-api-token>
 ```
+Use `packaging>=24.2`. setuptools>=77 writes Metadata 2.4, which adds the `license-expression` and `license-file` fields. An older `packaging` does not know those fields, so twine refuses the upload with `InvalidDistribution: unrecognized or malformed field 'license-expression'`. Upgrade `packaging` and build again.
+
 Quick build & upload: `./deploy.sh`
