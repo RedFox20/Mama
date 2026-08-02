@@ -288,6 +288,29 @@ def run_config_capturing(target, dep):
     return cmds
 
 
+def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, partial=(), system='Windows'):
+    """A `CMakeFiles/<ver>` dir as cmake leaves it after detection, for the compiler-seed tests.
+
+    Each language names a compiler that EXISTS in the dir, because the seed cache refuses a module
+    whose compiler it cannot stat. A lang in `partial` stops at stage 1 (no ABI probe), the way a
+    killed configure leaves it. Returns the dir."""
+    from mama.buildsys.cmake.compiler_cache import _LANG_FILES
+    from mama.util import normalized_path
+    os.makedirs(build_files_dir, exist_ok=True)
+    write = lambda name, text: open(os.path.join(build_files_dir, name), 'w').write(text)
+    write('CMakeSystem.cmake', f'set(CMAKE_SYSTEM_NAME "{system}")\n')
+    for lang in langs:
+        mod, abi = _LANG_FILES[lang]
+        compiler = normalized_path(os.path.join(build_files_dir, f'cc_{lang}'))
+        open(compiler, 'w').write('')
+        complete = abi and lang not in partial
+        write(mod, f'set(CMAKE_{lang}_COMPILER "{compiler}")\n' + \
+                   (f'set(CMAKE_{lang}_ABI_COMPILED TRUE)\n' if complete else ''))
+        if complete: open(os.path.join(build_files_dir, abi), 'wb').write(b'\x00abi')
+    if vs: write('VCTargetsPath.txt', 'C:/VCTargets\n')
+    return build_files_dir
+
+
 def write_cmake_cache(build_dir, text):
     """Write a raw CMakeCache.txt into build_dir (created if missing)."""
     os.makedirs(build_dir, exist_ok=True)

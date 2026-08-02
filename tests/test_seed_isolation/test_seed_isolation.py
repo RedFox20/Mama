@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_configured_target, set_mock_platform
+from testutils import make_cmake_detection, make_configured_target, set_mock_platform
 from mama import build_names
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -52,13 +52,8 @@ def test_two_platforms_publish_into_separate_dirs_concurrently(tmp_path):
     built = {}
     def publish(name):
         seed_dir = os.path.join(root, name)
-        files_dir = tmp_path / name / 'CMakeFiles'
-        files_dir.mkdir(parents=True)
-        for lang in ('C', 'CXX'):
-            (files_dir / f'CMake{lang}Compiler.cmake').write_text(
-                f'set(CMAKE_SYSTEM_NAME "{name}")\nset(CMAKE_{lang}_ABI_COMPILED TRUE)\n')
-        (files_dir / 'CMakeSystem.cmake').write_text(f'set(CMAKE_SYSTEM_NAME "{name}")\n')
-        built[name] = seedcache.publish(seed_dir, str(files_dir), fingerprint=name)
+        files_dir = make_cmake_detection(str(tmp_path / name / 'CMakeFiles'), langs=('C', 'CXX'), system=name)
+        built[name] = seedcache.publish(seed_dir, files_dir, fingerprint=name)
     threads = [threading.Thread(target=publish, args=(n,)) for n in ('android-arm64-aaaa', 'linux-x64-bbbb')]
     for t in threads: t.start()
     for t in threads: t.join()
@@ -146,10 +141,8 @@ def test_a_seed_published_for_one_platform_never_validates_for_another(tmp_path)
     ids = list(_seed_ids_for_every_platform(tmp_path).values())
     root = tmp_path / 'seeds'
     for seed_id in ids:
-        files = tmp_path / 'det' / seed_id; files.mkdir(parents=True)
-        for lang in ('C', 'CXX'):
-            (files / f'CMake{lang}Compiler.cmake').write_text(f'set(CMAKE_{lang}_ABI_COMPILED TRUE)\n')
-        assert seedcache.publish(str(root / seed_id), str(files), fingerprint=seed_id)
+        files = make_cmake_detection(str(tmp_path / 'det' / seed_id), langs=('C', 'CXX'))
+        assert seedcache.publish(str(root / seed_id), files, fingerprint=seed_id)
 
     for seed_id in ids:
         manifest = seedcache.load(str(root / seed_id))
