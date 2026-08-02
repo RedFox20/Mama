@@ -37,7 +37,7 @@ _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
 
 # Bumped when the seed changes shape. An older seed has the SAME fingerprint but replays too few cache
 # lines, so it must be rejected and re-probed rather than silently reused.
-_SEED_FORMAT = 2
+_SEED_FORMAT = 3
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds; fingerprint is the real gate, this is just paranoia
 
 
@@ -95,11 +95,37 @@ def _seed_file_names(langs: list) -> list:
     return names
 
 
-def read_replay_cache_lines(build_dir: str) -> list:
-    """_REPLAY_CACHE_KEYS lines verbatim from a configured dir's CMakeCache.txt, for inject() to replay."""
+_COMPILER_SET = 'set(CMAKE_{}_COMPILER "'  # first line of a generated CMake<lang>Compiler.cmake
+
+
+def compiler_from_module(build_files_dir: str, lang: str) -> str:
+    """The compiler path the captured CMake<lang>Compiler.cmake records, '' when absent."""
+    try: text = read_text_from(path_join(build_files_dir, _LANG_FILES[lang][0]))
+    except OSError: return ''
+    prefix = _COMPILER_SET.format(lang)
+    for line in text.splitlines():
+        if line.startswith(prefix): return line[len(prefix):].split('"', 1)[0]
+    return ''
+
+
+def read_replay_cache_lines(build_dir: str, build_files_dir='') -> list:
+    """_REPLAY_CACHE_KEYS lines verbatim from a configured dir's CMakeCache.txt, for inject() to replay.
+
+    A toolchain file that names the compiler leaves NO CMAKE_<lang>_COMPILER in the cache, because
+    cmake caches only what it detected itself. A seeded dir skips detection, so the cache stays empty
+    too, and a CMakeLists that later runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset then
+    clears the compiler for good: every ninja rule compiles with "". Read the missing entry back from
+    the compiler module this seed transplants, so the cache always names the same compiler."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return []
-    return [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
+    except OSError: text = ''
+    lines = [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
+    cached = {ln.split(':', 1)[0] for ln in lines}
+    for lang in _CORE_LANGS:
+        key = f'CMAKE_{lang}_COMPILER'
+        if key in cached: continue
+        compiler = compiler_from_module(build_files_dir, lang) if build_files_dir else ''
+        if compiler: lines.append(f'{key}:FILEPATH={compiler}')
+    return lines
 
 
 def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build_dir='', clock=time.time) -> bool:
@@ -122,7 +148,7 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
     manifest = {'created': int(clock()), 'format': _SEED_FORMAT,
                 'cmake_files_ver': os.path.basename(build_files_dir.rstrip('/')),
                 'langs': langs, 'files': copied, 'fingerprint': fingerprint, 'probe': probe,
-                'cache_lines': read_replay_cache_lines(build_dir) if build_dir else []}
+                'cache_lines': read_replay_cache_lines(build_dir, build_files_dir) if build_dir else []}
     mtmp = path_join(seed_dir, _MANIFEST + '.tmp')
     with open(mtmp, 'w', encoding='utf-8') as f: json.dump(manifest, f)
     os.replace(mtmp, path_join(seed_dir, _MANIFEST))  # manifest last + atomic (load() gates on it)

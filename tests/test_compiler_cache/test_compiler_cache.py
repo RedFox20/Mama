@@ -92,6 +92,31 @@ def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
     assert 'BUILD_TESTS' not in cache  # toolchain facts only, no project settings leak
 
 
+def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path):
+    # A toolchain file names the compiler, so cmake caches none. Without the replay, a CMakeLists that
+    # runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset leaves every ninja rule compiling with "".
+    build = str(tmp_path / 'A')
+    bf = _fake_build_files(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build, 'CMAKE_TOOLCHAIN_FILE:FILEPATH=/opt/sdk/tc.cmake\n')
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf, build_dir=build)
+
+    dst = str(tmp_path / 'B')
+    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
+    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
+    assert 'CMAKE_C_COMPILER:FILEPATH=C:/bin/c.exe' in cache
+    assert 'CMAKE_CXX_COMPILER:FILEPATH=C:/bin/cxx.exe' in cache
+
+
+def test_a_cached_compiler_wins_over_the_compiler_module(tmp_path):
+    build = str(tmp_path / 'A')
+    bf = _fake_build_files(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build, 'CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++\n')
+    lines = cc.read_replay_cache_lines(build, bf)
+    assert 'CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++' in lines
+    assert 'CMAKE_CXX_COMPILER:FILEPATH=C:/bin/cxx.exe' not in lines
+
+
 def test_publish_returns_false_without_compiler_files(tmp_path):
     empty = str(tmp_path / 'x' / '4.2.3'); os.makedirs(empty)
     assert cc.publish(str(tmp_path / 'seed'), empty) is False

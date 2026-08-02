@@ -173,6 +173,10 @@ def _seed_inputs(target:BuildTarget) -> dict:
         'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
         'toolchain': _toolchain_inputs(target),
         'stdlib': _abi_stdlib(config),  # libc++ vs libstdc++ changes the CXX ABI probe's implicit link libs
+        # The seed shape is part of what a build dir was configured against. An older seed wrote a cache
+        # with no CMAKE_<lang>_COMPILER, and a dir configured from it keeps that hole for good. Bumping
+        # the format here flips every fingerprint once, so run_config wipes those dirs and reseeds them.
+        'seedfmt': seedcache._SEED_FORMAT,
     }
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
         inputs['msvc'] = seedcache.compiler_stat(_seed_probe(target))
