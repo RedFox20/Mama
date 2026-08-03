@@ -8,7 +8,7 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .util import normalized_path, normalized_join, read_lines_from, forward_slashes \
+from .util import normalized_join, read_lines_from, forward_slashes \
                 , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
 from .utils.system import warning
 
@@ -72,56 +72,62 @@ def _gather_assets(target:BuildTarget, recurse):
     return _gather(target, recurse, assets, lambda t: t.exported_assets)
 
 
+def _header_stems(includes:list, suffixes:tuple) -> set:
+    """Lowercased name of every real header in the exported trees, `qcorotask` for qcorotask.h."""
+    stems = set()
+    for _, abs_include in includes:
+        for _, _, names in os.walk(abs_include):
+            stems |= {os.path.splitext(n)[0].lower() for n in names if n.endswith(suffixes)}
+    return stems
+
+
+def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
+    """(source dir, deployed dir, papa record) for one exported include dir. The record is the include
+    path a consumer gets, so `as_includes_root` deploys src/mylib as include/mylib and records include."""
+    root_path, root_src, alias = target.includes_root
+    if root_path and abs_include == root_path:
+        return f'{abs_include}/{os.path.basename(root_src)}', f'{includes_root}/{alias}', 'I include'
+    name = os.path.basename(abs_include)
+    if name == 'include': return abs_include, includes_root, 'I include'
+    return abs_include, f'{includes_root}/{name}', f'I include/{name}'
+
+
 def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes):
     if not includes:
         return # nothing to do
     config = target.config
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
-    includes_filter = target.include_glob_filter
+    suffixes = tuple(target.include_glob_filter)
+    stems = _header_stems(includes, suffixes)
 
+    def is_header(path:str) -> bool:
+        name = os.path.basename(path)
+        if name.endswith(suffixes): return True
+        # Qt and QCoro name a stub header after the class it declares, with no extension, as in
+        # `#include <QCoro/QCoroTask>`. Ship one only when the header it forwards to is in the tree,
+        # so a LICENSE or an AUTHORS file never ships.
+        return '.' not in name and name.lower() in stems
 
-    def append(relpath, abs_include):
-        src_path = abs_include
-        dst_dir = includes_root
-        remap_root_dirname = False
-
-        # if this is the default include, then we will put it directly
-        # into include/foldername instead of something like foldername/ or include/src/foldername/
-        if target.includes_root[0] and src_path == target.includes_root[0]:
-            src_name = os.path.basename(target.includes_root[1])
-            alias_name = target.includes_root[2]
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include [root] {relpath}/{src_name} -> include/{alias_name}')
-            src_path = f'{src_path}/{src_name}' # input from src/foldername
-            dst_dir = f'{includes_root}/{alias_name}/' # remap 'src/' to '{deploy}/include/alias_name/'
-            remap_root_dirname = True
-            descr.append('I include') # and set includepath to include/, so users can #include <mylib/mylib.h>
-        # matches default include?
-        elif relpath == 'include' or relpath == 'include/':
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include')
-            dst_dir = normalized_path(includes_root + '/../')
-            descr.append('I include') 
-        else:
-            if detail_echo: console(f'    I ({inctarget.name+")": <16}  include/{relpath}')
-            descr.append(f'I include/{relpath}')
-
-        src_dir = os.path.dirname(src_path)
-        if src_dir != dst_dir:
-            if config.verbose: console(f'    copy {src_path}\n      -> {dst_dir}')
-            copy_dir(src_path, dst_dir, includes_filter, remap_root_dirname=remap_root_dirname)
-
-    relincludes = []  # TODO: what was the point of this again?
+    exported = []  # export dir names already handled, so one name never ships twice
+    deploy_dirs = {}  # lowercased deploy dir name -> the deploy dir that shipped first
     for inctarget, abs_include in includes:
-        relpath = os.path.basename(abs_include)
-        if not relpath in relincludes:
-            relincludes.append(relpath)
-            append(relpath, abs_include)
-
-    if not relincludes:
-        # set the default include, just in case we cannot add anything
-        # this ensures we at least deploy something
-        descr.append('I include')
-
+        name = os.path.basename(abs_include)
+        if name in exported: continue
+        exported.append(name)
+        src_dir, dst_dir, record = _include_deploy(target, includes_root, abs_include)
+        first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
+        # QCoro/ next to qcoro/ is ONE dir on Windows and macOS. The merge also puts a stub header
+        # beside the header it forwards to, which is how `#include "qcorotask.h"` resolves.
+        merged = first != dst_dir
+        if merged: dst_dir = first
+        else: descr.append(record)
+        if detail_echo:
+            where = f'{record[2:]} merged into {os.path.basename(first)}' if merged else record[2:]
+            console(f'    I ({inctarget.name+")": <16}  {where}')
+        if src_dir != dst_dir:
+            if config.verbose: console(f'    copy {src_dir}\n      -> {dst_dir}')
+            copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)
 
 
 def _file_hash(path:str) -> str:

@@ -2,21 +2,15 @@
 import os, zipfile
 
 import pytest
-from testutils import archive_papa_package, deploy_and_archive, make_exporting_target, make_mock_dep
+from testutils import archive_papa_package, deploy_and_archive, make_exporting_target, make_mock_dep, write_files
 
 TASK_H = '#pragma once\n// task\n'
-
-
-def _write_files(root, files:dict):
-    for rel, text in files.items():
-        os.makedirs(os.path.dirname(f'{root}/{rel}'), exist_ok=True)
-        open(f'{root}/{rel}', 'w').write(text)
 
 
 def _deployed(tmp_path, files:dict, records:list) -> str:
     """A package dir this test writes by hand. papa_deploy never emits an include record outside include/."""
     package = str(tmp_path / 'deploy')
-    _write_files(package, files)
+    write_files(package, files)
     open(f'{package}/papa.txt', 'w').write('\n'.join(['P libfoo'] + records))
     return package
 
@@ -25,7 +19,7 @@ def _built(tmp_path, files:dict, includes:list):
     """A producer build dir with `files` and one lib, plus the target that exports `includes`."""
     dep = make_mock_dep(tmp_path / 'producer', name='libfoo')
     build = dep.build_dir
-    _write_files(build, files | {'lib/libfoo.a': '\0'})
+    write_files(build, files | {'lib/libfoo.a': '\0'})
     return build, make_exporting_target(dep, [f'{build}/{i}' for i in includes], [f'{build}/lib/libfoo.a'])
 
 
@@ -82,6 +76,46 @@ def test_two_headers_of_one_size_with_different_content_upload_fine(tmp_path):
     archive = archive_papa_package(package, tmp_path / 'package.zip')
     assert sorted(n for n in zipfile.ZipFile(archive).namelist() if not n.endswith('/')) == \
            ['include/a/cfg.h', 'include/b/cfg.h', 'papa.txt']
+
+
+# --- only a header ships: a stub with no extension counts, everything else in the tree does not ---
+
+TRASH = {'include/qcoro/LICENSE': 'GPL\n', 'include/qcoro/AUTHORS': 'someone\n',
+         'include/qcoro/README.md': '# qcoro\n', 'include/qcoro/CMakeLists.txt': 'add_library(x)\n',
+         'include/qcoro/Makefile': 'all:\n', 'include/qcoro/qcorotask.h.in': '@CONFIG@\n'}
+
+
+def _shipped(tmp_path, files:dict, includes:list) -> list:
+    build, target = _built(tmp_path, files, includes)
+    archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    return sorted(n for n in zipfile.ZipFile(archive).namelist() if not n.endswith('/'))
+
+
+def test_a_stub_header_ships_and_the_rest_of_the_tree_does_not(tmp_path):
+    # Qt and QCoro name a stub header after the class: `#include <QCoro/QCoroTask>` has no .h to match
+    names = _shipped(tmp_path, TRASH | {'include/qcoro/qcorotask.h': TASK_H,
+                                        'include/qcoro/QCoroTask': '#include "qcorotask.h"\n'}, ['include'])
+    assert names == ['include/qcoro/QCoroTask', 'include/qcoro/qcorotask.h', 'lib/libfoo.a', 'papa.txt']
+
+
+def test_a_stub_without_its_real_header_does_not_ship(tmp_path):
+    # the name alone does not make it a header, so an extensionless file needs a header to forward to
+    names = _shipped(tmp_path, {'include/qcoro/qcorotask.h': TASK_H,
+                                'include/qcoro/QCoroSocket': 'anything\n'}, ['include'])
+    assert names == ['include/qcoro/qcorotask.h', 'lib/libfoo.a', 'papa.txt']
+
+
+def test_a_case_variant_include_dir_merges_into_the_one_that_shipped_first(tmp_path):
+    # QCoro/ and qcoro/ are one dir on Windows, and the stub forwards to a header in its own dir
+    build, target = _built(tmp_path, {'include/qcoro6/qcoro/qcorotask.h': TASK_H,
+                                      'include/qcoro6/QCoro/QCoroTask': '#include "qcorotask.h"\n'}, [])
+    target.export_include('include/qcoro6/qcoro', build_dir=True, as_includes_root='qcoro')
+    target.export_include('include/qcoro6/QCoro', build_dir=True)
+    archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    names = sorted(n for n in zipfile.ZipFile(archive).namelist() if not n.endswith('/'))
+    assert names == ['include/qcoro/QCoroTask', 'include/qcoro/qcorotask.h', 'lib/libfoo.a', 'papa.txt']
+    with zipfile.ZipFile(archive) as zip:
+        assert [l for l in zip.read('papa.txt').decode().splitlines() if l.startswith('I ')] == ['I include']
 
 
 def test_a_second_export_include_inside_the_first_one_warns(tmp_path, capsys):

@@ -506,22 +506,18 @@ def _should_copy(src: str, dst: str):
     return False
 
 
-def _passes_filter(src_file: str, filter: list) -> bool:
-    if not filter:
-        return True
-    if isinstance(filter, str):
-        return src_file.endswith(filter)
-    for f in filter:
-        if src_file.endswith(f):
-            return True
-    return False
+def _passes_filter(src_file: str, filter) -> bool:
+    if not filter: return True
+    if callable(filter): return filter(src_file)
+    if isinstance(filter, str): return src_file.endswith(filter)
+    return any(src_file.endswith(f) for f in filter)
 
 
-def copy_file(src: str, dst: str, filter: list = None) -> bool:
+def copy_file(src: str, dst: str, filter=None) -> bool:
     """
         Copies a single file if it passes the filter and
         if it has changed, returns TRUE if copied.
-        The filter can be a string suffix or a list of string suffixes.
+        The filter is a string suffix, a list of suffixes, or a function of the file path.
     """
     if _passes_filter(src, filter):
         if os.path.isdir(dst):
@@ -534,12 +530,12 @@ def copy_file(src: str, dst: str, filter: list = None) -> bool:
     return False
 
 
-def copy_dir(src_dir: str, out_dir: str, filter: list = None, remap_root_dirname=False) -> bool:
+def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) -> bool:
     """
         Copies an entire dir if it passes the filter and
         if the individual files have changed.
         Returns TRUE if any files were copied.
-        The filter can be a string suffix or a list of string suffixes.
+        The filter is a string suffix, a list of suffixes, or a function of the file path.
         If remap_root_dirname is True, then src_dir contents are mapped directly
         into out_dir, effectively renaming the source directory to out_dir's basename.
         Example: copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True)
@@ -569,10 +565,10 @@ def copy_dir(src_dir: str, out_dir: str, filter: list = None, remap_root_dirname
     return copied
 
 
-def copy_if_needed(src: str, dst: str, filter: list = None) -> bool:
+def copy_if_needed(src: str, dst: str, filter=None) -> bool:
     """
         Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied.
-        The filter can be a string suffix or a list of string suffixes.
+        The filter is a string suffix, a list of suffixes, or a function of the file path.
     """
     #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):

@@ -74,7 +74,11 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
             include_path = normalized_path(include_path + '/../')
             target.includes_root = (include_path, includes_root, alias_name)
         if not include_path in target.exported_includes:
-            overlap = _overlapping_include(target.exported_includes, include_path)
+            # an as_includes_root export ships one subdir of the parent it records, so the parent
+            # covers nothing else. Compare against the subdir it really ships.
+            root_path, root_src, _ = target.includes_root
+            shipped = [root_src if e == root_path else e for e in target.exported_includes]
+            overlap = _overlapping_include(shipped, include_path)
             if overlap:
                 warning(f'export_include({include_path}) overlaps the exported {overlap}. ' + \
                         'One export covers those headers already.')

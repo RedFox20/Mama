@@ -164,6 +164,15 @@ def test_region_line_drops_cursor_moves_smuggled_in_by_a_nested_display():
     assert '\x1b[' not in line and 'nested frame' in line
 
 
+def test_region_line_drops_tabs_that_widen_it_past_the_terminal():
+    """A tab counts as one character but renders up to eight columns, so the line wrapped and desynced."""
+    d, _, clk = _disp(isatty=True)
+    d.start_task(1, 'build', 'libffmpeg'); clk.tick(0.5)
+    d.feed(1, 'X86ASM\tlibavfilter/x86/af_volume.o')
+    line = d._task_line(d._tasks[1], clk(), 120)
+    assert '\t' not in line and 'af_volume.o' in line
+
+
 def test_truncate_keeps_colour_while_dropping_cursor_moves():
     d, _, _ = _disp(isatty=True)
     assert d._truncate('\x1b[32m+\x1b[0m \x1b[1Aok', 80) == '\x1b[32m+\x1b[0m ok'

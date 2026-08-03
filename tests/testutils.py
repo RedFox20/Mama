@@ -354,6 +354,13 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
     return build_files_dir
 
 
+def write_files(root, files:dict):
+    """Write {relative path: text} under `root`, creating each parent dir."""
+    for rel, text in files.items():
+        os.makedirs(os.path.dirname(f'{root}/{rel}'), exist_ok=True)
+        open(f'{root}/{rel}', 'w').write(text)
+
+
 def write_cmake_cache(build_dir, text):
     """Write a raw CMakeCache.txt into build_dir (created if missing)."""
     os.makedirs(build_dir, exist_ok=True)
