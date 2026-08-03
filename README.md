@@ -372,8 +372,8 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 | `enable_cxx_build` | `True` | Enable C++ compiler |
 | `enable_multiprocess_build` | `True` | Enable parallel compilation |
 | `clean_intermediate_files` | `False` | Clean intermediate build files after build |
-| `version` | `None` | Custom version string for packaging |
-| `args` | `[]` | Arguments passed from parent via `add_git(args=)` / `add_local(args=)` |
+| `version` | `''` | Pins the archive name's last field instead of the commit hash. Must be one raw string literal - see [Pinning a version](#pinning-a-version-selfversion) |
+| `args` | `[]` | Arguments passed from parent via `add_git(args=)` / `add_local(args=)`. Also name the archive and the build dir |
 
 ### Platform detection properties
 
@@ -659,9 +659,63 @@ $ mama upload googletest
 ### Package naming convention
 Artifactory archives follow the naming format:
 ```
-{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}
+{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
 ```
-Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`. Sanitized builds append `-sanitized`. Set `version` class attribute to override the default commit hash.
+Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`.
+
+`{version}` is the dep's commit hash, unless the mamafile pins `self.version` (see below).
+
+`[-variant]` is every axis that makes this build different from a plain one, coarsest first. It is
+empty for a plain release build, so those names never change. The same string also names the build
+directory (`linux-cov-asan-lgpl`), so a build and the package it uploads can never disagree:
+
+| axis | token | comes from |
+|---|---|---|
+| coverage | `-cov` | `coverage` on the command line |
+| sanitizers | `-asan` `-tsan` `-lsan` `-ubsan` `-msan` | `sanitize=address` / `asan` / ... |
+| dep args | `-lgpl` `-cpp20` | `add_git(..., args=['LGPL'])` in the consumer |
+
+Mama normalizes every dep arg, so one set of args always spells one name. It lowercases the arg, turns
+`+` into `p` (`C++20` -> `cpp20`) and drops every other non-alphanumeric character (`NEWMATH=1` ->
+`newmath1`). It then sorts the tokens and removes the duplicates. The call order and the letter case
+therefore never change a name.
+
+### Pinning a version: `self.version`
+
+Setting `self.version` replaces the commit hash in the archive name:
+
+```python
+class libffmpeg(mama.BuildTarget):
+    def init(self):
+        self.version = '8.0.1'    # libffmpeg-ubuntu-24-gcc14.3-x64-release-8.0.1
+```
+
+Use it for a dep that ships numbered releases, where the commit hash is noise. One archive then serves
+every consumer that pins that version, whatever commit each one resolved.
+
+**It must be a single raw string literal.** To download a package, mama needs the archive name *before*
+it clones anything. So it never runs the mamafile. It reads the file as text and takes the first
+`self.version = '<literal>'` it finds. Pre-clone that text comes from `git show HEAD:mamafile.py` on the
+remote. Post-clone it comes from the file on disk. The upload side does the opposite: it runs the
+mamafile and uses the value in memory. Three rules follow:
+
+1. **A literal, in any method.** `init()`, `settings()` and `configure()` all work: the method does not
+   matter, the text does.
+2. **No computed value.** `self.version = f'{v}'`, a function call or a file read is invisible to the
+   text reader. The download then looks for the commit-hash name while the upload publishes the computed
+   one, and every build misses the cache in silence.
+3. **One assignment per mamafile.** The reader takes the FIRST literal in file order. A conditional
+   second assignment downloads one name and uploads another.
+
+To build one repo two ways, do not branch the version - pass args from the consumer:
+
+```python
+# in the consumer's mamafile, NOT in a conditional self.version
+self.add_git('libffmpeg', 'https://github.com/org/libffmpeg.git', args=['LGPL'])
+# -> libffmpeg-ubuntu-24-gcc14.3-x64-release-lgpl-8.0.1, and its own build dir
+```
+
+Args are known before the clone, so they name the archive and the build directory correctly.
 
 
 ## `mama open` behavior
