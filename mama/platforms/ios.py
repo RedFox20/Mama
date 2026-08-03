@@ -17,7 +17,7 @@ class Ios(Platform):
     supported_arches = ('arm64',)
     toolchain_override_attr = 'cmake_ios_toolchain'
     syslib_is_framework = True
-    ide_project_ext = '.xcodeproj'
+    ide_project_ext = ('.xcodeproj',)
     ide_project_is_dir = True
     ide_open_command = 'open'
 

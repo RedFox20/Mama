@@ -9,6 +9,7 @@ from mama.buildsys.cmake import configure as cc
 COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=Release\n'
 NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_BUILD_TYPE:STRING=Release\n'
 TRUNCATED = '# This is the CMakeCache file.\nCMAKE_BUILD_TYPE:STRING=Release\n'  # killed before the generator line
+VS = 'CMAKE_GENERATOR:INTERNAL=Visual Studio 18 2026\nCMAKE_BUILD_TYPE:STRING=Release\n'
 
 
 def test_is_cmake_cache_valid(tmp_path):
@@ -37,6 +38,24 @@ def test_a_stale_other_build_system_file_does_not_count(tmp_path):
     write_build_file(d, 'build.ninja'); assert cc.is_cmake_cache_valid(d)
 
 
+def test_a_visual_studio_dir_is_valid_with_either_solution_format(tmp_path):
+    d = str(tmp_path / 'b')
+    write_cmake_cache(d, VS)
+    assert not cc.is_cmake_cache_valid(d)                    # configure died before it wrote a solution
+    write_build_file(d, 'Foo.slnx')  # VS 18 (2026) with cmake 4.2 writes the XML format
+    assert cc.is_cmake_cache_valid(d)
+    write_build_file(d, 'Foo.sln')   # an older toolset writes the classic format
+    assert cc.is_cmake_cache_valid(d)
+
+
+def test_a_visual_studio_slnx_dir_skips_the_reconfigure(tmp_path):
+    # the .slnx read as a killed configure, so every `mama build` wiped the dir and paid a full rebuild
+    t, dep = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), VS); write_build_file(t.build_dir(), 'Foo.slnx')
+    assert _run_config_recording(t, dep) == []
+    assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
+
+
 def test_unknown_generator_is_trusted_not_wiped(tmp_path):
     d = str(tmp_path / 'b')
     write_cmake_cache(d, 'CMAKE_GENERATOR:INTERNAL=Green Hills MULTI\n')
@@ -61,6 +80,15 @@ def test_truncated_cache_is_wiped_and_reconfigured(tmp_path):
     write_cmake_cache(t.build_dir(), TRUNCATED)
     assert _run_config_recording(t, dep) == ['conf']   # did NOT skip on a cache that merely exists
     assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))  # the bad cache was dropped
+
+
+def test_the_reconfigure_reason_reaches_the_target_log(tmp_path):
+    # mamabuild.log records only what the sink receives, so a reason that skips it never reaches the log
+    t, dep = make_configured_target(tmp_path, print=True)
+    write_cmake_cache(t.build_dir(), TRUNCATED)
+    notes = []
+    run_config_capturing(t, dep, out=notes.append)
+    assert any('incomplete build dir' in n for n in notes)
 
 
 def test_complete_configure_still_skips_the_reconfigure(tmp_path):

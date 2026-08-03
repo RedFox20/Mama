@@ -1,4 +1,7 @@
 """Pins MSVC toolset selection: newest version with a live cl.exe, not os.listdir order."""
+from unittest.mock import Mock
+
+from mama.platforms import windows
 from mama.platforms.windows import latest_msvc_toolset
 
 def _toolset(root, ver, with_cl=True):
@@ -22,6 +25,25 @@ def test_empty_or_missing_root_returns_empty(tmp_path):
     assert latest_msvc_toolset(str(tmp_path / 'nope')) == ''
     (tmp_path / 'empty').mkdir()
     assert latest_msvc_toolset(str(tmp_path / 'empty')) == ''
+
+
+def test_the_visual_studio_detection_prints_once(tmp_path, monkeypatch, capsys):
+    # mama memoizes the path, so a print outside the memo wrote the same line once per caller
+    monkeypatch.setattr(windows, '_found', {})
+    monkeypatch.setattr(windows, 'vswhere_property', lambda name: str(tmp_path))
+    monkeypatch.setattr(windows.System, 'windows', True)
+    for _ in range(3): windows.find_visualstudio(verbose=True)
+    assert capsys.readouterr().out.count('Detected VisualStudio') == 1
+
+
+def test_the_msvc_tools_detection_prints_once(tmp_path, monkeypatch, capsys):
+    _toolset(tmp_path, '14.51.36231')
+    monkeypatch.setattr(windows, '_found', {})
+    monkeypatch.setattr(windows.Windows, 'visualstudio_path', lambda self: str(tmp_path))
+    monkeypatch.setattr(windows, 'latest_msvc_toolset', lambda root: str(tmp_path / '14.51.36231'))
+    platform = windows.Windows(Mock(verbose=True))
+    for _ in range(3): platform.msvc_tools_path()
+    assert capsys.readouterr().out.count('Detected MSVC Tools') == 1
 
 
 def test_a_toolset_without_cl_is_rejected_not_returned(tmp_path):

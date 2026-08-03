@@ -314,9 +314,10 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     return dep.target, dep
 
 
-def run_config_capturing(target, dep):
+def run_config_capturing(target, dep, out=None):
     """Drive cmake configure.run_config with the cmake call + seed coordinator stubbed. Returns the
-    configure command lines it would have run, so a test can assert on the flags without a real cmake."""
+    configure command lines it would have run, so a test can assert on the flags without a real cmake.
+    `out` is the target's output sink, which the scheduler passes and mamabuild.log records."""
     from unittest.mock import patch
     from mama.buildsys.cmake import configure as cmake_configure
     cmds = []
@@ -326,7 +327,7 @@ def run_config_capturing(target, dep):
          patch.object(dep, 'get_enabled_sanitizers', return_value=''):
         coord.return_value.prepare.return_value = 'none'
         coord.return_value.status.return_value = ('fp', False)
-        cmake_configure.run_config(target)
+        cmake_configure.run_config(target, out=out)
     return cmds
 
 
