@@ -51,3 +51,6 @@ bench/_out/
 
 # Claude Code agent worktrees (transient)
 .claude/worktrees/
+
+# Fingerprint of the last passing mama-style-review (see .claude/settings.json)
+.claude/.review-passed
