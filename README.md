@@ -749,7 +749,7 @@ Args are known before the clone, so they name the archive and the build director
 
 ## `mama open` behavior
 
-- **Windows**: Opens `.sln` from build dir; falls back to VSCode
+- **Windows**: Opens `.slnx` or `.sln` from build dir, newest first. Falls back to VSCode
 - **macOS/iOS**: Opens `.xcodeproj` from build dir; falls back to VSCode
 - **Linux/Android**: Opens VSCode
 

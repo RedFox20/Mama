@@ -210,10 +210,18 @@ it: a one-line fix, a doc edit, an "obviously trivial" diff. The skill exists
 because verbosity and duplication appear most often in the changes that looked fine
 on first write.
 
+**Run the review at every hand-off, not only at the end of a task.** Before you answer
+the user with work in the tree, and while the test suite runs. Its step 0 re-reads
+`ste-writing` and `output-style` from disk. Both drift out of a long session, and a rule
+you cannot see is a rule you do not apply. A `Stop` hook in `.claude/settings.json` says
+the same thing when the tree holds uncommitted changes.
+
 Every task ends with these steps:
-1. Implement the change and run the test suite.
-2. Invoke `/mama-style-review`, or spawn a sub-agent with the prompt of that skill.
-   The skill reports each finding as `<file>:<line> - <rule>: <fix>`.
+1. Implement the change, then start the test suite **in the background**. The suite takes about
+   two minutes, and a review costs nothing while it runs.
+2. Invoke `/mama-style-review` WHILE the suite runs, or spawn a sub-agent with the prompt of
+   that skill. The skill reports each finding as `<file>:<line> - <rule>: <fix>`. Read the suite
+   result when it lands. Re-run the tests a change touched after you apply the fixes.
 3. **Apply the fixes.** Do not only acknowledge them. Aim for the line-count
    reduction that the skill targets. That is the success metric, not "all findings
    addressed".
@@ -231,6 +239,9 @@ after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
 helper-reuse against duplication (in particular against `util.py`,
 `utils/system.py` and `tests/testutils.py`), terse test docstrings, dropped
 tautological tests, and that a test pins every added behavior.
+
+It also checks the shape of the answer that reports it, against `output-style`: the next action
+first, no preamble, no recap, no closing pleasantry, lists capped at five.
 
 It also runs the `ste-writing` lint over the prose the diff adds - every
 docstring, comment, console string and exception message: no contractions, no

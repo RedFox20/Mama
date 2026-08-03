@@ -1,10 +1,11 @@
 ---
 name: mama-style-review
 description: >
-  Mandatory final-stage review of pending changes against the project's
-  CLAUDE.md style and reuse rules. Run after every change session before
-  considering any feature complete and before committing. Loops
-  fix-and-re-review until 0 issues remain.
+  Mandatory review of pending changes against the project's CLAUDE.md style
+  and reuse rules. Run it at every hand-off: before you answer the user,
+  while the test suite runs, and before committing. Step 0 re-reads the
+  ste-writing and output-style rule sets, which drift out of a long session.
+  Loops fix-and-re-review until 0 issues remain.
 ---
 
 # Mama Style + Reuse Review
@@ -14,7 +15,11 @@ You are reviewing pending changes in the Mama project against the rules in
 review passes with 0 issues.**
 
 The user has explicitly opted into this being the final stage of every task.
-Run automatically as the last todo item; loop until clean.
+Run automatically as the last todo item, and loop until clean.
+
+**Every hand-off, not only every commit.** Run this review before you answer the user with work
+in the tree, and run it while the test suite runs. Step 0 pulls the two always-on rule sets back
+into context, which is the point of running it often.
 
 ## The work cycle (default behaviour for every task)
 
@@ -97,7 +102,20 @@ When you find a violation, prefer these proven moves:
 
 ## How to run
 
-1. **Inspect pending changes.** Combine staged + unstaged:
+0. **Re-read the two always-on rule sets. Every time, before anything else.** They drift out of
+   context in a long session, and a rule you cannot see is a rule you do not apply. Read both
+   files with the Read tool, or invoke both skills:
+   - `.claude/skills/ste-writing/SKILL.md` - the prose the diff commits
+   - `.claude/skills/output-style/SKILL.md` - the answer that reports it
+
+   Do this even when you believe you remember them. That belief is the failure mode.
+
+1. **Start the test suite in the background.** The suite takes about two minutes, so the
+   review runs while it runs. Apply the findings during the wait, read the suite result when it
+   lands, then re-run the tests that a fix touched. A review that waits for a green suite wastes
+   two minutes of every cycle.
+
+2. **Inspect pending changes.** Combine staged + unstaged:
    ```
    git diff --staged
    git diff
@@ -106,16 +124,20 @@ When you find a violation, prefer these proven moves:
    Identify every changed/new file, in `mama/`, `tests/`, `docs/`, `.claude/skills/`,
    `CLAUDE.md` and `README.md`. Prose rules apply to all of them, not only to `mama/`.
 
-2. **Re-read CLAUDE.md from disk.** Do not trust memory - the rules evolve.
+3. **Re-read CLAUDE.md from disk.** Do not trust memory - the rules evolve.
 
-3. **Mechanically check every rule below** against the diff. Track findings.
+4. **Mechanically check every rule below** against the diff. Track findings.
 
-4. **Run the STE prose lint.** Not optional. Run every grep in "STE prose" below.
+5. **Run the STE prose lint.** Not optional. Run every grep in "STE prose" below.
    Then READ each comment, docstring and doc paragraph the diff adds. The code rules
-   in step 3 cannot see any of this, and it is the step a reviewer skips first. Run
+   in step 4 cannot see any of this, and it is the step a reviewer skips first. Run
    the greps even when the diff looks like pure code.
 
-5. **Loop:** if findings, fix them, then re-run from step 1. Stop only when
+6. **Check the answer you are about to send** against the `output-style` rules below. Both
+   always-on rule sets belong to this review: `ste-writing` governs the text the diff commits,
+   `output-style` governs the report that ships it.
+
+7. **Loop:** if findings, fix them, then re-run from step 2. Stop only when
    the review reports 0 issues. Do NOT proceed to commit if any rule fails.
 
 ## Hard rules (must pass)
@@ -335,11 +357,19 @@ Report findings as a numbered list, each entry:
 N. <file>:<line> - <rule>: <the problem> -> <the fix>
 ```
 
-When 0 issues: respond with `REVIEW PASSED - 0 issues`. Then the calling
-context may proceed to commit.
+When 0 issues: record the fingerprint of what you approved, then respond with
+`REVIEW PASSED - 0 issues`. The calling context may proceed to commit.
+
+```bash
+bash .claude/review-hash.sh > .claude/.review-passed
+```
+
+The `Stop` hook compares that value against the current diff. It stays quiet while the
+diff stays the same, and it speaks again as soon as anything moves. Skip this write and
+the hook nags on every stop until you commit.
 
 When >0 issues: respond with the list, then fix each. After fixing, re-run
-the entire review from step 1. Do NOT skip the re-run - fixes often introduce
+the entire review from step 2. Do NOT skip the re-run - fixes often introduce
 new violations.
 
 ## Reminders
