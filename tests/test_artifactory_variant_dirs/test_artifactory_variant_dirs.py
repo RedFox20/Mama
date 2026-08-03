@@ -1,35 +1,13 @@
 """Pins that a sanitizer or coverage build fetches its artifactory package into the variant build dir.
 Also pins that a nested include record survives the deploy, archive and fetch round trip."""
-import os, shutil, zipfile
+import os, shutil
 from unittest.mock import patch
 
 import pytest
-from testutils import make_mock_dep
+from testutils import deploy_and_archive, make_exporting_target, make_mock_dep
 
-from mama import artifactory, papa_deploy, papa_upload
+from mama import artifactory
 from mama.build_target import BuildTarget
-
-
-def _exporting_target(dep, includes, libs):
-    target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
-    target.version = 'abc1234'
-    target.exported_includes = includes
-    target.exported_libs = libs
-    return target
-
-
-def _deploy_and_archive(tmp_path, target, package_path):
-    """papa_deploy + the archive papa_upload_to would build, minus the FTP transfer."""
-    with patch.object(BuildTarget, 'children', lambda self: []):
-        papa_deploy.papa_deploy_to(target, package_path, r_includes=False, r_dylibs=False,
-                                   r_syslibs=False, r_assets=False)
-    papa = papa_deploy.PapaFileInfo(os.path.join(package_path, 'papa.txt'))
-    archive = str(tmp_path / 'package.zip')
-    with zipfile.ZipFile(archive, 'w') as zip:
-        for _, entries in papa_upload._archive_groups(papa, package_path):
-            for src, rel, _ in entries: zip.write(src, rel)
-    papa_upload.validate_archive(package_path, papa, archive)
-    return archive
 
 
 def _publish(tmp_path, sanitize=None, include_rel='include', **overrides):
@@ -40,8 +18,8 @@ def _publish(tmp_path, sanitize=None, include_rel='include', **overrides):
     open(f'{build}/{include_rel}/foo/foo.h', 'w').write('#pragma once\n')
     os.makedirs(f'{build}/lib', exist_ok=True)
     open(f'{build}/lib/libfoo.a', 'wb').write(b'\0' * 8)
-    target = _exporting_target(dep, [f'{build}/{include_rel}'], [f'{build}/lib/libfoo.a'])
-    return _deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    target = make_exporting_target(dep, [f'{build}/{include_rel}'], [f'{build}/lib/libfoo.a'])
+    return deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
 
 
 def _fetch(tmp_path, archive, sanitize=None, **overrides):
@@ -101,6 +79,6 @@ def test_an_include_dir_with_no_files_fails_the_upload(tmp_path):
     os.makedirs(f'{build}/include/empty', exist_ok=True)  # dirs only: every header filtered out or never built
     os.makedirs(f'{build}/lib', exist_ok=True)
     open(f'{build}/lib/libfoo.a', 'wb').write(b'\0' * 8)
-    target = _exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'])
+    target = make_exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'])
     with pytest.raises(RuntimeError, match='include dirs hold no files'):
-        _deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+        deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')

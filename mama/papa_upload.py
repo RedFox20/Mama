@@ -4,8 +4,8 @@ from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .util import get_file_size_str, console, normalized_join, ProgressBar
-from .papa_deploy import PapaFileInfo
+from .util import get_file_size_str, console, normalized_join, forward_slashes, ProgressBar
+from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -29,10 +29,21 @@ def _archive_entries(rel_path:str, full_path:str):
     return entries
 
 
+def _dedupe_includes(includes:list) -> list:
+    """Drops an include record that lies inside another include record. Both records name the same files at
+    the same archive path, so the nested record only writes every file a second time. The papa.txt keeps both
+    records, because the consumer still adds both include paths."""
+    roots = []  # each root keeps a trailing slash, so one prefix test covers both an equal and a nested record
+    for include in sorted(includes, key=len):
+        nested = include + '/'
+        if not any(nested.startswith(root) for root in roots): roots.append(nested)
+    return [root[:-1] for root in roots]
+
+
 def _archive_groups(papa:PapaFileInfo, package_full_path:str):
     """(verbose label, entries) per papa.txt record in write order: manifest, includes, libs, assets."""
     groups = [('', _archive_entries('papa.txt', papa.papa_file))]
-    for include in papa.includes:
+    for include in _dedupe_includes(papa.includes):
         rel_path = os.path.relpath(include, package_full_path)
         groups.append((f'      adding {rel_path} {include}', _archive_entries(rel_path, include)))
     for lib in papa.libs:
@@ -81,43 +92,51 @@ def _write_archive(zip:zipfile.ZipFile, groups:list, config, indent:str, total:i
     if bar: bar.finish()
 
 
-def _zip_path(path: str):
-    return path.replace('\\', '/')
+def _include_files(include:str, package_full_path:str) -> list:
+    """(archive path, source path) for every file one include record ships. A file record ships itself."""
+    if not os.path.isdir(include):
+        return [(forward_slashes(os.path.relpath(include, package_full_path)), include)]
+    files = []
+    for full_dir, _, names in os.walk(include):
+        for name in names:
+            src_file = os.path.join(full_dir, name)
+            files.append((forward_slashes(os.path.relpath(src_file, package_full_path)), src_file))
+    return files
 
 
 def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: str):
     expected = Counter(['papa.txt'])
     empty_includes = []
+    include_files = []
 
-    for include in papa.includes:
-        if os.path.isdir(include):
-            before = len(expected)
-            for full_dir, _, files in os.walk(include):
-                for file in files:
-                    src_file = os.path.join(full_dir, file)
-                    rel_file = os.path.relpath(src_file, package_full_path)
-                    expected[_zip_path(rel_file)] += 1
-            # An include record with no file under it ships a package no consumer can include from.
-            # The counts below still match, so nothing else catches it.
-            if len(expected) == before: empty_includes.append(_zip_path(os.path.relpath(include, package_full_path)))
-        else:
-            rel_path = os.path.relpath(include, package_full_path)
-            expected[_zip_path(rel_path)] += 1
+    for include in _dedupe_includes(papa.includes):
+        files = _include_files(include, package_full_path)
+        # An include record with no file under it ships a package no consumer can include from.
+        # The counts below still match, so nothing else catches it.
+        if not files: empty_includes.append(forward_slashes(os.path.relpath(include, package_full_path)))
+        expected.update(rel for rel, _ in files)
+        include_files += files
 
     if empty_includes:
         raise RuntimeError(f'PAPA archive validation failed for {archive_path}: include dirs hold no files: ' + \
                            f'{empty_includes}. Check the export_include() paths of {papa.project_name}.')
 
+    trees = find_duplicate_trees(include_files)
+    if trees:
+        raise RuntimeError(f'PAPA archive validation failed for {archive_path}: the include tree holds ' + \
+                           f'{len(trees)} duplicated directory pairs.\n{describe_duplicate_trees(trees)}\n' + \
+                           f'    Fix the export_include() paths of {papa.project_name}.')
+
     for lib in papa.libs:
         rel_path = os.path.relpath(lib, package_full_path)
-        expected[_zip_path(rel_path)] += 1
+        expected[forward_slashes(rel_path)] += 1
 
     for asset in papa.assets:
-        expected[_zip_path(asset.outpath)] += 1
+        expected[forward_slashes(asset.outpath)] += 1
 
     with zipfile.ZipFile(archive_path) as zip:
         actual = Counter(
-            _zip_path(info.filename)
+            forward_slashes(info.filename)
             for info in zip.infolist()
             if not info.is_dir()
         )
