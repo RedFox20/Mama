@@ -8,16 +8,25 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    # Windows runs the same suite. A test that needs a Linux host carries the linux_host marker and
+    # skips there, and tests/conftest.py owns that rule.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: 3.14
 
+      - name: Install the linux clang runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libc++-dev libc++abi-dev
+
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libc++-dev libc++abi-dev
           pip install -e .
           pip install pytest
 
