@@ -4,7 +4,9 @@ from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
+from .mamafile_version import pinned_version
 from .util import get_file_size_str, console, normalized_join, forward_slashes, ProgressBar
+from .utils.system import error
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 
 if TYPE_CHECKING:
@@ -153,11 +155,30 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
         )
 
 
+def _download_can_find_this_version(target:BuildTarget) -> bool:
+    """True when the version this upload names is the one a DOWNLOAD would look for.
+
+    The two sides read the version differently. An upload runs the mamafile and uses the value in
+    memory. A download reads the file as text, because it must name the package before it clones
+    anything. A mamafile that computes the version, or assigns it twice, makes the two disagree. Mama
+    would then publish an archive no consumer can ever ask for, and every build would miss the cache
+    with no error to explain it. Refuse the upload instead."""
+    executed = target.version or ''
+    readable = pinned_version(target.dep)
+    if executed == readable: return True
+    error(f'  - Target {target.name: <16} UPLOAD REFUSED: this build named the package ' +
+          f'{executed or "<commit hash>"!r}, but a download reads {readable or "<commit hash>"!r} ' +
+          'from the mamafile. Pin self.version with ONE raw string literal, or drop it.')
+    return False
+
+
 def papa_upload_to(target:BuildTarget, package_full_path:str):
     """
     - target: Target which was configured and packaged
     - package_full_path: Full path to deployed PAPA package
     """
+    if not _download_can_find_this_version(target):
+        return
     package_full_path = package_full_path if package_full_path else target.build_dir()
     papa_file = normalized_join(package_full_path, 'papa.txt')
     if not os.path.exists(papa_file):

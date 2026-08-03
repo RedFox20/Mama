@@ -212,17 +212,24 @@ def plain_config(sanitize=None, coverage=None):
 
 
 def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64',
-                             version='abc1234', args=()):
+                             version='abc1234', args=(), git_tag='', git_branch='', is_git=None):
     """Stub the BuildTarget surface artifactory_archive_name touches. compiler_version() and
     get_distro_info() read the host, so this answers with fixed values. `args` is what a consumer passed
-    to add_git(..., args=[...]); the variant suffix comes from the same function a dep calls."""
+    to add_git(..., args=[...]); the variant suffix comes from the same function a dep calls. Pass
+    `git_tag` or `git_branch` for a REAL Git dep_source, the way add_git pins one. Pass `version=''` to
+    let the name composer resolve the version field itself. `is_git=True` builds an unpinned git dep."""
     from mama import build_names
+    from mama.types.git import Git
     cfg = plain_config(sanitize, coverage)
     cfg.release = release
     cfg.arch = arch
     cfg.compiler_version = lambda: 'gcc14'
     cfg.get_distro_info = lambda: ('linux', '24', 'noble')
-    dep_source = SimpleNamespace(is_pkg=False, fullname=None, is_git=False, is_src=False)
+    if is_git or (is_git is None and (git_tag or git_branch)):
+        dep_source = Git(name='pkg', url='https://example.com/pkg.git', branch=git_branch, tag=git_tag,
+                         mamafile=None, shallow=True, args=[])
+    else:
+        dep_source = SimpleNamespace(is_pkg=False, fullname=None, is_git=False, is_src=False)
     dep = SimpleNamespace(is_root=False, dep_source=dep_source, target_args=list(args),
                           variant_suffix=build_names.build_variant_suffix(cfg, args))
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)

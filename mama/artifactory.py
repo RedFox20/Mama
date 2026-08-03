@@ -2,6 +2,8 @@ from __future__ import annotations
 import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
 
+from . import build_names
+from .mamafile_version import pinned_version
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
@@ -9,7 +11,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip, is_network_error, read_text_from
+from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
 
 
@@ -25,8 +27,12 @@ class ArtifactoryCredentialsError(RuntimeError):
 def artifactory_archive_name(target:BuildTarget):
     """
     Constructs archive name for papa deploy packages in the form of:
-    {name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}
-    Example: opencv-linux-x64-gcc9-release-df76b66
+    {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
+    Example: opencv-linux-24-gcc14-x64-release-df76b66
+
+    The version field is the first of these the dep has: a `self.version` literal in its mamafile, the
+    `git_tag` the consumer pinned, or the commit hash. A `git_branch` pin labels the hash rather than
+    replacing it. See docs/roadmap-target-version.md.
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
@@ -50,9 +56,21 @@ def artifactory_archive_name(target:BuildTarget):
             version = p.version
         elif p.is_git:
             git:Git = p
-            version = git.get_commit_hash(target.dep)
+            # A git_tag pin names the package after the tag. The consumer wrote that tag, so the download
+            # and the upload read the same value, and neither one resolves a commit hash to name
+            # anything. A tag is immutable by convention, so the tag alone identifies the source.
+            # add_git stores a git_commit pin in the tag field, and Git.is_hex_string is how the clone
+            # path tells the two apart. A commit pin takes the hash path below, which shortens it.
+            version = '' if Git.is_hex_string(git.tag) else build_names.sanitize_version(git.tag)
             if not version:
-                return None # nothing to do at this point
+                # No tag. The commit hash identifies the source, and a branch pin puts its name in front
+                # for a reader: 'feat-experimental-radio-a1b2c3d'. The branch CANNOT replace the hash,
+                # because a branch moves: one name would then serve every commit ever pushed to it.
+                commit = git.get_commit_hash(target.dep)
+                if not commit:
+                    return None # nothing to do at this point
+                branch = build_names.sanitize_version(git.branch)
+                version = f'{branch}-{commit}' if branch else commit
         elif p.is_src:
             if not version:
                 raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
@@ -317,21 +335,6 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
         return (False, None)
 
 
-def resolve_pinned_version(dep) -> str:
-    """A `self.version = '<literal>'` pinned in the dep's mamafile, read from disk WITHOUT
-    executing it (mamafiles typically set version inside configure(), which never runs on
-    download probes - only on the upload side, where it renames the archive). Pre-clone the
-    mamafile is on disk only for a parent-repo override (dep.mamafile); post-clone also in
-    the dep's own tree. Returns '' when unpinned or the mamafile isn't on disk yet."""
-    path = dep.mamafile_path()
-    if path and os.path.exists(path):
-        try:
-            return Git.extract_self_version(read_text_from(path)) or ''
-        except OSError:
-            return ''
-    return ''
-
-
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
     Try to fetch prebuilt package from artifactory
@@ -345,7 +348,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     # hash), so a probe without it looks for a name uploads no longer produce - and a
     # hash-named archive it finds instead can only be a stale pre-pin leftover.
     if not target.version:
-        target.version = resolve_pinned_version(target.dep)
+        target.version = pinned_version(target.dep)
 
     archive = artifactory_archive_name(target)
     if not archive:

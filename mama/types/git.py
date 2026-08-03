@@ -11,6 +11,7 @@ from ..util import (is_dir_empty, has_source_content, save_file_if_contents_chan
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
                     remove_tree, GitError)
 from .git_errors import classify_git_failure, format_git_failure, stall_message
+from ..mamafile_version import trusted_version
 
 
 if TYPE_CHECKING:
@@ -270,18 +271,6 @@ class Git(DepSource):
         return len(s) > 0 and all(c in string.hexdigits for c in s)
 
 
-    # Captures only quoted literals; f-strings / computed values miss on purpose.
-    _SELF_VERSION_RE = re.compile(r"""^\s*self\.version\s*=\s*['"]([^'"]+)['"]""", re.MULTILINE)
-
-    @staticmethod
-    def extract_self_version(mamafile_text: str):
-        """Find `self.version = '<literal>'` in a mamafile. Returns the version
-        string or None. Computed values (f-strings, function calls) are
-        intentionally not handled - those callers must full-clone."""
-        m = Git._SELF_VERSION_RE.search(mamafile_text)
-        return m.group(1) if m else None
-
-
     def fetch_self_version_from_remote(self, dep: BuildDependency):
         """Fetches just the dep's mamafile to read `self.version` without pulling the
         full repo. Used by the shim probe for version-pinned deps (e.g. boost 1.60)
@@ -292,7 +281,7 @@ class Git(DepSource):
         if dep.mamafile:
             # Parent-repo mamafile override: the remote repo's mamafile is not the one mama
             # runs, and `git show HEAD:<local path>` can never resolve. The local file was
-            # already checked for a pin before this fallback (resolve_pinned_version).
+            # already checked for a pin before this fallback (mamafile_version.pinned_version).
             return None
         if not dep.config.is_network_available():
             return None
@@ -327,7 +316,7 @@ class Git(DepSource):
                 content = cp.stdout.decode('utf-8', errors='replace')
                 if not content:
                     return None
-                version = Git.extract_self_version(content)
+                version = trusted_version(dep, content, mamafile_name)
                 if dep.config.print and version:
                     progress(f'  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}',
                              color=Color.BLUE, final=True)

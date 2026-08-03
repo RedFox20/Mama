@@ -663,7 +663,21 @@ Artifactory archives follow the naming format:
 ```
 Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`.
 
-`{version}` is the dep's commit hash, unless the mamafile pins `self.version` (see below).
+`{version}` names the source this package was built from. Mama takes the first of these the dep has:
+
+| the dep has | `{version}` | example |
+|---|---|---|
+| `self.version = '8.0.1'` in its mamafile | that literal | `libffmpeg-...-release-8.0.1` |
+| `add_git(..., git_tag='v0.13.0')` | the tag | `qcoro-...-release-v0.13.0` |
+| `add_git(..., git_branch='feat/radio')` | the branch, then the commit | `qcoro-...-release-feat-radio-a1b2c3d` |
+| `add_git(..., git_commit='4acd905...')` | the short commit | `qcoro-...-release-4acd905` |
+| no pin | the commit | `qcoro-...-release-a1b2c3d` |
+
+A tag names the package on its own, because a tag is immutable by convention. A **branch keeps the
+commit**, because a branch moves: the branch name alone would serve every commit ever pushed to it
+under one archive name. Mama keeps a pin verbatim except for characters a file name cannot hold, so
+`release/1.0` becomes `release-1.0`. It never strips a leading `v` and never changes case, because
+`v1.0`, `V1.0` and `1.0` may be three different tags in one repo.
 
 `[-variant]` is every axis that makes this build different from a plain one, coarsest first. It is
 empty for a plain release build, so those names never change. The same string also names the build
@@ -690,8 +704,9 @@ class libffmpeg(mama.BuildTarget):
         self.version = '8.0.1'    # libffmpeg-ubuntu-24-gcc14.3-x64-release-8.0.1
 ```
 
-Use it for a dep that ships numbered releases, where the commit hash is noise. One archive then serves
-every consumer that pins that version, whatever commit each one resolved.
+Use it when the dep's own mamafile should decide the version, whatever tag a consumer pinned. A
+tag-pinned dep already names itself after the tag (see the table above), so most deps need nothing
+here.
 
 **It must be a single raw string literal.** To download a package, mama needs the archive name *before*
 it clones anything. So it never runs the mamafile. It reads the file as text and takes the first
@@ -700,12 +715,26 @@ remote. Post-clone it comes from the file on disk. The upload side does the oppo
 mamafile and uses the value in memory. Three rules follow:
 
 1. **A literal, in any method.** `init()`, `settings()` and `configure()` all work: the method does not
-   matter, the text does.
-2. **No computed value.** `self.version = f'{v}'`, a function call or a file read is invisible to the
-   text reader. The download then looks for the commit-hash name while the upload publishes the computed
-   one, and every build misses the cache in silence.
+   matter, the assignment does. A module-level constant assigned once (`V = '8.0.1'` then
+   `self.version = V`) resolves too.
+2. **No computed value.** `self.version = f'{v}'`, a function call or a file read cannot be read without
+   running the file. The download then looks for the commit-hash name while the upload publishes the
+   computed one, and every build misses the cache in silence.
 3. **One assignment per mamafile.** The reader takes the FIRST literal in file order. A conditional
    second assignment downloads one name and uploads another.
+
+**Naming a third-party dep's package.** The dep's mamafile may be a file in *your* repo, and mama reads
+it before any clone. So a version the upstream tag does not give is one line in the override:
+
+```python
+# your mamafile
+self.add_git('ffmpeg', 'https://git.ffmpeg.org/ffmpeg.git', mamafile='mamadeps/ffmpeg.py', git_tag='n8.1.0')
+
+# mamadeps/ffmpeg.py, in your repo
+class ffmpeg(mama.BuildTarget):
+    def settings(self):
+        self.version = '8.1.0'    # ffmpeg-ubuntu-24-gcc14.3-x64-release-8.1.0
+```
 
 To build one repo two ways, do not branch the version - pass args from the consumer:
 

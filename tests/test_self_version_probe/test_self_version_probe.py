@@ -1,51 +1,12 @@
-"""Self.version regex + sparse-mamafile probe + shim hash-then-version fallback."""
+"""The git half of version resolution: the sparse-mamafile fetch, and the shim probe's
+hash-then-version fallback. The scan itself lives in tests/test_target_version/."""
 
 import contextlib
 import subprocess
 from unittest.mock import Mock, patch
 
-import pytest
-
 from mama.types.git import Git
-from mama import artifactory as art
-
-
-class TestExtractSelfVersion:
-    @pytest.mark.parametrize('text,expected', [
-        ("self.version = '1.0'",               '1.0'),
-        ('self.version = "1.60"',              '1.60'),
-        ("self.version='2.3.4'",               '2.3.4'),
-        ("    self.version = '0.9.1-beta'",    '0.9.1-beta'),
-        ("self.version = '1.0' # the version", '1.0'),
-        # multi-line mamafile: the assignment lives inside init()
-        ("class P:\n    def init(self):\n        self.version = '7.7'\n", '7.7'),
-    ])
-    def test_matches_literal_assignment(self, text, expected):
-        assert Git.extract_self_version(text) == expected
-
-    @pytest.mark.parametrize('text', [
-        # f-string: don't try to evaluate
-        "self.version = f'{major}.{minor}'",
-        # function call: don't try to evaluate
-        "self.version = compute_version()",
-        # bare variable
-        "self.version = MY_VERSION",
-        # never assigned
-        "class P:\n    def init(self):\n        self.name = 'libfoo'\n",
-        # commented out
-        "# self.version = '1.0'",
-        # comparison, not assignment (no '=')
-        "if self.version == '1.0': pass",
-        # empty
-        "",
-    ])
-    def test_returns_none_for_non_literal(self, text):
-        assert Git.extract_self_version(text) is None
-
-    def test_first_assignment_wins(self):
-        # Defensive: conditional re-assignment in a mamafile - we don't try to handle it.
-        text = "self.version = '1.0'\nif something: self.version = '2.0'\n"
-        assert Git.extract_self_version(text) == '1.0'
+from mama import artifactory as art, mamafile_version
 
 
 def _make_dep(branch='main', mamafile_field=''):
@@ -300,16 +261,16 @@ class TestResolvePinnedVersion:
         mf.write_text("class protobuf:\n"
                       "    def configure(self):\n"
                       "        self.version = '34.0'\n", encoding='utf-8')
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == '34.0'
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(mf))) == '34.0'
 
     def test_empty_when_mamafile_has_no_pin(self, tmp_path):
         mf = tmp_path / 'mamafile.py'
         mf.write_text("class libfoo:\n    pass\n", encoding='utf-8')
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(mf))) == ''
 
     def test_empty_when_mamafile_not_on_disk(self, tmp_path):
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(tmp_path / 'nope.py'))) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(tmp_path / 'nope.py'))) == ''
 
     def test_empty_when_dep_has_no_mamafile_path(self):
         # pre-clone git dep without a parent override: mamafile_path() is None
-        assert art.resolve_pinned_version(self._dep_with_mamafile(None)) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(None)) == ''

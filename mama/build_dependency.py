@@ -7,7 +7,8 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, resolve_pinned_version
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
+from .mamafile_version import pinned_version
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
                   has_shim_marker, MAMA_SHIM_FILENAME
 from . import build_names
@@ -319,7 +320,7 @@ class BuildDependency:
         # A locally-pinned self.version renames the archive (it replaces the commit hash), so
         # a shim cached under a non-matching name predates the pin: a stale package the pin
         # was bumped precisely to invalidate. Re-probe instead of trusting it.
-        pinned = resolve_pinned_version(self)
+        pinned = pinned_version(self)
         stored_archive = marker.get('archive', '')
         if pinned and stored_archive and not stored_archive.endswith(f'-{pinned}'):
             if self.config.print:
