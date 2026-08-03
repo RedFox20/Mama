@@ -103,13 +103,19 @@ When you find a violation, prefer these proven moves:
    git diff
    git status --short
    ```
-   Identify the set of changed/new files in `mama/`, `tests/`, `CLAUDE.md`, `README.md`.
+   Identify every changed/new file, in `mama/`, `tests/`, `docs/`, `.claude/skills/`,
+   `CLAUDE.md` and `README.md`. Prose rules apply to all of them, not only to `mama/`.
 
 2. **Re-read CLAUDE.md from disk.** Do not trust memory - the rules evolve.
 
 3. **Mechanically check every rule below** against the diff. Track findings.
 
-4. **Loop:** if findings, fix them, then re-run from step 1. Stop only when
+4. **Run the STE prose lint.** Not optional. Run every grep in "STE prose" below.
+   Then READ each comment, docstring and doc paragraph the diff adds. The code rules
+   in step 3 cannot see any of this, and it is the step a reviewer skips first. Run
+   the greps even when the diff looks like pure code.
+
+5. **Loop:** if findings, fix them, then re-run from step 1. Stop only when
    the review reports 0 issues. Do NOT proceed to commit if any rule fails.
 
 ## Hard rules (must pass)
@@ -160,14 +166,36 @@ Grep helpers. The word-level hits are exact, so report each one:
 ```bash
 D='git diff -U0'   # also run `git diff -U0 --staged` when you staged part of the change
 $D | grep '^+' | grep -nE "\b(can't|don't|doesn't|won't|isn't|aren't|it's|that's|didn't|hasn't|haven't|we're|you're|let's|there's)\b"
-$D | grep '^+' | grep -nE '^\+[[:space:]]*#.*;'        # semicolon in a comment
+$D | grep '^+' | grep -nE '^\+[[:space:]]*#.*;'        # semicolon in a code comment
+$D | grep '^+' | grep -nE '^\+[^|]*[a-z];[^;]' | grep -vE '^\+.*(: *;|\(\)|\{|\})'  # semicolon in doc prose
 $D | grep '^+' | grep -nE "$(printf '\xe2\x80\x94|\xe2\x86\x92|\xe2\x80\x99|\xe2\x80\x9c|\xe2\x80\x9d')"
 $D | grep '^+' | grep -inE "\b(utilize|facilitate|initiate|prior to|subsequent to|regarding|obtain|demonstrate|additionally|furthermore|leverage|seamless|robust|powerful|effortless)\b"
 $D | grep '^+' | grep -inE "\b(is|are|was|were|be|been|being) [a-z]+ed\b"   # passive-voice candidates
 ```
-Sentence length, idiom and one-name-one-thing need judgment, not grep: read every comment and
-docstring the diff adds, once, on purpose. A hit inside this file or inside `ste-writing/SKILL.md` is
-the rule text quoting the forbidden word, not a finding.
+Sentence length is countable, so count it instead of eyeballing it. This flags every added prose
+sentence over 25 words, skipping code fences and tables:
+
+```bash
+git diff -U0 | python3 -c "
+import re, sys
+add = [l[1:].rstrip() for l in sys.stdin if l.startswith('+') and not l.startswith('+++')]
+code = False; out = []
+for l in add:
+    if l.strip().startswith('\`\`\`'): code = not code; out.append('.'); continue
+    if code or l.strip().startswith('|') or not l.strip(): out.append('.'); continue
+    out.append(l.strip().lstrip('#-* 0123456789.'))
+blob = re.sub(r'\`[^\`]*\`', 'X', ' '.join(out))
+for s in re.split(r'(?<=[.!?])\s+', blob):
+    if len(s.split()) > 25: print(len(s.split()), s[:140])
+"
+```
+
+Idiom, passive voice and one-name-one-thing still need judgment: read every comment, docstring and
+doc paragraph the diff adds, once, on purpose.
+
+Two kinds of hit are not findings. A hit inside this file or inside `ste-writing/SKILL.md` is the rule
+text quoting the forbidden word. A hit inside a fenced code block is code, and the greps are
+line-based, so they cannot see the fence.
 
 ### Yellow output convention
 - All warning-style yellow console output goes through `warning(text)`
