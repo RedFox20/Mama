@@ -666,7 +666,11 @@ class BuildDependency:
 
 
     def after_load(self):
-        if self.config.no_specific_target():
+        # A shim has no source, so a changed child cannot change what it produces. _should_build()
+        # already refuses to mark one. Without the same guard here the flag reaches _run_packaging,
+        # which then drops the exports the fetched papa.txt carries and re-derives them from the
+        # unzipped tree. That manifest came from a real source build, so re-deriving only loses.
+        if self.config.no_specific_target() and not self.is_artifactory_shim():
             first_changed = next((c for c in self.children if c.should_rebuild), None)
             if first_changed and not self.should_rebuild:
                 self.should_rebuild = True

@@ -39,6 +39,29 @@ def test_should_build_returns_false_for_shim_with_clean_target(tmp_path):
                              git_changed=False, loaded_from_pkg=True) is False
 
 
+def _dep_with_changed_child(tmp_path, shim: bool):
+    """A dep whose only child asks for a rebuild, which is what after_load() reacts to."""
+    dep = (make_mock_shim_dep if shim else make_mock_dep)(tmp_path, build=True)
+    dep.config.no_specific_target.return_value = True
+    child = Mock(should_rebuild=True); child.name = 'libffmpeg'
+    dep.children = [child]
+    return dep
+
+
+def test_after_load_never_marks_a_shim_for_rebuild(tmp_path):
+    # should_rebuild on a shim builds nothing. It does make _run_packaging drop the exports the
+    # fetched papa.txt carries, and re-derive them from the unzipped tree.
+    dep = _dep_with_changed_child(tmp_path, shim=True)
+    dep.after_load()
+    assert dep.should_rebuild is False
+
+
+def test_after_load_still_marks_a_normal_dep_for_rebuild(tmp_path):
+    dep = _dep_with_changed_child(tmp_path, shim=False)
+    dep.after_load()
+    assert dep.should_rebuild is True
+
+
 def test_dirty_removes_shim_marker(tmp_path):
     dep = make_mock_shim_dep(tmp_path, build=True)
     dep.target = Mock(build_products=[])
