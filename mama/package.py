@@ -67,6 +67,10 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
         if not include_path in target.exported_includes:
             target.exported_includes.append(include_path)
         return True
+    # A named include path that is not on disk is a packaging fault, the same as a missing lib.
+    # The caller then runs default_package_includes(), which can pick a shallower `include` dir.
+    # That ships a package whose headers no consumer can reach, so report the miss here.
+    warning(f'export_include failed to find: {include_path}')
     return False
 
 

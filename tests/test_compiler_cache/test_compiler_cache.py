@@ -2,24 +2,10 @@
 probe-seeded Coordinator."""
 import contextlib, os, threading, time
 from types import SimpleNamespace
+import pytest
+from testutils import make_cmake_detection
 from mama.buildsys.cmake import compiler_cache as cc
 from mama.util import normalized_path, path_join
-
-
-def _fake_build_files(d, langs=('C', 'CXX', 'RC'), vs=True, partial=()):
-    """A `CMakeFiles/<ver>` dir as cmake leaves it post-detection; `partial` langs stop at stage 1 (no ABI
-    probe), as a killed configure leaves them."""
-    os.makedirs(d, exist_ok=True)
-    open(os.path.join(d, 'CMakeSystem.cmake'), 'w').write('set(CMAKE_SYSTEM Windows)\n')
-    for lang in langs:
-        mod, abi = cc._LANG_FILES[lang]
-        done = lang not in partial
-        text = f'set(CMAKE_{lang}_COMPILER "C:/bin/{lang.lower()}.exe")\n'
-        if abi and done: text += f'set(CMAKE_{lang}_ABI_COMPILED TRUE)\n'
-        open(os.path.join(d, mod), 'w').write(text)
-        if abi and done: open(os.path.join(d, abi), 'wb').write(b'\x00abi')
-    if vs: open(os.path.join(d, 'VCTargetsPath.txt'), 'w').write('C:/VCTargets\n')
-    return d
 
 
 def test_fingerprint_stable_and_sensitive():
@@ -37,12 +23,12 @@ def test_compiler_stat_reports_size_mtime_or_bare_path(tmp_path):
 
 
 def test_detected_langs_from_files(tmp_path):
-    d = _fake_build_files(str(tmp_path / '4.2.3'), langs=('CXX',), vs=False)
+    d = make_cmake_detection(str(tmp_path / '4.2.3'), langs=('CXX',), vs=False)
     assert cc.detected_langs(d) == ['CXX']
 
 
 def test_publish_then_inject_reproduces_warm_state(tmp_path):
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed')
     assert cc.publish(seed, bf, clock=lambda: 1000)
     m = cc.load(seed, clock=lambda: 1000)
@@ -60,7 +46,7 @@ def test_publish_then_inject_reproduces_warm_state(tmp_path):
 
 def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
     # Regression: injected cache is toolchain markers only (no ABI facts captured here), no project flags.
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed'); cc.publish(seed, bf)
     build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
     src = str(tmp_path / 'b')
@@ -79,7 +65,7 @@ def _write_cache(build_dir, extra=''):
 def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
     # no CMAKE_EXECUTABLE_FORMAT -> seeded configure dies on every install-RPATH add_executable
     build = str(tmp_path / 'A')
-    bf = _fake_build_files(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
     _write_cache(build, 'CMAKE_LIBRARY_ARCHITECTURE:INTERNAL=x86_64-linux-gnu\n')
     seed = str(tmp_path / 'seed')
     assert cc.publish(seed, bf, build_dir=build)
@@ -92,21 +78,89 @@ def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
     assert 'BUILD_TESTS' not in cache  # toolchain facts only, no project settings leak
 
 
+def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path):
+    # A toolchain file names the compiler, so cmake caches none. Without the replay, a CMakeLists that
+    # runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset leaves every ninja rule compiling with "".
+    build = str(tmp_path / 'A')
+    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build, 'CMAKE_TOOLCHAIN_FILE:FILEPATH=/opt/sdk/tc.cmake\n')
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf, build_dir=build)
+
+    dst = str(tmp_path / 'B')
+    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
+    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
+    for lang in ('C', 'CXX'):
+        assert f'CMAKE_{lang}_COMPILER:FILEPATH={cc.compiler_from_module(bf, lang)}' in cache
+
+
+def test_a_cached_compiler_wins_over_the_compiler_module(tmp_path):
+    build = str(tmp_path / 'A')
+    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build, 'CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++\n')
+    lines = cc.read_replay_cache_lines(build, cc.usable_compilers(bf))
+    assert 'CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/g++' in lines
+    assert f'CMAKE_CXX_COMPILER:FILEPATH={cc.compiler_from_module(bf, "CXX")}' not in lines
+
+
 def test_publish_returns_false_without_compiler_files(tmp_path):
     empty = str(tmp_path / 'x' / '4.2.3'); os.makedirs(empty)
     assert cc.publish(str(tmp_path / 'seed'), empty) is False
 
 
+def _break_compiler_module(build_files_dir, lang, line):
+    """Rewrite the captured module so its compiler line reads `line`. A failed detection leaves an
+    empty value, or a path this machine does not have."""
+    mod = os.path.join(build_files_dir, cc._LANG_FILES[lang][0])
+    rest = [l for l in open(mod).read().splitlines() if not l.startswith(f'set(CMAKE_{lang}_COMPILER "')]
+    open(mod, 'w').write('\n'.join([line] + rest) + '\n')
+
+
+@pytest.mark.parametrize('line', ['set(CMAKE_CXX_COMPILER "")', '', 'set(CMAKE_CXX_COMPILER "/gone/g++")'])
+def test_publish_refuses_a_seed_whose_compiler_is_not_usable(tmp_path, line):
+    # The seed costs one slow probe and every later build dir reuses it. A seed naming a compiler
+    # this machine cannot run therefore breaks every build, so detect again instead.
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
+    _break_compiler_module(bf, 'CXX', line)
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf) is False
+    assert cc.load(seed) is None
+    assert cc.usable_compilers(bf) == {}
+
+
+def test_a_vanished_compiler_invalidates_and_never_injects(tmp_path):
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf, fingerprint='FP')
+    manifest = cc.load(seed)
+    assert cc.is_valid(manifest, 'FP')
+
+    os.remove(manifest['compilers']['CXX'])  # the toolset moved after the seed was written
+    build = str(tmp_path / 'B')
+    assert not cc.is_valid(cc.load(seed), 'FP')
+    assert cc.inject(seed, build, os.path.join(build, 'CMakeFiles', '4.2.3'), 'S:/src') is False
+    assert not os.path.exists(os.path.join(build, 'CMakeCache.txt'))
+
+
+def test_gc_stale_drops_a_seed_whose_compiler_is_gone(tmp_path):
+    root = str(tmp_path / 'cache')
+    bf = make_cmake_detection(str(tmp_path / 'bf' / '4.2.3'))
+    cc.publish(path_join(root, 'dead'), bf, fingerprint='D')
+    os.remove(cc.load(path_join(root, 'dead'))['compilers']['C'])
+    cc.gc_stale(root)
+    assert cc.load(path_join(root, 'dead')) is None
+
+
 def test_detection_is_partial_spots_a_killed_detection(tmp_path):
-    assert not cc.detection_is_partial(_fake_build_files(str(tmp_path / 'ok' / '4.2.3')))
-    assert cc.detection_is_partial(_fake_build_files(str(tmp_path / 'bad' / '4.2.3'), partial=('CXX',)))
+    assert not cc.detection_is_partial(make_cmake_detection(str(tmp_path / 'ok' / '4.2.3')))
+    assert cc.detection_is_partial(make_cmake_detection(str(tmp_path / 'bad' / '4.2.3'), partial=('CXX',)))
     # RC has no ABI probe: a module without one is complete, not partial
-    assert not cc.detection_is_partial(_fake_build_files(str(tmp_path / 'rc' / '4.2.3'), langs=('RC',)))
+    assert not cc.detection_is_partial(make_cmake_detection(str(tmp_path / 'rc' / '4.2.3'), langs=('RC',)))
 
 
 def test_publish_refuses_a_half_detected_toolchain(tmp_path):
     # else one interrupted configure poisons every project via the shared seed
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'), partial=('CXX',))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'), partial=('CXX',))
     seed = str(tmp_path / 'seed')
     assert cc.publish(seed, bf) is False
     assert cc.load(seed) is None
@@ -116,18 +170,27 @@ def test_publish_refuses_a_seed_missing_a_core_language(tmp_path):
     # backstop for the seeding invariant: a seed missing a core language would let a project that
     # enables it skip detection and die on 'CMAKE_<lang>_COMPILER not set, after EnableLanguage'.
     for langs in (('C',), ('CXX',), ('C', 'RC')):
-        bf = _fake_build_files(str(tmp_path / '_'.join(langs) / '4.2.3'), langs=langs)
+        bf = make_cmake_detection(str(tmp_path / '_'.join(langs) / '4.2.3'), langs=langs)
         seed = str(tmp_path / ('seed_' + '_'.join(langs)))
         assert cc.publish(seed, bf) is False, f'{langs} must not publish'
         assert cc.load(seed) is None
     # both core languages present -> publishable
-    bf = _fake_build_files(str(tmp_path / 'full' / '4.2.3'), langs=('C', 'CXX'))
+    bf = make_cmake_detection(str(tmp_path / 'full' / '4.2.3'), langs=('C', 'CXX'))
     assert cc.publish(str(tmp_path / 'seed_full'), bf) is True
+
+
+def _live_manifest(tmp_path, **over):
+    """A manifest of the current format, naming compilers that exist. is_valid() rechecks both."""
+    compilers = {}
+    for lang in ('C', 'CXX'):
+        path = tmp_path / f'cc_{lang}'; path.write_text('')
+        compilers[lang] = str(path)
+    return {'fingerprint': 'FP', 'format': cc._SEED_FORMAT, 'langs': ['C', 'CXX'], 'compilers': compilers, **over}
 
 
 def test_is_valid_rejects_a_single_language_seed(tmp_path):
     # _try_use purges what is_valid rejects, so an on-disk C-only seed self-heals instead of poisoning
-    fp = {'fingerprint': 'FP', 'format': cc._SEED_FORMAT}
+    fp = _live_manifest(tmp_path); fp.pop('langs')
     assert not cc.is_valid({**fp, 'langs': ['C']}, 'FP')
     assert not cc.is_valid({**fp, 'langs': ['CXX']}, 'FP')
     assert not cc.is_valid({**fp, 'langs': []}, 'FP')
@@ -146,7 +209,7 @@ def test_inject_writes_no_marker_when_seed_has_no_files(tmp_path):
 
 
 def test_load_honors_backstop_ttl(tmp_path):
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed')
     cc.publish(seed, bf, clock=lambda: 1000)
     assert cc.load(seed, ttl=100, clock=lambda: 1050) is not None  # within TTL
@@ -154,7 +217,7 @@ def test_load_honors_backstop_ttl(tmp_path):
 
 
 def test_purge_removes_seed(tmp_path):
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed')
     cc.publish(seed, bf)
     cc.purge(seed)
@@ -164,7 +227,7 @@ def test_purge_removes_seed(tmp_path):
 
 def test_is_valid_requires_matching_fingerprint_and_live_probe(tmp_path):
     cl = tmp_path / 'cl.exe'; cl.write_text('')
-    base = {'fingerprint': 'FP', 'format': cc._SEED_FORMAT, 'langs': ['C', 'CXX']}
+    base = _live_manifest(tmp_path)
     m = {**base, 'probe': str(cl)}
     assert cc.is_valid(m, 'FP')
     assert not cc.is_valid(m, 'OTHER')                                        # fingerprint changed
@@ -174,7 +237,7 @@ def test_is_valid_requires_matching_fingerprint_and_live_probe(tmp_path):
 
 
 def test_publish_records_fingerprint_and_probe_so_a_fresh_seed_validates(tmp_path):
-    bf = _fake_build_files(str(tmp_path / 'A' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     cl = tmp_path / 'cl.exe'; cl.write_text('')
     seed = str(tmp_path / 'seed')
     cc.publish(seed, bf, fingerprint='FP', probe=str(cl))
@@ -185,7 +248,7 @@ def test_publish_records_fingerprint_and_probe_so_a_fresh_seed_validates(tmp_pat
 def test_gc_stale_drops_legacy_and_dead_probe_but_keeps_live(tmp_path):
     root = str(tmp_path / 'cache')
     cl = tmp_path / 'cl.exe'; cl.write_text('')
-    bf = _fake_build_files(str(tmp_path / 'bf' / '4.2.3'))
+    bf = make_cmake_detection(str(tmp_path / 'bf' / '4.2.3'))
     cc.publish(path_join(root, 'live'), bf, fingerprint='L', probe=str(cl))            # toolchain present
     cc.publish(path_join(root, 'dead'), bf, fingerprint='D', probe=str(tmp_path / 'x'))  # compiler gone
     legacy = path_join(root, 'legacy'); os.makedirs(legacy)
@@ -230,7 +293,7 @@ def _probe(tmp_path, langs=('C', 'CXX'), calls=None, fail=False, delay=0.0):
         if delay: time.sleep(delay)
         if fail: yield None; return
         d = str(tmp_path / f'probe{len(runs)}')
-        bfd = _fake_build_files(os.path.join(d, 'CMakeFiles', '4.2.3'), langs=langs, vs=False)
+        bfd = make_cmake_detection(os.path.join(d, 'CMakeFiles', '4.2.3'), langs=langs, vs=False)
         _write_cache(d)
         yield (d, bfd)
     return run
@@ -424,7 +487,7 @@ def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache
     # say "you have changed variables that require your cache to be deleted", wipe the cache MID-configure
     # and re-run WITHOUT the toolchain file - so an android build silently re-detected as host x86_64.
     build = str(tmp_path / 'A')
-    bf = _fake_build_files(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
     _write_cache(build,
         'CMAKE_C_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang\n'
         'CMAKE_CXX_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang++\n'
@@ -443,6 +506,6 @@ def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache
 def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
     # the older shape has the SAME fingerprint but replays too few cache lines, so reusing it would
     # reintroduce the cache reset. It must be re-probed instead.
-    old = {'fingerprint': 'FP', 'langs': ['C', 'CXX']}          # no 'format' key
+    old = _live_manifest(tmp_path); old.pop('format')           # no 'format' key
     assert not cc.is_valid(old, 'FP')
     assert cc.is_valid({**old, 'format': cc._SEED_FORMAT}, 'FP')

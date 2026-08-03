@@ -87,17 +87,26 @@ def _zip_path(path: str):
 
 def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: str):
     expected = Counter(['papa.txt'])
+    empty_includes = []
 
     for include in papa.includes:
         if os.path.isdir(include):
+            before = len(expected)
             for full_dir, _, files in os.walk(include):
                 for file in files:
                     src_file = os.path.join(full_dir, file)
                     rel_file = os.path.relpath(src_file, package_full_path)
                     expected[_zip_path(rel_file)] += 1
+            # An include record with no file under it ships a package no consumer can include from.
+            # The counts below still match, so nothing else catches it.
+            if len(expected) == before: empty_includes.append(_zip_path(os.path.relpath(include, package_full_path)))
         else:
             rel_path = os.path.relpath(include, package_full_path)
             expected[_zip_path(rel_path)] += 1
+
+    if empty_includes:
+        raise RuntimeError(f'PAPA archive validation failed for {archive_path}: include dirs hold no files: ' + \
+                           f'{empty_includes}. Check the export_include() paths of {papa.project_name}.')
 
     for lib in papa.libs:
         rel_path = os.path.relpath(lib, package_full_path)
