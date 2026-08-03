@@ -52,17 +52,20 @@ def vswhere_property(name: str) -> str:
 def find_visualstudio(verbose=False) -> str:
     """The Visual Studio install root. Raises when there is none: every MSVC path derives from it."""
     def find():
+        # inside the memo, so mama reports the detection once. A print per caller wrote the same line
+        # 8 times into one verbose build log.
         vspath = vswhere_property('installationPath')
-        if vspath and os.path.exists(vspath): return vspath
-        variants = [f'{root}\\{v}' for root in VS_ROOTS for v in VS_VARIANTS]
-        return next((p for p in variants if os.path.exists(p)), '')
+        if not vspath or not os.path.exists(vspath):
+            variants = [f'{root}\\{v}' for root in VS_ROOTS for v in VS_VARIANTS]
+            vspath = next((p for p in variants if os.path.exists(p)), '')
+        if vspath and verbose: console(f'Detected VisualStudio: {vspath}')
+        return vspath
     if not System.windows:
         raise EnvironmentError('VisualStudio tools support not available on this platform!')
     path = _memo('visualstudio', find)
     if not path:
         raise EnvironmentError('Failed to find Visual Studio installation!' \
                                ' Please install Visual Studio with C++ workload and try again.')
-    if verbose: console(f'Detected VisualStudio: {path}')
     return path
 
 
@@ -91,7 +94,7 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
-    ide_project_ext = '.sln'
+    ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx, an older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False
 
@@ -132,10 +135,12 @@ class Windows(Platform):
 
     def msvc_tools_path(self) -> str:
         """ MSVC tools at, for example: "{VisualStudioPath}\\VC\\Tools\\MSVC\\14.16.27023" """
-        def find(): return latest_msvc_toolset(f'{self.visualstudio_path()}\\VC\\Tools\\MSVC')
+        def find():  # inside the memo, so the detection prints once, not once per caller
+            toolset = latest_msvc_toolset(f'{self.visualstudio_path()}\\VC\\Tools\\MSVC')
+            if toolset and self.config.verbose: console(f'Detected MSVC Tools: {toolset}')
+            return toolset
         path = _memo('msvctools', find)
         if not path: raise EnvironmentError('Could not detect MSVC Tools')
-        if self.config.verbose: console(f'Detected MSVC Tools: {path}')
         return path
 
 

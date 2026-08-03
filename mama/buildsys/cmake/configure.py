@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import os, contextlib, re, shutil, tempfile, threading
-from mama.utils.system import System, console, Color, warning
+from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
 from mama import util, build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -246,6 +246,13 @@ def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
         return co
 
 
+def _note(target:BuildTarget, out, text:str):
+    """Report a build-dir decision on the target's OWN output, so mamabuild.log keeps the reason next to
+    the configure it explains. A bare warning() depends on the thread capture of the running phase. A
+    reason that misses the log leaves a slow reconfigure with nothing to explain it."""
+    if target.config.print: warning_to(out, f'  - Target {target.name: <16} {text}')
+
+
 def _wipe_build_dir(target:BuildTarget):
     """Drop CMakeCache + CMakeFiles so a self-heal retry detects cleanly."""
     cache = target.build_dir('CMakeCache.txt')
@@ -273,7 +280,8 @@ def generator_build_file_exists(build_dir:str, generator:str) -> bool:
     gen = generator.lower()
     if 'ninja' in gen:         return os.path.exists(util.path_join(build_dir, 'build.ninja'))
     if 'makefiles' in gen:     return os.path.exists(util.path_join(build_dir, 'Makefile'))
-    if 'visual studio' in gen: return any(f.endswith('.sln') for f in os.listdir(build_dir))
+    # VS 18 (2026) with cmake 4.2 writes the XML solution `.slnx`, every older toolset writes `.sln`
+    if 'visual studio' in gen: return any(f.endswith(('.sln', '.slnx')) for f in os.listdir(build_dir))
     if 'xcode' in gen:         return any(f.endswith('.xcodeproj') for f in os.listdir(build_dir))
     return True
 
@@ -358,8 +366,7 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         moved = recorded != toolchain_fingerprint if recorded \
                 else _toolchain_moved_unfingerprinted(target.build_dir(), target)
         if moved:
-            if target.config.print:
-                warning(f'  - Target {target.name: <16} toolchain changed since last configure - wiping build dir')
+            _note(target, out, 'toolchain changed since last configure - wiping build dir')
             _wipe_build_dir(target)
 
     # A cache or a compiler detection left half-written by a killed configure poisons this run; drop both
@@ -367,8 +374,7 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     # cache at all: a kill mid-detection often saves none, and a `use` seed would re-add the marker.
     if seedcache.detection_is_partial(_build_files_dir(target)) \
        or (os.path.exists(target.build_dir('CMakeCache.txt')) and not is_cmake_cache_valid(target.build_dir())):
-        if target.config.print:
-            warning(f'  - Target {target.name: <16} incomplete build dir (interrupted configure) - rebuilding it')
+        _note(target, out, 'incomplete build dir (interrupted configure) - rebuilding it')
         _wipe_build_dir(target)
     elif not must_configure and os.path.exists(target.build_dir('CMakeCache.txt')):
         if target.config.verbose:

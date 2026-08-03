@@ -66,9 +66,9 @@ class Platform:
     ## has a real file to find under /usr/lib, and everything else leaves it to the system linker.
     syslib_is_framework = False
     syslib_is_searchable = False
-    ## The IDE project this platform's own generator emits, and the command that opens it. '' means
-    ## mama falls back to VSCode.
-    ide_project_ext = ''
+    ## The IDE project extensions this platform's own generator emits, newest format first, and the
+    ## command that opens one. An empty tuple means mama falls back to VSCode.
+    ide_project_ext = ()
     ide_project_is_dir = False
     ide_open_command = ''
     supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of

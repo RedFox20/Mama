@@ -14,7 +14,7 @@ class Macos(Platform):
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}
     syslib_is_framework = True
-    ide_project_ext = '.xcodeproj'
+    ide_project_ext = ('.xcodeproj',)
     ide_project_is_dir = True
     ide_open_command = 'open'
 

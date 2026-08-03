@@ -146,7 +146,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
         return
 
     if platform.ide_project_ext:
-        console(f'Could not find any {platform.ide_project_ext} projects, using VSCode instead.')
+        console(f'Could not find any {" or ".join(platform.ide_project_ext)} projects, using VSCode instead.')
     elif config.linux:
         console(f'Using VSCode. You can also try opening this folder with CLion: {found.src_dir}')
     execute(f'code {found.src_dir}', echo=True)
@@ -154,11 +154,15 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
 
 def _find_ide_project(platform, dep: BuildDependency) -> str:
     """The IDE project this platform's own generator emits, '' when it has none or none was built.
-    Visual Studio writes a .sln FILE, Xcode a .xcodeproj DIRECTORY."""
-    if not platform.ide_project_ext: return ''
-    matches = glob_folders_with_name_match(dep.build_dir, [platform.ide_project_ext]) \
-              if platform.ide_project_is_dir else glob_with_extensions(dep.build_dir, [platform.ide_project_ext])
-    return matches[0] if matches else ''
+    Visual Studio writes a .sln or .slnx FILE, Xcode a .xcodeproj DIRECTORY.
+
+    The newest match wins. A build dir configured by two toolsets holds both solution formats, and the
+    stale one opens an empty solution."""
+    exts = platform.ide_project_ext
+    if not exts: return ''
+    matches = glob_folders_with_name_match(dep.build_dir, exts) \
+              if platform.ide_project_is_dir else glob_with_extensions(dep.build_dir, exts)
+    return max(matches, key=os.path.getmtime) if matches else ''
 
 
 _RETIRED_ARGS = {'buildtimes': 'buildstats'}  # removed flags worth naming, so they don't read as a target

@@ -184,3 +184,10 @@ def warning(text:str):
     """ Prints a message as a warning, colored yellow """
     console(text, color=Color.YELLOW)
 
+
+def warning_to(out, text:str):
+    """Send a warning to a target's output sink, or print it when there is none. The sink feeds the
+    per-target display block and mamabuild.log, which a plain print never reaches."""
+    if out: out(get_colored_text(text, Color.YELLOW))
+    else: warning(text)
+
