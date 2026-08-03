@@ -117,14 +117,16 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         exported.append(name)
         src_dir, dst_dir, record = _include_deploy(target, includes_root, abs_include)
         first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
-        # QCoro/ next to qcoro/ is ONE dir on Windows and macOS. The merge also puts a stub header
-        # beside the header it forwards to, which is how `#include "qcorotask.h"` resolves.
-        merged = first != dst_dir
-        if merged: dst_dir = first
-        else: descr.append(record)
-        if detail_echo:
-            where = f'{record[2:]} merged into {os.path.basename(first)}' if merged else record[2:]
-            console(f'    I ({inctarget.name+")": <16}  {where}')
+        if first != dst_dir:
+            # QCoro/ next to qcoro/ is ONE dir on Windows and macOS. The merge also puts a stub header
+            # beside the header it forwards to, which is how `#include "qcorotask.h"` resolves.
+            # Only one spelling survives on Linux, so the package tells the author which one won.
+            dst_dir = first
+            warning(f'  PAPA Deploy {target.name}: merged {record[2:]} into include/{os.path.basename(first)}.' + \
+                    ' A consumer must write the surviving spelling.')
+        else:
+            descr.append(record)
+            if detail_echo: console(f'    I ({inctarget.name+")": <16}  {record[2:]}')
         if src_dir != dst_dir:
             if config.verbose: console(f'    copy {src_dir}\n      -> {dst_dir}')
             copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)

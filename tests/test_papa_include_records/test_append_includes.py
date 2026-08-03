@@ -67,6 +67,14 @@ def test_a_second_export_of_one_dir_name_is_skipped(producer):
     assert descr == ['I include/foo'] and deployed == ['include/foo/a.h']
 
 
+def test_a_case_variant_dir_merges_and_names_the_surviving_spelling(producer, capsys):
+    files = {'qcoro/qcorotask.h': '// h\n', 'QCoro/QCoroTask': '#include "qcorotask.h"\n'}
+    descr, deployed = _deploy(producer, files, ['qcoro', 'QCoro'])
+    assert descr == ['I include/qcoro']
+    assert deployed == ['include/qcoro/QCoroTask', 'include/qcoro/qcorotask.h']
+    assert 'merged include/QCoro into include/qcoro' in capsys.readouterr().out
+
+
 def test_only_the_glob_filter_suffixes_are_copied(producer):
     files = {'include/foo.h': '// h\n', 'include/foo.hpp': '// hpp\n', 'include/foo.txt': 'text\n',
              'include/foo.cpp': '// cpp\n'}
