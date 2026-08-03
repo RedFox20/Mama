@@ -111,10 +111,10 @@ def compiler_from_module(build_files_dir: str, lang: str) -> str:
 def usable_compilers(build_files_dir: str) -> dict:
     """{lang: compiler path} for the core languages, or {} when any of them is unusable.
 
-    Mama writes a seed once and every later build dir reuses it, so one bad seed costs the slow probe
-    AND every build after it. cmake records an empty CMAKE_<lang>_COMPILER when detection failed, and
-    a build dir seeded from that compiles with "". Read the value back and stat it, so a seed either
-    names a compiler that exists on this machine or mama does not write it at all."""
+    Mama writes a seed once and every later build dir reuses it. One bad seed therefore costs the slow
+    probe AND every build after it. cmake records an empty CMAKE_<lang>_COMPILER when detection failed,
+    and a build dir seeded from that compiles with "". Read the value back and stat it. A seed then
+    names a compiler this machine has, or mama writes no seed at all."""
     compilers = {}
     for lang in _CORE_LANGS:
         compiler = compiler_from_module(build_files_dir, lang)
@@ -128,9 +128,9 @@ def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
 
     A toolchain file that names the compiler leaves NO CMAKE_<lang>_COMPILER in the cache, because
     cmake caches only what it detected itself. A seeded dir skips detection, so the cache stays empty
-    too, and a CMakeLists that later runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset then
-    clears the compiler for good: every ninja rule compiles with "". `compilers` fills the gap with
-    what usable_compilers() read from the modules, so the cache always names the same compiler."""
+    too. A CMakeLists that later runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset then clears
+    the compiler, and every ninja rule compiles with "". `compilers` carries what usable_compilers()
+    read from the modules, so the cache always names the same compiler."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: text = ''
     lines = [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
@@ -145,8 +145,8 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
     """Capture detection artifacts from a freshly-configured `build_files_dir`
     (`<build>/CMakeFiles/<ver>`) into `seed_dir`. Returns False if nothing usable was found. Each
     file lands via a temp + os.replace so a concurrent reader never copies a half-written file. The
-    manifest records `fingerprint` (so a load can re-verify it), `probe` (the compiler binary whose
-    disappearance invalidates the seed) and `compilers` (what a load re-checks before it injects)."""
+    manifest records three things. `fingerprint` lets a load re-verify the toolchain. `probe` names the
+    compiler binary whose disappearance invalidates the seed. `compilers` is what a load re-checks."""
     langs = detected_langs(build_files_dir)
     compilers = usable_compilers(build_files_dir)
     # never publish a half-detected toolchain, one missing a core language, or one naming a compiler
@@ -173,7 +173,7 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
 
 def _compilers_are_live(manifest) -> bool:
     """True when the seed names a compiler for every core language and each one is still on disk. The
-    publish already checked this, so a False here means the toolset moved after the seed was written."""
+    publish already checked this, so a False here means the toolset moved after mama wrote the seed."""
     compilers = manifest.get('compilers') or {}
     return all(compilers.get(lang) and os.path.exists(compilers[lang]) for lang in _CORE_LANGS)
 
@@ -228,9 +228,9 @@ def load(seed_dir: str, ttl=BACKSTOP_TTL, clock=time.time):
 def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str) -> bool:
     """Make a fresh `build_dir` look already-configured so cmake skips ALL detection: copy the
     captured toolchain files into CMakeFiles/<ver> + write a CMakeCache.txt with the
-    PLATFORM_INFO_INITIALIZED marker + CMAKE_HOME_DIRECTORY. Returns False writing NO marker when the
-    seed is empty, names no live compiler, or vanished mid-copy (a concurrent heal), so the caller
-    detects normally instead of trusting a marker with no compiler files."""
+    PLATFORM_INFO_INITIALIZED marker + CMAKE_HOME_DIRECTORY. Returns False and writes NO marker when
+    the seed is empty, names no live compiler, or vanished mid-copy under a concurrent heal. The
+    caller then detects normally, instead of trusting a marker with no compiler files."""
     manifest = load(seed_dir, ttl=float('inf'))
     if manifest and not _compilers_are_live(manifest): return False
     os.makedirs(build_files_dir, exist_ok=True)

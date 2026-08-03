@@ -1,5 +1,5 @@
-"""Pins that a sanitizer or coverage build fetches its artifactory package into the variant build dir
-and that a nested include record survives the deploy, archive and fetch round trip."""
+"""Pins that a sanitizer or coverage build fetches its artifactory package into the variant build dir.
+Also pins that a nested include record survives the deploy, archive and fetch round trip."""
 import os, shutil, zipfile
 from unittest.mock import patch
 
@@ -10,7 +10,7 @@ from mama import artifactory, papa_deploy, papa_upload
 from mama.build_target import BuildTarget
 
 
-def _make_target(dep, includes, libs):
+def _exporting_target(dep, includes, libs):
     target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
     target.version = 'abc1234'
     target.exported_includes = includes
@@ -40,7 +40,7 @@ def _publish(tmp_path, sanitize=None, include_rel='include', **overrides):
     open(f'{build}/{include_rel}/foo/foo.h', 'w').write('#pragma once\n')
     os.makedirs(f'{build}/lib', exist_ok=True)
     open(f'{build}/lib/libfoo.a', 'wb').write(b'\0' * 8)
-    target = _make_target(dep, [f'{build}/{include_rel}'], [f'{build}/lib/libfoo.a'])
+    target = _exporting_target(dep, [f'{build}/{include_rel}'], [f'{build}/lib/libfoo.a'])
     return _deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
 
 
@@ -101,6 +101,6 @@ def test_an_include_dir_with_no_files_fails_the_upload(tmp_path):
     os.makedirs(f'{build}/include/empty', exist_ok=True)  # dirs only: every header filtered out or never built
     os.makedirs(f'{build}/lib', exist_ok=True)
     open(f'{build}/lib/libfoo.a', 'wb').write(b'\0' * 8)
-    target = _make_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'])
+    target = _exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'])
     with pytest.raises(RuntimeError, match='include dirs hold no files'):
         _deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')

@@ -109,8 +109,8 @@ def test_publish_returns_false_without_compiler_files(tmp_path):
 
 
 def _break_compiler_module(build_files_dir, lang, line):
-    """Rewrite the captured module so its compiler line reads `line`, the way a detection gone wrong
-    leaves it: an empty value, or a path this machine does not have."""
+    """Rewrite the captured module so its compiler line reads `line`. A failed detection leaves an
+    empty value, or a path this machine does not have."""
     mod = os.path.join(build_files_dir, cc._LANG_FILES[lang][0])
     rest = [l for l in open(mod).read().splitlines() if not l.startswith(f'set(CMAKE_{lang}_COMPILER "')]
     open(mod, 'w').write('\n'.join([line] + rest) + '\n')
@@ -118,8 +118,8 @@ def _break_compiler_module(build_files_dir, lang, line):
 
 @pytest.mark.parametrize('line', ['set(CMAKE_CXX_COMPILER "")', '', 'set(CMAKE_CXX_COMPILER "/gone/g++")'])
 def test_publish_refuses_a_seed_whose_compiler_is_not_usable(tmp_path, line):
-    # Writing the seed once is slow and every later build dir reuses it, so a seed naming a compiler
-    # this machine cannot run costs the probe AND breaks every build. Detect again instead.
+    # The seed costs one slow probe and every later build dir reuses it. A seed naming a compiler
+    # this machine cannot run therefore breaks every build, so detect again instead.
     bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     _break_compiler_module(bf, 'CXX', line)
     seed = str(tmp_path / 'seed')

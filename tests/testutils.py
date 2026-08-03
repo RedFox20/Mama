@@ -292,8 +292,8 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
     """A `CMakeFiles/<ver>` dir as cmake leaves it after detection, for the compiler-seed tests.
 
     Each language names a compiler that EXISTS in the dir, because the seed cache refuses a module
-    whose compiler it cannot stat. A lang in `partial` stops at stage 1 (no ABI probe), the way a
-    killed configure leaves it. Returns the dir."""
+    whose compiler it cannot stat. A language in `partial` stops at stage 1 (no ABI probe), the way
+    a killed configure leaves it. Returns the dir."""
     from mama.buildsys.cmake.compiler_cache import _LANG_FILES
     from mama.util import normalized_path
     os.makedirs(build_files_dir, exist_ok=True)

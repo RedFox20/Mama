@@ -97,8 +97,8 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
                     src_file = os.path.join(full_dir, file)
                     rel_file = os.path.relpath(src_file, package_full_path)
                     expected[_zip_path(rel_file)] += 1
-            # An include record with no file under it ships a package whose headers no consumer can
-            # reach, and the counts below still match, so nothing else catches it.
+            # An include record with no file under it ships a package no consumer can include from.
+            # The counts below still match, so nothing else catches it.
             if len(expected) == before: empty_includes.append(_zip_path(os.path.relpath(include, package_full_path)))
         else:
             rel_path = os.path.relpath(include, package_full_path)
