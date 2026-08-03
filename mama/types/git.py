@@ -1,7 +1,7 @@
 from __future__ import annotations
-from typing import NamedTuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-import os, ast, string, time, re, random, tempfile, subprocess
+import os, string, time, re, random, tempfile, subprocess
 from collections import deque
 from .dep_source import DepSource
 from ..utils.system import Color, console, error, warning, progress
@@ -11,6 +11,7 @@ from ..util import (is_dir_empty, has_source_content, save_file_if_contents_chan
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
                     remove_tree, GitError)
 from .git_errors import classify_git_failure, format_git_failure, stall_message
+from ..mamafile_version import trusted_version
 
 
 if TYPE_CHECKING:
@@ -40,13 +41,6 @@ _SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
 def _is_git_status_noise(line: str) -> bool:
     return line.startswith(_GIT_NOISE) or 'set up to track ' in line \
         or _SSH_CONFIG_WARNING.match(line) is not None
-
-
-class VersionScan(NamedTuple):
-    """What a mamafile's text says about `self.version`. See Git.extract_self_version."""
-    value: str      # the single literal, or '' when there is not exactly one
-    literals: int   # how many `self.version = '<literal>'` assignments the text holds
-    computed: bool  # a `self.version =` assignment whose value is not a quoted literal
 
 
 _CLONE_ATTEMPTS = 3
@@ -277,105 +271,6 @@ class Git(DepSource):
         return len(s) > 0 and all(c in string.hexdigits for c in s)
 
 
-    # An assignment to self.version, anywhere on the line. `if lgpl: self.version = '8.0.1-lgpl'` is the
-    # shape that breaks a text reader, so it must not hide behind a line-start anchor. `[^\w.]` keeps
-    # `other.self.version` out, and `(?!=)` keeps a `self.version == x` comparison out.
-    _VERSION_ASSIGN_RE = re.compile(r"""(?:^|[^\w.])self\.version\s*=(?!=)\s*(.*)""")
-    _VERSION_LITERAL_RE = re.compile(r"""^(['"])([^'"]*)\1\s*$""")  # the WHOLE right side is one literal
-
-    @staticmethod
-    def extract_self_version(mamafile_text: str) -> VersionScan:
-        """Report every `self.version` assignment a mamafile makes, WITHOUT running it.
-
-        Mama names a package before it clones anything, so it reads the version out of the mamafile text.
-        Only one shape is trustworthy: exactly one string the reader can resolve. Two of them mean the
-        value depends on which branch runs, and a computed value is invisible here. In both shapes this
-        reader would return a name the UPLOAD side never publishes. So it reports what it saw, and the
-        caller refuses. See `Git.trusted_self_version`.
-
-        Parses the file rather than grepping it. `ast.parse` costs about 0.14ms on a real mamafile, on a
-        path that already spends 100ms or more on the network. It is also EXACT. A text scan counts a
-        docstring that documents `self.version` as an assignment, then refuses the real pin next to it.
-        The text scan stays as the fallback for a mamafile this Python cannot parse."""
-        try:
-            return Git._scan_version_ast(ast.parse(mamafile_text))
-        except (SyntaxError, ValueError):
-            return Git._scan_version_text(mamafile_text)
-
-
-    @staticmethod
-    def _module_string_constants(tree) -> dict:
-        """Module-level `NAME = '<literal>'` bindings, which are the only names this reader can resolve.
-        A name bound twice, or bound to anything but a string, resolves to nothing. The executed value
-        would then depend on which binding ran last, and the reader must not guess."""
-        bound = {}
-        for node in tree.body:
-            if not isinstance(node, ast.Assign): continue
-            literal = node.value.value if isinstance(node.value, ast.Constant) else None
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    bound[target.id] = literal if isinstance(literal, str) and target.id not in bound else None
-        return {name: value for name, value in bound.items() if value is not None}
-
-
-    @staticmethod
-    def _scan_version_ast(tree) -> VersionScan:
-        """The exact scan: every real assignment to `self.version`, and nothing that merely mentions it."""
-        constants = Git._module_string_constants(tree)
-        literals, computed = [], False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign): targets, value = node.targets, node.value
-            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)): targets, value = [node.target], node.value
-            else: continue
-            if not any(isinstance(t, ast.Attribute) and t.attr == 'version'
-                       and isinstance(t.value, ast.Name) and t.value.id == 'self' for t in targets):
-                continue
-            if isinstance(node, ast.AugAssign) or value is None: computed = True  # `+=`, or a bare `: str`
-            elif isinstance(value, ast.Constant) and isinstance(value.value, str): literals.append(value.value)
-            elif isinstance(value, ast.Name) and value.id in constants: literals.append(constants[value.id])
-            else: computed = True
-        return VersionScan(literals[0] if len(literals) == 1 else '', len(literals), computed)
-
-
-    @staticmethod
-    def _scan_version_text(mamafile_text: str) -> VersionScan:
-        """The fallback for a mamafile this Python cannot parse. Line based, so it cannot tell an
-        assignment from a docstring that quotes one. It also reads a multi-line literal as computed."""
-        literals, computed = [], False
-        for line in mamafile_text.splitlines():
-            m = Git._VERSION_ASSIGN_RE.search(line.split('#', 1)[0])  # a commented-out line assigns nothing
-            if not m: continue
-            literal = Git._VERSION_LITERAL_RE.match(m.group(1).strip())
-            if literal: literals.append(literal.group(2))
-            else: computed = True
-        return VersionScan(literals[0] if len(literals) == 1 else '', len(literals), computed)
-
-
-    @staticmethod
-    def trusted_self_version(dep: BuildDependency, mamafile_text: str, source: str) -> str:
-        """The pinned version when the mamafile states it in the ONE shape both sides can agree on. Else
-        '', so the dep names itself by commit hash on the download side AND the upload side. Warns once
-        per dep on a shape it refuses, because the alternative is a silent permanent cache miss."""
-        scan = Git.extract_self_version(mamafile_text)
-        if scan.literals == 1 and not scan.computed:
-            return scan.value
-        if scan.literals or scan.computed:
-            reason = 'assigns self.version more than once' if scan.literals > 1 else \
-                     'computes self.version instead of assigning a literal'
-            Git._warn_unusable_version(dep, source, reason)
-        return ''
-
-
-    @staticmethod
-    def _warn_unusable_version(dep: BuildDependency, source: str, reason: str):
-        """One warning per dep per run. Both readers (on-disk and remote) reach the same mamafile, and a
-        repeated warning per probe teaches the reader to skip it."""
-        if getattr(dep, 'warned_bad_version', False) or not dep.config.print: return
-        dep.warned_bad_version = True
-        warning(f'  - Target {dep.name: <16} {os.path.basename(source)} {reason}, so mama cannot read it ' +
-                'before the clone. This package uses the commit hash instead. Use one raw string literal.')
-
-
     def fetch_self_version_from_remote(self, dep: BuildDependency):
         """Fetches just the dep's mamafile to read `self.version` without pulling the
         full repo. Used by the shim probe for version-pinned deps (e.g. boost 1.60)
@@ -386,7 +281,7 @@ class Git(DepSource):
         if dep.mamafile:
             # Parent-repo mamafile override: the remote repo's mamafile is not the one mama
             # runs, and `git show HEAD:<local path>` can never resolve. The local file was
-            # already checked for a pin before this fallback (resolve_pinned_version).
+            # already checked for a pin before this fallback (mamafile_version.pinned_version).
             return None
         if not dep.config.is_network_available():
             return None
@@ -421,7 +316,7 @@ class Git(DepSource):
                 content = cp.stdout.decode('utf-8', errors='replace')
                 if not content:
                     return None
-                version = Git.trusted_self_version(dep, content, mamafile_name)
+                version = trusted_version(dep, content, mamafile_name)
                 if dep.config.print and version:
                     progress(f'  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}',
                              color=Color.BLUE, final=True)

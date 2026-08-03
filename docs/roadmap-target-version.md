@@ -82,9 +82,9 @@ file in the CONSUMER's repo, which the reader can open before any clone. See §5
 | what | where |
 |---|---|
 | the one name composer | `artifactory.artifactory_archive_name` |
-| the text scan | `Git.extract_self_version` -> `VersionScan(value, literals, computed)` |
-| the trust rule and its warning | `Git.trusted_self_version` |
-| the on-disk reader | `artifactory.resolve_pinned_version` |
+| what a mamafile declares | `mamafile_version.scan_mamafile` -> `VersionScan(value, literals, computed)` |
+| the trust rule and its warning | `mamafile_version.trusted_version` |
+| the on-disk reader | `mamafile_version.pinned_version` |
 | the pre-clone reader | `Git.fetch_self_version_from_remote` |
 | pin sanitizing | `build_names.sanitize_version` |
 | the upload guard | `papa_upload._download_can_find_this_version` |
@@ -116,10 +116,10 @@ cannot recreates this defect.** That single test rejects most tempting designs, 
 
 ### 3.1 P1 - the scan reports, and the upload refuses  [IMPLEMENTED]
 
-- `Git.extract_self_version` returns `VersionScan(value, literals, computed)` instead of a bare string.
-  One literal and no computed assignment is the only trustworthy shape.
-- `Git.trusted_self_version` applies that rule for both readers, and warns once per dep on a shape it
-  refuses.
+- `mamafile_version.scan_mamafile` returns `VersionScan(value, literals, computed)` instead of a bare
+  string. One literal and no computed assignment is the only trustworthy shape.
+- `mamafile_version.trusted_version` applies that rule for both readers, and warns once per dep on a
+  shape it refuses.
 - `papa_upload` recomputes the version through the download path. When the two disagree it **skips the
   upload**, rather than publish an archive no consumer can ask for.
 
@@ -149,8 +149,15 @@ twice resolves to nothing, because the executed value would depend on which bind
 **Parsing does not resolve the ambiguous case, and nothing can.** Two assignments still refuse. Which
 branch runs depends on runtime state that no reader has before the clone.
 
-Tests: `tests/test_self_version_probe/` (the scan, including `TestScanReadsCodeNotText`) and
-`tests/test_target_version/` (the trust rule, the warning, the upload guard).
+#### Why `mamafile_version.py` and not `types/git.py`  [V]
+
+The scan landed in `Git` because the old one-line regex lived there. Almost none of it is git work:
+parsing Python, judging a declaration and warning about it hold no git concept at all. Only
+`Git.fetch_self_version_from_remote` is genuinely git. It fetches the text for a dep that has no clone
+yet, and then asks `mamafile_version` what the text means.
+
+Tests: `tests/test_target_version/` (the whole module: the scan, the trust rule, the warning, the upload
+guard) and `tests/test_self_version_probe/` (the git-side fetch and the shim fallback).
 
 ### 3.2 P2 - a git pin names the package  [IMPLEMENTED]
 
@@ -182,8 +189,7 @@ declares its deps. A tree of unpinned deps renames nothing.
    `artifactory_archive_name` alone, and false on the path that matters.
    `try_load_artifactory_shim` calls `init_commit_hash(fetch_remote=True)` FIRST, unconditionally,
    because `write_shim_marker` records the hash. So a tag-pinned dep still pays that round trip. P2 buys
-   no network saving. `test_a_tag_pin_never_resolves_a_commit_hash` pins the composer's behavior, not
-   the probe's.
+   no network saving. `test_a_tag_pin_never_resolves_a_commit_hash` pins the composer, not the probe.
 2. **"Two consumers pinning one tag now share an archive, where before each resolved its own hash."**
    They already shared. One tag resolves to one commit, so both sides produced the same hash name before
    P2 as well.

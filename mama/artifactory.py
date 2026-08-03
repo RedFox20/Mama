@@ -3,6 +3,7 @@ import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
 
 from . import build_names
+from .mamafile_version import pinned_version
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
@@ -10,7 +11,7 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip, is_network_error, read_text_from
+from .util import download_file, normalized_join, try_unzip, is_network_error
 from .papa_deploy import PapaFileInfo
 
 
@@ -334,23 +335,6 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
         return (False, None)
 
 
-def resolve_pinned_version(dep) -> str:
-    """A `self.version = '<literal>'` pinned in the dep's mamafile, read from disk WITHOUT
-    executing it. A mamafile may set the version in any method, and none of them run on a
-    download probe. They run on the upload side, where the value renames the archive.
-    Pre-clone the mamafile is on disk only for a parent-repo override (dep.mamafile).
-    Post-clone it is also in the dep's own tree. Returns '' when the dep is unpinned, when
-    the mamafile is not on disk yet, or when the pin is in a shape this reader cannot
-    trust (Git.trusted_self_version)."""
-    path = dep.mamafile_path()
-    if path and os.path.exists(path):
-        try:
-            return Git.trusted_self_version(dep, read_text_from(path), path)
-        except OSError:
-            return ''
-    return ''
-
-
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
     Try to fetch prebuilt package from artifactory
@@ -364,7 +348,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     # hash), so a probe without it looks for a name uploads no longer produce - and a
     # hash-named archive it finds instead can only be a stale pre-pin leftover.
     if not target.version:
-        target.version = resolve_pinned_version(target.dep)
+        target.version = pinned_version(target.dep)
 
     archive = artifactory_archive_name(target)
     if not archive:

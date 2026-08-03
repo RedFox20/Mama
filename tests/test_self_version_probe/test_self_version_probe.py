@@ -1,94 +1,12 @@
-"""Self.version regex + sparse-mamafile probe + shim hash-then-version fallback."""
+"""The git half of version resolution: the sparse-mamafile fetch, and the shim probe's
+hash-then-version fallback. The scan itself lives in tests/test_target_version/."""
 
 import contextlib
 import subprocess
 from unittest.mock import Mock, patch
 
-import pytest
-
 from mama.types.git import Git
-from mama import artifactory as art
-
-
-class TestExtractSelfVersion:
-    @pytest.mark.parametrize('text,expected', [
-        ("self.version = '1.0'",               '1.0'),
-        ('self.version = "1.60"',              '1.60'),
-        ("self.version='2.3.4'",               '2.3.4'),
-        ("    self.version = '0.9.1-beta'",    '0.9.1-beta'),
-        ("self.version = '1.0' # the version", '1.0'),
-        ("self.version = ''",                  ''),  # an explicit empty pin is still one literal
-        # the method does not matter, the text does: init(), settings() and configure() all read alike
-        ("class P:\n    def init(self):\n        self.version = '7.7'\n", '7.7'),
-        ("class P:\n    def settings(self):\n        self.version = '7.7'\n", '7.7'),
-        ("class P:\n    def configure(self):\n        self.version = '7.7'\n", '7.7'),
-    ])
-    def test_one_literal_is_the_only_trustworthy_shape(self, text, expected):
-        assert Git.extract_self_version(text) == (expected, 1, False)
-
-    @pytest.mark.parametrize('text', [
-        "self.version = f'{major}.{minor}'",   # f-string
-        "self.version = compute_version()",    # function call
-        "self.version = MY_VERSION",           # bare variable
-    ])
-    def test_a_computed_value_is_reported_not_guessed(self, text):
-        assert Git.extract_self_version(text) == ('', 0, True)
-
-    @pytest.mark.parametrize('text', [
-        "class P:\n    def init(self):\n        self.name = 'libfoo'\n",  # never assigned
-        "# self.version = '1.0'",                                         # commented out
-        "if self.version == '1.0': pass",                                 # a comparison, not an assignment
-        "other.self.version = '1.0'",                                     # a different object
-        "self.versions = '1.0'",                                          # a different attribute
-        "",
-    ])
-    def test_no_assignment_reports_nothing(self, text):
-        assert Git.extract_self_version(text) == ('', 0, False)
-
-    def test_a_conditional_reassignment_is_ambiguous(self):
-        # THE case this scan exists for. The reader cannot know which branch runs. An upload that picked
-        # '2.0' would publish a name the download never asks for, because the reader used to take '1.0'.
-        text = "self.version = '1.0'\nif lgpl: self.version = '2.0'\n"
-        assert Git.extract_self_version(text) == ('', 2, False)
-
-    def test_a_literal_plus_a_computed_branch_is_ambiguous(self):
-        text = "self.version = '8.0.1'\nif lgpl: self.version = compute()\n"
-        scan = Git.extract_self_version(text)
-        assert scan.literals == 1 and scan.computed
-
-
-class TestScanReadsCodeNotText:
-    """The scan parses the mamafile. A line scan counts anything that MENTIONS `self.version`, and then
-    refuses the real pin sitting next to it."""
-
-    def test_a_docstring_that_documents_the_field_is_not_an_assignment(self):
-        text = ('class P:\n'
-                '    """Set self.version = \'9.9.9\' to pin the archive name."""\n'
-                '    def settings(self):\n        self.version = \'0.13.0\'\n')
-        assert Git.extract_self_version(text) == ('0.13.0', 1, False)
-
-    def test_a_string_that_quotes_the_field_is_not_an_assignment(self):
-        assert Git.extract_self_version('error("self.version = \'9.9\' is required")') == ('', 0, False)
-
-    def test_a_literal_wrapped_over_two_lines_is_still_a_literal(self):
-        assert Git.extract_self_version("self.version = (\n    '8.0.1')\n") == ('8.0.1', 1, False)
-
-    def test_a_module_level_string_constant_resolves(self):
-        # The one name a reader can follow: bound once, at module level, to a string.
-        assert Git.extract_self_version("V = '1.0'\nclass P:\n    def init(self): self.version = V\n") \
-            == ('1.0', 1, False)
-
-    def test_a_constant_bound_twice_resolves_to_nothing(self):
-        # Which binding ran last decides the executed value, and the reader must not guess.
-        text = "V = '1.0'\nV = compute()\nclass P:\n    def init(self): self.version = V\n"
-        assert Git.extract_self_version(text) == ('', 0, True)
-
-    def test_an_augmented_assignment_is_computed(self):
-        assert Git.extract_self_version("self.version += '-rc1'") == ('', 0, True)
-
-    def test_an_unparseable_mamafile_falls_back_to_the_line_scan(self):
-        # A mamafile written for a newer Python than the one running mama still gets a best effort.
-        assert Git.extract_self_version("def f(self)\n    self.version = '1.0'\n") == ('1.0', 1, False)
+from mama import artifactory as art, mamafile_version
 
 
 def _make_dep(branch='main', mamafile_field=''):
@@ -343,16 +261,16 @@ class TestResolvePinnedVersion:
         mf.write_text("class protobuf:\n"
                       "    def configure(self):\n"
                       "        self.version = '34.0'\n", encoding='utf-8')
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == '34.0'
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(mf))) == '34.0'
 
     def test_empty_when_mamafile_has_no_pin(self, tmp_path):
         mf = tmp_path / 'mamafile.py'
         mf.write_text("class libfoo:\n    pass\n", encoding='utf-8')
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(mf))) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(mf))) == ''
 
     def test_empty_when_mamafile_not_on_disk(self, tmp_path):
-        assert art.resolve_pinned_version(self._dep_with_mamafile(str(tmp_path / 'nope.py'))) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(str(tmp_path / 'nope.py'))) == ''
 
     def test_empty_when_dep_has_no_mamafile_path(self):
         # pre-clone git dep without a parent override: mamafile_path() is None
-        assert art.resolve_pinned_version(self._dep_with_mamafile(None)) == ''
+        assert mamafile_version.pinned_version(self._dep_with_mamafile(None)) == ''

@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING
 from collections import Counter
 import os, zipfile, shutil
 
-from .artifactory import artifactory_archive_name, artifactory_upload_ftp, resolve_pinned_version
+from .artifactory import artifactory_archive_name, artifactory_upload_ftp
+from .mamafile_version import pinned_version
 from .util import get_file_size_str, console, normalized_join, forward_slashes, ProgressBar
 from .utils.system import error
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
@@ -163,7 +164,7 @@ def _download_can_find_this_version(target:BuildTarget) -> bool:
     would then publish an archive no consumer can ever ask for, and every build would miss the cache
     with no error to explain it. Refuse the upload instead."""
     executed = target.version or ''
-    readable = resolve_pinned_version(target.dep)
+    readable = pinned_version(target.dep)
     if executed == readable: return True
     error(f'  - Target {target.name: <16} UPLOAD REFUSED: this build named the package ' +
           f'{executed or "<commit hash>"!r}, but a download reads {readable or "<commit hash>"!r} ' +

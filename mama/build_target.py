@@ -72,7 +72,7 @@ class BuildTarget:
         self.install_target = 'install'
         # Pins the last field of the artifactory archive name, in place of the commit hash. It MUST be a
         # SINGLE RAW STRING LITERAL. Mama names a package before it clones anything, so it reads this
-        # value out of the mamafile TEXT and never runs the file (Git.extract_self_version). That reader
+        # value out of the mamafile TEXT and never runs the file (mamafile_version.py). That reader
         # cannot see a computed value, and it stops at the first assignment. Either shape makes the
         # download look for one name while the upload publishes another. See the README, "Package naming".
         self.version = ''
