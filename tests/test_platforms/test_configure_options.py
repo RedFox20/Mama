@@ -131,6 +131,7 @@ def test_the_32bit_arm_build_declares_an_fpu(platform_class, fpu, tmp_path, fake
     assert _cxx_flags(tmp_path, platform_class, 'arm')['-mfpu'] == fpu
 
 
+@pytest.mark.linux_host
 def test_xilinx_matches_the_petalinux_sdk_flags(tmp_path, fake_toolchains):
     flags = _cxx_flags(tmp_path, Xilinx)
     assert flags['-mcpu'] == 'cortex-a72.cortex-a53+crc' and flags['-mbranch-protection'] == 'standard'
@@ -142,6 +143,7 @@ def test_a_yocto_board_defines_itself_and_yocto_linux(platform_class, tmp_path, 
     assert flags[f'-D{platform_class.name.upper()}'] == '1' and flags['-DYOCTO_LINUX'] == '1'
 
 
+@pytest.mark.linux_host
 def test_a_yocto_board_drops_libraries_it_never_calls(tmp_path, fake_toolchains):
     """-Wl,--as-needed: an embedded binary that links unused libraries is bloated and can break
     at runtime on a resource-constrained device."""
@@ -150,10 +152,12 @@ def test_a_yocto_board_drops_libraries_it_never_calls(tmp_path, fake_toolchains)
     assert '-Wl,--as-needed' in t.cmake_ldflags
 
 
+@pytest.mark.linux_host
 def test_mips_defines_itself(tmp_path, fake_toolchains):
     assert _cxx_flags(tmp_path, Mips, 'mipsel')['-DMIPS'] == '1'
 
 
+@pytest.mark.linux_host
 @pytest.mark.parametrize('tool', ['ar', 'readelf', 'strip', 'ranlib'])
 def test_mips_names_the_cross_binutils_it_ships(tool, tmp_path, fake_toolchains):
     """FIND_ROOT_PATH_MODE_PROGRAM=ONLY restricts cmake's own search to the target root, and mama sets

@@ -10,6 +10,16 @@ sys.path.insert(0, _here)
 sys.path.insert(0, _repo_root)
 
 
+from testutils import is_linux  # after the sys.path setup above, so tests/ is importable
+
+
+def pytest_runtest_setup(item):
+    """Skip a linux_host test off Linux. MIPS, every Yocto SDK and install-raspi need a Linux host, so
+    the code under test raises there instead of answering."""
+    if item.get_closest_marker('linux_host') and not is_linux():
+        pytest.skip('needs a Linux host')
+
+
 @pytest.fixture(autouse=True)
 def _restore_cwd():
     """Restore the working directory after every test. The integration tests chdir into their own
