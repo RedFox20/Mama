@@ -17,35 +17,44 @@ class TestExtractSelfVersion:
         ("self.version='2.3.4'",               '2.3.4'),
         ("    self.version = '0.9.1-beta'",    '0.9.1-beta'),
         ("self.version = '1.0' # the version", '1.0'),
-        # multi-line mamafile: the assignment lives inside init()
+        ("self.version = ''",                  ''),  # an explicit empty pin is still one literal
+        # the method does not matter, the text does: init(), settings() and configure() all read alike
         ("class P:\n    def init(self):\n        self.version = '7.7'\n", '7.7'),
+        ("class P:\n    def settings(self):\n        self.version = '7.7'\n", '7.7'),
+        ("class P:\n    def configure(self):\n        self.version = '7.7'\n", '7.7'),
     ])
-    def test_matches_literal_assignment(self, text, expected):
-        assert Git.extract_self_version(text) == expected
+    def test_one_literal_is_the_only_trustworthy_shape(self, text, expected):
+        assert Git.extract_self_version(text) == (expected, 1, False)
 
     @pytest.mark.parametrize('text', [
-        # f-string: don't try to evaluate
-        "self.version = f'{major}.{minor}'",
-        # function call: don't try to evaluate
-        "self.version = compute_version()",
-        # bare variable
-        "self.version = MY_VERSION",
-        # never assigned
-        "class P:\n    def init(self):\n        self.name = 'libfoo'\n",
-        # commented out
-        "# self.version = '1.0'",
-        # comparison, not assignment (no '=')
-        "if self.version == '1.0': pass",
-        # empty
+        "self.version = f'{major}.{minor}'",   # f-string
+        "self.version = compute_version()",    # function call
+        "self.version = MY_VERSION",           # bare variable
+    ])
+    def test_a_computed_value_is_reported_not_guessed(self, text):
+        assert Git.extract_self_version(text) == ('', 0, True)
+
+    @pytest.mark.parametrize('text', [
+        "class P:\n    def init(self):\n        self.name = 'libfoo'\n",  # never assigned
+        "# self.version = '1.0'",                                         # commented out
+        "if self.version == '1.0': pass",                                 # a comparison, not an assignment
+        "other.self.version = '1.0'",                                     # a different object
+        "self.versions = '1.0'",                                          # a different attribute
         "",
     ])
-    def test_returns_none_for_non_literal(self, text):
-        assert Git.extract_self_version(text) is None
+    def test_no_assignment_reports_nothing(self, text):
+        assert Git.extract_self_version(text) == ('', 0, False)
 
-    def test_first_assignment_wins(self):
-        # Defensive: conditional re-assignment in a mamafile - we don't try to handle it.
-        text = "self.version = '1.0'\nif something: self.version = '2.0'\n"
-        assert Git.extract_self_version(text) == '1.0'
+    def test_a_conditional_reassignment_is_ambiguous(self):
+        # THE case this scan exists for. The reader cannot know which branch runs. An upload that picked
+        # '2.0' would publish a name the download never asks for, because the reader used to take '1.0'.
+        text = "self.version = '1.0'\nif lgpl: self.version = '2.0'\n"
+        assert Git.extract_self_version(text) == ('', 2, False)
+
+    def test_a_literal_plus_a_computed_branch_is_ambiguous(self):
+        text = "self.version = '8.0.1'\nif lgpl: self.version = compute()\n"
+        scan = Git.extract_self_version(text)
+        assert scan.literals == 1 and scan.computed
 
 
 def _make_dep(branch='main', mamafile_field=''):

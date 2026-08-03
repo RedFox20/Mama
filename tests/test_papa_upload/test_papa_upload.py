@@ -16,6 +16,8 @@ class FakeTarget:
         build_root.mkdir(parents=True, exist_ok=True)
         self.name = 'sample_pkg'
         self.config = SimpleNamespace(verbose=False, print=False)
+        self.version = ''   # unpinned, so the upload's version guard reads the same '' on both sides
+        self.dep = SimpleNamespace(mamafile_path=lambda: None)
         self._build_root = normalized_path(str(build_root))
 
     def build_dir(self, path: str = ''):

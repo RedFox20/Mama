@@ -1,6 +1,6 @@
 # Roadmap: a robust `target.version`, and a `def version(self)` that may compute one
 
-**Status:** planning only. No code in this roadmap has been written.
+**Status:** P1 is implemented (§3). P2, P3 and P4 are still planning only.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a different and worse problem, in §2.
@@ -104,10 +104,23 @@ treating the version as a place to encode variants.
 
 ---
 
-## 3. P1 - make the current contract enforceable and loud
+## 3. P1 - make the current contract enforceable and loud  [IMPLEMENTED]
 
 **Goal:** no silent divergence, ever. No new mamafile surface. This is the phase that actually removes
 the bug class, so it lands first.
+
+Three notes on what shipped, where it differs from the sketch below:
+
+1. The scan reads line by line, not with one anchored regex. The sketch missed the shape that matters
+   most: `if lgpl: self.version = '8.0.1-lgpl'` is not at the start of a line, so a `^`-anchored regex
+   never saw the second assignment and reported one trustworthy literal.
+2. The trust rule lives in `Git.trusted_self_version`, so both readers share it. `extract_self_version`
+   stays a pure text function and warns about nothing.
+3. The warning names the fix that exists today (one raw string literal). It does not point at P2 or P3,
+   because neither is built yet. Update the message when they are.
+
+Tests live in `tests/test_self_version_probe/` (the scan, next to the probe tests that already own it)
+and `tests/test_target_version/` (the trust rule, the warning and the upload guard).
 
 ### 3.1 `extract_self_version` reports what it saw
 

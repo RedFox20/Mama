@@ -319,14 +319,16 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
 
 def resolve_pinned_version(dep) -> str:
     """A `self.version = '<literal>'` pinned in the dep's mamafile, read from disk WITHOUT
-    executing it (mamafiles typically set version inside configure(), which never runs on
-    download probes - only on the upload side, where it renames the archive). Pre-clone the
-    mamafile is on disk only for a parent-repo override (dep.mamafile); post-clone also in
-    the dep's own tree. Returns '' when unpinned or the mamafile isn't on disk yet."""
+    executing it. A mamafile may set the version in any method, and none of them run on a
+    download probe. They run on the upload side, where the value renames the archive.
+    Pre-clone the mamafile is on disk only for a parent-repo override (dep.mamafile).
+    Post-clone it is also in the dep's own tree. Returns '' when the dep is unpinned, when
+    the mamafile is not on disk yet, or when the pin is in a shape this reader cannot
+    trust (Git.trusted_self_version)."""
     path = dep.mamafile_path()
     if path and os.path.exists(path):
         try:
-            return Git.extract_self_version(read_text_from(path)) or ''
+            return Git.trusted_self_version(dep, read_text_from(path), path)
         except OSError:
             return ''
     return ''

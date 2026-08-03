@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import NamedTuple, TYPE_CHECKING
 
 import os, string, time, re, random, tempfile, subprocess
 from collections import deque
@@ -40,6 +40,13 @@ _SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
 def _is_git_status_noise(line: str) -> bool:
     return line.startswith(_GIT_NOISE) or 'set up to track ' in line \
         or _SSH_CONFIG_WARNING.match(line) is not None
+
+
+class VersionScan(NamedTuple):
+    """What a mamafile's text says about `self.version`. See Git.extract_self_version."""
+    value: str      # the single literal, or '' when there is not exactly one
+    literals: int   # how many `self.version = '<literal>'` assignments the text holds
+    computed: bool  # a `self.version =` assignment whose value is not a quoted literal
 
 
 _CLONE_ATTEMPTS = 3
@@ -270,16 +277,54 @@ class Git(DepSource):
         return len(s) > 0 and all(c in string.hexdigits for c in s)
 
 
-    # Captures only quoted literals; f-strings / computed values miss on purpose.
-    _SELF_VERSION_RE = re.compile(r"""^\s*self\.version\s*=\s*['"]([^'"]+)['"]""", re.MULTILINE)
+    # An assignment to self.version, anywhere on the line. `if lgpl: self.version = '8.0.1-lgpl'` is the
+    # shape that breaks a text reader, so it must not hide behind a line-start anchor. `[^\w.]` keeps
+    # `other.self.version` out, and `(?!=)` keeps a `self.version == x` comparison out.
+    _VERSION_ASSIGN_RE = re.compile(r"""(?:^|[^\w.])self\.version\s*=(?!=)\s*(.*)""")
+    _VERSION_LITERAL_RE = re.compile(r"""^(['"])([^'"]*)\1\s*$""")  # the WHOLE right side is one literal
 
     @staticmethod
-    def extract_self_version(mamafile_text: str):
-        """Find `self.version = '<literal>'` in a mamafile. Returns the version
-        string or None. Computed values (f-strings, function calls) are
-        intentionally not handled - those callers must full-clone."""
-        m = Git._SELF_VERSION_RE.search(mamafile_text)
-        return m.group(1) if m else None
+    def extract_self_version(mamafile_text: str) -> VersionScan:
+        """Report every `self.version` assignment a mamafile makes, WITHOUT running it.
+
+        Mama names a package before it clones anything, so it reads the version out of the mamafile text.
+        Only one shape is trustworthy: exactly one quoted literal. Two literals mean the value depends on
+        which branch runs, and a computed value is invisible here. In both shapes this reader would return
+        a name the UPLOAD side never publishes. So it reports what it saw, and the caller refuses.
+        See `Git.trusted_self_version`."""
+        literals, computed = [], False
+        for line in mamafile_text.splitlines():
+            m = Git._VERSION_ASSIGN_RE.search(line.split('#', 1)[0])  # a commented-out line assigns nothing
+            if not m: continue
+            literal = Git._VERSION_LITERAL_RE.match(m.group(1).strip())
+            if literal: literals.append(literal.group(2))
+            else: computed = True
+        return VersionScan(literals[0] if len(literals) == 1 else '', len(literals), computed)
+
+
+    @staticmethod
+    def trusted_self_version(dep: BuildDependency, mamafile_text: str, source: str) -> str:
+        """The pinned version when the mamafile states it in the ONE shape both sides can agree on. Else
+        '', so the dep names itself by commit hash on the download side AND the upload side. Warns once
+        per dep on a shape it refuses, because the alternative is a silent permanent cache miss."""
+        scan = Git.extract_self_version(mamafile_text)
+        if scan.literals == 1 and not scan.computed:
+            return scan.value
+        if scan.literals or scan.computed:
+            reason = 'assigns self.version more than once' if scan.literals > 1 else \
+                     'computes self.version instead of assigning a literal'
+            Git._warn_unusable_version(dep, source, reason)
+        return ''
+
+
+    @staticmethod
+    def _warn_unusable_version(dep: BuildDependency, source: str, reason: str):
+        """One warning per dep per run. Both readers (on-disk and remote) reach the same mamafile, and a
+        repeated warning per probe teaches the reader to skip it."""
+        if getattr(dep, 'warned_bad_version', False) or not dep.config.print: return
+        dep.warned_bad_version = True
+        warning(f'  - Target {dep.name: <16} {os.path.basename(source)} {reason}, so mama cannot read it ' +
+                'before the clone. This package uses the commit hash instead. Use one raw string literal.')
 
 
     def fetch_self_version_from_remote(self, dep: BuildDependency):
@@ -327,7 +372,7 @@ class Git(DepSource):
                 content = cp.stdout.decode('utf-8', errors='replace')
                 if not content:
                     return None
-                version = Git.extract_self_version(content)
+                version = Git.trusted_self_version(dep, content, mamafile_name)
                 if dep.config.print and version:
                     progress(f'  - Target {dep.name: <16} PROBE FOUND self.version={version} in {elapsed}',
                              color=Color.BLUE, final=True)
