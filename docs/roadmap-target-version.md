@@ -1,7 +1,7 @@
 # The version field: how it works now, and what is left to build
 
-**Status:** P1 and P2 have landed (§3). §4 corrects a claim an earlier draft got wrong. §5 and §6 are
-still planning.
+**Status:** P1 and P2 have landed (§3). §4 records a correction. §5 explains why no further consumer
+argument is needed. §6 is the only unbuilt item, and it is deliberately parked.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a worse problem, in §2, and P1 and P2 fixed it.
@@ -53,6 +53,9 @@ Two readers must agree on that value, and they work differently:
 
 The download side cannot run anything, because naming a package before the clone is the entire point of
 the artifactory shim. Every rule below follows from that one constraint.
+
+`self.version` covers a third-party dep too, because `add_git(mamafile='mamadeps/x.py')` points at a
+file in the CONSUMER's repo, which the reader can open before any clone. See §5.1.
 
 ### 1.1 The rules, and the constraint each one serves
 
@@ -139,28 +142,16 @@ This is the risk `self.version = '8.0.1'` always carried, now on more deps.
 
 ---
 
-## 4. Correction: a consumer-side override IS implementable  [V]
+## 4. Correction, and the decision not to use it  [V]
 
 An earlier draft claimed a consumer-side `version_from` could not work, because `DepSource.papa_join` is
 positional and a sixth field would make every older papa.txt misparse its args. **That reasoning was
-wrong.** It assumed a positional field.
-
-### 4.1 The constraint that actually matters
-
-A published package's papa.txt records its own child deps, so a consumer that downloads the package can
-rebuild them. **Many packages are already cached with today's papa.txt, and none of them may need a
-rewrite.** Any design that requires re-publishing the cache is rejected on that ground alone.
-
-### 4.2 What the current parser already accepts  [V]
-
-`Git.from_papa_string` reads five positional fields and treats the rest as args. A KEYED token in that
-tail costs nothing:
+wrong.** It assumed a positional field. A KEYED token in the args tail costs nothing, measured against
+the CURRENT parser [V]:
 
 ```
 qcoro,https://x/qcoro.git,,v0.13.0,mamadeps/qcoro.py,version_from=commit,LGPL
 ```
-
-Measured against the CURRENT parser [V]:
 
 | case | result |
 |---|---|
@@ -168,68 +159,55 @@ Measured against the CURRENT parser [V]:
 | new mama reads a new papa.txt | reads the token, and keeps the remaining tokens as args |
 | **old** mama reads a new papa.txt | the token leaks into `args`, so that child names itself `...-versionfromcommit-...` and misses its cache |
 
-**No cached package needs a rewrite**, because mama only writes the token for a dep whose owner asked
-for the non-default. Every existing papa.txt keeps working unchanged, on every mama version.
+So the mechanism exists, and no cached package would need a rewrite.
 
-Only the third row costs anything, and only for a dep that opted out. That cost is a cache miss, not a
-wrong download: the older mama looks for a name nobody published, so it builds from source.
+**Mama is not going to use it.** §5 shows that every case a mode would serve already has an answer. An
+unused mode is one more naming input a future reader must understand. Keep this section as the record of
+how a keyed field would work, in case a real case appears.
 
-### 4.3 The cheaper option: do not touch papa.txt at all
+## 5. Why no consumer-side version argument is needed  [V]
 
-An override declared in a mamafile you control never needs to round-trip, because your mamafile is the
-thing being read. papa.txt only matters for a TRANSITIVE dep, which a consumer rebuilds from a
-downloaded package's records.
+Two cases looked like they needed one. Both already have an answer, and neither answer touches papa.txt.
 
-So the feature can ship in two steps:
+### 5.1 "The upstream tag is not the name I want"
 
-1. **Direct deps only.** `add_git(..., version=...)` in your own mamafile. Zero papa.txt change, zero
-   risk to the cache. A transitive dep rebuilt from papa.txt falls back to the default naming, so it
-   misses its cache and builds from source. Nothing breaks.
-2. **Transitive deps**, later and only if step 1 proves the gap hurts. Add the keyed token from §4.2,
-   written only for a non-default dep.
+ffmpeg tags releases as `n8.1.0`. A consumer that wants the package named `8.1.0` writes it in the
+override mamafile it already owns:
 
-Ship step 1 first. It answers the stated need, and it cannot disturb a single cached package.
+```python
+# the consumer's own mamafile
+self.add_git('ffmpeg', 'https://git.ffmpeg.org/ffmpeg.git', mamafile='mamadeps/ffmpeg.py', git_tag='n8.1.0')
 
----
+# mamadeps/ffmpeg.py, a file in the CONSUMER's repo
+class ffmpeg(mama.BuildTarget):
+    def settings(self):
+        self.version = '8.1.0'
+```
 
-## 5. What is actually left, ranked
+`mamadeps/ffmpeg.py` sits on disk before any clone, so the pre-clone reader finds it [V]. That is why
+`fetch_self_version_from_remote` returns None when `dep.mamafile` is set. The local override was already
+read, and the remote repo's own mamafile is not the one mama runs.
 
-P1 and P2 cover the cases that turned up in practice. Three gaps remain. Each states what a user cannot
-express today.
+`self.version` beats the tag in the §1 table, so the package is named `8.1.0`. No new argument, no
+papa.txt field, and the rule a reader has to learn is one they already know.
 
-### 5.1 A consumer cannot transform a pin  [?]
+Pinned by `test_a_consumer_owned_override_mamafile_names_the_package`.
 
-ffmpeg tags releases as `n8.1.0`. A consumer that wants the archive named `8.1.0` has no way to say so
-without editing the dep's mamafile.
+### 5.2 "This tag moves, so name it by commit"
 
-**Proposal:** `add_git(..., version='8.1.0')`. The consumer states the version outright. Both sides read
-it from the same place, so §2 cannot recur. Step 1 of §4.3 covers it with no papa.txt change.
+Pin the commit. `add_git(..., git_commit='4acd905...')` names the package by its short hash AND checks
+out what you meant. A tag that upstream re-points is not a stable thing to track. Tracking it while
+naming by identity asks for one thing and means another.
 
-This subsumes most of what a mode would buy, and it is simpler to explain. The consumer names the
-package, or it does not.
+### 5.3 What genuinely remains: a dep that computes its own version  [?]
 
-### 5.2 A consumer cannot force identity naming  [?]
+Reading a `VERSION` file, or deriving a version inside the dep's own mamafile, still needs code. That is
+§6. P1, P2 and 5.1 shrank its value. The literal covers a fixed version, the pin covers a released one,
+and an override mamafile covers a transformed one. What remains is a dep whose version lives in a file
+that only that dep knows about, and whose mamafile the consumer does not own.
 
-A tag that upstream moves should name its package by commit. Today the only way out is to pin the commit
-instead of the tag, which also changes what gets checked out.
-
-**Proposal:** `add_git(..., version_from='commit')`, the one mode that earns its place. Do NOT add
-`'branch'` (see §7) or `'tag'` (already the default).
-
-Build 5.1 and 5.2 together or not at all. They share the same plumbing, and one without the other leaves
-an obvious hole.
-
-### 5.3 A dep cannot compute its own version  [?]
-
-Reading a `VERSION` file, or deriving from a tag inside the dep's own mamafile, still needs code. That is
-§6, and P1 and P2 shrank its value. The literal covers a fixed version, the pin covers a released one,
-and 5.1 covers a transformed one. What remains is a dep whose version lives in a file only that dep knows
-about.
-
-**Recommendation:** build 5.1 and 5.2 first. Then re-read §6 and decide whether the remaining case earns
-the cost of executing remote code before a clone.
-
----
+**Recommendation:** leave §6 unbuilt until such a dep actually appears. Every case seen so far is
+already covered.
 
 ## 6. `def version(self)`, executed in a probe context  [?]
 
@@ -300,6 +278,8 @@ those stay unchanged.
   Those are separate fields in the archive name already.
 - **Do not add a naming input that only a mamafile attribute can set.** No reader can see a mamafile
   attribute before the clone, which is §2 again. A consumer-side `add_git` argument is always safe.
+- **Do not add a `version_from` mode.** Every case it would serve has an answer in §5. An unused naming
+  input is one more rule a reader must learn before they can predict an archive name.
 - **Do not require a papa.txt rewrite.** Many packages are already cached with today's records. A change
   that invalidates them is not worth any naming improvement.
 - **Do not resolve the version by cloning.** A cache hit must not cost a clone.
@@ -313,9 +293,6 @@ those stay unchanged.
   name the download path cannot construct. **Met.**
 - P2: a tag-pinned dep names its archive after the tag with no code and no extra fetch, and a
   branch-pinned dep still gets a new name per commit. **Met.**
-- 5.1 and 5.2, step 1: a consumer can name a direct dep's package outright, or force identity naming,
-  with no papa.txt change and no cached package touched.
-- 5.1 and 5.2, step 2: the same overrides survive a papa.txt hop, and an older mama reading the result
-  degrades to a cache miss rather than a wrong download.
+- 5.1 and 5.2: no code needed. An override mamafile and a commit pin already cover both. **Met.**
 - §6: `def version(self)` runs pre-clone, mama caches its result, and every violation of §6.3 fails with
   a message that names the rule it broke.

@@ -722,6 +722,19 @@ mamafile and uses the value in memory. Three rules follow:
 3. **One assignment per mamafile.** The reader takes the FIRST literal in file order. A conditional
    second assignment downloads one name and uploads another.
 
+**Naming a third-party dep's package.** The dep's mamafile may be a file in *your* repo, and mama reads
+it before any clone. So a version the upstream tag does not give is one line in the override:
+
+```python
+# your mamafile
+self.add_git('ffmpeg', 'https://git.ffmpeg.org/ffmpeg.git', mamafile='mamadeps/ffmpeg.py', git_tag='n8.1.0')
+
+# mamadeps/ffmpeg.py, in your repo
+class ffmpeg(mama.BuildTarget):
+    def settings(self):
+        self.version = '8.1.0'    # ffmpeg-ubuntu-24-gcc14.3-x64-release-8.1.0
+```
+
 To build one repo two ways, do not branch the version - pass args from the consumer:
 
 ```python

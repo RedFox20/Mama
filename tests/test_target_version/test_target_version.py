@@ -7,7 +7,7 @@ import pytest
 
 from mama import artifactory as art, papa_upload
 from mama.types.git import Git
-from testutils import strip_ansi
+from testutils import make_archive_name_target, strip_ansi
 
 _ONE = "class P:\n    def settings(self):\n        self.version = '8.0.1'\n"
 _TWO = "class P:\n    def settings(self):\n        self.version = '8.0.1'\n        if x: self.version = '8.0.1-lgpl'\n"
@@ -85,6 +85,25 @@ def test_the_refusal_stops_the_upload_before_it_archives(tmp_path):
     with resolve, patch('mama.papa_upload.artifactory_archive_name') as name:
         papa_upload.papa_upload_to(target, str(tmp_path))
     name.assert_not_called()  # no zip, no ftp: the whole upload path is skipped
+
+
+def test_a_consumer_owned_override_mamafile_names_the_package(tmp_path):
+    """Why mama needs no consumer-side version argument. `add_git(mamafile='mamadeps/qcoro.py')` points at
+    a file in the CONSUMER's repo, which sits on disk before any clone. A consumer that wants a name the
+    upstream tag does not give states it there. ffmpeg tags `n8.1.0` while the package should read
+    `8.1.0`, and the pre-clone reader finds the override."""
+    override = tmp_path / 'mamadeps'; override.mkdir()
+    (override / 'qcoro.py').write_text("import mama\nclass qcoro(mama.BuildTarget):\n"
+                                       "    def settings(self):\n        self.version = '8.1.0'\n")
+    dep = _dep(); dep.mamafile_path.return_value = str(override / 'qcoro.py')
+    assert art.resolve_pinned_version(dep) == '8.1.0'
+
+
+def test_an_override_version_beats_the_git_tag():
+    # ffmpeg tags n8.1.0, the override says 8.1.0, and the override wins on both sides.
+    target = make_archive_name_target(version='8.1.0', git_tag='n8.1.0')
+    with patch.object(Git, 'get_commit_hash', return_value='df76b66'):
+        assert art.artifactory_archive_name(target).endswith('-8.1.0')
 
 
 def test_resolve_pinned_version_routes_through_the_trust_rule(tmp_path):
