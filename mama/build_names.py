@@ -11,6 +11,7 @@ BuildDependency.variant_suffix and BuildDependency.build_dir_name.
 carry them, and each function reads only the config fields it names."""
 
 from __future__ import annotations
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -52,6 +53,20 @@ def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
         safe = {''.join(c for c in a.lower().replace('+', 'p') if c.isalnum() and c.isascii()) for a in dep_args}
         tokens += sorted(filter(None, safe))
     return ''.join('-' + t for t in tokens)
+
+
+_UNSAFE_IN_VERSION = re.compile(r'[^A-Za-z0-9._-]+')
+
+
+def sanitize_version(raw: str) -> str:
+    """A version field safe to use as a file name, or '' for an empty pin. Keeps letters, digits, dot,
+    dash and underscore, and collapses every other run into one '-', so the tag `release/1.0` names an
+    archive `release-1.0`.
+
+    Keeps the case, and keeps a leading 'v'. Both look like noise until you drop them. Lowercasing
+    merges the tags `v1.0` and `V1.0` into one name, and stripping the 'v' merges `v1.0` and `1.0`. A
+    repo may carry all three, and two sources must never share one archive name."""
+    return _UNSAFE_IN_VERSION.sub('-', raw).strip('-') if raw else ''
 
 
 CONFIG_TOKENS = frozenset(_SANITIZER_SHORT_NAMES.values()) | {'cov', 'clang'}

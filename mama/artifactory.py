@@ -2,6 +2,7 @@ from __future__ import annotations
 import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
 
+from . import build_names
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
@@ -25,8 +26,12 @@ class ArtifactoryCredentialsError(RuntimeError):
 def artifactory_archive_name(target:BuildTarget):
     """
     Constructs archive name for papa deploy packages in the form of:
-    {name}-{platform}-{compiler}-{arch}-{build_type}-{commit_hash}
-    Example: opencv-linux-x64-gcc9-release-df76b66
+    {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
+    Example: opencv-linux-24-gcc14-x64-release-df76b66
+
+    The version field is the first of these the dep has: a `self.version` literal in its mamafile, the
+    `git_tag` the consumer pinned, or the commit hash. A `git_branch` pin labels the hash rather than
+    replacing it. See docs/roadmap-target-version.md.
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
@@ -50,9 +55,21 @@ def artifactory_archive_name(target:BuildTarget):
             version = p.version
         elif p.is_git:
             git:Git = p
-            version = git.get_commit_hash(target.dep)
+            # A git_tag pin names the package after the tag. The consumer wrote that tag, so the download
+            # and the upload read the same value, and neither one resolves a commit hash to name
+            # anything. A tag is immutable by convention, so the tag alone identifies the source.
+            # add_git stores a git_commit pin in the tag field, and Git.is_hex_string is how the clone
+            # path tells the two apart. A commit pin takes the hash path below, which shortens it.
+            version = '' if Git.is_hex_string(git.tag) else build_names.sanitize_version(git.tag)
             if not version:
-                return None # nothing to do at this point
+                # No tag. The commit hash identifies the source, and a branch pin puts its name in front
+                # for a reader: 'feat-experimental-radio-a1b2c3d'. The branch CANNOT replace the hash,
+                # because a branch moves: one name would then serve every commit ever pushed to it.
+                commit = git.get_commit_hash(target.dep)
+                if not commit:
+                    return None # nothing to do at this point
+                branch = build_names.sanitize_version(git.branch)
+                version = f'{branch}-{commit}' if branch else commit
         elif p.is_src:
             if not version:
                 raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')

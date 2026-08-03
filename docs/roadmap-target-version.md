@@ -1,6 +1,6 @@
 # Roadmap: a robust `target.version`, and a `def version(self)` that may compute one
 
-**Status:** P1 is implemented (§3). P2, P3 and P4 are still planning only.
+**Status:** P1 (§3) and P2 (§4) have landed. P3 and P4 are still planning only.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a different and worse problem, in §2.
@@ -13,7 +13,7 @@ Line numbers were accurate at commit `2ad43c1`. Grep for the quoted code, never 
 
 Four phases, ordered by value per risk. **Each phase lands alone and leaves the tree stable.** P1
 carries most of the robustness and touches no feature surface, so land it first even if the rest never
-happens. P2 covers the use case that started this. P3 is the general escape hatch. P4 is cleanup.
+happens. P2 names a tag-pinned package after its tag. P3 is the general escape hatch. P4 is cleanup.
 
 Evidence tags:
 
@@ -171,41 +171,94 @@ silent mismatch, but it IS a behavior change. Name it in the release notes.
 
 ---
 
-## 4. P2 - `version_from`, the declarative version (covers the use case that started this)
+## 4. P2 - a git pin names the package by default  [IMPLEMENTED]
 
-**Goal:** derive the version from the dep's git pin without executing anything.
-
-The stated need is "compute the version from the branch or tag name". Mama already knows both before it
-clones. They are `dep_source.branch` / `.tag` / `.commit`, straight from the consumer's `add_git(...)`,
-and the shim probe already runs `git ls-remote` for the commit hash [V]. So this needs no execution, no
-extra fetch, and no trust decision.
+**Goal:** a dep pinned to a tag or a branch names its package after that pin, with no mamafile change
+and no code execution. The pin is the version a human already wrote.
 
 ```python
-class libffmpeg(mama.BuildTarget):
-    version_from = 'tag'        # 'tag' | 'branch' | 'commit' | 'tag-or-commit'
+self.add_git('qcoro', 'https://github.com/qcoro/qcoro.git', mamafile='mamadeps/qcoro.py', git_tag='v0.13.0')
+# -> qcoro-ubuntu-24-gcc14.3-x64-release-v0.13.0        (was: ...-release-a1b2c3d)
 ```
 
-Resolution (one function, `build_names` or a new `versions.py`):
+### 4.1 Why the tag, and why by default
 
-| `version_from` | resolves to | when the pin is empty |
+The pin comes from the consumer, so mama holds it before it clones anything, exactly like the platform
+and the compiler [V]. Both the download and the upload read the same `dep_source.tag`, so the two sides
+cannot diverge the way §2 describes. No text scan, no execution, no trust decision.
+
+It also removes work: naming a tag-pinned package no longer needs the commit hash, so the probe skips
+its `git ls-remote` for that dep.
+
+Default rather than opt-in, because the alternative is worse. A tag-pinned dep whose archive carries a
+commit hash re-uploads under a new name every time upstream re-tags that release. No consumer reading
+the tag can find it.
+
+### 4.2 Precedence, highest first
+
+| pin | version field | why |
 |---|---|---|
-| `'tag'` | the dep's `git_tag`, stripped of a leading `v` | fall back to the commit hash |
-| `'branch'` | the dep's `git_branch`, non-alphanumerics normalized like args | fall back to the commit hash |
-| `'commit'` | today's default, explicit | - |
-| `'tag-or-commit'` | the tag when pinned, else the commit hash | - |
+| `self.version = '<literal>'` in the dep's mamafile | `8.0.1` | the dep states its own version, and P1 made that statement trustworthy |
+| `git_tag='v0.13.0'` | `v0.13.0` | a tag is immutable by convention, so it identifies the source on its own |
+| `git_branch='feat/experimental-radio'` | `feat-experimental-radio-a1b2c3d` | a branch MOVES, so it labels the name and the commit still identifies the source |
+| `git_commit='4acd905...'` | `a1b2c3d` | `add_git` stores a commit pin in the tag field, and `Git.is_hex_string` tells the two apart the way the clone path does |
+| nothing | `a1b2c3d` | nothing named this build, so identity is the only name left |
 
-Why this is robust: the value is a pure function of data the consumer wrote and mama can read on both
-sides. The download and the upload cannot diverge, because neither one runs any user code. It is also
-readable by the regex-free path, so P4 can drop the text scan for these deps entirely.
+A root target, an `add_artifactory_pkg` and a local source keep their current naming untouched.
 
-Normalization: reuse the arg-token rules (lowercase, `+`->`p`, drop other non-alphanumerics). A branch
-like `release/8.0` then becomes `release80`, and the name stays filename-safe on FTP and on Windows.
-One shared normalizer lives in `build_names`, and both the args path and this one call it.
+### 4.2.1 Why a branch cannot replace the hash
 
-**Tests:** each mode against a tagged, a branched and a commit-pinned dep. A branch name with a slash
-and a dot. An empty pin that falls back. One dep that resolves identically pre-clone and post-clone.
+Naming a branch build `pkg-...-feat-experimental-radio` alone would be wrong in the one way that never
+reports itself. The branch moves, so that one name would cover every commit ever pushed to it. A
+consumer that resolved commit X would download whichever build landed last, silently, which is §2 in a
+new costume.
 
-**Effort:** one day.
+Keeping the hash means a branch build still caches correctly: same commit, same name, cache hit. The
+branch name only makes the archive readable to a human scanning the server.
+
+### 4.3 The name a tag produces
+
+`build_names.sanitize_version` keeps `[A-Za-z0-9._-]` and collapses every other run into one `-`. The
+tag `release/1.0` becomes `release-1.0`, and the name stays valid on FTP and on a Windows disk.
+
+It parses nothing else. Real pins look like `1.0.0`, `v0.1.3`, `n8.1.0`, `RELEASE_2_1` and
+`feat/experimental-radio`, and any rule that assumes a shape breaks on the next repo. A pin that is
+entirely unsafe characters sanitizes to '', and the dep falls back to the next source in the table.
+
+Two rules that look wrong until you try the alternative:
+
+- **Keep the leading `v`.** An earlier draft of this document stripped it. Do not: a repo carrying both
+  `1.0` and `v1.0` would then publish two different sources under one name.
+- **Keep the case.** Lowercasing merges `v1.0` and `V1.0` into one name for two tags. The existing
+  literal path does not change case either.
+
+### 4.4 What this does NOT do
+
+**No `version_from` mode, and no way to force the commit hash on a tag-pinned dep.** An earlier draft
+proposed `version_from = 'tag' | 'branch' | 'commit'`. The tag default covers the stated need without it,
+and the mode carries a cost the tag does not. `DepSource.papa_join` is positional, so a package's
+papa.txt would need a sixth field, and every older papa.txt would then misparse its args. The tag itself
+already round-trips [V], so the default survives a papa.txt hop for free.
+
+Pin a commit instead of a tag when the build must carry its identity. If a real case for the mode
+appears, add it as an `add_git(version_from=...)` argument on the CONSUMER side. Never add it as a
+mamafile attribute. No reader can see a mamafile attribute before the clone, which is the §2 defect.
+
+### 4.5 Migration
+
+Every pinned dep gets a new archive name once, so the first build after this misses the cache and
+republishes. That is every tag-pinned dep AND every branch-pinned one, so expect the wave to cover most
+of a normal dependency tree.
+
+Two consumers that pin the same tag now share one archive, where before each resolved its own hash.
+One consumer may pin a commit while another pins the tag of that same commit. They then upload two
+archives of one source, which wastes space but breaks nothing.
+
+**Risk:** a moved tag. Upstream re-pointing `v0.13.0` at a new commit makes the new build upload over
+the old archive. `check_status` still compares the recorded commit, so a local tree rebuilds correctly.
+This risk is the one `self.version = '8.0.1'` has always carried, now on more deps.
+
+**Effort:** implemented in about half a day.
 
 ---
 

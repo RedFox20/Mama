@@ -663,7 +663,21 @@ Artifactory archives follow the naming format:
 ```
 Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`.
 
-`{version}` is the dep's commit hash, unless the mamafile pins `self.version` (see below).
+`{version}` names the source this package was built from. Mama takes the first of these the dep has:
+
+| the dep has | `{version}` | example |
+|---|---|---|
+| `self.version = '8.0.1'` in its mamafile | that literal | `libffmpeg-...-release-8.0.1` |
+| `add_git(..., git_tag='v0.13.0')` | the tag | `qcoro-...-release-v0.13.0` |
+| `add_git(..., git_branch='feat/radio')` | the branch, then the commit | `qcoro-...-release-feat-radio-a1b2c3d` |
+| `add_git(..., git_commit='4acd905...')` | the short commit | `qcoro-...-release-4acd905` |
+| no pin | the commit | `qcoro-...-release-a1b2c3d` |
+
+A tag names the package on its own, because a tag is immutable by convention. A **branch keeps the
+commit**, because a branch moves: the branch name alone would serve every commit ever pushed to it
+under one archive name. Mama keeps a pin verbatim except for characters a file name cannot hold, so
+`release/1.0` becomes `release-1.0`. It never strips a leading `v` and never changes case, because
+`v1.0`, `V1.0` and `1.0` may be three different tags in one repo.
 
 `[-variant]` is every axis that makes this build different from a plain one, coarsest first. It is
 empty for a plain release build, so those names never change. The same string also names the build
@@ -690,8 +704,9 @@ class libffmpeg(mama.BuildTarget):
         self.version = '8.0.1'    # libffmpeg-ubuntu-24-gcc14.3-x64-release-8.0.1
 ```
 
-Use it for a dep that ships numbered releases, where the commit hash is noise. One archive then serves
-every consumer that pins that version, whatever commit each one resolved.
+Use it when the dep's own mamafile should decide the version, whatever tag a consumer pinned. A
+tag-pinned dep already names itself after the tag (see the table above), so most deps need nothing
+here.
 
 **It must be a single raw string literal.** To download a package, mama needs the archive name *before*
 it clones anything. So it never runs the mamafile. It reads the file as text and takes the first
