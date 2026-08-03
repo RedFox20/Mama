@@ -228,6 +228,41 @@ def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)
 
 
+def make_exporting_target(dep, includes, libs, version='abc1234'):
+    """A BuildTarget that exports `includes` and `libs`, the way a mamafile package() leaves it."""
+    from mama.build_target import BuildTarget
+    target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
+    target.version = version
+    target.exported_includes = includes
+    target.exported_libs = libs
+    return target
+
+
+def archive_papa_package(package_path, archive_path) -> str:
+    """Zip a deployed PAPA package the way papa_upload_to does, minus the FTP transfer, and run the same
+    validation. Returns the archive path."""
+    import zipfile
+    from mama import papa_deploy, papa_upload
+    papa = papa_deploy.PapaFileInfo(os.path.join(package_path, 'papa.txt'))
+    archive = str(archive_path)
+    with zipfile.ZipFile(archive, 'w') as zip:
+        for _, entries in papa_upload._archive_groups(papa, package_path):
+            for src, rel, _ in entries: zip.write(src, rel)
+    papa_upload.validate_archive(package_path, papa, archive)
+    return archive
+
+
+def deploy_and_archive(tmp_path, target, package_path) -> str:
+    """papa_deploy the target, then archive and validate what it deployed."""
+    from unittest.mock import patch
+    from mama import papa_deploy
+    from mama.build_target import BuildTarget
+    with patch.object(BuildTarget, 'children', lambda self: []):
+        papa_deploy.papa_deploy_to(target, package_path, r_includes=False, r_dylibs=False,
+                                   r_syslibs=False, r_assets=False)
+    return archive_papa_package(package_path, tmp_path / 'package.zip')
+
+
 def make_load_root(name='mylib', **config_overrides):
     """A root dep for load_dependency_chain: only the fields the loader itself touches. Serial by
     default, so a test drives one load at a time unless it asks for the parallel path."""

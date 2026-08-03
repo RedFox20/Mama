@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from testutils import make_configured_target, set_mock_platform
+from testutils import executable_extension, make_configured_target, set_mock_platform
 from mama.build_config import BuildConfig
 from mama.platforms.raspi import Raspi
 from mama.buildsys.cmake import configure as cc
@@ -105,7 +105,7 @@ def test_the_cmake_system_processor_is_the_target_not_the_host(arch, processor, 
 def test_the_toolchain_is_found_in_a_plain_bin_layout(tmp_path):
     """A distro cross package (apt install gcc-aarch64-linux-gnu) puts the compiler straight in bin/."""
     (tmp_path / 'bin').mkdir(parents=True)
-    (tmp_path / 'bin' / 'aarch64-linux-gnu-gcc').write_text('')
+    (tmp_path / 'bin' / f'aarch64-linux-gnu-gcc{executable_extension()}').write_text('')
     raspi = _raspi('arm64')
     raspi._search_paths = lambda: [str(tmp_path)]
     raspi.init_default()
@@ -116,7 +116,7 @@ def test_the_toolchain_is_found_in_the_legacy_broadcom_layout(tmp_path):
     """The old Broadcom `tools` repo nests the 32-bit toolchain under arm-bcm2708/<triple>/."""
     nested = tmp_path / 'arm-bcm2708' / 'arm-linux-gnueabihf' / 'bin'
     nested.mkdir(parents=True)
-    (nested / 'arm-linux-gnueabihf-gcc').write_text('')
+    (nested / f'arm-linux-gnueabihf-gcc{executable_extension()}').write_text('')
     raspi = _raspi('arm')
     raspi._search_paths = lambda: [str(tmp_path)]
     raspi.init_default()
@@ -131,13 +131,14 @@ def test_a_missing_toolchain_raises_instead_of_falling_back_to_the_host(tmp_path
         raspi.init_default()
 
 
-# --- install-raspi ---
+# --- install-raspi, apt only, so a Linux host only ---
 
 @pytest.mark.parametrize('arg,arch', [('install-raspi', 'arm64'), ('install-raspi32', 'arm')])
 def test_the_install_arg_queues_the_right_arch(arg, arch):
     assert BuildConfig([arg]).convenient_install == [f'raspi-{arch}']
 
 
+@pytest.mark.linux_host
 @pytest.mark.parametrize('arch,triple,build_cmd', [
     ('arm64', 'aarch64-linux-gnu', 'mama build raspi'),
     ('arm', 'arm-linux-gnueabihf', 'mama build raspi32'),
@@ -154,6 +155,7 @@ def test_install_raspi_apt_installs_the_cross_triple(arch, triple, build_cmd, mo
     assert build_cmd in capsys.readouterr().out   # tells the user what to run next
 
 
+@pytest.mark.linux_host
 def test_install_raspi_fails_loudly_when_apt_did_not_deliver(monkeypatch):
     """apt can 'succeed' with an unknown package; without this the next build silently uses host gcc."""
     config = BuildConfig([])
@@ -164,6 +166,7 @@ def test_install_raspi_fails_loudly_when_apt_did_not_deliver(monkeypatch):
         config.install_raspi('arm64')
 
 
+@pytest.mark.linux_host
 def test_install_raspi_rejects_an_unknown_arch():
     with pytest.raises(ValueError, match='Unsupported raspi arch'):
         BuildConfig([]).install_raspi('riscv')

@@ -2,6 +2,8 @@
 import os
 import pytest
 
+from testutils import is_linux, is_windows
+from mama.util import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
 from mama.platforms.raspi import Raspi, triple_for_arch
@@ -19,13 +21,16 @@ def _touch(path):
 
 
 def make_ndk_tree(root, ndk_version='27.3.13750724') -> str:
-    """The Android SDK layout: <sdk>/ndk/<ver>/ with ndk-build, the clang bin dir and the toolchain file."""
+    """The Android SDK layout: <sdk>/ndk/<ver>/ with ndk-build, the clang bin dir and the toolchain file.
+    Every name follows the host, because the NDK ships ndk-build.cmd and a windows-x86_64 bin dir there."""
     ndk = f'{root}/ndk/{ndk_version}'
-    _touch(f'{ndk}/ndk-build')
+    ext = '.cmd' if is_windows() else ''
+    _touch(f'{ndk}/ndk-build{ext}')
     _touch(f'{ndk}/build/cmake/android.toolchain.cmake')
+    prebuilt = 'windows-x86_64' if is_windows() else 'linux-x86_64'
     for arch in ('aarch64', 'armv7a'):
         for suffix in ('clang', 'clang++'):
-            _touch(f'{ndk}/toolchains/llvm/prebuilt/linux-x86_64/bin/{arch}-linux-android29-{suffix}')
+            _touch(f'{ndk}/toolchains/llvm/prebuilt/{prebuilt}/bin/{arch}-linux-android29-{suffix}{ext}')
     return ndk
 
 
@@ -39,8 +44,9 @@ def make_yocto_tree(root, sdk_name, sysroot_name, compiler_name, toolchain_rel) 
 
 def make_cross_bin_tree(root, triple) -> str:
     """A distro cross package: bin/<triple>-gcc and nothing else, no sysroot of its own."""
+    ext = '.exe' if is_windows() else ''
     for suffix in ('gcc', 'g++'):
-        _touch(f'{root}/bin/{triple}-{suffix}')
+        _touch(f'{root}/bin/{triple}-{suffix}{ext}')
     return root
 
 
@@ -48,7 +54,7 @@ def make_cross_bin_tree(root, triple) -> str:
 def fake_toolchains(tmp_path, monkeypatch):
     """Point every cross platform's discovery at a fake tree under tmp_path, and stub the compiler
     version probe. Returns the roots, so a test can assert against the paths that reach cmake."""
-    root = str(tmp_path / 'sdk')
+    root = normalized_path(str(tmp_path / 'sdk'))  # every path mama reports back is forward slash only
     ndk = make_ndk_tree(f'{root}/android-sdk')
     oclea = make_yocto_tree(f'{root}/oclea/1.0', 'x86_64-ocleasdk-linux', 'cortexa53-oclea-linux',
                             'usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc',
@@ -89,6 +95,22 @@ def _patch_mips_paths(monkeypatch, root):
     def with_fake_root(self, toolchain_dir=None, toolchain_file=None, arch=None):
         return original(self, toolchain_dir or root, toolchain_file, arch)
     monkeypatch.setattr(Mips, 'init_toolchain', with_fake_root)
+
+
+def _needs_linux_host(param) -> bool:
+    """True for a platform whose toolchain refuses a non-Linux host. A Yocto SDK ships Linux binaries
+    only, and MIPS raises the same way. A new board inherits the answer from its base class."""
+    return isinstance(param, type) and issubclass(param, (GenericYocto, Mips))
+
+
+@pytest.fixture(autouse=True)
+def skip_a_linux_host_platform(request):
+    """Skip a parametrized case whose platform needs a Linux host. Only a test that resolves a toolchain
+    asks for fake_toolchains, and only such a test reaches the discovery that refuses the host."""
+    callspec = getattr(request.node, 'callspec', None)
+    if is_linux() or not callspec or 'fake_toolchains' not in request.fixturenames: return
+    if any(_needs_linux_host(param) for param in callspec.params.values()):
+        pytest.skip('needs a Linux host')
 
 
 @pytest.fixture(autouse=True)

@@ -3,15 +3,18 @@ host build dir, then bootstrapping via a `mama <host> build` child on a miss - p
 import os, sys, pytest
 from unittest.mock import patch
 
-from testutils import make_configured_target
+from testutils import executable_extension, make_configured_target
 from mama import build_config as bc
 from mama import build_target as bt
+
+# build_host_binary names a host executable, so the host suffix belongs in the path a test writes
+PROTOC = f'bin/protoc{executable_extension()}'
 
 
 def _cross_target(tmp_path, name='android', host='linux'):
     """A target cross-compiling for `name` with host `host`, so host_build_dir() is a distinct sibling."""
     t, dep = make_configured_target(tmp_path)
-    dep.build_dir = os.path.join(str(tmp_path), 'packages', 'libfoo', name)
+    dep.build_dir = f'{tmp_path}/packages/libfoo/{name}'.replace('\\', '/')
     dep.config.name.return_value = name
     dep.config.host_platform_name.return_value = host
     dep.config.root_source_dir = str(tmp_path)
@@ -49,7 +52,7 @@ def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
     t, dep = make_configured_target(tmp_path)  # build_dir ends in 'linux'
     dep.config.name.return_value = 'linux'
     dep.config.host_platform_name.return_value = 'linux'
-    binary = _touch(t.build_dir('bin/protoc'))
+    binary = _touch(t.build_dir(PROTOC))
     with patch('mama.build_target.SubProcess.run') as run:
         assert t.build_host_binary('bin/protoc') == binary
         run.assert_not_called()
@@ -57,7 +60,7 @@ def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
 
 def test_cross_hit_returns_the_host_binary_without_a_child(tmp_path):
     t, dep = _cross_target(tmp_path)
-    binary = _touch(t.host_build_dir('bin/protoc'))
+    binary = _touch(t.host_build_dir(PROTOC))
     with patch('mama.build_target.SubProcess.run') as run:
         assert t.build_host_binary('bin/protoc') == binary  # cheap check hit
         run.assert_not_called()
@@ -65,7 +68,7 @@ def test_cross_hit_returns_the_host_binary_without_a_child(tmp_path):
 
 def test_cross_miss_bootstraps_then_returns_the_produced_binary(tmp_path):
     t, dep = _cross_target(tmp_path)
-    produced = t.host_build_dir('bin/protoc')
+    produced = t.host_build_dir(PROTOC)
     def fake_child(argv, cwd=None, **kw):
         _touch(produced); return 0   # the `mama <host> build` child produces protoc
     with patch('mama.build_target.SubProcess.run', side_effect=fake_child) as run:

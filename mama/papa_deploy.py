@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os
+import os, hashlib, itertools
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -8,8 +8,9 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .util import normalized_path, normalized_join, read_lines_from \
+from .util import normalized_path, normalized_join, read_lines_from, forward_slashes \
                 , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
+from .utils.system import warning
 
 import mama.package as package
 
@@ -123,6 +124,61 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 
 
+def _file_hash(path:str) -> str:
+    with open(path, 'rb') as file:
+        return hashlib.sha1(file.read()).hexdigest()
+
+
+def find_duplicate_trees(files:list) -> list:
+    """(dir a, dir b, [file names]) for every pair of directories that hold the same file content twice.
+    QCoro installs its headers into include/qcoro AND include/qcoro6/qcoro, so a package that exports the
+    whole include dir ships both. That doubles the archive and gives the consumer two copies to keep in
+    sync. files: (relative path, full path) for every file to compare."""
+    by_name = {}
+    for rel, full in files:
+        by_name.setdefault((os.path.basename(rel), os.path.getsize(full)), []).append((rel, full))
+    pairs = {}
+    for group in by_name.values():
+        if len(group) < 2: continue  # a unique name and size cannot collide with anything
+        by_hash = {}
+        for rel, full in group:
+            by_hash.setdefault(_file_hash(full), []).append(rel)
+        for rels in by_hash.values():
+            for first, second in itertools.combinations(sorted(rels), 2):
+                dir_a, dir_b = os.path.dirname(first), os.path.dirname(second)
+                # two identical files in ONE dir are two names for one header, not a duplicated tree
+                if dir_a != dir_b: pairs.setdefault((dir_a, dir_b), []).append(os.path.basename(first))
+    return [(dir_a, dir_b, sorted(names)) for (dir_a, dir_b), names in sorted(pairs.items())]
+
+
+def describe_duplicate_trees(trees:list, indent:str='    ') -> str:
+    """One line per duplicated directory pair, with up to 3 file names as examples."""
+    lines = []
+    for dir_a, dir_b, names in trees[:5]:
+        examples = ', '.join(names[:3]) + (', ...' if len(names) > 3 else '')
+        lines.append(f'{indent}{dir_a} and {dir_b} hold {len(names)} identical files: {examples}')
+    if len(trees) > 5: lines.append(f'{indent}and {len(trees) - 5} more directory pairs')
+    return '\n'.join(lines)
+
+
+def _deployed_include_files(package_full_path:str) -> list:
+    """(relative path, full path) for every file under the deployed include root."""
+    files = []
+    for full_dir, _, names in os.walk(f'{package_full_path}/include'):
+        rel_dir = forward_slashes(os.path.relpath(full_dir, package_full_path))
+        files += [(f'{rel_dir}/{name}', os.path.join(full_dir, name)) for name in names]
+    return files
+
+
+def _warn_about_duplicate_include_trees(target:BuildTarget, package_full_path:str):
+    """Report a duplicated header tree while the deploy still shows what it copied. The upload refuses
+    such a package, so this warning names the fix at build time."""
+    trees = find_duplicate_trees(_deployed_include_files(package_full_path))
+    if trees:
+        warning(f'  PAPA Deploy {target.name}: the include tree holds {len(trees)} duplicated directory ' + \
+                f'pairs.\n{describe_duplicate_trees(trees)}\n    Fix the export_include() paths of {target.name}.')
+
+
 def _compiler_stamp(config) -> str:
     """'gcc14.3' / 'clang18.1', '' if the platform can't name one - a diagnostic, never a deploy failure."""
     try: return config.compiler_version()
@@ -159,6 +215,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     includes = _gather_includes(target, r_includes)
     _append_includes(target, package_full_path, detail_echo, descr, includes)
+    _warn_about_duplicate_include_trees(target, package_full_path)
 
     build_dir = target.build_dir()
     source_dir = target.source_dir()

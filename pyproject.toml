@@ -46,7 +46,8 @@ testpaths = ["tests"]
 # `slow` runs a real toolchain per platform (~90s). Run it before a release:
 #     python -m pytest tests/test_platform_configure -m slow
 addopts = "-m 'not slow'"
-markers = ["slow: needs a real installed toolchain, excluded from the default run"]
+markers = ["slow: needs a real installed toolchain, excluded from the default run",
+           "linux_host: needs a Linux host, skipped on Windows and macOS"]
 
 [tool.setuptools.dynamic]
 version = {attr = "mama._version.__version__"}

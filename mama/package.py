@@ -50,6 +50,15 @@ def get_unique_libnames(items: list):
     return unique
 
 
+def _overlapping_include(exported: List[str], include_path: str) -> str:
+    """The already exported include that shares a tree with `include_path`, or None. QCoro exports both
+    `include` and `include/qcoro`, and the second export names headers the first one already covers."""
+    nested = include_path + '/'
+    for other in exported:
+        if nested.startswith(other + '/') or (other + '/').startswith(nested): return other
+    return None
+
+
 def export_include(target: BuildTarget, include_path: str, build_dir: bool,
                    as_includes_root:bool|str=False):
     include_path = target_root_path(target, include_path, build_dir=build_dir)
@@ -65,6 +74,10 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
             include_path = normalized_path(include_path + '/../')
             target.includes_root = (include_path, includes_root, alias_name)
         if not include_path in target.exported_includes:
+            overlap = _overlapping_include(target.exported_includes, include_path)
+            if overlap:
+                warning(f'export_include({include_path}) overlaps the exported {overlap}. ' + \
+                        'One export covers those headers already.')
             target.exported_includes.append(include_path)
         return True
     # A named include path that is not on disk is a packaging fault, the same as a missing lib.
