@@ -1,10 +1,15 @@
 # The version field: how it works now, and what is left to build
 
-**Status:** P1 and P2 have landed (§3). §4 records a correction. §5 explains why no further consumer
-argument is needed. §6 is the only unbuilt item, and it is deliberately parked.
+**Status:** P1 and P2 have landed (§3), on branch `feature/improved-version-parsing`. §6 is the only
+unbuilt item, and §5.3 parks it deliberately.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a worse problem, in §2, and P1 and P2 fixed it.
+
+**This document records its own corrections.** Three claims in earlier drafts turned out to be wrong.
+Each one is kept next to the thing it was wrong about: the papa.txt blocker (§4), the network saving
+(§3.2) and the shared-archive gain (§3.2). Leaving them in is the point. A reader who wonders whether
+anyone checked gets an answer instead of repeating the work.
 
 Line numbers drift. Grep for the quoted code, never trust the number.
 
@@ -118,26 +123,81 @@ cannot recreates this defect.** That single test rejects most tempting designs, 
 - `papa_upload` recomputes the version through the download path. When the two disagree it **skips the
   upload**, rather than publish an archive no consumer can ask for.
 
-The scan PARSES the mamafile, and falls back to a line scan only when `ast.parse` fails. A line scan counts a docstring that
-documents `self.version` as an assignment, and an error message that quotes it too. It then refuses the
-real pin next to it. Parsing costs about 0.14ms on a real mamafile, against a probe
-path that already spends 100ms or more on the network.
+#### The scan parses, it does not grep  [V]
 
-Tests: `tests/test_self_version_probe/` (the scan) and `tests/test_target_version/` (the trust rule, the
-warning, the upload guard).
+The first cut of P1 scanned line by line, and that was wrong twice over.
+
+An anchored regex misses `if lgpl: self.version = '8.0.1-lgpl'`, which is the exact shape §2 is about.
+Dropping the anchor fixed that, and introduced a worse bug: a line scan counts anything that MENTIONS
+the field. A mamafile documenting its own version lost its pin.
+
+```python
+class qcoro(mama.BuildTarget):
+    """Set self.version = 'x.y.z' to pin the archive name."""   # counted as an assignment
+    def settings(self):
+        self.version = '0.13.0'                                  # the real pin, refused
+```
+
+So the scan now parses. `ast.parse` costs about 0.14ms on a real mamafile, against a probe path that
+already spends 100ms or more on the network. "Cheap grep, slow parse" was a false economy. The line scan
+survives as the fallback for a mamafile this Python cannot parse.
+
+Parsing also resolves two shapes a line scan cannot. One is a literal wrapped over two lines. The other
+is a module-level constant bound once to a string (`V = '1.0'` then `self.version = V`). A name bound
+twice resolves to nothing, because the executed value would depend on which binding ran last.
+
+**Parsing does not resolve the ambiguous case, and nothing can.** Two assignments still refuse. Which
+branch runs depends on runtime state that no reader has before the clone.
+
+Tests: `tests/test_self_version_probe/` (the scan, including `TestScanReadsCodeNotText`) and
+`tests/test_target_version/` (the trust rule, the warning, the upload guard).
 
 ### 3.2 P2 - a git pin names the package  [IMPLEMENTED]
 
 The precedence table in §1. A tag names the package alone, a branch labels the commit, and a commit pin
 shortens to the hash. `build_names.sanitize_version` makes any of them a legal file name.
 
-Naming by tag also removes work: a tag-pinned package needs no `git ls-remote` to name itself.
-
 Tests: `tests/test_version_from_pin/`.
 
-**Migration:** every tag-pinned AND branch-pinned dep got a new archive name once, so the first build
-after this republishes most of a normal dependency tree. Two consumers pinning one tag now share an
-archive, where before each resolved its own hash.
+#### What P2 actually renamed  [V]
+
+| declaration | before | after | renamed |
+|---|---|---|---|
+| `self.version = '8.0.1'` in the mamafile | `8.0.1` | `8.0.1` | no |
+| `git_tag='v0.13.0'` | `a1b2c3d` | `v0.13.0` | **yes** |
+| `git_branch='main'` | `a1b2c3d` | `main-a1b2c3d` | **yes** |
+| `git_commit='4acd905...'` | `a1b2c3d` | `a1b2c3d` | no, the `is_hex_string` guard sends it to the hash path |
+| nothing pinned | `a1b2c3d` | `a1b2c3d` | no |
+
+`branch` and `tag` are never reassigned after `Git.__init__` [V], so the download side and the upload
+side always read the same declared value. The rename cannot drift into the §2 defect.
+
+**Migration:** every tag-pinned and every branch-pinned dep gets a new archive name once, and the first
+build after it rebuilds and republishes them. How wide that wave is depends entirely on how a project
+declares its deps. A tree of unpinned deps renames nothing.
+
+#### Two claims an earlier draft got wrong  [V]
+
+1. **"A tag-pinned package needs no `git ls-remote` to name itself."** True of
+   `artifactory_archive_name` alone, and false on the path that matters.
+   `try_load_artifactory_shim` calls `init_commit_hash(fetch_remote=True)` FIRST, unconditionally,
+   because `write_shim_marker` records the hash. So a tag-pinned dep still pays that round trip. P2 buys
+   no network saving. `test_a_tag_pin_never_resolves_a_commit_hash` pins the composer's behavior, not
+   the probe's.
+2. **"Two consumers pinning one tag now share an archive, where before each resolved its own hash."**
+   They already shared. One tag resolves to one commit, so both sides produced the same hash name before
+   P2 as well.
+
+#### What P2 is worth, after those corrections
+
+- A readable, shareable name. `qcoro-...-release-v0.13.0` says what it is, and a human scanning the
+  server can tell a branch build from a release without resolving anything.
+- It removes the reason to write `self.version = '0.13.0'` next to `git_tag='v0.13.0'`. That
+  duplication is exactly where the §2 bug class lives.
+
+**Decision on the branch label:** keep it. `main-a1b2c3d` is not needed for correctness, because the
+hash alone identifies the source. It is worth its one-time rename for the operational readability of an
+artifactory listing.
 
 **Risk:** a moved tag. Upstream re-pointing `v0.13.0` at a new commit makes the next build upload over
 the old archive. `check_status` still compares the recorded commit, so a local tree rebuilds correctly.
@@ -290,12 +350,19 @@ those stay unchanged.
 
 ---
 
-## 8. Done criteria
+## 8. Where this stands
 
-- P1: two mamafiles that would previously diverge now either agree or warn, and no upload can publish a
-  name the download path cannot construct. **Met.**
-- P2: a tag-pinned dep names its archive after the tag with no code and no extra fetch, and a
-  branch-pinned dep still gets a new name per commit. **Met.**
-- 5.1 and 5.2: no code needed. An override mamafile and a commit pin already cover both. **Met.**
-- §6: `def version(self)` runs pre-clone, mama caches its result, and every violation of §6.3 fails with
-  a message that names the rule it broke.
+| item | state |
+|---|---|
+| P1, the scan reports and the upload refuses | **done**. Two mamafiles that would once diverge now agree or warn, and no upload can publish a name the download cannot construct |
+| P1a, the scan parses instead of grepping | **done**. A documented mamafile keeps its pin, and a module constant resolves |
+| P2, a git pin names the package | **done**. Tag, branch and commit each name their archive, and the rename table in §3.2 says what moved |
+| 5.1, "the upstream tag is not the name I want" | **no code needed**. The override mamafile already answers it |
+| 5.2, "this tag moves, name it by commit" | **no code needed**. Pin the commit |
+| §4, a consumer-side `version_from` | **rejected**. The mechanism works, and §5 shows nothing needs it |
+| §6, `def version(self)` | **parked**. Build it when a dep appears that §5 cannot serve |
+
+Open work outside this document:
+
+- Merge `feature/improved-version-parsing`, then expect one rebuild wave for the deps §3.2 renamed.
+- Nothing else. Every case that has come up so far is covered.

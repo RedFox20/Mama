@@ -48,8 +48,9 @@ def test_a_tag_pin_names_the_package():
 
 
 def test_a_tag_pin_never_resolves_a_commit_hash():
-    # The point of naming by the pin: the consumer already wrote it, so no ls-remote is needed to
-    # name the archive, and the download and the upload read the same string.
+    # The composer names a tag-pinned package from the pin alone. This is NOT a network saving: the shim
+    # probe resolves the hash first anyway, because the shim marker records it. It pins that the download
+    # and the upload read the same string with no lookup between them.
     with patch.object(Git, 'get_commit_hash') as resolve:
         art.artifactory_archive_name(_target(version='', git_tag='v0.13.0'))
     resolve.assert_not_called()
