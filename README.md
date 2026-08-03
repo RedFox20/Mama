@@ -715,10 +715,11 @@ remote. Post-clone it comes from the file on disk. The upload side does the oppo
 mamafile and uses the value in memory. Three rules follow:
 
 1. **A literal, in any method.** `init()`, `settings()` and `configure()` all work: the method does not
-   matter, the text does.
-2. **No computed value.** `self.version = f'{v}'`, a function call or a file read is invisible to the
-   text reader. The download then looks for the commit-hash name while the upload publishes the computed
-   one, and every build misses the cache in silence.
+   matter, the assignment does. A module-level constant assigned once (`V = '8.0.1'` then
+   `self.version = V`) resolves too.
+2. **No computed value.** `self.version = f'{v}'`, a function call or a file read cannot be read without
+   running the file. The download then looks for the commit-hash name while the upload publishes the
+   computed one, and every build misses the cache in silence.
 3. **One assignment per mamafile.** The reader takes the FIRST literal in file order. A conditional
    second assignment downloads one name and uploads another.
 

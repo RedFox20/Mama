@@ -57,6 +57,40 @@ class TestExtractSelfVersion:
         assert scan.literals == 1 and scan.computed
 
 
+class TestScanReadsCodeNotText:
+    """The scan parses the mamafile. A line scan counts anything that MENTIONS `self.version`, and then
+    refuses the real pin sitting next to it."""
+
+    def test_a_docstring_that_documents_the_field_is_not_an_assignment(self):
+        text = ('class P:\n'
+                '    """Set self.version = \'9.9.9\' to pin the archive name."""\n'
+                '    def settings(self):\n        self.version = \'0.13.0\'\n')
+        assert Git.extract_self_version(text) == ('0.13.0', 1, False)
+
+    def test_a_string_that_quotes_the_field_is_not_an_assignment(self):
+        assert Git.extract_self_version('error("self.version = \'9.9\' is required")') == ('', 0, False)
+
+    def test_a_literal_wrapped_over_two_lines_is_still_a_literal(self):
+        assert Git.extract_self_version("self.version = (\n    '8.0.1')\n") == ('8.0.1', 1, False)
+
+    def test_a_module_level_string_constant_resolves(self):
+        # The one name a reader can follow: bound once, at module level, to a string.
+        assert Git.extract_self_version("V = '1.0'\nclass P:\n    def init(self): self.version = V\n") \
+            == ('1.0', 1, False)
+
+    def test_a_constant_bound_twice_resolves_to_nothing(self):
+        # Which binding ran last decides the executed value, and the reader must not guess.
+        text = "V = '1.0'\nV = compute()\nclass P:\n    def init(self): self.version = V\n"
+        assert Git.extract_self_version(text) == ('', 0, True)
+
+    def test_an_augmented_assignment_is_computed(self):
+        assert Git.extract_self_version("self.version += '-rc1'") == ('', 0, True)
+
+    def test_an_unparseable_mamafile_falls_back_to_the_line_scan(self):
+        # A mamafile written for a newer Python than the one running mama still gets a best effort.
+        assert Git.extract_self_version("def f(self)\n    self.version = '1.0'\n") == ('1.0', 1, False)
+
+
 def _make_dep(branch='main', mamafile_field=''):
     config = Mock()
     config.artifactory_ftp = 'ftp.example.com'

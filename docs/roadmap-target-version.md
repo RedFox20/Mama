@@ -59,8 +59,9 @@ file in the CONSUMER's repo, which the reader can open before any clone. See §5
 
 ### 1.1 The rules, and the constraint each one serves
 
-1. **`self.version` must be ONE raw string literal.** The text reader takes it verbatim. It cannot
-   evaluate an f-string, a call or a name.
+1. **`self.version` must be ONE string the reader can resolve.** That is a literal, or a module-level
+   constant bound once to a literal. The reader cannot evaluate an f-string, a call, or a name whose
+   binding depends on what ran.
 2. **The method does not matter.** `init()`, `settings()` and `configure()` all work, because the reader
    scans text, not scope [V].
 3. **A second assignment refuses the value.** The reader cannot know which branch runs. Mama warns, and
@@ -117,8 +118,10 @@ cannot recreates this defect.** That single test rejects most tempting designs, 
 - `papa_upload` recomputes the version through the download path. When the two disagree it **skips the
   upload**, rather than publish an archive no consumer can ask for.
 
-The scan reads line by line. An anchored regex misses `if lgpl: self.version = '8.0.1-lgpl'`, which is
-the shape that matters most.
+The scan PARSES the mamafile, and falls back to a line scan only when `ast.parse` fails. A line scan counts a docstring that
+documents `self.version` as an assignment, and an error message that quotes it too. It then refuses the
+real pin next to it. Parsing costs about 0.14ms on a real mamafile, against a probe
+path that already spends 100ms or more on the network.
 
 Tests: `tests/test_self_version_probe/` (the scan) and `tests/test_target_version/` (the trust rule, the
 warning, the upload guard).

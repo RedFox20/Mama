@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import NamedTuple, TYPE_CHECKING
 
-import os, string, time, re, random, tempfile, subprocess
+import os, ast, string, time, re, random, tempfile, subprocess
 from collections import deque
 from .dep_source import DepSource
 from ..utils.system import Color, console, error, warning, progress
@@ -288,10 +288,59 @@ class Git(DepSource):
         """Report every `self.version` assignment a mamafile makes, WITHOUT running it.
 
         Mama names a package before it clones anything, so it reads the version out of the mamafile text.
-        Only one shape is trustworthy: exactly one quoted literal. Two literals mean the value depends on
-        which branch runs, and a computed value is invisible here. In both shapes this reader would return
-        a name the UPLOAD side never publishes. So it reports what it saw, and the caller refuses.
-        See `Git.trusted_self_version`."""
+        Only one shape is trustworthy: exactly one string the reader can resolve. Two of them mean the
+        value depends on which branch runs, and a computed value is invisible here. In both shapes this
+        reader would return a name the UPLOAD side never publishes. So it reports what it saw, and the
+        caller refuses. See `Git.trusted_self_version`.
+
+        Parses the file rather than grepping it. `ast.parse` costs about 0.14ms on a real mamafile, on a
+        path that already spends 100ms or more on the network. It is also EXACT. A text scan counts a
+        docstring that documents `self.version` as an assignment, then refuses the real pin next to it.
+        The text scan stays as the fallback for a mamafile this Python cannot parse."""
+        try:
+            return Git._scan_version_ast(ast.parse(mamafile_text))
+        except (SyntaxError, ValueError):
+            return Git._scan_version_text(mamafile_text)
+
+
+    @staticmethod
+    def _module_string_constants(tree) -> dict:
+        """Module-level `NAME = '<literal>'` bindings, which are the only names this reader can resolve.
+        A name bound twice, or bound to anything but a string, resolves to nothing. The executed value
+        would then depend on which binding ran last, and the reader must not guess."""
+        bound = {}
+        for node in tree.body:
+            if not isinstance(node, ast.Assign): continue
+            literal = node.value.value if isinstance(node.value, ast.Constant) else None
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    bound[target.id] = literal if isinstance(literal, str) and target.id not in bound else None
+        return {name: value for name, value in bound.items() if value is not None}
+
+
+    @staticmethod
+    def _scan_version_ast(tree) -> VersionScan:
+        """The exact scan: every real assignment to `self.version`, and nothing that merely mentions it."""
+        constants = Git._module_string_constants(tree)
+        literals, computed = [], False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign): targets, value = node.targets, node.value
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)): targets, value = [node.target], node.value
+            else: continue
+            if not any(isinstance(t, ast.Attribute) and t.attr == 'version'
+                       and isinstance(t.value, ast.Name) and t.value.id == 'self' for t in targets):
+                continue
+            if isinstance(node, ast.AugAssign) or value is None: computed = True  # `+=`, or a bare `: str`
+            elif isinstance(value, ast.Constant) and isinstance(value.value, str): literals.append(value.value)
+            elif isinstance(value, ast.Name) and value.id in constants: literals.append(constants[value.id])
+            else: computed = True
+        return VersionScan(literals[0] if len(literals) == 1 else '', len(literals), computed)
+
+
+    @staticmethod
+    def _scan_version_text(mamafile_text: str) -> VersionScan:
+        """The fallback for a mamafile this Python cannot parse. Line based, so it cannot tell an
+        assignment from a docstring that quotes one. It also reads a multi-line literal as computed."""
         literals, computed = [], False
         for line in mamafile_text.splitlines():
             m = Git._VERSION_ASSIGN_RE.search(line.split('#', 1)[0])  # a commented-out line assigns nothing
