@@ -57,3 +57,6 @@ bench/_out/
 
 # Planning phase marker. While it exists, the Stop hook asks for no review.
 .claude/.planning
+
+# The diff the Stop hook last asked about, so it asks once and not on every stop.
+.claude/.review-nagged
