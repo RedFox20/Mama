@@ -147,6 +147,8 @@ def test_a_git_dep_gets_no_computed_version(tmp_path):
 
 
 def test_a_file_that_vanishes_mid_walk_names_nothing(tmp_path):
-    dep = _dep(tmp_path)
+    # both deps are built BEFORE the patch. `mama.local_version.os` IS the os module, so patching its
+    # stat reaches every caller, and on Linux the repo fixture needs one of its own
+    dep, other = _dep(tmp_path), _dep(tmp_path / 'b')
     with patch('mama.local_version.os.stat', side_effect=OSError):
-        assert local_version.compute_version(dep) == local_version.compute_version(_dep(tmp_path / 'b'))
+        assert local_version.compute_version(dep) == local_version.compute_version(other)
