@@ -4,19 +4,11 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - feature: a local module names its package by its own source content
  - feature: globalcache shares the compiler seed across every checkout
- - feature: bench/profile_mama.py profiles one mama run and explains itself
- - perf: one git status per run instead of one per local dependency
- - perf: read HEAD, local tags and repo health from disk instead of spawning git
- - perf: memoize the executable lookup and the working-tree fingerprint
- - perf: mama update skips a cmake configure when cmake sees no change
- - perf: skip the submodule commands for a repo that declares none
+ - perf: far fewer git and cmake calls per run, so mama update is much faster
  - bugfix: every git command stays inside its dependency, never the repo above
- - bugfix: confirm a recipe change with a content hash before rebuilding
- - bugfix: keep ssh control sockets in a temp dir so ~/.ssh can mount read-only
- - bugfix: wipe a build dir whose MSVC toolset an upgrade deleted
- - bugfix: the artifactory tag names the MSVC toolset minor, not only the major
- - bugfix: do not merge linux builds, it leads to build failure
- - bugfix: mama init crash, and the build reason names the editable mamafile
+ - bugfix: an MSVC toolset upgrade no longer poisons build dirs or package names
+ - bugfix: ssh control sockets live in a temp dir, so ~/.ssh can mount read-only
+ - bugfix: mama init crash, and linux builds no longer merge into one failure
 
 release: 0.13.10 (2026-Aug-03)
  - bugfix: deploy duplicate path names into a single dir, whatever their case
@@ -52,13 +44,10 @@ release: 0.13.04 (2026-Jul-28)
 release: 0.13.03 (2026-Jul-28)
  - feature: build_host_binary() bootstraps a host tool while cross-compiling
  - feature: progress bar for PAPA archiving, with the active file named
- - feature: every build status line carries its target platform
  - bugfix: auto-heal a corrupt .git tree by re-cloning, not failing
- - bugfix: serialize a dep's clone, so parallel builds cannot corrupt it
+ - bugfix: parallel builds can no longer corrupt a shared clone or a sibling dir
  - bugfix: scope upload and deploy to the target subtree, not the workspace
- - bugfix: a reclone wipes only the source, never a sibling platform's build dir
- - bugfix: the banner names the resolved cross compiler, not the host's
- - bugfix: ssh multiplex failures now retry, and git/ssh noise is filtered out
+ - bugfix: clearer logs, correct cross-compiler banner, ssh multiplex retries
 
 release: 0.13.02 (2026-Jul-23)
  - bugfix: resolve package versions correctly, and support new setuptools

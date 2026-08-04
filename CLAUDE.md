@@ -151,9 +151,19 @@ release: 0.13.10 (2026-Aug-04)
 
 - **80 columns max per line**, and one line per entry. No wrapped entries.
 - Prefixes: `feature:`, `bugfix:`, `perf:`, `refactor:`, `build:`.
-- Say what changed for a USER of mama, not which function moved. Summarize a
-  five-commit feature as one line.
 - Newest release first. Date format `YYYY-Mon-DD`.
+
+**Summarize hard. You have permission to drop detail.** A changelog is a list of
+general bullet points, not an essay. One architectural change is ONE bullet, however
+many commits, files or lines it took. A 5000 line diff that adds one capability earns
+one line. Nobody reads a changelog to learn which function moved.
+
+- Write for a USER of mama: what can they now do, or what no longer breaks.
+- Merge related commits. Ten commits that build one feature are one entry.
+- Drop anything a user cannot observe: refactors, test changes, doc edits, internal
+  renames, review and style work. If it changed no behavior, it earns no line.
+- Prefer 3 to 6 entries per release. More than 8 means you are transcribing the git
+  log instead of summarizing it.
 
 ## Release process
 
