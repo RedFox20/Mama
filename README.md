@@ -2,13 +2,13 @@
 Mama - A modular C++ build tool so simple even your mama can use it
 
 Mama turns a tree of C++ libraries - your own and third-party - into a single
-`mama build`. It clones the sources, configures them, builds them in the right order
-across every platform and compiler you target, and links the results into your project.
+`mama build`. It clones the sources, configures them, and builds them in the right order
+for every platform and compiler you target. The results link into your project.
 No central package repository, no Docker containers, no hand-written toolchain glue -
 just git repos, a minimal set of system libs, and the compilers you already have.
 
-Building is as simple as `mama build windows` - no ceremony~! Trivial CMake projects and
-header-only or stand-alone C libraries are picked up automatically; larger projects add a
+Building is one command: `mama build windows`. Mama picks up trivial CMake projects and
+header-only or stand-alone C libraries automatically. Larger projects add a
 small `mamafile.py` to declare their dependencies and build steps.
 
 ![mama build demo](docs/demo.gif)
@@ -19,25 +19,25 @@ small `mamafile.py` to declare their dependencies and build steps.
   it end to end - clone, configure, compile, in dependency order. `mama build <target>` does just
   that target's subtree, nothing more.
 - **Everything parallel.** Clones, configures and compiles all run at once under one scheduler - a
-  leaf builds while a deeper dep still clones. Longest poles launch first; the core budget is
-  RAM-capped so a wide build can't OOM the box.
+  leaf builds while a deeper dep still clones. The slowest subtrees launch first, and the core budget
+  is RAM-capped so a wide build cannot OOM the box.
 - **Multi-platform, multi-compiler - no Docker.** Toolchains used as designed: `linux`, `linux-clang`,
   `windows`, `android` and other cross-builds land side by side, never clobbering. Three platforms at once? Run
   three builds, `mama build <platform>` each. Sanitizers (asan/lsan/tsan/ubsan) and coverage are plain flags.
 - **Any build system.** CMake, GNU Make, MSBuild, or a custom `build()` step - all through the
   same scheduler and live display.
 - **Faster CMake configures.** Compiler detection (~5s of a ~6.5s cold configure) runs once per
-  toolchain and is reused across every fresh build dir, cutting it down to almost nothing.
+  toolchain, and every fresh build dir reuses the result.
 - **In-source, project-scoped, reproducible.** Dependencies pull from git (pinned by
-  tag/branch/commit) or local folders; heavy libs like OpenCV and FFmpeg build easily from source, so a
+  tag/branch/commit) or local folders. Heavy libs like OpenCV and FFmpeg build from source, so a
   fresh checkout builds identically - only a minimal set of system libs is assumed.
 - **Resilient & cached.** Fail-fast Ctrl+C, self-healing build dirs after an interrupted
   configure, and `mama upload` to a private artifactory server so matching commits are fetched
   instead of rebuilt.
-- **Rich build stats.** `mama build buildstats` prints per-package timing bars plus a
+- **Build stats.** `mama build buildstats` prints per-package timing bars plus a
   frontend/backend/link breakdown (MSVC vcperf, Clang `-ftime-trace`) - the slowest TUs, costliest
   headers, heaviest codegen.
-- **Batteries included.** Correct-order linking via `MAMA_INCLUDES`/`MAMA_LIBS`, `clang-tidy` and
+- **Also included.** Correct-order linking via `MAMA_INCLUDES`/`MAMA_LIBS`, `clang-tidy` and
   coverage as flags, and `mama init` to adopt an existing CMake project in one step.
 
 For additional documentation explore: [build_target.py](mama/build_target.py)
@@ -50,7 +50,7 @@ And anyone who is not satisfied with system-wide dependencies and linker
 bugs caused by incompatible system-wide libraries on Linux.
 
 If you require an easy to use, reproducible project/namespace scoped package+build system, this is for you.
-Your builds will not rely on hard to setup system packages, all you need to do is type `mama build`.
+Your builds do not rely on hard-to-configure system packages. All you need to type is `mama build`.
 
 ### Supported platforms ###
 - Windows (64-bit x86_64, 32-bit x86, 64-bit arm64, 32-bit armv7) default is latest MSVC
@@ -70,7 +70,8 @@ such as Linux exclusive G++ projects using apt-get libraries or iOS-only apps us
 
 
 ## Artifactory
-Provides a mechanism to upload pre-built packages to a private artifactory server through `mama upload mypackage`. These packages will be automatically used if a git:package commit hash matches.
+`mama upload mypackage` uploads a prebuilt package to a private artifactory server. A build then
+uses the package automatically when the git dependency's commit hash matches.
 
 
 ## Setup For Users
@@ -84,7 +85,7 @@ include(mama.cmake)
 include_directories(${MAMA_INCLUDES})
 target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
 ```
-6. `$ mama build` and enjoy!
+6. `$ mama build`
 7. `$ mama open` to open your project in an IDE / VSCode
 
 
@@ -94,7 +95,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama build                     Build main project only. Clones missing deps, but does not git pull.
   mama build x86 opencv          Cross compile build target opencv to x86 architecture
   mama build android             Cross compile to arm64 android NDK (default API level 29)
-  mama build android-31           Cross compile to arm64 with Android API level 31
+  mama build android-31          Cross compile to arm64 with Android API level 31
   mama build android-26 arm      Cross compile to armv7 android NDK API level 26
   mama update                    Update all dependencies by doing git pull and build.
   mama clean                     Cleans main project only.
@@ -107,7 +108,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.
   mama build dep1                Build dep1 only. Clones if missing, but does not git pull.
   mama update dep1               Update and build the specified target.
-  mama serve android             Update, build and deploy for Android.
+  mama serve android             Update, rebuild, deploy and upload for Android.
   mama deploy                    Runs PAPA deploy stage.
   mama configure                 Run CMake configure on dependencies to reconfigure and build
   mama configure tsan            CMake Reconfigure dependencies with thread sanitizer enabled
@@ -154,9 +155,9 @@ The `https-override` / `ssh-override` flags rewrite the git access protocol of e
 environment can only reach git over one protocol: `https-override` for hosts that only
 allow https access tokens (no ssh keys), `ssh-override` for hosts where https is blocked
 and ssh keys are required. They work for GitHub, GitLab (including nested groups),
-Bitbucket and self-hosted/custom-port servers; local paths (`/srv/..`, `file://`, `C:/..`)
-are left untouched. Embedded https credentials and ssh custom ports are dropped on
-conversion, and an existing clone's `origin` remote is re-pointed so `fetch`/`pull` follow
+Bitbucket and self-hosted/custom-port servers. Local paths (`/srv/..`, `file://`, `C:/..`)
+stay untouched. The conversion drops embedded https credentials and ssh custom ports,
+and re-points an existing clone's `origin` remote so `fetch`/`pull` follow
 the chosen protocol.
 
 ```
@@ -211,9 +212,9 @@ This stage is compiler-specific:
 
 - **MSVC** - the build is wrapped in a [vcperf](https://learn.microsoft.com/en-us/cpp/build-insights/)
   `/timetrace` session and the trace is written to `packages/<project>/<platform>/mama_timetrace.json`.
-  vcperf must be on `PATH`, in the MSVC toolset, or pointed at by the `VCPERF` env var; a one-time
+  vcperf must be on `PATH`, in the MSVC toolset, or pointed at by the `VCPERF` env var. A one-time
   elevated `vcperf /grantusercontrol` is the prerequisite for capturing without admin rights.
-  If vcperf isn't found, Stage 1 still prints and Stage 2 is skipped with a warning.
+  Without vcperf, Stage 1 still prints and mama skips Stage 2 with a warning.
 - **Clang** - the build is instrumented with `-ftime-trace` and the per-TU JSONs written during
   this run are collected from the build dirs. Use `mama build clang buildstats` on Linux.
 - **GCC** - no per-file trace exists, so only Stage 1 prints.
@@ -223,16 +224,19 @@ Both stages only see what was actually compiled. An up-to-date incremental build
 
 ### Clang-Tidy static analysis
 
-Mama supports running [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) static analysis during the build. When enabled, CMake sets `CMAKE_C_CLANG_TIDY` and `CMAKE_CXX_CLANG_TIDY` so that clang-tidy runs on every compiled source file.
+Mama runs [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) static analysis during the build.
+When enabled, CMake sets `CMAKE_C_CLANG_TIDY` and `CMAKE_CXX_CLANG_TIDY` so that clang-tidy runs on
+every compiled source file.
 
 ```
 mama build clang-tidy             # Run clang-tidy analysis during build
 mama build clang-tidy debug       # Combine with other flags
 ```
 
-Clang-tidy is resolved in this order:
-1. System `PATH` lookup
-2. `CLANG_TIDY` environment variable
+Mama resolves clang-tidy in this order:
+1. The `CLANG_TIDY` environment variable (`ANDROID_CLANG_TIDY` for Android builds)
+2. The Android NDK bin directory, for Android builds
+3. System `PATH` lookup
 
 If clang-tidy is not found, a warning is printed and the build proceeds without static analysis.
 
@@ -319,8 +323,9 @@ class MyLib(mama.BuildTarget):
             self.add_cmake_options('BUILD_SHARED_LIBS=ON')
 ```
 
-**Mamafile discovery**: When adding a dependency without an explicit `mamafile=` path,
-mama automatically checks for `{src}/mamafile.py` in the parent project.
+**Mamafile discovery**: When a dependency has no explicit `mamafile=` path, mama first
+checks `mama/{name}.py` in the parent project, then falls back to `mamafile.py` in the
+dependency's own source root.
 
 ### Inter-dependency configuration
 
@@ -475,9 +480,9 @@ def build(self):
         build_products=[         # files to deploy
             BuildProduct('{{installed}}/lib/libz.a', '{{build}}/lib/libz.a'),
         ])
-    gp.build(options=['--static'], prefix='/usr/local')
+    gp.build(options='--static', prefix='--prefix /usr/local')
     # Or call steps individually:
-    # gp.configure(options=['--static'])
+    # gp.configure(options='--static')
     # gp.make(multithreaded=True)
     # gp.install()
 ```
@@ -602,9 +607,9 @@ def package(self):
     self.export_include('src', as_includes_root='mylib')
 ```
 
-During development, the actual include path is set to `src/` so that IDE navigation
-and error messages point to the real source files. After `papa deploy`, only headers
-are exported to `include/mylib/`, giving consumers clean `#include <mylib/mylib.h>` paths.
+During development, mama sets the actual include path to `src/` so that IDE navigation
+and error messages point to the real source files. `papa deploy` exports only headers
+to `include/mylib/`, so consumers get clean `#include <mylib/mylib.h>` paths.
 
 This is also the default behavior of `default_package_includes()` when only a `src/` folder exists.
 
@@ -652,7 +657,8 @@ $ mama upload googletest
 ## Artifactory Details
 
 ### Authentication
-- **`auth='store'`** (default): Credentials are stored in system keyring (uses `keyrings.cryptfile` on Linux). Stored per-URL; failed logins clear stored credentials automatically.
+- **`auth='store'`** (default): mama stores credentials in the system keyring (`keyrings.cryptfile`
+  on Linux), one entry per URL. A failed login clears the stored credentials.
 - **`auth='prompt'`**: Always prompts for username and password.
 - **Environment variables** `MAMA_ARTIFACTORY_USER` / `MAMA_ARTIFACTORY_PASS` always take priority over both modes.
 
@@ -750,10 +756,10 @@ Args are known before the clone, so they name the archive and the build director
 ## `mama open` behavior
 
 - **Windows**: Opens `.slnx` or `.sln` from build dir, newest first. Falls back to VSCode
-- **macOS/iOS**: Opens `.xcodeproj` from build dir; falls back to VSCode
+- **macOS/iOS**: Opens `.xcodeproj` from build dir. Falls back to VSCode
 - **Linux/Android**: Opens VSCode
 
-Syntax: `mama open` (root project) or `mama open=dep1` (specific dependency)
+Syntax: `mama open` (root project) or `mama open dep1` (specific dependency)
 
 
 ## Android configuration
@@ -824,16 +830,19 @@ The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolc
 
 ## VSCode Integration
 
-Mama automatically generates `compile_commands.json` (via `CMAKE_EXPORT_COMPILE_COMMANDS=ON`) and updates `.vscode/c_cpp_properties.json` with the correct `compileCommands` path for IntelliSense support.
+Mama generates `compile_commands.json` (via `CMAKE_EXPORT_COMPILE_COMMANDS=ON`) and updates
+`.vscode/c_cpp_properties.json` with the correct `compileCommands` path for IntelliSense support.
 
 
 ## For Mama Contributors
 We are open for any improvements and feedback via pull requests.
 
 ### Development Setup
-Mama requires `setuptools>=77.0`, because `pyproject.toml` declares the license as a PEP 639 expression. Check the version with `pip3 show setuptools`.
+Mama requires `setuptools>=77.0`, because `pyproject.toml` declares the license as a PEP 639
+expression. Check the version with `pip3 show setuptools`.
 
-You can set up local development with `$ pip3 install -e . --no-cache-dir` but make sure you have setuptools (>=77.0) and latest pip3 (>22.3). This command will fail with older toolkits.
+You can configure local development with `$ pip3 install -e . --no-cache-dir` but make sure you have
+setuptools (>=77.0) and latest pip3 (>22.3). This command will fail with older toolkits.
 
 ### Running Tests
 
@@ -862,6 +871,9 @@ index-servers = pypi
 username=__token__
 password=<pypi-api-token>
 ```
-Use `packaging>=24.2`. setuptools>=77 writes Metadata 2.4, which adds the `license-expression` and `license-file` fields. An older `packaging` does not know those fields, so twine refuses the upload with `InvalidDistribution: unrecognized or malformed field 'license-expression'`. Upgrade `packaging` and build again.
+Use `packaging>=24.2`. setuptools>=77 writes Metadata 2.4, which adds the `license-expression` and
+`license-file` fields. An older `packaging` does not know those fields, so twine refuses the upload
+with `InvalidDistribution: unrecognized or malformed field 'license-expression'`. Upgrade `packaging`
+and build again.
 
 Quick build & upload: `./deploy.sh`

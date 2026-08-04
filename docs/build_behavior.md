@@ -1,8 +1,8 @@
-# mama build vs update: dependency-loading behaviour
+# mama build vs update: dependency-loading behavior
 
 Reference spec for what the dependency loader must and must NOT do under each
 top-level command. Captures invariants that the build-target/shim plumbing has
-to honour. Update this file when the contract changes; the code is the truth,
+to honor. Update this file when the contract changes. The code is the truth,
 but this document is the intent.
 
 ## The two commands
@@ -13,9 +13,9 @@ For deps with a valid shim: no network, no re-unzip, no ls-remote.
 **`mama update`** - refresh all deps then build. ls-remote per dep,
 artifactory cache zip may be re-fetched, shim build_dirs are re-extracted.
 
-**`mama build noart`** - no artifactory fetches. ls-remote is still allowed
-on shimmed deps so upstream-advanced shims can be detected and dropped;
-that triggers a clone+build-from-source fallback.
+**`mama build noart`** - no artifactory fetches. mama still allows ls-remote
+on shimmed deps, so it detects and drops an upstream-advanced shim.
+That triggers a clone+build-from-source fallback.
 
 `mama build` is the hot path. It runs many times per developer per day. It
 MUST be cheap.
@@ -30,7 +30,7 @@ For a non-root git dep, the loader sees one of these on-disk states:
    shimmed deps.
 2. **Stale shim** - marker exists but the upstream commit advanced (only
    detectable via ls-remote).
-3. **Real clone** - a `.git` directory exists; the dep is built from source.
+3. **Real clone** - a `.git` directory exists. The dep is built from source.
 4. **Empty** - first-time load. Nothing yet on disk.
 
 ## What `mama build` MUST do per state
@@ -44,27 +44,27 @@ For a non-root git dep, the loader sees one of these on-disk states:
 
 Printed line:
 ```
-  - Target opencv           OK (shim cached)
+  - Target opencv           SHIM CACHED <archive>
 ```
-or similar. Specifically **not** `SHIM FETCHED` (misleading - nothing was
-fetched), and **not** `Artifactory cache /path/to.zip` (no zip was touched).
+Specifically **not** `SHIM FETCHED` (misleading - mama fetched nothing), and
+**not** `Artifactory cache /path/to.zip` (mama touched no zip).
 
 ### State 2: stale shim (rare, but must not silently miss it)
 
 - Without `update`: trust the shim. Do NOT auto-detect staleness on every
-  `mama build`. The user opted into a fast build; the cost of an ls-remote
+  `mama build`. The user opted into a fast build. The cost of an ls-remote
   per shim across N deps is exactly the wasted work this doc exists to
   prevent.
 - With `update`: ls-remote, detect mismatch, drop marker, fall through to
   the regular clone+probe path.
-- Edge case: under `noart`, ls-remote IS still performed (it's cheap, and
+- Edge case: under `noart`, ls-remote IS still performed (it is cheap, and
   noart already trades the artifactory fetch for a build-from-source if
   upstream advanced).
 
 ### State 3: real clone
 
 - Regular `dependency_checkout` path runs (`fetch + reset` only with
-  `update`; with `build` only verify HEAD).
+  `update`, with `build` only verify HEAD).
 - Post-clone artifactory load only if `should_load_artifactory()` says so
   (a previous papa.txt exists, first-time build, or `is_pkg`).
 
@@ -87,17 +87,17 @@ The opposite intent: refresh everything.
 
 The `target.config.update and target.is_current_target()` guard in
 `artifactory_fetch_and_reconfigure` is the chokepoint that bypasses the
-local cache check. It is correct for `update`; it must NOT be reached
-under plain `build`.
+local cache check. It is correct for `update`. A plain `build` must NOT
+reach it.
 
 ## Implementation
 
-`BuildDependency._try_artifactory_shim` honours `try_load_cached_shim` when a
+`BuildDependency._try_artifactory_shim` honors `try_load_cached_shim` when a
 shim marker exists and `config.update` is False. The cached path's
 `check_staleness` parameter gates the ls-remote probe: True under noart, False
 under plain build. Update bypasses the cached path entirely so the regular
 probe re-extracts.
 
-Tests pinning the behaviour:
+Tests pinning the behavior:
 - `tests/test_build_shim_cache/` - plain `mama build` cached fast path
 - `tests/test_noart_shim_cache/` - noart cached-with-staleness-check path

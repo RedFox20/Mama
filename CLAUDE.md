@@ -150,9 +150,10 @@ it as unsafe in a multi-threaded program, and mama runs many threads in parallel
 
 ## SSH multiplex / parallel loading
 
-- `mama update` auto-enables `parallel_load`. The `fetch_slot` semaphore caps the
-  concurrent git fetches at `parallel_max`, which defaults to 20. This is
-  independent of the worker thread count.
+- Parallel load is the default for every run, and `serial` opts out. The
+  `fetch_slot` semaphore caps the concurrent git fetches at 8
+  (`DEFAULT_MAX_CONCURRENT_FETCHES`), whatever `parallel_max` asks for. `parallel_max` (default 20) sizes the scheduler's LOAD
+  pool. Both are independent of the worker thread count.
 - The `SubProcess.run` calls of the shim probe also go through `fetch_slot`. Count
   the slot acquisitions per probe: one for the clone, and one more for `git show`.
 - `ensure_master_for_url` is idempotent and serialized per host.

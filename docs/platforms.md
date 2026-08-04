@@ -1,6 +1,6 @@
 # How mama handles platforms
 
-A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, and eight more. This is the shape
+A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, and seven more. This is the shape
 of that support. For the mamafile-facing API, see the README.
 
 ## Three layers
@@ -66,14 +66,15 @@ Then add `NewBoard` to `PLATFORMS` in `registry.py` and a guard to `_GUARDS` in 
 tests are all parametrized over `PLATFORMS`.
 
 A platform that needs real behavior overrides a method instead of declaring an attribute. `Android`
-overrides the most (NDK discovery, ABI naming, its own make program). `Linux` overrides three things.
+overrides the most (NDK discovery, ABI naming, its own make program). `Linux` overrides only a few.
 
 ## Invariants the tests enforce
 
 1. No `if/elif` chain over platform names outside `mama/platforms/`. A consumer that needs
    per-platform behavior declares it on `Platform`.
 2. No platform imports `mama.buildsys` or writes a `CMAKE_` name. `Toolchain.extra_opts` is the
-   documented escape hatch, and iOS is its only user (Xcode SDK selection has no neutral form).
+   documented escape hatch, used by iOS (Xcode SDK selection has no neutral form) and by Android
+   (variables only the NDK's own toolchain file understands).
 3. Every `(platform, arch)` pair gets its own build dir. A shared one means two builds clobber each
    other's cache and libraries.
 4. Every platform answers the same method names with the same parameters.
