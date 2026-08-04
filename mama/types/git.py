@@ -9,7 +9,8 @@ from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
-                    forget_git_dir_fingerprint, remove_tree, GitError)
+                    forget_git_dir_fingerprint, source_walk_moved, record_source_walk, git_source_changed,
+                    remove_tree, GitError)
 from .git_errors import classify_git_failure, format_git_failure, stall_message
 from ..mamafile_version import trusted_version
 
@@ -323,9 +324,11 @@ class Git(DepSource):
 
 
     def source_tree_changed(self, dep: BuildDependency) -> bool:
-        """True when the working-tree source differs from the snapshot stored at the last build."""
+        """True when a build input differs from the snapshot stored at the last build."""
         status = self.read_stored_status(dep)
         stored = status[4] if status and len(status) > 4 else ''
+        if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
+        if not git_source_changed(dep.src_dir): return False  # a README edit is not a rebuild, on any platform
         return self.working_tree_fingerprint(dep, 'did the source change since the last build') != stored
 
 
@@ -528,6 +531,7 @@ class Git(DepSource):
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
         tree = self.working_tree_fingerprint(dep, 'record the tree this build used')
+        record_source_walk(dep.src_dir, dep.build_dir)
         status = self.format_git_status(self.url, self.tag, self.branch, commit, tree)
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:

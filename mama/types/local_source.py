@@ -1,6 +1,7 @@
 import os
 from .dep_source import DepSource
-from ..util import git_dir_fingerprint, path_join, save_file_if_contents_changed, read_text_from
+from ..util import (git_dir_fingerprint, path_join, save_file_if_contents_changed, read_text_from,
+                    source_walk_moved, record_source_walk, git_source_changed)
 
 class LocalSource(DepSource):
     """For a BuildDependency whose source is a local directory."""
@@ -30,14 +31,17 @@ class LocalSource(DepSource):
         return git_dir_fingerprint(dep.src_dir, shared_status=True, reason=f'local {reason}')
 
     def source_tree_changed(self, dep) -> bool:
-        """True when the subfolder differs from the snapshot stored at the last build."""
+        """True when a build input in the subfolder differs from the snapshot stored at the last build."""
         f = self.src_status_file(dep)
         stored = read_text_from(f) if os.path.exists(f) else ''
+        if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
+        if not git_source_changed(dep.src_dir): return False  # a README edit is not a rebuild, on any platform
         return self.working_tree_fingerprint(dep, 'did the subfolder change since the last build') != stored
 
     def save_status(self, dep):
         save_file_if_contents_changed(self.src_status_file(dep),
                                       self.working_tree_fingerprint(dep, 'record the tree this build used'))
+        record_source_walk(dep.src_dir, dep.build_dir)
 
     @staticmethod
     def from_papa_string(s: str) -> "LocalSource":

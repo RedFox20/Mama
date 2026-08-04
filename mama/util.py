@@ -264,6 +264,102 @@ _repo_status = None  # (repo root, {rel path: status code}) from ONE `git status
 log_status_checks = False
 
 
+# Directories that hold no build input. Tool and output dirs ONLY. `third_party`, `external` and
+# `vendor` are deliberately absent, because real sources live in them in many projects.
+_SKIP_DIRS = {
+    '.git', '.svn', '.hg', '.jj',                                       # version control metadata
+    'build', 'builds', '_build', 'out', 'bin', 'obj',                   # build output
+    'cmakefiles', 'x64', 'x86', 'win32', 'debug', 'release',
+    '.vs', '.vscode', '.idea', '.fleet', '.cache', '.ccache',           # editor and compiler caches
+    'vcpkg', 'vcpkg_installed', '_deps', 'node_modules',                # package managers
+    'bower_components', '.conan', '.conan2', '.cargo', '.gradle',
+    '__pycache__', '.venv', 'venv', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache',
+    'packages',                                                         # the mama workspace dir
+}
+_SKIP_PREFIX = ('cmake-build-',)  # the CLion family: cmake-build-debug, cmake-build-release and so on
+
+# What a C or C++ build reads. A README, a yaml or a LICENSE cannot change what the compiler produces,
+# and `git status` rebuilds on all three today.
+_SRC_EXTS = {'.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm',
+             '.h', '.hh', '.hpp', '.hxx', '.inl', '.ipp', '.ixx', '.tpp',
+             '.s', '.asm', '.rc', '.def', '.cmake', '.in', '.proto', '.f', '.f90'}
+_SRC_NAMES = {'cmakelists.txt', 'makefile', 'meson.build', 'mamafile.py'}
+
+
+def is_build_input(name: str) -> bool:
+    """True when a file of this name can change what the build produces."""
+    return os.path.splitext(name)[1].lower() in _SRC_EXTS or os.path.basename(name).lower() in _SRC_NAMES
+
+
+def source_fingerprint(src_dir: str) -> str:
+    """Hash of (relative path, size, mtime) for every build input under `src_dir`, or '' when there is
+    none. This is the CHEAP layer of the source check, and it runs on Windows only.
+
+    os.scandir hands back the size and mtime from the directory entry there, so the walk opens nothing
+    and stats nothing extra. It cost 88ms across 23 real dependencies where `git status` cost 933ms, one
+    process each. On Linux `git status` is already that fast, so this layer does not run and cannot
+    regress it.
+
+    An mtime is not content, so a caller treats a difference as `ask git`, never as `rebuild`."""
+    h, count = hashlib.sha1(), 0
+    stack = [(src_dir, '')]
+    while stack:
+        path, rel = stack.pop()
+        try: entries = sorted(os.scandir(path), key=lambda e: e.name)
+        except OSError: continue  # a dir that vanished mid-walk cannot hold a build input either
+        for entry in entries:
+            name = entry.name.lower()
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if name not in _SKIP_DIRS and not name.startswith(_SKIP_PREFIX):
+                        stack.append((entry.path, f'{rel}{entry.name}/'))
+                elif is_build_input(name):
+                    st = entry.stat()
+                    h.update(f'{rel}{entry.name}\0{st.st_size}\0{st.st_mtime_ns}\0'.encode('utf-8', 'replace'))
+                    count += 1
+            except OSError:
+                pass
+    return f'{h.hexdigest()[:16]}-{count}' if count else ''
+
+
+def git_source_changed(src_dir: str) -> bool:
+    """True when git says a BUILD INPUT under `src_dir` differs from HEAD. The slow, authoritative layer.
+
+    The filter is the point. `git status` answers 'does the tree differ from HEAD', so mama rebuilt a
+    target when a developer edited a README, a yaml or a license. This asks the question mama means, and
+    it runs on every platform, because that defect is not specific to one."""
+    entries = _parse_status(_git_output(['status', '--porcelain', '-z', '--', '.'], src_dir))
+    return any(is_build_input(path) for path in entries)
+
+
+def source_walk_file(build_dir: str) -> str:
+    """Where the last build recorded its source walk, beside git_status in the same build dir."""
+    return path_join(build_dir, 'source_walk')
+
+
+def source_walk_moved(src_dir: str, build_dir: str) -> bool:
+    """True when the cheap walk sees a build input that moved since the last build recorded one.
+
+    This is a GATE, not an answer. It runs on Windows only, in front of the git check, because a git
+    process costs about 26ms there against 4ms for the walk. A normal build has nothing to report, so
+    the gate ends the question. An mtime is not content, so a True here only means `ask git`. Off
+    Windows it always returns True, and the git check answers alone."""
+    if not System.windows: return True
+    stored = ''
+    try: stored = read_text_from(source_walk_file(build_dir)).strip()
+    except OSError: pass
+    if not stored: return True  # never recorded, so nothing to compare against
+    return source_fingerprint(src_dir) != stored
+
+
+def record_source_walk(src_dir: str, build_dir: str):
+    """Record the walk this build used, so the next one can skip the git check. Windows only, and
+    best-effort: a write failure only makes the next build ask git."""
+    if not System.windows: return
+    try: write_text_to(source_walk_file(build_dir), source_fingerprint(src_dir))
+    except OSError: pass
+
+
 def _log_status_check(src_dir: str, reason: str, source: str, found: str, seconds: float):
     """One line per working-tree check, so a slow run names the dependency and the caller that paid."""
     name = os.path.basename(src_dir.rstrip('/\\')) or src_dir
