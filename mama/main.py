@@ -98,7 +98,7 @@ def print_usage():
     console('    mama build                     Update and build main project only. This only clones, but does not update!')
     console('    mama build x86 opencv          Cross compile build target opencv to x86 architecture')
     console('    mama build android             Cross compile to arm64 android NDK')
-    console('    mama build ndk-28              Cross compile specifically with Android NDK 28 (substring match, so 28.2 will also work)')
+    console('    mama build ndk-28              Cross compile with Android NDK 28 (substring match, 28.2 also works)')
     console('    mama build android-26 arm      Cross compile to armv7 android NDK API level 26')
     console('    mama update                    Update all dependencies by doing git pull and build.')
     console('    mama clean                     Cleans main project only.')

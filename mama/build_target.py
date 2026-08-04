@@ -258,7 +258,8 @@ class BuildTarget:
         return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
 
 
-    def add_git(self, name, git_url, git_branch='', git_tag='', git_commit='', mamafile=None, shallow=True, args=[]) -> BuildDependency:
+    def add_git(self, name, git_url, git_branch='', git_tag='', git_commit='',
+                mamafile=None, shallow=True, args=[]) -> BuildDependency:
         """
         Add a remote GIT dependency. Mama clones it and updates it during builds.
         Use `mama update` to force update the git repositories.
@@ -1515,7 +1516,8 @@ class BuildTarget:
             e_config = util.get_time_str(config_stop - config_start)
             e_build = util.get_time_str(build_stop - build_start)
             e_total = util.get_time_str(build_stop - config_start)
-            console(f"CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config} build {e_build} total {e_total}", color=Color.GREEN)
+            console(f'CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config}' + \
+                    f' build {e_build} total {e_total}', color=Color.GREEN)
 
 
     def is_test_target(self):

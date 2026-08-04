@@ -30,7 +30,7 @@ class {project_name}(mama.BuildTarget):
         self.enable_cxx20()
         #self.add_cmake_options('BUILD_TESTS=ON', 'USE_SSE2=ON')
 
-    ## optional: customize package exports if repository doesn't have `include` or `src`
+    ## optional: customize package exports if the repository has no `include` or `src`
     ##           default include and lib export works for most common static libs
     #def package(self):
     #    self.export_libs('.', ['.lib', '.a']) # export any .lib or .a from build folder
@@ -123,13 +123,14 @@ def patch_existing_cmakelists(project_name, cmakefile):
             break
 
     if not inserted_link_lib:
-        console(f'  Could not find suitable target_link_libraries() for ${{MAMA_LIBS}}. Please insert one manually to your CMakeLists.txt')
+        console(f'  No target_link_libraries() suits ${{MAMA_LIBS}}. Insert one manually into your CMakeLists.txt')
 
     contents = ''.join(lines)
     write_text_to(cmakefile, contents)
 
 
 def find_cpp_main(src_dir):
+    if not os.path.isdir(src_dir): return None
     # match any top-level src/ file with "main" in the name and a .cpp extension
     for entry in os.listdir(src_dir):
         if entry.endswith('.cpp') and 'main' in entry.lower():
@@ -169,7 +170,7 @@ def mama_init_project(root: BuildDependency):
     cmakelists = root.cmakelists_path()
     if not os.path.exists(cmakelists):
         console(f'{root.name} Creating new CMakeLists.txt: {cmakelists}')
-        write_default_cmakelists(root.name, cmakelists, cpp_main)
+        write_default_cmakelists(root.name, cmakelists)
     else:
         console(f'{root.name} Patching existing CMakeLists.txt: {cmakelists}')
         patch_existing_cmakelists(root.name, cmakelists)

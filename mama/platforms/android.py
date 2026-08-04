@@ -180,16 +180,14 @@ class Android(Platform):
                 for subdir in subdirs:
                     if self.ndk_version and not subdir.startswith(self.ndk_version):
                         if self.config.verbose:
-                            warning(f'Skipping NDK version {subdir} since it does not match the requested version {self.ndk_version}')
+                            warning(f'Skipping NDK {subdir}: does not match the requested version {self.ndk_version}')
                         continue
                     if os.path.exists(f'{sdk_path}/ndk/{subdir}/{ndk_build}'):
                         self.ndk_version = subdir
                         self._set_ndk_sdk_paths(f'{sdk_path}/ndk/{subdir}', sdk_path)
                         return
-        raise EnvironmentError(f'''Could not detect any Android NDK installations.
-Default search paths: {ndk_paths+sdk_paths}
-Define env ANDROID_NDK_HOME with path to the preferred NDK installation
-Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
+        raise EnvironmentError(f'No Android NDK found. Searched: {ndk_paths+sdk_paths}. Set env' + \
+                               ' ANDROID_NDK_HOME to an NDK, or ANDROID_HOME to an SDK root that holds one.')
 
 
     def _build_toolchain(self) -> Toolchain:

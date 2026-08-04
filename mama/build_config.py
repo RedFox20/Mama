@@ -778,7 +778,8 @@ class BuildConfig:
         execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_major}   100')
         execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_major} 100')
         execute(f'sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-{clang_major} 100')
-        execute(f'sudo update-alternatives --install /usr/bin/run-clang-tidy run-clang-tidy /usr/lib/llvm-{clang_major}/bin/run-clang-tidy 100')
+        execute(f'sudo update-alternatives --install /usr/bin/run-clang-tidy run-clang-tidy' + \
+                f' /usr/lib/llvm-{clang_major}/bin/run-clang-tidy 100')
         execute(f'sudo update-alternatives --set clang   /usr/bin/clang-{clang_major}')
         execute(f'sudo update-alternatives --set clang++ /usr/bin/clang++-{clang_major}')
         execute(f'sudo update-alternatives --set clang-tidy /usr/bin/clang-tidy-{clang_major}')
@@ -812,7 +813,8 @@ class BuildConfig:
 
         execute('curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg')
         execute('sudo mv /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg')
-        execute(f"sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-{codename}-prod {codename} main\" > /etc/apt/sources.list.d/dotnetdev.list'")
+        execute(f"sudo sh -c 'echo \"deb [arch=amd64] https://packages.microsoft.com/repos/" + \
+                f"microsoft-ubuntu-{codename}-prod {codename} main\" > /etc/apt/sources.list.d/dotnetdev.list'")
         execute('sudo apt-get install apt-transport-https')
         execute('sudo apt-get update')
         execute('sudo apt-get install dotnet-sdk-2.1')
@@ -870,7 +872,7 @@ class BuildConfig:
         else:
             raise RuntimeError(f'Failed to install NDK to {final_dest}')
 
-        console(f'Adding ANDROID_NDK_HOME={final_dest} to ~/.bashrc, run source ~/.bashrc or restart terminal to populate your env.')
+        console(f'Added ANDROID_NDK_HOME={final_dest} to ~/.bashrc. Run source ~/.bashrc or restart the terminal.')
         # remove existing ANDROID_NDK_HOME from bashrc if exists
         execute('sed -i "/export ANDROID_NDK_HOME/d" ~/.bashrc')
         # add new ANDROID_NDK_HOME to bashrc
