@@ -1,5 +1,6 @@
 import os, shlex, shutil, threading, queue, time, signal
 import subprocess
+from functools import lru_cache
 from . import abort
 from .system import System, console, error, report_subprocess, capture_to, capture_context
 
@@ -35,6 +36,18 @@ def _kill_group(gid) -> bool:
         return False
 
 
+@lru_cache(maxsize=None)
+def resolve_executable(name: str, cwd: str) -> str:
+    """Absolute path of the program `name`, or '' when nothing on PATH matches. Memoized, because
+    shutil.which reads every PATH directory and costs 2ms for `cmake`, and a build spawns hundreds of
+    children. PATH holds still for one mama run. cwd is part of the key, because a relative name and,
+    on Windows, a bare name both resolve against the working directory first.
+    cwd: the working directory the name resolves against, from os.getcwd()"""
+    if os.path.isfile(name): return os.path.abspath(name)
+    if System.windows and os.path.isfile(name + '.exe'): return os.path.abspath(name + '.exe')
+    return shutil.which(name) or ''
+
+
 class SubProcess:
     """Subprocess wrapper with optional line-by-line output capture. With `io_func` set, a background
     reader thread feeds the child's combined stdout+stderr to `io_func` one line at a time, and on UNIX
@@ -56,16 +69,9 @@ class SubProcess:
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
 
         # Resolve the executable here instead of asking a shell, so no shell quoting or escaping applies.
-        executable = args[0]
-        if os.path.isfile(executable):
-            executable = os.path.abspath(executable)
-        elif System.windows and os.path.isfile(executable + '.exe'):
-            executable = os.path.abspath(executable + '.exe')
-        else:
-            resolved = shutil.which(executable)
-            if not resolved:
-                raise OSError(f"SubProcess failed to start: {executable} not found in PATH")
-            executable = resolved
+        executable = resolve_executable(args[0], os.getcwd())
+        if not executable:
+            raise OSError(f"SubProcess failed to start: {args[0]} not found in PATH")
         args[0] = executable
 
         if io_func is None:

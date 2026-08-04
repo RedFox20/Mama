@@ -1,4 +1,5 @@
-import os, re, stat, shutil, zipfile, subprocess, hashlib
+import os, re, stat, shutil, tempfile, zipfile, subprocess, hashlib
+from functools import lru_cache
 from typing import List
 import time, ssl, pathlib, random
 from .utils.system import System, console, progress
@@ -19,8 +20,10 @@ def is_file_unmodified(src: str, dst: str):
            os.path.getsize(src) == os.path.getsize(dst)
 
 
+@lru_cache(maxsize=None)
 def find_executable_from_system(name: str, follow_symlinks=False) -> str:
-    """Returns the absolute path to an executable, or an empty string when not found."""
+    """Absolute path to an executable, or an empty string when not found. Memoized: it reads every PATH
+    directory, and PATH holds still for one mama run."""
     if not name: return ''
     output = shutil.which(name)
     if not output: return ''
