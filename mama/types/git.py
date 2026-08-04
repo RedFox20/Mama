@@ -144,6 +144,34 @@ def has_local_ref(src_dir: str, ref: str) -> bool:
     return os.path.isfile(path_join(git_dir, ref)) or _packed_ref_exists(git_dir, ref) is True
 
 
+def read_commit_from_disk(src_dir: str, length: int) -> str:
+    """The commit HEAD points at, clipped to `length`, or '' when disk cannot settle it.
+
+    A detached HEAD holds the object name outright. An attached one names a ref, which is a loose file
+    or a packed-refs line. Anything else, a reftable repo included, answers '' so the caller asks git."""
+    head = read_head(src_dir)
+    if not head: return ''
+    if _HEAD_SHA.match(head): return head[:length]
+    if not head.startswith('ref: '): return ''
+    ref = head[5:].strip()
+    git_dir = path_join(src_dir, '.git')
+    try:
+        with open(path_join(git_dir, ref), encoding='utf-8', errors='replace') as f:
+            sha = f.read().strip()
+        return sha[:length] if _HEAD_SHA.match(sha) else ''
+    except OSError:
+        pass
+    try:
+        with open(path_join(git_dir, 'packed-refs'), encoding='utf-8', errors='replace') as f:
+            for line in f:
+                if line.rstrip().endswith(' ' + ref):
+                    sha = line.split(' ', 1)[0].strip()
+                    return sha[:length] if _HEAD_SHA.match(sha) else ''
+    except OSError:
+        pass
+    return ''
+
+
 def repo_health_from_disk(src_dir: str):
     """True when `src_dir` holds a healthy repository of its own. False when git would resolve some
     OTHER repository above it. None when only git can tell.
@@ -328,12 +356,13 @@ class Git(DepSource):
         status = self.read_stored_status(dep)
         stored = status[4] if status and len(status) > 4 else ''
         if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
-        if not git_source_changed(dep.src_dir)            or self.working_tree_fingerprint(dep, 'did the source change since the last build') == stored:
+        unchanged = not git_source_changed(dep.src_dir) or \
+                    self.working_tree_fingerprint(dep, 'did the source change since the last build') == stored
+        if unchanged:
             # proven unchanged, so record the walk NOW. Waiting for a successful build never armed the
             # gate on the one run that needs it, the build where nothing changed and nothing rebuilds.
             record_source_walk(dep.src_dir, dep.build_dir)
-            return False
-        return True
+        return not unchanged
 
 
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
@@ -342,11 +371,22 @@ class Git(DepSource):
         return self.commit_hash
 
     @staticmethod
-    def get_current_repository_commit(dep: BuildDependency):
-        """The short commit hash of the repository at src_dir. The caller makes sure {src_dir}/.git exists."""
-        result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=dep.src_dir)
+    def get_current_repository_commit(dep: BuildDependency, length=0):
+        """The short commit hash of the repository at src_dir. The caller makes sure {src_dir}/.git exists.
+
+        Disk answers first when the caller names a `length`, because `.git/HEAD` plus one ref file hold
+        the commit already and `git show` costs a process. git abbreviates from the OBJECT COUNT, never
+        from the working tree, which I measured: one dependency reported the same `%h` clean and dirty.
+        `length` therefore comes from the hash mama stored last time, so an archive name can never change
+        under a package. Without it, or when a ref does not resolve on disk, git answers.
+        length: how many characters the caller recorded before, or 0 to always ask git"""
+        result = read_commit_from_disk(dep.src_dir, length) if length else ''
+        source = 'disk'
+        if not result:
+            result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=dep.src_dir)
+            source = 'git show --format=%h -s'
         if dep.config.verbose:
-            console(f'  {dep.name: <16} git show --format=%h -s:   {result}')
+            console(f'  {dep.name: <16} commit {result} ({source})')
         return result
 
     @staticmethod
@@ -424,9 +464,12 @@ class Git(DepSource):
                 console(f'    {self.name}  using tag as the commit hash: {self.tag}')
             return self.tag
 
-        # an existing repository answers with its current commit
+        # an existing repository answers with its current commit. The stored hash names the length mama
+        # recorded before, so the disk read below produces the same shape and no archive name moves.
         if os.path.exists(f'{dep.src_dir}/.git'):
-            result = Git.get_current_repository_commit(dep)
+            stored = self.read_stored_status(dep)
+            length = len(stored[3].split(' ')[0]) if stored and len(stored) > 3 else 0
+            result = Git.get_current_repository_commit(dep, length)
             if not result:
                 error(f'    {self.name}  invalid git repository at {dep.src_dir}')
             return result

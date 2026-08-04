@@ -35,10 +35,11 @@ class LocalSource(DepSource):
         f = self.src_status_file(dep)
         stored = read_text_from(f) if os.path.exists(f) else ''
         if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
-        if not git_source_changed(dep.src_dir)            or self.working_tree_fingerprint(dep, 'did the subfolder change since the last build') == stored:
+        unchanged = not git_source_changed(dep.src_dir) or \
+                    self.working_tree_fingerprint(dep, 'did the subfolder change since the last build') == stored
+        if unchanged:
             record_source_walk(dep.src_dir, dep.build_dir)  # proven unchanged, so arm the gate now
-            return False
-        return True
+        return not unchanged
 
     def save_status(self, dep):
         save_file_if_contents_changed(self.src_status_file(dep),
