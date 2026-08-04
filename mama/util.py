@@ -319,19 +319,28 @@ def _case_key(path: str) -> str:
 
 def _repo_status_kinds(src_dir: str):
     """(tracked edits, untracked files) under `src_dir`, read from the run's shared status. None when
-    no status is loaded, or when `src_dir` lies outside the repository the status covers."""
+    no status is loaded, when `src_dir` lies outside the repository the status covers, or when
+    `src_dir` is a repository of its own.
+
+    The last rule is a hard wall, and the caller must not be trusted to keep it. A git dependency
+    clones into `<workspace>/<name>/<name>`, which sits under the root working tree, and .gitignore
+    hides the whole workspace dir from the root status. That status therefore reports NO change for
+    an edited clone, and mama would skip a rebuild the source needs."""
     if _repo_status is None or not memoize_git_fingerprints: return None
     top, entries = _repo_status
     src = _case_key(forward_slashes(os.path.abspath(src_dir)))
     if src != top and not src.startswith(top + '/'): return None
+    if src != top and os.path.exists(path_join(src_dir, '.git')): return None  # a clone or a submodule
     prefix = '' if src == top else src[len(top)+1:] + '/'
     codes = [code for path, code in entries.items() if path.startswith(prefix)]
     return any(c != '??' for c in codes), any(c == '??' for c in codes)
 
 
 def forget_git_dir_fingerprint(src_dir: str):
-    """Drop the memo of `src_dir`. run_git calls this after a git subcommand that can change the tree."""
-    _git_fingerprints.pop(src_dir, None)
+    """Drop the memo of `src_dir`. run_git calls this after a git subcommand that can change the tree.
+    Drops both keys, because the memo keys on the shared-status flag as well as the dir."""
+    _git_fingerprints.pop((src_dir, False), None)
+    _git_fingerprints.pop((src_dir, True), None)
 
 
 def git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
@@ -346,14 +355,17 @@ def git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
 
     `shared_status` says this dir belongs to the root working tree, which only a local dependency can
     claim. A git dependency clones into the workspace dir, which .gitignore hides from the root status,
-    so the root status would call every edited clone clean."""
+    so the root status would call every edited clone clean. `_repo_status_kinds` enforces that rule on
+    its own, and this flag only spares a dir the check. The memo keys on the flag, so one wrong caller
+    cannot store its answer under the key the right caller reads."""
     if not src_dir or not os.path.exists(src_dir):
         return ''
     if not memoize_git_fingerprints:
         return _compute_git_dir_fingerprint(src_dir, shared_status)
-    if src_dir not in _git_fingerprints:
-        _git_fingerprints[src_dir] = _compute_git_dir_fingerprint(src_dir, shared_status)
-    return _git_fingerprints[src_dir]
+    key = (src_dir, shared_status)
+    if key not in _git_fingerprints:
+        _git_fingerprints[key] = _compute_git_dir_fingerprint(src_dir, shared_status)
+    return _git_fingerprints[key]
 
 
 def _compute_git_dir_fingerprint(src_dir: str, shared_status=False) -> str:

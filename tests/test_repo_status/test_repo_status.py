@@ -2,7 +2,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from testutils import make_git_root_with_local_pkgs, make_mock_local_dep
+from testutils import make_git_root_with_local_pkgs, git_init_commit
 from mama import util
 
 
@@ -55,6 +55,54 @@ def test_a_git_dep_never_reads_the_shared_status(tmp_path):
     util.load_repo_status(str(root))
     _, spawns = _spawn_count(lambda: util._compute_git_dir_fingerprint(deps[0].src_dir, shared_status=False))
     assert spawns >= 1
+
+
+def _clone_inside_the_workspace(tmp_path):
+    """A git dep as mama really lays it out: `<root>/packages/<name>/<name>`, its own repo, and the
+    whole workspace dir hidden from the root repo by .gitignore."""
+    root = tmp_path / 'root'
+    (root / 'src').mkdir(parents=True)
+    (root / 'src' / 'main.cpp').write_text('int main(){ return 0; }\n')
+    (root / '.gitignore').write_text('packages/\n')
+    git_init_commit(root)
+    clone = root / 'packages' / 'libgit' / 'libgit'
+    clone.mkdir(parents=True)
+    (clone / 'dep.cpp').write_text('int dep(){ return 1; }\n')
+    git_init_commit(clone)
+    return root, clone
+
+
+def test_an_edited_clone_under_the_workspace_is_never_called_clean(tmp_path):
+    """The wall this guards: .gitignore hides `packages/` from the root status, so that status reports
+    NO change for an edited clone. Answering from it would skip a rebuild the source needs."""
+    root, clone = _clone_inside_the_workspace(tmp_path)
+    util.load_repo_status(str(root))
+    (clone / 'dep.cpp').write_text('int dep(){ return 99; }\n')
+
+    assert util._repo_status_kinds(str(clone)) is None  # its own repo, so the shared status refuses it
+    assert util._compute_git_dir_fingerprint(str(clone), shared_status=True) != ''
+    assert not [c for c in util._repo_status[1] if 'packages' in c]  # the root status really is blind to it
+
+
+def test_the_root_working_tree_still_reads_the_shared_status(tmp_path):
+    """The root source dir holds .git too, and it IS the repo the status covers, so it must not fall
+    into the separate-repo branch above."""
+    root, _ = _clone_inside_the_workspace(tmp_path)
+    util.load_repo_status(str(root))
+    assert util._repo_status_kinds(str(root)) == (False, False)
+
+
+def test_the_memo_keeps_the_two_modes_apart(tmp_path):
+    """One wrong caller must not store its answer under the key the right caller reads."""
+    root, clone = _clone_inside_the_workspace(tmp_path)
+    util.load_repo_status(str(root))
+    (clone / 'dep.cpp').write_text('int dep(){ return 5; }\n')
+    with patch('mama.util._compute_git_dir_fingerprint', side_effect=['shared', 'asked']) as compute:
+        assert util.git_dir_fingerprint(str(clone), shared_status=True) == 'shared'
+        assert util.git_dir_fingerprint(str(clone), shared_status=False) == 'asked'
+    assert compute.call_count == 2
+    util.forget_git_dir_fingerprint(str(clone))
+    assert not [k for k in util._git_fingerprints if k[0] == str(clone)]
 
 
 def test_path_case_does_not_break_the_match(tmp_path):
