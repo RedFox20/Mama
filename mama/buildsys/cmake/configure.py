@@ -315,20 +315,22 @@ def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
 
 
 def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
-    """One-time heal for a dir that predates recorded fingerprints. True only when the cached
-    compiler is DEFINITELY not the current one: the recorded path differs from the preferred
-    compiler, or is gone from disk. Never wipe on missing evidence, so this cannot mass-invalidate warm dirs."""
+    """One-time heal for a dir that predates recorded fingerprints. True only when the cached compiler is
+    DEFINITELY not the current one. Two proofs: the recorded path differs from the preferred compiler, or
+    the recorded binary left the disk. MSVC names no compiler, so only the second proof applies there. A
+    toolset upgrade deletes the old directory, which is exactly that case. Never wipe on missing evidence,
+    so this cannot mass-invalidate warm dirs."""
     if target.config.cmake_toolchain_file:
         return False  # the cache holds the toolchain's own choice, which never equals ours
-    cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
-    if not cc_path: return False  # MSVC/unresolved: mama writes no CMAKE_*_COMPILER define to compare against
     try: cache_text = util.read_text_from(util.path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return False
+    cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
     for key, want in (('CMAKE_CXX_COMPILER', cxx_path), ('CMAKE_C_COMPILER', cc_path)):
         cached = _cache_entry(cache_text, key)
-        if not cached or not want: continue
-        if util.normalized_path(cached) != util.normalized_path(want): return True  # compiler path moved
-        return not os.path.exists(cached)  # same path but the binary is gone (e.g. store GC'd) -> moved
+        if not cached: continue
+        if want and util.normalized_path(cached) != util.normalized_path(want): return True  # compiler path moved
+        # A relative name came from PATH, and os.path.exists cannot test it. Only an absolute path is proof.
+        return os.path.isabs(cached) and not os.path.exists(cached)
     return False  # no compiler recorded in the cache -> nothing to compare, do not wipe
 
 

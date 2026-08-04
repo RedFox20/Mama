@@ -84,11 +84,15 @@ def test_moved_unfingerprinted_false_without_a_cached_compiler(tmp_path):
     assert cc._toolchain_moved_unfingerprinted(t.build_dir(), t) is False
 
 
-def test_moved_unfingerprinted_false_when_no_explicit_compiler(tmp_path):
-    # MSVC/unresolved: mama writes no CMAKE_*_COMPILER define, so there is nothing to compare against
+@pytest.mark.parametrize('cached, moved', [('{tmp}/14.50.35717/cl.exe', True),  # an upgrade deleted the toolset
+                                           ('{tmp}/cl.exe', False),             # the toolset is still installed
+                                           ('cl.exe', False)])                  # a bare name off PATH, untestable
+def test_moved_unfingerprinted_msvc_judges_by_the_cached_cl_exe(tmp_path, cached, moved):
+    # mama names no compiler for MSVC, so the cl.exe the cache records is the only evidence of a move
+    (tmp_path / 'cl.exe').write_text('')
     t, dep = make_configured_target(tmp_path, compiler=('', '', ''))
-    _valid_cache(t.build_dir(), cxx='/whatever/cl.exe')
-    assert cc._toolchain_moved_unfingerprinted(t.build_dir(), t) is False
+    _valid_cache(t.build_dir(), cxx=cached.format(tmp=tmp_path.as_posix()))
+    assert cc._toolchain_moved_unfingerprinted(t.build_dir(), t) is moved
 
 
 # -- run_config: recorded-fingerprint path ------------------------------------
@@ -117,6 +121,14 @@ def test_unfingerprinted_moved_compiler_heals_once(tmp_path):
     assert _run(t, dep, fingerprint='NEW') == ['conf']
     assert not os.path.exists(t.build_dir('CMakeCache.txt'))
     assert _read_fp(t.build_dir()) == 'NEW'   # now fingerprinted, so future checks are exact
+
+
+def test_unfingerprinted_msvc_dir_with_a_deleted_toolset_heals_once(tmp_path):
+    t, dep = make_configured_target(tmp_path, compiler=('', '', ''))
+    _valid_cache(t.build_dir(), cxx=f'{tmp_path.as_posix()}/14.50.35717/cl.exe')   # NO fingerprint file
+    assert _run(t, dep, fingerprint='NEW') == ['conf']
+    assert not os.path.exists(t.build_dir('CMakeCache.txt'))
+    assert _read_fp(t.build_dir()) == 'NEW'   # the stale dir must never adopt the current toolchain instead
 
 
 def test_unfingerprinted_unchanged_compiler_is_adopted_not_wiped(tmp_path):
@@ -154,6 +166,17 @@ def test_wipe_is_one_shot_not_repeating(tmp_path):
     _valid_cache(t.build_dir())                          # emulate the reconfigure the stub did not rerun
     assert _run(t, dep, fingerprint='NEW') == []         # fingerprint now matches -> no second wipe
     assert os.path.exists(t.build_dir('CMakeCache.txt'))
+
+
+def test_a_wipe_also_removes_the_nested_check_projects(tmp_path):
+    # check_ipo_supported() builds CMakeFiles/_CMakeLTOTest-CXX, which holds its OWN cache. A plain
+    # reconfigure leaves it, and it then fails with 'No CMAKE_CXX_COMPILER could be found'.
+    t, dep = make_configured_target(tmp_path)
+    lto = os.path.join(t.build_dir(), 'CMakeFiles', '_CMakeLTOTest-CXX')
+    write_cmake_cache(lto, NINJA)
+    _valid_cache(t.build_dir()); _write_fp(t.build_dir(), 'OLD')
+    assert _run(t, dep, fingerprint='NEW') == ['conf']
+    assert not os.path.exists(lto)
 
 
 def test_failed_configure_records_no_fingerprint_baseline(tmp_path):
