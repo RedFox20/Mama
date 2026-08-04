@@ -1,4 +1,4 @@
-import os, sys, subprocess, platform, threading, contextlib, time
+import os, sys, threading, contextlib, time
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -7,10 +7,32 @@ is_macos   = sys.platform == 'darwin'
 if not (is_windows or is_linux or is_macos):
     raise RuntimeError(f'MamaBuild unsupported platform {sys.platform}')
 
-machine = platform.machine()
-is_aarch64 = machine == 'aarch64' or machine == 'arm64'
-is_x86_64 = machine == 'x86_64' or machine == 'AMD64'
-is_x86 = machine == 'x86' or machine == 'i386'
+
+def _machine_name() -> str:
+    """The cpu architecture of this host, in the spelling that host reports.
+
+    NOT platform.machine(). Python 3.12 and later answer platform.uname() on Windows with a WMI
+    query, which costs about 60ms of EVERY mama start. The environment and os.uname() hold the
+    same fact for free. platform.machine() stays as the last resort, so no host loses detection,
+    and its import stays inside this branch because the import alone costs about 12ms."""
+    if is_windows:
+        # A 32-bit python on 64-bit windows reads x86 from PROCESSOR_ARCHITECTURE, and the real
+        # architecture from PROCESSOR_ARCHITEW6432.
+        name = os.environ.get('PROCESSOR_ARCHITEW6432') or os.environ.get('PROCESSOR_ARCHITECTURE', '')
+    else:
+        name = os.uname().machine if hasattr(os, 'uname') else ''
+    if name: return name
+    import platform
+    return platform.machine()
+
+
+machine = _machine_name()
+# Compare without case. Windows spells the same architecture ARM64 and AMD64, and a case-keeping
+# compare read Windows-on-ARM as neither aarch64 nor x86.
+_arch = machine.lower()
+is_aarch64 = _arch == 'aarch64' or _arch == 'arm64'
+is_x86_64 = _arch == 'x86_64' or _arch == 'amd64'
+is_x86 = _arch == 'x86' or _arch == 'i386'
 
 class System:
     windows = is_windows
