@@ -328,8 +328,12 @@ class Git(DepSource):
         status = self.read_stored_status(dep)
         stored = status[4] if status and len(status) > 4 else ''
         if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
-        if not git_source_changed(dep.src_dir): return False  # a README edit is not a rebuild, on any platform
-        return self.working_tree_fingerprint(dep, 'did the source change since the last build') != stored
+        if not git_source_changed(dep.src_dir)            or self.working_tree_fingerprint(dep, 'did the source change since the last build') == stored:
+            # proven unchanged, so record the walk NOW. Waiting for a successful build never armed the
+            # gate on the one run that needs it, the build where nothing changed and nothing rebuilds.
+            record_source_walk(dep.src_dir, dep.build_dir)
+            return False
+        return True
 
 
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
