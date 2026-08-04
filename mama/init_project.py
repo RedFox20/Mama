@@ -130,6 +130,7 @@ def patch_existing_cmakelists(project_name, cmakefile):
 
 
 def find_cpp_main(src_dir):
+    if not os.path.isdir(src_dir): return None
     # match any top-level src/ file with "main" in the name and a .cpp extension
     for entry in os.listdir(src_dir):
         if entry.endswith('.cpp') and 'main' in entry.lower():
@@ -169,7 +170,7 @@ def mama_init_project(root: BuildDependency):
     cmakelists = root.cmakelists_path()
     if not os.path.exists(cmakelists):
         console(f'{root.name} Creating new CMakeLists.txt: {cmakelists}')
-        write_default_cmakelists(root.name, cmakelists, cpp_main)
+        write_default_cmakelists(root.name, cmakelists)
     else:
         console(f'{root.name} Patching existing CMakeLists.txt: {cmakelists}')
         patch_existing_cmakelists(root.name, cmakelists)
