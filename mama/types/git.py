@@ -125,6 +125,24 @@ def _packed_ref_exists(git_dir: str, ref: str):
     return None
 
 
+def read_head(src_dir: str) -> str:
+    """The contents of `.git/HEAD`, or '' when there is nothing to read. A `gitdir:` pointer file and a
+    missing repository both answer '', so a caller that needs certainty asks git instead."""
+    if not os.path.isdir(path_join(src_dir, '.git')): return ''
+    try:
+        with open(path_join(src_dir, '.git', 'HEAD'), encoding='utf-8', errors='replace') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+def has_local_ref(src_dir: str, ref: str) -> bool:
+    """True when `ref` is already in this clone, as a loose file or a packed-refs line.
+    ref: a full ref name, eg `refs/tags/v1.0.0`"""
+    git_dir = path_join(src_dir, '.git')
+    return os.path.isfile(path_join(git_dir, ref)) or _packed_ref_exists(git_dir, ref) is True
+
+
 def repo_health_from_disk(src_dir: str):
     """True when `src_dir` holds a healthy repository of its own. False when git would resolve some
     OTHER repository above it. None when only git can tell.
@@ -138,11 +156,7 @@ def repo_health_from_disk(src_dir: str):
         return None if os.path.isfile(git_dir) else False  # a file points at a worktree or a submodule
     if not (os.path.isdir(path_join(git_dir, 'objects')) and os.path.isdir(path_join(git_dir, 'refs'))):
         return False
-    try:
-        with open(path_join(git_dir, 'HEAD'), encoding='utf-8', errors='replace') as f:
-            head = f.read().strip()
-    except OSError:
-        return False
+    head = read_head(src_dir)
     if not head: return False
     if _HEAD_SHA.match(head): return True
     if not head.startswith('ref: '): return None
@@ -281,7 +295,10 @@ class Git(DepSource):
 
 
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
-        """True when the working tree has uncommitted modifications to tracked files"""
+        """True when the working tree has uncommitted modifications to tracked files.
+
+        Asks git every time, and never a memo. This guard is what stops an update from resetting over
+        uncommitted work, so a cached `clean` from seconds ago is the one answer it must not give."""
         return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
 
 
@@ -460,9 +477,15 @@ class Git(DepSource):
 
 
     def _is_detached_head(self, dep: BuildDependency) -> bool:
-        """True when the repository is in a detached HEAD state"""
-        result = execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
-        return not result
+        """True when the repository is in a detached HEAD state.
+
+        `.git/HEAD` holds `ref: refs/heads/<branch>` when a branch is checked out, and a raw commit
+        when it is not. That is the same file `git symbolic-ref` reads, and reading it here skips a
+        process that costs about 158ms on a real dependency. A shape the file cannot settle, such as a
+        worktree pointer, reads '' and asks git."""
+        head = read_head(dep.src_dir)
+        if head: return not head.startswith('ref: ')
+        return not execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
 
 
     def _is_rebase_in_progress(self, dep: BuildDependency) -> bool:
@@ -478,7 +501,11 @@ class Git(DepSource):
         if not dep.config.is_network_available():
             return
         if self.tag:
-            self.run_git(dep, f"fetch origin tag {branch} -q")
+            # A tag names one commit for good, which is the convention every mama package name relies
+            # on. A clone that already holds it has nothing to learn from the remote, and the fetch
+            # costs about 1.6 seconds. A tag that really moved needs `mama wipe <target>`.
+            if not has_local_ref(dep.src_dir, f'refs/tags/{branch}'):
+                self.run_git(dep, f"fetch origin tag {branch} -q")
         else:
             # a pull is only safe on the same branch and outside a detached HEAD
             can_pull = not (self.tag_changed or self.branch_changed or self._is_detached_head(dep))
