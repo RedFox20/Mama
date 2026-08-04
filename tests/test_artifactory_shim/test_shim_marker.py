@@ -43,7 +43,6 @@ def test_remove_shim_marker_is_idempotent(tmp_path):
 
 
 def test_real_clone_takes_precedence_over_shim(tmp_path):
-    # is_artifactory_shim() must be False if both .git and the marker exist.
     dep = make_mock_dep(tmp_path, artifactory_ftp=None)
     dep.write_shim_marker(archive_name='x', commit_hash='y')
     os.makedirs(os.path.join(dep.src_dir, '.git'), exist_ok=True)

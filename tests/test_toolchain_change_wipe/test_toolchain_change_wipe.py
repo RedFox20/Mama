@@ -28,7 +28,7 @@ def _read_fp(build_dir):
 
 
 def _run(t, dep, fingerprint='FP', configure_raises=False):
-    """run_config with the cmake call + seed coordinator stubbed and the fingerprint pinned; returns the
+    """run_config with the cmake call + seed coordinator stubbed and the fingerprint pinned. Returns the
     recorded conf calls (['conf'] => reconfigured, [] => skipped)."""
     calls = []
     def conf(*a, **k):
@@ -45,7 +45,7 @@ def _run(t, dep, fingerprint='FP', configure_raises=False):
     return calls
 
 
-# ── _cache_entry (CMakeCache line parser) ────────────────────────────────────
+# -- _cache_entry (CMakeCache line parser) ------------------------------------
 
 def test_cache_entry_parses_typed_untyped_and_missing():
     text = 'CMAKE_CXX_COMPILER:FILEPATH=/opt/clang++\nBARE=value\nCMAKE_C_COMPILER=/no/type\n'
@@ -55,7 +55,7 @@ def test_cache_entry_parses_typed_untyped_and_missing():
     assert cc._cache_entry(text, 'CMAKE_ABSENT') == ''
 
 
-# ── _toolchain_moved_unfingerprinted (bootstrap heal for pre-fingerprint dirs) ─
+# -- _toolchain_moved_unfingerprinted (bootstrap heal for pre-fingerprint dirs) -
 
 def test_moved_unfingerprinted_true_when_compiler_path_changed(tmp_path):
     t, dep = make_configured_target(tmp_path, compiler=('/opt/ndk-B/clang', '/opt/ndk-B/clang++', '21'))
@@ -91,7 +91,7 @@ def test_moved_unfingerprinted_false_when_no_explicit_compiler(tmp_path):
     assert cc._toolchain_moved_unfingerprinted(t.build_dir(), t) is False
 
 
-# ── run_config: recorded-fingerprint path ────────────────────────────────────
+# -- run_config: recorded-fingerprint path ------------------------------------
 
 def test_changed_fingerprint_wipes_and_reconfigures(tmp_path):
     t, dep = make_configured_target(tmp_path)
@@ -109,7 +109,7 @@ def test_matching_fingerprint_skips_without_touching_the_dir(tmp_path):
     assert _read_fp(t.build_dir()) == 'SAME'
 
 
-# ── run_config: unfingerprinted (pre-feature) dirs ───────────────────────────
+# -- run_config: unfingerprinted (pre-feature) dirs ---------------------------
 
 def test_unfingerprinted_moved_compiler_heals_once(tmp_path):
     t, dep = make_configured_target(tmp_path, compiler=('/opt/ndk-B/clang', '/opt/ndk-B/clang++', '21'))
@@ -130,7 +130,7 @@ def test_unfingerprinted_unchanged_compiler_is_adopted_not_wiped(tmp_path):
     assert _read_fp(t.build_dir()) == 'FP'
 
 
-# ── run_config: fresh dir + one-shot + flip-flop + failure ───────────────────
+# -- run_config: fresh dir + one-shot + flip-flop + failure -------------------
 
 def test_fresh_dir_configures_and_records_fingerprint(tmp_path):
     t, dep = make_configured_target(tmp_path)   # no cache at all
@@ -152,7 +152,7 @@ def test_wipe_is_one_shot_not_repeating(tmp_path):
     t, dep = make_configured_target(tmp_path)
     _valid_cache(t.build_dir()); _write_fp(t.build_dir(), 'OLD')
     assert _run(t, dep, fingerprint='NEW') == ['conf']
-    _valid_cache(t.build_dir())                          # emulate the reconfigure the stub didn't rerun
+    _valid_cache(t.build_dir())                          # emulate the reconfigure the stub did not rerun
     assert _run(t, dep, fingerprint='NEW') == []         # fingerprint now matches -> no second wipe
     assert os.path.exists(t.build_dir('CMakeCache.txt'))
 
@@ -164,7 +164,7 @@ def test_failed_configure_records_no_fingerprint_baseline(tmp_path):
     assert _read_fp(t.build_dir()) == ''        # a broken configure must not leave a false baseline
 
 
-# ── the wrapper itself is a pure hash of _seed_inputs (no wrapper-level drift) ─
+# -- the wrapper itself is a pure hash of _seed_inputs (no wrapper-level drift) -
 
 def test_toolchain_fingerprint_is_a_pure_hash_of_seed_inputs():
     with patch('mama.buildsys.cmake.configure._seed_inputs', return_value={'cc': {'path': '/a'}}):

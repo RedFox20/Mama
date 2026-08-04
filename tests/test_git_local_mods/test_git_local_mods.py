@@ -1,5 +1,5 @@
-"""Pins the update guard: a dirty working tree fails `mama update` loudly (marked `x`) even when
-upstream is unchanged, instead of a swallowed pull error leaving the dep silently un-updated."""
+"""Pins the update guard: a dirty working tree fails `mama update` with a clear error (marked `x`)
+even when upstream is unchanged. A swallowed pull error left the dep silently un-updated."""
 from unittest.mock import patch
 
 import pytest

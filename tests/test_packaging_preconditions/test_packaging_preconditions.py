@@ -10,7 +10,7 @@ from mama.build_target import BuildTarget
 
 
 def _target(tmp_path, built=False, **dep_over):
-    """A BuildTarget whose package() records whether it ran; `built` fakes real build work."""
+    """A BuildTarget whose package() records whether it ran. `built` fakes real build work."""
     dep = make_mock_dep(tmp_path)
     dep.nothing_to_build = False
     dep.from_artifactory = False
@@ -52,7 +52,7 @@ def test_packaging_runs_for_a_header_only_target(tmp_path):
 
 
 def test_an_artifactory_package_is_not_repackaged(tmp_path):
-    # pre-existing behaviour the new guard must leave alone: a fetched package already has its
+    # pre-existing behavior the new guard must leave alone: a fetched package already has its
     # papa.txt exports, so package() is skipped unless a local rebuild was asked for
     target = _target(tmp_path, from_artifactory=True)
     target._run_packaging()

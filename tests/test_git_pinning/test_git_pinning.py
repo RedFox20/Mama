@@ -3,12 +3,11 @@ from testutils import init, mama_exec, file_contains
 def remote_file_contains(dep_name, text):
     return file_contains(f'packages/{dep_name}/{dep_name}/remote.h', text)
 
-# Make sure different git pinning methods work
 def test_git_pinning(tmp_path):
     init(__file__, tmp_path)
-    mama_exec(['update'])   # clone the pinned deps; `clean` deliberately fetches nothing
+    mama_exec(['update'])   # clone the pinned deps
 
-    # https://github.com/BatteredBunny/MamaExampleRemote repo has different commits that either do or dont have the REMOTE_VERSION line
+    # The MamaExampleRemote commits differ: some hold the REMOTE_VERSION line and some do not.
     assert not remote_file_contains('ExampleRemote', 'REMOTE_VERSION'), "Tag pinning went wrong"
     assert remote_file_contains('ExampleRemote2', 'REMOTE_VERSION 2'), "Tag pinning went wrong"
     assert not remote_file_contains('ExampleRemote3', 'REMOTE_VERSION'), "Commit pinning went wrong"

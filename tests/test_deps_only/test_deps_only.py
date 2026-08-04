@@ -1,3 +1,4 @@
+"""Pins dependency flattening, deps_only scoping, and the unified scheduler's deps_only behavior."""
 import threading
 from unittest.mock import Mock
 import pytest
@@ -8,7 +9,6 @@ from mama.dependency_chain import (get_flat_deps, get_flat_child_deps, get_deps_
 
 
 def make_dep(name, children=None):
-    """Create a mock BuildDependency with the given name and children"""
     dep = Mock()
     dep.name = name
     dep.children = children or []
@@ -29,15 +29,7 @@ def make_config(build=False, clean=False, update=False):
 
 
 def make_tree():
-    """
-    Create a mock dependency tree:
-        root
-        ├── A
-        │   ├── C
-        │   └── D
-        └── B
-            └── D  (shared with A)
-    """
+    """A mock dependency tree: root -> {A -> {C, D}, B -> {D}}. D is shared by A and B."""
     D = make_dep('D')
     C = make_dep('C')
     A = make_dep('A', children=[C, D])
@@ -66,7 +58,6 @@ def test_get_flat_child_deps_excludes_root():
 
 
 def test_get_flat_child_deps_of_subtarget():
-    """get_flat_child_deps(A) should return only A's children: C and D"""
     root, A, B, C, D = make_tree()
     children = get_flat_child_deps(A)
     assert set(children) == {C, D}
@@ -76,7 +67,6 @@ def test_get_flat_child_deps_of_subtarget():
 
 
 def test_get_flat_child_deps_of_leaf():
-    """A leaf node has no children"""
     root, A, B, C, D = make_tree()
     children = get_flat_child_deps(D)
     assert children == []
@@ -85,18 +75,15 @@ def test_get_flat_child_deps_of_leaf():
 # --- dependency order ---
 
 def test_flat_deps_preserves_linker_order():
-    """Parents before children for Unix linker order"""
+    # parent-before-child is the Unix linker order
     root, A, B, C, D = make_tree()
     flat = get_flat_deps(root)
-    # A is parent of C and D, so A must come before C and D
     assert flat.index(A) < flat.index(C)
     assert flat.index(A) < flat.index(D)
-    # B is parent of D, so B must come before D
     assert flat.index(B) < flat.index(D)
 
 
 def test_flat_child_deps_preserves_linker_order():
-    """get_flat_child_deps must also preserve parent-before-child order"""
     root, A, B, C, D = make_tree()
     children = get_flat_child_deps(root)
     assert children.index(A) < children.index(C)
@@ -105,16 +92,13 @@ def test_flat_child_deps_preserves_linker_order():
 
 
 def test_flat_child_deps_subtarget_preserves_order():
-    """get_flat_child_deps(A) must return [C, D] in parent-before-child order"""
     root, A, B, C, D = make_tree()
     children = get_flat_child_deps(A)
-    # C and D are both direct children of A (no ordering between them),
-    # but the order from mamafile should be preserved: C before D
+    # C and D are both direct children of A. The mamafile declaration order must survive: C before D.
     assert children == [C, D]
 
 
 def test_shared_dep_appears_once_at_correct_position():
-    """D is shared by A and B; it should appear once, after both parents"""
     root, A, B, C, D = make_tree()
     flat = get_flat_deps(root)
     assert flat.count(D) == 1
@@ -125,7 +109,6 @@ def test_shared_dep_appears_once_at_correct_position():
 # --- deps_only: no target (existing behavior) ---
 
 def test_deps_only_no_target_removes_root():
-    """deps_only without a target removes root from flat_deps"""
     root, A, B, C, D = make_tree()
     flat_deps = get_flat_deps(root)
     flat_deps.remove(root)
@@ -138,7 +121,6 @@ def test_deps_only_no_target_removes_root():
 # --- deps_only: with target ---
 
 def test_get_deps_only_targets_filters_to_subtarget_deps():
-    """deps_only targeting A returns only A's deps (C, D), excluding A itself"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True)
     flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
@@ -149,7 +131,6 @@ def test_get_deps_only_targets_filters_to_subtarget_deps():
 
 
 def test_get_deps_only_targets_preserves_linker_order():
-    """flat_deps from get_deps_only_targets must be in parent-before-child order"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True)
     flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
@@ -157,7 +138,6 @@ def test_get_deps_only_targets_preserves_linker_order():
 
 
 def test_get_deps_only_targets_reverse_is_build_order():
-    """flat_deps_reverse is child-before-parent (build order)"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True)
     flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
@@ -165,7 +145,6 @@ def test_get_deps_only_targets_reverse_is_build_order():
 
 
 def test_get_deps_only_targets_marks_should_rebuild():
-    """With config.build=True, all target deps get should_rebuild=True"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True)
     get_deps_only_targets(root, 'A', config)
@@ -176,7 +155,6 @@ def test_get_deps_only_targets_marks_should_rebuild():
 
 
 def test_get_deps_only_targets_cleans_on_rebuild():
-    """With config.clean=True, deps get cleaned and build dir recreated"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True, clean=True)
     get_deps_only_targets(root, 'A', config)
@@ -189,7 +167,6 @@ def test_get_deps_only_targets_cleans_on_rebuild():
 
 
 def test_get_deps_only_targets_no_clean_on_build():
-    """With config.build=True but clean=False, deps are NOT cleaned"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True, clean=False)
     get_deps_only_targets(root, 'A', config)
@@ -198,7 +175,6 @@ def test_get_deps_only_targets_no_clean_on_build():
 
 
 def test_get_deps_only_targets_B_only_gets_D():
-    """deps_only targeting B should only include D"""
     root, A, B, C, D = make_tree()
     config = make_config(build=True)
     flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'B', config)
@@ -245,7 +221,7 @@ def test_unified_deps_only_builds_every_dep_but_not_the_root(unified):
 
 
 def test_unified_deps_only_target_builds_only_that_targets_deps(unified):
-    # root -> {A -> {C -> {E}}, B -> {D}}; deps_only A must build C and E, not A, B, D or root
+    # root -> {A -> {C -> {E}}, B -> {D}}. deps_only A must build C and E, not A, B, D or root.
     ev, _, _root = unified([('A', [('C', [('E', ())])]), ('B', [('D', ())])], target_name='A')
     assert _named(ev, 'load') == {'root', 'A', 'B', 'C', 'D', 'E'}
     assert _named(ev, 'bld') == {'C', 'E'}

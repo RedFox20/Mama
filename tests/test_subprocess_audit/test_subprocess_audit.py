@@ -6,8 +6,8 @@ import pytest
 
 _MAMA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'mama')
 _SPAWN = re.compile(r'subprocess\.(run|Popen|check_output|call|check_call)\(|os\.(system|popen)\(')
-# Every raw spawn that is allowed, and why. sub_process.py IS the wrapper; ssh must stay silent because
-# ssh warns once per bad ssh_config line; the two git probes swallow an expected `fatal:`.
+# Every raw spawn that is allowed, and why. sub_process.py IS the wrapper. ssh must stay silent,
+# because ssh warns once per bad ssh_config line. The two git probes swallow an expected `fatal:`.
 _ALLOWED = {'utils/sub_process.py', 'utils/ssh_multiplex.py', 'types/git.py', 'util.py'}
 
 

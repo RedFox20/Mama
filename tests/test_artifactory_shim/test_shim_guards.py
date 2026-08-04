@@ -72,7 +72,7 @@ def test_dirty_removes_shim_marker(tmp_path):
 
 
 def test_papa_deploy_to_refuses_with_shim_marker_in_destination(tmp_path):
-    # If deployed into the shim's build_dir, we'd corrupt the artifactory snapshot.
+    # A deploy into the shim's build_dir would corrupt the artifactory snapshot.
     dep = make_mock_shim_dep(tmp_path, build=True)
     target = Mock()
     target.config.print = False
@@ -121,13 +121,13 @@ def test_run_git_raises_on_shim(tmp_path):
 
 
 def test_run_git_returns_nonzero_when_not_throwing_on_shim(tmp_path):
-    # _has_local_modifications calls run_git(throw=False); must see a non-zero rc, not silent success.
+    # _has_local_modifications calls run_git(throw=False). It must see a non-zero rc, not silent success.
     dep = make_mock_shim_dep(tmp_path, build=True)
     assert dep.dep_source.run_git(dep, 'diff --quiet HEAD', throw=False) != 0
 
 
 def test_is_artifactory_shim_caches_filesystem_stat(tmp_path):
-    # Called per-progress-tick and per-git-op; must not stat on every call.
+    # Called per-progress-tick and per-git-op. It must not stat on every call.
     dep = make_mock_shim_dep(tmp_path, build=True)
     assert dep.is_artifactory_shim() is True
     with patch('os.path.exists', side_effect=AssertionError('stat called')):

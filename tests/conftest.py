@@ -3,7 +3,7 @@ import sys
 import pytest
 
 # Tests/ for `import testutils`, project root for `from mama.x import y` -
-# saves every new test file from repeating the same sys.path.insert dance.
+# so no test file repeats the same sys.path.insert setup.
 _here = os.path.dirname(__file__)
 _repo_root = os.path.abspath(os.path.join(_here, '..'))
 sys.path.insert(0, _here)

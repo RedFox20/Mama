@@ -128,7 +128,7 @@ class TestFetchSelfVersionFromRemote:
         assert 'HEAD:subdir/mama_alt.py' in captured['cmd']
 
     def test_uses_blobless_no_checkout_clone_and_probe_label(self):
-        # PROBE label keeps update_stats.record_clone from firing for what isn't a real clone.
+        # PROBE label keeps update_stats.record_clone from firing for what is not a real clone.
         # --filter=blob:none + --no-checkout keep the fetch under a kilobyte.
         dep, git = _make_dep()
         captured = {}

@@ -21,13 +21,13 @@ class TestProgressFinalization:
         system.console('\r    |====      | 40% (1s)', end='')
         system.console('  - Target foo SHIM FETCHED')
         out = capsys.readouterr().out
-        # The status line must start on its own row, not be glued to the bar.
+        # The status line must start on its own row, not on the bar row.
         assert f'40% (1s){system._ERASE_EOL}\n  - Target foo SHIM FETCHED\n' in out
 
     def test_progress_redraw_does_not_get_extra_newline(
             self, capsys, reset_progress_state):
         # Repeated \r-redraws of the same progress bar must overwrite each
-        # other on the same row; we must NOT inject a newline between them.
+        # other on the same row. Never inject a newline between them.
         k = system._ERASE_EOL
         system.console('\r    | 20% |', end='')
         system.console('\r    | 40% |', end='')
@@ -53,9 +53,8 @@ class TestProgressFinalization:
 
     def test_initial_progress_bar_without_carriage_return_still_tracked(
             self, capsys, reset_progress_state):
-        # The first frame of an upload progress bar is printed without \r
-        # (e.g. artifactory upload prints '   |> ...| 0 %' with end='').
-        # Subsequent status writes must still know to finalize it.
+        # The artifactory upload prints its first bar frame without \r
+        # ('   |> ...| 0 %' with end=''). Later status writes must still finalize it.
         system.console('   |>          | 0 %', end='')
         system.console('  - Target X')
         assert capsys.readouterr().out == '   |>          | 0 %\n  - Target X\n'

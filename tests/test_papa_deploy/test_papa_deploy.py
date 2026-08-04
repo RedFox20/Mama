@@ -1,6 +1,7 @@
+"""Integration: pins that build + deploy produce the consumer executable and its papa.txt."""
 from testutils import init, mama_exec, file_exists, executable_extension, native_platform_name
 
-# Generic test to verify basic build and deploy functions work
+
 def test_papa_deploy(tmp_path):
     init(__file__, tmp_path)
 

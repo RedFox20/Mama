@@ -29,7 +29,7 @@ def _mark(root, target='X'):
 def test_an_unbuilt_dep_of_the_target_is_revived():
     root, _, a, _, _ = _tree()
     _mark(root)
-    assert a.should_rebuild      # else X compiles against an include dir that doesn't exist
+    assert a.should_rebuild      # else X compiles against an include dir that does not exist
 
 
 def test_an_unbuilt_dep_outside_the_target_subtree_is_left_alone():
@@ -123,7 +123,7 @@ def test_building_one_target_does_not_execute_unrelated_targets(tmp_path):
 
 def test_building_a_mid_tree_target_still_includes_what_it_needs(tmp_path):
     names = _executed_deps(['build', 'rpclib'], tmp_path)
-    assert set(names) == {'rpclib', 'protobuf'}   # its own dep comes along, its dependents don't
+    assert set(names) == {'rpclib', 'protobuf'}   # its own dep comes along, its dependents do not
 
 
 def test_uploading_one_target_does_not_execute_unrelated_targets(tmp_path):
@@ -136,7 +136,7 @@ def test_uploading_one_target_does_not_execute_unrelated_targets(tmp_path):
 
 def test_deploying_a_mid_tree_target_scopes_to_its_subtree(tmp_path):
     names = _executed_deps(['deploy', 'rpclib'], tmp_path)
-    assert set(names) == {'rpclib', 'protobuf'}   # deps come along to be packaged; dependents don't
+    assert set(names) == {'rpclib', 'protobuf'}   # deps come along to be packaged, dependents do not
 
 
 def test_an_untargeted_build_still_runs_the_whole_tree(tmp_path):
@@ -159,8 +159,8 @@ def _runner_used(args, tmp_path):
 
 
 def test_a_single_target_build_still_uses_the_live_display(tmp_path):
-    # the scheduler owns the display; the serial runner dumps raw cmake output, so a one-dep graph
-    # must NOT fall back to it just because there's nothing to overlap
+    # The scheduler owns the display, and the serial runner dumps raw cmake output. A one-dep
+    # graph must NOT fall back to it just because there is nothing to overlap.
     assert _runner_used(['build', 'protobuf'], tmp_path) == 'parallel'
 
 
@@ -169,7 +169,7 @@ def test_serial_flag_still_opts_out(tmp_path):
 
 
 def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
-    # Regression: mark_unbuilt_target_deps() was imported but never called, so this whole behaviour was
+    # Regression: mark_unbuilt_target_deps() was imported but never called, so this whole behavior was
     # dead code - and the unit tests above passed because they call it directly. Drive mamabuild instead.
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     protobuf = _dep('protobuf', usable=False)
@@ -179,7 +179,7 @@ def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
          patch('mama.main.execute_unified'), \
          patch('mama.main.print_build_banner'):
         mamabuild(['build', 'rpclib'], source_dir=str(tmp_path))
-    assert protobuf.should_rebuild     # else rpclib compiles against an include dir that isn't there
+    assert protobuf.should_rebuild     # else rpclib compiles against an include dir that is not there
 
 
 def test_has_usable_artifacts_survives_a_dep_whose_target_never_loaded(tmp_path):

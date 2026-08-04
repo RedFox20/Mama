@@ -65,8 +65,8 @@ def test_a_sanitizer_and_the_args_both_appear_coarsest_first():
 
 def test_the_archive_name_carries_the_dep_variant_suffix_verbatim():
     # The unification: the dep computes one suffix at init, and the build dir (test_build_dir) and the
-    # archive name both use that exact string. Two spellings of one axis is how a build and its package
-    # end up disagreeing about which variant they are.
+    # archive name both use that exact string. Two spellings of one axis make a build and its package
+    # disagree about which variant they are.
     target = _target(sanitize='address', coverage='default', args=['LGPL', 'NEWMATH=1'])
     assert target.dep.variant_suffix == '-cov-asan-lgpl-newmath1'
     assert f'-release{target.dep.variant_suffix}-abc1234' in art.artifactory_archive_name(target)

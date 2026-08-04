@@ -13,7 +13,7 @@ def _wait_until(pred, timeout=2.0):
     return False
 
 
-_probes, _threads = [], []  # tracked so _drain() can release + join them even if an assertion bailed early
+_probes, _threads = [], []  # tracked so _drain() can release + join them even after an early assertion failure
 
 @pytest.fixture(autouse=True)
 def _drain():
@@ -79,7 +79,7 @@ def test_build_governor_high_load_blocks_overprovision():
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]  # each fills half the budget
     sched = _sched(cpu_sampler=lambda: 100.0, core_budget=4, overprovision=2.0)  # busy
     t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 1)   # one fills the budget; busy CPU blocks over-provisioning
+    assert _wait_until(lambda: p.cur == 1)   # one fills the budget, busy CPU blocks over-provisioning
     time.sleep(0.05)
     assert p.cur == 1
     p.gate.set(); t.join(2.0)
@@ -91,7 +91,7 @@ def test_build_governor_low_load_overprovisions_past_budget():
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]
     sched = _sched(cpu_sampler=lambda: 0.0, core_budget=4, overprovision=2.0)  # idle -> overprovision
     t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)   # 4+4 = budget*2; a third (12) exceeds even that
+    assert _wait_until(lambda: p.cur == 2)   # 4+4 = budget*2, a third (12) exceeds even that
     time.sleep(0.05)
     assert p.cur == 2
     p.gate.set(); t.join(2.0)
@@ -113,7 +113,7 @@ def test_build_governor_respects_core_budget():
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]  # 4 cores each
     sched = _sched(cpu_sampler=lambda: 0.0, core_budget=8, overprovision=1.0)
     t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)  # 4+4 = budget; a third (12) won't fit
+    assert _wait_until(lambda: p.cur == 2)  # 4+4 = budget, a third (12) does not fit
     time.sleep(0.05)
     assert p.cur == 2
     p.gate.set(); t.join(2.0)
@@ -161,7 +161,7 @@ def test_build_dep_jobs_marks_root_build_ungated():
 
 
 def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
-    # a wide project with ~20 small leaf deps; with the old CPU gate they ran one-at-a-time. Small TU
+    # a wide project with ~20 small leaf deps ran one-at-a-time under the old CPU gate. Small TU
     # weights must fill the core budget concurrently even while the sampler reads saturated.
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=2) for i in range(12)]
@@ -178,7 +178,7 @@ def test_build_slot_barrier_blocks_until_budget_frees():
     hog = Job('hog', BUILD, p.body, weight=8)
     acquired = []
     def runner():
-        with sched.build_slot(8):   # needs the whole budget; blocked while hog holds it
+        with sched.build_slot(8):   # needs the whole budget, blocked while hog holds it
             acquired.append(time.monotonic())
     t, _ = _run_bg(sched, [hog, Job('runner', BUILD, runner, weight=0)])
     assert _wait_until(lambda: p.cur == 1)   # hog running, holds budget=8
@@ -195,7 +195,7 @@ def test_resolve_weight_handles_int_and_callable():
 
 
 def test_assign_priorities_is_the_critical_path_depth():
-    # a feeds b (a -> b); c is independent. a's trunk depth (itself + b) beats c, so the trunk feeder runs first.
+    # a feeds b (a -> b), c is independent. a's trunk depth (itself + b) beats c, so the trunk feeder runs first.
     a, b, c = Job('a', BUILD, lambda: None), Job('b', BUILD, lambda: None), Job('c', BUILD, lambda: None)
     b.deps.add(a)
     assign_priorities([a, b, c])
@@ -209,7 +209,7 @@ def test_scheduler_launches_highest_priority_ready_job_first():
     hi = Job('hi', BUILD, lambda: body('hi'), weight=8); hi.priority = 100.0
     sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)  # budget fits one weight-8 build
     t, _ = _run_bg(sched, [lo, hi])                # pending order is lo, hi - but priority must win
-    assert _wait_until(lambda: order == ['hi'])    # only hi launched; lo waits though it's also ready
+    assert _wait_until(lambda: order == ['hi'])    # only hi launched, lo waits though it is also ready
     gate.set(); t.join(3.0)
     assert order == ['hi', 'lo']
 
@@ -226,7 +226,7 @@ def test_fail_fast_returns_failed_job_and_blocks_dependents():
 
 
 def test_failure_fires_abort_hook_once_to_kill_in_flight():
-    # Fail-fast: the first failure fires the child-killer so in-flight compiles are killed, not drained.
+    # Fail-fast: the first failure fires the child-killer, which kills in-flight compiles instead of draining them.
     hook = []
     def boom(): raise RuntimeError('kaboom')
     failed = _sched(abort_hook=hook.append).run([Job('a', BUILD, boom), Job('b', BUILD, boom)])
@@ -326,12 +326,12 @@ def test_build_slot_bails_when_build_already_failing():
 
 
 def test_pending_log_is_called_without_holding_the_scheduler_lock():
-    # the display writes to the terminal from this callback; holding _cond across it stalls every
-    # job launch and completion behind a frame write
+    # The display writes to the terminal from this callback. Holding _cond across it stalls every
+    # job launch and completion behind a frame write.
     held = []
     def probe(hint):
         got = [None]
-        def grab():  # acquire AND release on the same thread: an RLock can't be released by another
+        def grab():  # acquire AND release on the same thread: an RLock cannot be released by another
             got[0] = sched._cond.acquire(timeout=0.2)
             if got[0]: sched._cond.release()
         t = threading.Thread(target=grab); t.start(); t.join(1.0)

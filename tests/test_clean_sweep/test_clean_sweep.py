@@ -1,5 +1,5 @@
-"""Pins `clean all`'s disk sweep: it cleans every build dir of THIS config that the tree walk cannot
-reach, including a dep's args dirs, and it never touches another config's or a non-mama dir."""
+"""Pins `clean all`'s disk sweep: every unreachable build dir of THIS config goes, including a dep's
+args dirs. Another config's dir or a non-mama dir is never touched."""
 from types import SimpleNamespace
 import pytest
 from mama.build_names import is_build_dir_of

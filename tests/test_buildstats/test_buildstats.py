@@ -21,7 +21,7 @@ def test_bar_segments_are_proportional_in_load_cfg_build_order():
 
 
 def test_blocks_fall_back_to_ascii_on_a_legacy_code_page():
-    assert not dc._can_encode_blocks('cp1252')   # Windows legacy code page can't encode ░▒▓ -> ASCII
+    assert not dc._can_encode_blocks('cp1252')   # a Windows legacy code page cannot encode the shade glyphs -> ASCII
     assert dc._can_encode_blocks('utf-8')
 
 

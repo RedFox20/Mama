@@ -1,4 +1,4 @@
-"""noart must honour an existing shim cache (no fetch, but ls-remote staleness check)."""
+"""noart must honor an existing shim cache (no fetch, but ls-remote staleness check)."""
 from unittest.mock import Mock, patch
 
 from testutils import make_mock_dep, make_mock_shim_dep

@@ -69,7 +69,7 @@ def test_legacy_status_without_tree_line_treated_as_clean(tmp_path):
 def _should_build_reasons(dep, loaded_from_pkg):
     conf = dep.config; conf.print = True
     target = Mock(name='t'); target.name = dep.name; target.args = []; target.build_products = []
-    dep.target = target  # so the fall-through (no source change) path doesn't crash
+    dep.target = target  # so the fall-through (no source change) path does not crash
     with patch('mama.build_dependency.warning') as w:
         built = dep._should_build(conf, target, is_target=False, git_changed=False, loaded_from_pkg=loaded_from_pkg)
     return built, ' '.join(str(c) for c in w.call_args_list)

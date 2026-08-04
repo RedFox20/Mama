@@ -56,7 +56,7 @@ def test_unshallow_already_clone_target_skips_artifactory(tmp_path):
 
 
 def test_limbo_dir_is_wiped_and_recloned(tmp_path):
-    # A dropped shim leaves a non-.git dir (e.g. mama.cmake proxy): it can't be pulled, must reclone.
+    # A dropped shim leaves a non-.git dir (e.g. mama.cmake proxy): it cannot be pulled, must reclone.
     dep = make_mock_dep(tmp_path)
     os.makedirs(dep.src_dir, exist_ok=True)
     with open(f'{dep.src_dir}/mama.cmake', 'w') as f: f.write('# proxy stub\n')

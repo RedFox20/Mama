@@ -1,4 +1,4 @@
-"""Pins build_host_binary: obtain a HOST-built tool (e.g. protoc) while cross-compiling by cheap-checking the
+"""Pins build_host_binary: get a HOST-built tool (e.g. protoc) while cross-compiling by cheap-checking the
 host build dir, then bootstrapping via a `mama <host> build` child on a miss - plus host_platform_name/host_build_dir."""
 import os, sys, pytest
 from unittest.mock import patch
@@ -27,7 +27,7 @@ def _touch(path):
     return path
 
 
-# ── host_platform_name ───────────────────────────────────────────────────────
+# -- host_platform_name -------------------------------------------------------
 
 @pytest.mark.parametrize('windows,macos,expected', [
     (True, False, 'windows'), (False, True, 'macos'), (False, False, 'linux'),
@@ -38,7 +38,7 @@ def test_host_platform_name_follows_the_host_os(windows, macos, expected):
         assert cfg.host_platform_name() == expected
 
 
-# ── host_build_dir ───────────────────────────────────────────────────────────
+# -- host_build_dir -----------------------------------------------------------
 
 def test_host_build_dir_is_a_sibling_named_after_the_host(tmp_path):
     t, dep = _cross_target(tmp_path)  # build_dir=.../libfoo/android, host=linux
@@ -46,7 +46,7 @@ def test_host_build_dir_is_a_sibling_named_after_the_host(tmp_path):
     assert t.host_build_dir('bin/protoc').endswith('/libfoo/linux/bin/protoc')
 
 
-# ── build_host_binary ────────────────────────────────────────────────────────
+# -- build_host_binary --------------------------------------------------------
 
 def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
     t, dep = make_configured_target(tmp_path)  # build_dir ends in 'linux'

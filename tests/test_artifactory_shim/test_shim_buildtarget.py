@@ -1,4 +1,4 @@
-"""BuildTarget-level shim behaviour: _require_source + _execute_deploy_tasks."""
+"""BuildTarget-level shim behavior: _require_source + _execute_deploy_tasks."""
 from unittest.mock import patch
 
 import pytest
@@ -50,7 +50,7 @@ def test_execute_deploy_tasks_runs_deploy_for_non_shim(tmp_path):
 
 @pytest.mark.parametrize('if_needed', [False, True])
 def test_execute_deploy_tasks_skips_upload_for_shim(tmp_path, if_needed):
-    # shim => already on artifactory; upload is a no-op success (returns, no raise) regardless of if_needed
+    # shim => already on artifactory. The upload is a no-op success (returns, no raise) regardless of if_needed.
     _, target = _make_target(tmp_path, as_shim=True, deploy=False, upload=True, if_needed=if_needed)
     with patch('mama.build_target.papa_upload_to') as upload_mock:
         target._execute_deploy_tasks()

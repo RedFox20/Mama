@@ -195,12 +195,12 @@ def test_is_valid_rejects_a_single_language_seed(tmp_path):
     assert not cc.is_valid({**fp, 'langs': ['CXX']}, 'FP')
     assert not cc.is_valid({**fp, 'langs': []}, 'FP')
     assert cc.is_valid({**fp, 'langs': ['C', 'CXX']}, 'FP')
-    assert not cc.is_valid(fp, 'FP')  # no langs record -> can't prove it covers C+CXX
+    assert not cc.is_valid(fp, 'FP')  # no langs record -> cannot prove it covers C+CXX
 
 
 def test_inject_writes_no_marker_when_seed_has_no_files(tmp_path):
     # A vanished/empty seed must NOT leave a PLATFORM_INFO marker with zero compiler files - cmake
-    # would then trust detection that isn't there. inject bails (False); the caller redetects.
+    # would then trust detection that is not there. inject returns False and the caller redetects.
     seed = str(tmp_path / 'seed'); os.makedirs(seed)
     open(os.path.join(seed, cc._MANIFEST), 'w').write('{"files": [], "langs": []}')
     build = str(tmp_path / 'B')
@@ -424,8 +424,8 @@ def test_disabled_is_noop(tmp_path):
 
 
 def test_reprobes_when_seed_files_vanished(tmp_path):
-    # A concurrent heal can remove the toolchain files while the manifest lingers; prepare must never
-    # return a doomed 'use' - with a probe it just rebuilds the seed.
+    # A concurrent heal can remove the toolchain files while the manifest lingers. prepare must never
+    # return a doomed 'use' - with a probe it rebuilds the seed.
     calls = []
     co = _coord(tmp_path, seed_fn=_probe(tmp_path, calls=calls))
     a = _T(str(tmp_path / 'A'))
@@ -445,7 +445,7 @@ def test_abi_flags_reach_the_probe_and_the_fingerprint():
     cfg.sanitize = 'address'
     assert _abi_flags(cfg) == ('-fsanitize=address', '-fsanitize=address -stdlib=libstdc++')
     assert _abi_flags(SimpleNamespace(linux=True, clang=False, msvc=False, clang_stdlib='libc++',
-                                      sanitize=None)) == ('', '')   # gcc: stdlib isn't a choice
+                                      sanitize=None)) == ('', '')   # gcc: the stdlib is not a choice
 
 
 def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
@@ -471,7 +471,7 @@ def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
 
 
 def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
-    # Yocto SDKs keep the compiler path stable across upgrades but move the sysroot; if that doesn't
+    # Yocto SDKs keep the compiler path stable across upgrades but move the sysroot. If that does not
     # reach the fingerprint, a cross build reuses a seed detected against the previous sysroot.
     from mama.buildsys.cmake import configure as cfg
     opts = ['CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk-1.0/sysroot']

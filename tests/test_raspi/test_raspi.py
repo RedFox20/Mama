@@ -20,7 +20,7 @@ def _raspi(arch='arm64', **over):
 # --- arch selection ---
 
 def test_raspi_defaults_to_arm64():
-    """Every Pi since the 3 is ARMv8; 32-bit is the legacy path, not the default."""
+    """Every Pi since the 3 is ARMv8. 32-bit is the legacy path, not the default."""
     config = BuildConfig(['raspi'])
     assert config.arch == 'arm64' and config.raspi
 
@@ -157,7 +157,7 @@ def test_install_raspi_apt_installs_the_cross_triple(arch, triple, build_cmd, mo
 
 @pytest.mark.linux_host
 def test_install_raspi_fails_loudly_when_apt_did_not_deliver(monkeypatch):
-    """apt can 'succeed' with an unknown package; without this the next build silently uses host gcc."""
+    """apt can 'succeed' with an unknown package. Without this the next build silently uses host gcc."""
     config = BuildConfig([])
     monkeypatch.setattr(config, 'get_distro_info', lambda: ('ubuntu', 24, 4))
     monkeypatch.setattr('mama.build_config.execute', lambda *a, **k: 0)
@@ -175,8 +175,8 @@ def test_install_raspi_rejects_an_unknown_arch():
 # --- a distro cross package has no sysroot dir ---
 
 def test_a_distro_cross_package_passes_no_sysroot(tmp_path):
-    """Debian's gcc-aarch64-linux-gnu has no <triple>/sysroot; passing one that isn't there makes every
-    compile fail on missing system headers."""
+    """Debian's gcc-aarch64-linux-gnu has no <triple>/sysroot. Passing one that is not there makes
+    every compile fail on missing system headers."""
     (tmp_path / 'bin').mkdir()
     raspi = _raspi('arm64')
     raspi.init_toolchain(str(tmp_path))

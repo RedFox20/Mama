@@ -83,9 +83,9 @@ _CC = shutil.which('cc') or shutil.which('gcc')
 _needs_toolchain = pytest.mark.skipif(not (_CC and shutil.which('ar')),
                                       reason='needs a C toolchain (cc/gcc + ar) to build real archives')
 
-# z_func and z_shared MUST be separate translation units: an archive member is pulled only when it
-# resolves a currently-undefined symbol, and that granularity is the whole point of the ordering rule.
-# Both splits return 0 from main(), so a successful link is also semantically verifiable by running it.
+# z_func and z_shared MUST be separate translation units: ld pulls an archive member only when it
+# resolves a currently-undefined symbol. That granularity is what the ordering rule exists for.
+# Both splits return 0 from main(), so running the linked app also verifies the resolved symbols.
 _SYMBOL_SPLITS = [('z_shared', 'z_func'),   # main pulls z_shared, lib1 pulls z_func
                   ('z_func', 'z_shared')]   # crossed: swapping WHICH symbol each consumer uses
 
@@ -130,7 +130,7 @@ def test_real_link_fails_with_the_naive_first_seen_order(tmp_path, main_calls, l
     assert r.returncode != 0
     # ld had already passed libz.a when lib1 introduced its need, so the unresolved symbol is always
     # whatever LIB1 wanted - main's own need was satisfied by that early scan. Which symbol that is
-    # doesn't change the outcome: the rule is about dependency direction, not symbol distribution.
+    # does not change the outcome: the rule is about dependency direction, not symbol distribution.
     assert lib1_calls in r.stderr
 
 

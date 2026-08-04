@@ -40,7 +40,7 @@ def test_a_flagged_build_spawns_nothing():
     abort.request('geo failed')
     with patch('mama.utils.sub_process.subprocess.Popen') as popen, pytest.raises(BuildAborted):
         SubProcess.run([PY, '-c', 'pass'])
-    popen.assert_not_called()  # the point of the flag: no new child, not a child killed after spawning
+    popen.assert_not_called()  # the flag's purpose: no new child, not a child killed after spawn
 
 
 def _phase_display():
@@ -56,7 +56,7 @@ def test_no_phase_transitions_while_stopping(kind):
     with pytest.raises(BuildAborted):
         dc._run_phase(display, dep, kind, body, build_slot=None)
     body.assert_not_called()
-    display.start_task.assert_not_called()  # a phase that never ran must not show up as a failed one
+    display.start_task.assert_not_called()  # a phase that never ran must not appear as a failed one
 
 
 def test_a_queued_load_does_not_clone_while_stopping():
@@ -172,8 +172,8 @@ def test_a_grandchild_that_missed_the_request_still_dies(tmp_path):
 
 
 def test_a_failed_load_stops_the_clones_already_running():
-    """The property the whole two-stage stop exists for: one failed load does not leave the user
-    waiting out every clone the thread pool already started."""
+    """The property the two-stage stop exists for: one failed load does not make the user wait for
+    every clone the thread pool already started."""
     def clone(): SubProcess.run([PY, '-c', 'import time; time.sleep(10)'], io_func=lambda p, l: None)
     def fail():
         end = time.monotonic() + 10  # fail only once the sibling clones really run, else this proves nothing

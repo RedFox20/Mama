@@ -99,7 +99,7 @@ def test_the_bar_names_the_file_currently_being_archived(capsys):
     bar.step(50*1024*1024, 'lib/libprotobuf.a')
     assert 'lib/libprotobuf.a' in capsys.readouterr().out
     bar.finish()
-    assert 'libprotobuf.a' not in capsys.readouterr().out  # nothing is in flight at 100%
+    assert 'libprotobuf.a' not in capsys.readouterr().out  # no file streams at 100%
 
 
 def test_a_long_path_is_truncated_from_the_left(capsys):
@@ -124,7 +124,7 @@ def test_archive_total_size_ignores_dir_entries(tmp_path):
 
 
 def test_a_large_file_advances_the_bar_while_it_is_written(tmp_path):
-    # the whole point: a 60MB lib used to leave the bar frozen, then jump
+    # the pinned bug: a 60MB lib left the bar frozen, then the bar jumped
     big = tmp_path / 'libbig.a'
     big.write_bytes(b'x' * (3*1024*1024 + 7))
     bar = Mock()

@@ -16,7 +16,7 @@ def test_drains_in_order_strips_ansi_and_closes():
     w = AsyncLogWriter(cap)
     w.write('\x1b[31mred error\x1b[0m\n'); w.write('plain\n')
     w.close()   # enqueues the sentinel, joins the drain thread, flushes+closes the stream
-    assert ''.join(cap.data) == 'red error\nplain\n'   # colours stripped, order preserved
+    assert ''.join(cap.data) == 'red error\nplain\n'   # colors stripped, order preserved
     assert cap.closed
 
 

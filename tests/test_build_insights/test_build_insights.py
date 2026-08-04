@@ -132,7 +132,7 @@ def test_parse_clang_traces_aggregates_across_tus(tmp_path):
     assert st.frontend_s == pytest.approx(1.4) and st.backend_s == pytest.approx(0.3)
     assert [t[0] for t in st.tus] == ['a.cpp', 'b.cpp']            # slowest first, .json + source basename stripped
     files = dict((b, (s, n)) for b, s, n in st.files)
-    assert files['vector'] == (pytest.approx(0.9), 2) and 'a.cpp' not in files  # header summed; the .cpp isn't a header
+    assert files['vector'] == (pytest.approx(0.9), 2) and 'a.cpp' not in files  # header summed, the .cpp is not a header
     assert dict(st.symbols)['std::vector<Foo>'] == pytest.approx(0.15)          # clang details already readable
 
 

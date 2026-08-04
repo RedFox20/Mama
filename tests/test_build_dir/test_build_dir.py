@@ -1,3 +1,4 @@
+"""Pins build dir names: sanitizer, coverage, compiler and dep-args suffixes."""
 import pytest
 from mama.build_names import build_dir_name
 from testutils import platform_config
@@ -90,7 +91,7 @@ def test_msan_uses_the_same_short_name_as_the_archive():
 
 def _dep_with_args(tmp_path, args, **cfg_overrides):
     """A real BuildDependency on a real BuildConfig. __init__ composes the variant suffix and the dirs
-    without any clone or disk write, which is the whole point: the name is known before the clone."""
+    without any clone or disk write, so the name is known before the clone."""
     from mama.build_dependency import BuildDependency
     from mama.types.git import Git
     cfg = linux_config()

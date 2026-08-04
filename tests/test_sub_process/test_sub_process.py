@@ -33,7 +33,7 @@ class TestExitStatus:
         assert status == 7
 
     def test_run_without_io_func_inherits_stdio(self, capfd):
-        # No io_func means child writes go straight to parent stdio; capfd hooks at OS level.
+        # no io_func means child writes go straight to parent stdio, and capfd hooks at the OS level
         status = SubProcess.run([PY, '-c', 'print("hello-no-iofunc")'])
         assert status == 0
         assert 'hello-no-iofunc' in capfd.readouterr().out
@@ -62,7 +62,7 @@ class TestIoFunc:
         assert not any(line.endswith('\r') or line.endswith('\n') for line in lines)
 
     def test_io_func_exception_is_re_raised_by_run(self):
-        # Reader-thread exceptions must surface; otherwise debugging is impossible.
+        # a reader-thread exception swallowed on its own thread is undebuggable
         def broken(p, line): raise RuntimeError(f'callback boom on line={line!r}')
         with pytest.raises(RuntimeError, match='callback boom'):
             SubProcess.run([PY, '-c', 'print("hi")'], io_func=broken)
@@ -144,7 +144,7 @@ class TestStdinWrite:
         assert 'READY' in lines and 'got:the-secret' in lines
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason='PTY behaviour is UNIX-only')
+@pytest.mark.skipif(sys.platform == 'win32', reason='PTY behavior is UNIX-only')
 class TestPtyOnUnix:
     def test_child_sees_a_tty_when_io_func_is_set(self):
         # Why pty.openpty(): git inspects isatty(stderr) to decide whether to emit progress.
@@ -152,7 +152,7 @@ class TestPtyOnUnix:
         assert lines == ['True']
 
     def test_child_does_not_see_a_tty_without_io_func(self, capfd):
-        # No PTY allocated when capture isn't requested; child runs cleanly through to exit.
+        # no PTY is allocated when capture is not requested, and the child still runs to exit
         assert SubProcess.run([PY, '-c', 'import sys; sys.exit(0)']) == 0
 
 
@@ -346,13 +346,13 @@ class TestCtrlCTermination:
         while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
         alive = psutil.pid_exists(gc_pid)
         if alive:
-            try: psutil.Process(gc_pid).kill()  # don't leak a 60s sleeper if the assert fails
+            try: psutil.Process(gc_pid).kill()  # do not leak a 60s sleeper if the assert fails
             except Exception: pass
         assert not alive  # grandchild died with the tree
 
 
 class TestNoForkptyDeprecationWarning:
-    # The whole point of the Popen+pty.openpty rewrite was to kill this warning
+    # The Popen+pty.openpty rewrite exists to remove this warning
     # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).
     def test_run_does_not_emit_forkpty_warning(self):
         import warnings

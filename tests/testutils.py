@@ -13,13 +13,13 @@ import pytest
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
 
-_ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves
+_ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves
 def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
 
 
 class FakeBuildTarget:
     """Base for the runner-test target fakes: the build-weight stubs the parallel runners call on
-    every dep (configure/build phase bodies and event recording stay specialised per test)."""
+    every dep (configure/build phase bodies and event recording stay specialized per test)."""
     _build_jobs = None
     def _has_custom_build(self): return False
     def _reserved_cores(self): return 4
@@ -40,7 +40,7 @@ class FakeUnifiedTarget(FakeBuildTarget):
 
 class FakeUnifiedDep:
     """Dep half of the execute_unified fakes: load() discovers `child_specs` (name, grandchild-specs)
-    on the spot, so the scheduler grows the graph the way a real clone does. Pass `shared_children`
+    at load time, so the scheduler grows the graph the way a real clone does. Pass `shared_children`
     instead to hand two parents the SAME instance and form a diamond."""
     def __init__(self, name, config, ev, lock, child_specs=(), shared_children=None):
         self.name = name; self.config = config; self._ev = ev; self._lock = lock
@@ -282,7 +282,7 @@ def make_load_root(name='mylib', **config_overrides):
 
 def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **config_overrides):
     """Real BuildDependency wired to a mock BuildConfig + a LocalSource pointing at an existing
-    on-disk `src_dir`. build_dir is materialised so src_status round-trips."""
+    on-disk `src_dir`. build_dir is materialized so src_status round-trips."""
     from mama.build_dependency import BuildDependency
     from mama.types.local_source import LocalSource
     config = make_mock_config(tmp_path, **config_overrides)
