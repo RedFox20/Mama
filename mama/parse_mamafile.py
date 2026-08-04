@@ -1,7 +1,8 @@
 import os, runpy, inspect
 
 from .utils.system import console
-from .util import path_join, read_text_from, write_text_to, file_sha1
+from .utils.fileio import read_text_from, write_text_to, file_sha1
+from .utils.paths import path_join
 
 def parse_mamafile(config, target_class, mamafile):
     """Run `mamafile` and return (name, class) of its first `target_class` subclass."""

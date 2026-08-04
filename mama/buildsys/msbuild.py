@@ -1,6 +1,6 @@
 import os
 from mama.platforms.windows import find_vswhere, vswhere_property, VS_ROOTS, VS_VARIANTS
-from mama.util import find_executable_from_system
+from mama.utils.fileio import find_executable_from_system
 from mama.utils.system import System, console
 from mama.build_config import BuildConfig
 from mama.utils.sub_process import SubProcess

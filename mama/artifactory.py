@@ -14,7 +14,9 @@ from .types.dep_source import DepSource
 from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
-from .util import download_file, normalized_join, try_unzip, is_network_error
+from .utils.archive import try_unzip
+from .utils.net import download_file, is_network_error
+from .utils.paths import normalized_join
 from .papa_deploy import PapaFileInfo
 
 

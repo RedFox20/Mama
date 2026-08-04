@@ -4,7 +4,7 @@ import pytest
 
 import mama.build_target as build_target
 from mama.build_target import BuildTarget
-from mama.util import parse_version, version_at_least
+from mama.utils.versions import parse_version, version_at_least
 
 
 def _target(name='myapp'):

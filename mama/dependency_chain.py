@@ -6,8 +6,10 @@ from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
 from .platforms.windows import msvc_toolset_version
-from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, \
-                  get_time_str, path_join, BuildError
+from .utils.errors import BuildError
+from .utils.fileio import read_text_from, write_text_to, save_file_if_contents_changed
+from .utils.paths import MAMA_SHIM_FILENAME, path_join
+from .utils.progress import get_time_str
 from . import build_names
 from .utils import abort, ssh_multiplex, system
 from .utils.sub_process import SubProcess

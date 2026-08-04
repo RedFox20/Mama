@@ -14,7 +14,8 @@ import pytest
 
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
-from mama.util import normalized_path, write_text_to
+from mama.utils.fileio import write_text_to
+from mama.utils.paths import normalized_path
 from mama.utils.sub_process import execute_piped
 
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves
@@ -438,7 +439,7 @@ def unmemoized_git_fingerprints():
     source dir, because during a build only mama writes a dependency tree and run_git drops the memo when
     it does. A test writes files directly, so the memo would answer with the state before the edit.
     Import this into the conftest of a directory whose tests edit a tree."""
-    from mama import util
+    from mama.utils import git_status as util
     util.memoize_git_fingerprints = False
     util._git_fingerprints.clear()
     yield

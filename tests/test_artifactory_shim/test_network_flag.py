@@ -4,7 +4,7 @@ import subprocess
 from unittest.mock import Mock
 from urllib.error import URLError, HTTPError
 
-from mama.util import is_network_error
+from mama.utils.net import is_network_error
 from mama.build_config import BuildConfig
 
 

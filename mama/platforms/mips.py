@@ -5,7 +5,8 @@ import os
 from .platform import Platform
 from .toolchain import Toolchain
 from mama.utils.system import System, console
-from mama.util import path_join, read_lines_from
+from mama.utils.fileio import read_lines_from
+from mama.utils.paths import path_join
 
 
 class Mips(Platform):

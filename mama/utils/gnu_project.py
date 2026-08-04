@@ -2,7 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import os
 import shlex
-import mama.util
+from .archive import unzip
+from .fileio import copy_if_needed
+from .net import download_file
+from .paths import path_join
 import mama.utils.sub_process as proc
 from mama.utils.system import console, warning, Color
 
@@ -173,7 +176,7 @@ class GnuProject:
         else:
             url = self.url.replace('{{project}}', self.name_with_version)
             try:
-                local_file = mama.util.download_file(url, local_dir=build_root)
+                local_file = download_file(url, local_dir=build_root)
             except Exception as e:
                 raise Exception(f'Failed to download {url}: {e}')
 
@@ -185,7 +188,7 @@ class GnuProject:
                 or local_file.endswith('.tar.bz2'):
                 proc.execute_echo(build_root, f'tar -xf {local_file} -C {source} --strip-components=1')
             elif local_file.endswith('.zip'):
-                mama.util.unzip(local_file, source)
+                unzip(local_file, source)
             else:
                 console(f'>>> ERROR: Unknown archive type: {local_file}', color=Color.RED)
 
@@ -328,7 +331,7 @@ class GnuProject:
             os.remove(dst_file)
             os.symlink(link, dst_file)
         else:
-            mama.util.copy_if_needed(src_file, dst_file)
+            copy_if_needed(src_file, dst_file)
 
 
     def can_strip(self, filepath):
@@ -377,12 +380,12 @@ class GnuProject:
             reldir = fulldir[len(root):].lstrip('\\/')
             for file in files:
                 if reldir:
-                    dst_folder = mama.util.path_join(dest_dir, reldir)
+                    dst_folder = path_join(dest_dir, reldir)
                 else:
                     dst_folder = dest_dir
                 os.makedirs(dst_folder, exist_ok=True)
-                src_file = mama.util.path_join(fulldir, file)
-                dst_file = mama.util.path_join(dst_folder, file)
+                src_file = path_join(fulldir, file)
+                dst_file = path_join(dst_folder, file)
                 if strip and self.can_strip(src_file):
                     self.strip(src_file, dest_path=dst_file)
                 else:

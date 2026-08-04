@@ -8,8 +8,9 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .util import normalized_join, path_join, read_lines_from, forward_slashes, file_sha1 \
-                , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
+from .utils.fileio import read_lines_from, file_sha1, write_text_to, copy_if_needed, copy_dir
+from .utils.paths import normalized_join, path_join, forward_slashes, has_shim_marker
+from .utils.system import console
 from .utils.system import warning, System
 
 import mama.package as package

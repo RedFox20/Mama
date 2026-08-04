@@ -1,6 +1,6 @@
 """Pins mama.util file helpers."""
 import os
-from mama.util import is_file_unmodified
+from mama.utils.fileio import is_file_unmodified
 
 
 def _pair(tmp_path, a_text, b_text):

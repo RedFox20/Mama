@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from testutils import make_cmake_detection
 from mama.buildsys.cmake import compiler_cache as cc
-from mama.util import normalized_path, path_join
+from mama.utils.paths import normalized_path, path_join
 
 
 def test_fingerprint_stable_and_sensitive():

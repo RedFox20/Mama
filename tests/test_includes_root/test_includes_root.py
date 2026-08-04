@@ -5,7 +5,7 @@ import tempfile
 import shutil
 from unittest.mock import Mock
 
-from mama.util import normalized_path
+from mama.utils.paths import normalized_path
 import mama.package as package
 from mama.papa_deploy import _append_includes, papa_deploy_to, PapaFileInfo
 from mama.dependency_chain import _get_dependency_cmake_defines

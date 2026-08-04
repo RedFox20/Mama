@@ -3,7 +3,8 @@ import os
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
 from .platform import Platform
 from .toolchain import Toolchain
-from mama.util import find_executable_from_system, path_join
+from mama.utils.fileio import find_executable_from_system
+from mama.utils.paths import path_join
 from mama.utils.system import System, console
 from mama.utils.sub_process import execute_piped
 

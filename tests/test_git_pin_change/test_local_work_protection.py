@@ -1,7 +1,7 @@
 import os
 from testutils import init, mama_exec, native_platform_name
 from mama.types.git import Git
-from mama.util import write_text_to
+from mama.utils.fileio import write_text_to
 
 def get_git_status_path():
     return f'packages/ExampleRemote/{native_platform_name()}/git_status'

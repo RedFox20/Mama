@@ -8,7 +8,7 @@ import os
 from unittest.mock import patch
 import pytest
 
-from mama import util
+from mama.utils import git_status as util
 from testutils import make_mock_dep
 
 
@@ -44,7 +44,7 @@ def test_a_build_that_changes_nothing_arms_the_gate(dep):
 def test_the_second_build_then_spawns_no_git(dep):
     with patch.object(util.System, 'windows', True):
         assert _changed(dep) is False              # first build records the walk
-        with patch('mama.util._git_output') as git_output:
+        with patch('mama.utils.git_status._git_output') as git_output:
             assert _changed(dep) is False
         git_output.assert_not_called()             # second build asks git nothing at all
 

@@ -7,7 +7,8 @@ import pytest
 from testutils import make_mock_dep
 
 from mama import parse_mamafile as pm
-from mama.util import file_sha1, short_path
+from mama.utils.fileio import file_sha1
+from mama.utils.paths import short_path
 
 CONFIG = Mock(verbose=False)
 

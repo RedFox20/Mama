@@ -6,8 +6,9 @@ import os, zipfile, shutil
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .mamafile_version import pinned_version, computed_local_version
 from .local_version import is_publishable
-from .util import get_file_size_str, console, normalized_join, path_join, forward_slashes, ProgressBar
-from .utils.system import error, warning
+from .utils.paths import normalized_join, path_join, forward_slashes
+from .utils.progress import get_file_size_str, ProgressBar
+from .utils.system import console, error, warning
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 
 if TYPE_CHECKING:

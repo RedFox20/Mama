@@ -6,7 +6,7 @@ import ast, os, re
 from typing import NamedTuple
 
 from .utils.system import warning
-from .util import read_text_from
+from .utils.fileio import read_text_from
 
 
 class VersionScan(NamedTuple):

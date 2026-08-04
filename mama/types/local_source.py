@@ -1,7 +1,9 @@
 import os
 from .dep_source import DepSource
-from ..util import (git_dir_fingerprint, path_join, save_file_if_contents_changed, read_text_from,
-                    source_walk_moved, record_source_walk, git_source_changed)
+from ..utils.fileio import save_file_if_contents_changed, read_text_from
+from ..utils.git_status import (git_dir_fingerprint, source_walk_moved, record_source_walk,
+                                git_source_changed)
+from ..utils.paths import path_join
 
 class LocalSource(DepSource):
     """For a BuildDependency whose source is a local directory."""

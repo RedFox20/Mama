@@ -5,7 +5,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from testutils import make_git_root_with_local_pkgs, make_mock_local_dep
-from mama import local_version, util
+from mama import local_version
+from mama.utils import git_status as util
 from mama.mamafile_version import computed_local_version
 
 

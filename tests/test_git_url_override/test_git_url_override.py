@@ -7,7 +7,7 @@ import pytest
 from testutils import make_mock_dep
 
 from mama.types.git import Git, convert_git_url, same_git_remote, _is_git_status_noise
-from mama.util import git_progress_status
+from mama.utils.progress import git_progress_status
 
 GH_SSH = 'git@github.com:example/mavlink-headers.git'
 GH_HTTPS = 'https://github.com/example/mavlink-headers.git'

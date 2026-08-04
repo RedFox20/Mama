@@ -157,7 +157,7 @@ def test_find_vcperf_prefers_env_override(monkeypatch, tmp_path):
 
 def test_find_vcperf_returns_empty_when_absent(monkeypatch):
     monkeypatch.delenv('VCPERF', raising=False)
-    monkeypatch.setattr(bi.util, 'find_executable_from_system', lambda name: '')
+    monkeypatch.setattr(bi, 'find_executable_from_system', lambda name: '')
     def _raise(): raise EnvironmentError('no VS')
     cfg = SimpleNamespace(get_msvc_bin64=_raise, get_visualstudio_path=_raise)
     assert bi.find_vcperf(cfg) == ''

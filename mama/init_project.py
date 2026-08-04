@@ -1,6 +1,7 @@
 import os
 from .build_dependency import BuildDependency
-from .util import read_lines_from, write_text_to, path_join
+from .utils.fileio import read_lines_from, write_text_to
+from .utils.paths import path_join
 from .utils.system import console
 import re
 

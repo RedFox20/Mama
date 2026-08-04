@@ -7,7 +7,7 @@ import pytest
 from mama import dependency_chain as dc
 from mama.types.git import Git, _CLONE_ATTEMPTS
 from mama.types.git_errors import classify_git_failure
-from mama.util import GitError
+from mama.utils.errors import GitError
 from testutils import make_git_and_mock_dep, make_load_root, strip_ansi
 
 RESET = ('remote: Enumerating objects: 1284923, done.\n'

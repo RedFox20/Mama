@@ -7,10 +7,13 @@ from .dep_source import DepSource
 from ..utils.system import Color, console, error, warning, progress
 from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
-from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
-                    is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
-                    forget_git_dir_fingerprint, source_walk_moved, record_source_walk, git_source_changed,
-                    remove_tree, GitError)
+from ..utils.errors import GitError
+from ..utils.fileio import save_file_if_contents_changed, read_lines_from, remove_tree
+from ..utils.git_status import (git_dir_fingerprint, forget_git_dir_fingerprint, source_walk_moved,
+                                record_source_walk, git_source_changed)
+from ..utils.net import is_network_error
+from ..utils.paths import is_dir_empty, has_source_content, path_join, normalized_path
+from ..utils.progress import get_time_str, git_progress_status
 from .git_errors import classify_git_failure, format_git_failure, stall_message
 from ..mamafile_version import trusted_version
 
@@ -113,17 +116,14 @@ def _canonical_remote(url: str) -> str:
 _HEAD_SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
-def _packed_ref_exists(git_dir: str, ref: str):
-    """True when packed-refs names `ref`, else None. A missing ref is NOT proof of a broken repo. An
-    unborn HEAD looks like this, and so does a reftable repo. A reftable HEAD names refs/heads/.invalid
-    on purpose, and its real refs are not files at all. Only git tells those apart."""
-    try:
-        with open(path_join(git_dir, 'packed-refs'), encoding='utf-8', errors='replace') as f:
-            for line in f:
-                if line.rstrip().endswith(' ' + ref): return True
-    except OSError:
-        pass
-    return None
+def _packed_ref_sha(git_dir: str, ref: str) -> str:
+    """The object name packed-refs holds for `ref`, or '' when nothing names it. A missing ref is NOT
+    proof of a broken repo. An unborn HEAD looks like this, and so does a reftable repo. A reftable HEAD
+    names refs/heads/.invalid on purpose, and its real refs are not files at all. Only git tells those
+    apart."""
+    for line in read_lines_from(path_join(git_dir, 'packed-refs')):
+        if line.rstrip().endswith(' ' + ref): return line.split(' ', 1)[0].strip()
+    return ''
 
 
 def read_head(src_dir: str) -> str:
@@ -141,7 +141,7 @@ def has_local_ref(src_dir: str, ref: str) -> bool:
     """True when `ref` is already in this clone, as a loose file or a packed-refs line.
     ref: a full ref name, eg `refs/tags/v1.0.0`"""
     git_dir = path_join(src_dir, '.git')
-    return os.path.isfile(path_join(git_dir, ref)) or _packed_ref_exists(git_dir, ref) is True
+    return os.path.isfile(path_join(git_dir, ref)) or bool(_packed_ref_sha(git_dir, ref))
 
 
 def read_commit_from_disk(src_dir: str, length: int) -> str:
@@ -155,21 +155,9 @@ def read_commit_from_disk(src_dir: str, length: int) -> str:
     if not head.startswith('ref: '): return ''
     ref = head[5:].strip()
     git_dir = path_join(src_dir, '.git')
-    try:
-        with open(path_join(git_dir, ref), encoding='utf-8', errors='replace') as f:
-            sha = f.read().strip()
-        return sha[:length] if _HEAD_SHA.match(sha) else ''
-    except OSError:
-        pass
-    try:
-        with open(path_join(git_dir, 'packed-refs'), encoding='utf-8', errors='replace') as f:
-            for line in f:
-                if line.rstrip().endswith(' ' + ref):
-                    sha = line.split(' ', 1)[0].strip()
-                    return sha[:length] if _HEAD_SHA.match(sha) else ''
-    except OSError:
-        pass
-    return ''
+    loose = read_lines_from(path_join(git_dir, ref))
+    sha = loose[0].strip() if loose else _packed_ref_sha(git_dir, ref)
+    return sha[:length] if _HEAD_SHA.match(sha) else ''
 
 
 def repo_health_from_disk(src_dir: str):
@@ -190,7 +178,7 @@ def repo_health_from_disk(src_dir: str):
     if _HEAD_SHA.match(head): return True
     if not head.startswith('ref: '): return None
     ref = head[5:].strip()
-    return True if os.path.isfile(path_join(git_dir, ref)) else _packed_ref_exists(git_dir, ref)
+    return True if os.path.isfile(path_join(git_dir, ref)) or _packed_ref_sha(git_dir, ref) else None
 
 
 class Git(DepSource):
@@ -374,12 +362,10 @@ class Git(DepSource):
     def get_current_repository_commit(dep: BuildDependency, length=0):
         """The short commit hash of the repository at src_dir. The caller makes sure {src_dir}/.git exists.
 
-        Disk answers first when the caller names a `length`, because `.git/HEAD` plus one ref file hold
-        the commit already and `git show` costs a process. git abbreviates from the OBJECT COUNT, never
-        from the working tree, which I measured: one dependency reported the same `%h` clean and dirty.
-        `length` therefore comes from the hash mama stored last time, so an archive name can never change
-        under a package. Without it, or when a ref does not resolve on disk, git answers.
-        length: how many characters the caller recorded before, or 0 to always ask git"""
+        Disk answers first, because `.git/HEAD` plus one ref file already hold the commit. git abbreviates
+        from the object count, never from the working tree, so a dirty tree reports the same hash.
+        length: how many characters mama stored before, or 0 to ask git. A stored length keeps the name
+                of an artifactory archive stable."""
         result = read_commit_from_disk(dep.src_dir, length) if length else ''
         source = 'disk'
         if not result:
@@ -465,7 +451,7 @@ class Git(DepSource):
             return self.tag
 
         # an existing repository answers with its current commit. The stored hash names the length mama
-        # recorded before, so the disk read below produces the same shape and no archive name moves.
+        # recorded before, so the disk read below returns the same number of characters.
         if os.path.exists(f'{dep.src_dir}/.git'):
             stored = self.read_stored_status(dep)
             length = len(stored[3].split(' ')[0]) if stored and len(stored) > 3 else 0

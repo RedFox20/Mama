@@ -14,7 +14,11 @@ from mama.platforms.linux import Linux
 from mama.platforms.macos import Macos
 from mama.platforms.platform import Platform
 from mama.platforms.registry import platform_for_arg
-import mama.util as util
+from .utils import git_status
+from .utils.archive import unzip
+from .utils.fileio import find_executable_from_system
+from .utils.net import download_file
+from .utils.paths import normalized_path
 from .utils.system import System, console, Color, warning
 from .utils.sub_process import execute, execute_piped
 
@@ -67,8 +71,7 @@ class UpdateStats:
         if self.shim_fetched: parts.append(f'{self.shim_fetched} shim-fetched')
         if self.pulled:       parts.append(f'{self.pulled} pulled')
         if self.cloned:       parts.append(f'{self.cloned} cloned')
-        # Local import to avoid circular dependency with util
-        from .util import get_time_str
+        from .utils.progress import get_time_str
         return f'Updated {self.total} target(s): {", ".join(parts)} in {get_time_str(self._duration)}'
 
 
@@ -189,7 +192,7 @@ class BuildConfig:
         # uses it as cwd, so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
         self.root_source_dir = None
         if System.windows:
-            self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
+            self.workspaces_root = normalized_path(os.getenv('HOMEPATH'))
         else:
             self.workspaces_root = os.getenv('HOME')
         self._network_available = None  # None=untested, True/False=result
@@ -243,7 +246,7 @@ class BuildConfig:
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
             # every working-tree check then names the dep, the caller and what it found, see _log_status_check
-            elif arg == 'verbose':   self.verbose = True; util.log_status_checks = True
+            elif arg == 'verbose':   self.verbose = True; git_status.log_status_checks = True
             elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'serial':    self.serial_load = True
             elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True
@@ -631,7 +634,7 @@ class BuildConfig:
     def find_ninja_build(self):
         ninja_executables = [
             os.getenv('NINJA'),
-            util.find_executable_from_system('ninja'),
+            find_executable_from_system('ninja'),
             '/Projects/ninja.exe'
         ]
         for ninja_exe in ninja_executables:
@@ -675,7 +678,7 @@ class BuildConfig:
                 return
 
         # resolve symlinks to show the full clang-tidy path (/etc/alternatives/clang-tidy -> /usr/bin/clang-tidy-18)
-        clang_tidy_exe = util.find_executable_from_system('clang-tidy', follow_symlinks=True)
+        clang_tidy_exe = find_executable_from_system('clang-tidy', follow_symlinks=True)
         if clang_tidy_exe:
             self.clang_tidy_path = clang_tidy_exe
             if self.print: console(f'Found clang-tidy in PATH and resolved as: {clang_tidy_exe}', color=Color.GREEN)
@@ -746,7 +749,7 @@ class BuildConfig:
     def find_default_fortran_compiler(self):
         paths = []
         if System.linux:
-            paths += [util.find_executable_from_system('gfortran')]
+            paths += [find_executable_from_system('gfortran')]
 
         for fortran_path in paths:
             if fortran_path and os.path.exists(fortran_path):
@@ -859,7 +862,7 @@ class BuildConfig:
             ndk_dest = f'/opt/android-sdk/ndk'
 
         console(f'Downloading NDK {ndk_version}')
-        ndk_zip = util.download_file(ndk_url, tempfile.gettempdir())
+        ndk_zip = download_file(ndk_url, tempfile.gettempdir())
 
         if System.windows or System.macos:
             os.makedirs(ndk_dest, exist_ok=True)
@@ -867,7 +870,7 @@ class BuildConfig:
             execute(f'sudo mkdir -p {ndk_dest} && sudo chown -R $USER {ndk_dest}')
 
         console(f'Extracting NDK to {ndk_dest}/{ndk_version}')
-        util.unzip(ndk_zip, ndk_dest)
+        unzip(ndk_zip, ndk_dest)
 
         final_dest = f'{ndk_dest}/{ndk_version}'
         if os.path.exists(final_dest):

@@ -1,7 +1,7 @@
 """Integration: pins that `mama update` moves a dependency clone reset to a stale commit back to the latest."""
 from testutils import init, mama_exec, shell_exec, file_contains, native_platform_name
 from mama.types.git import Git
-from mama.util import write_text_to
+from mama.utils.fileio import write_text_to
 
 def get_dep_path(dep_name):
     return f'packages/{dep_name}/{dep_name}'

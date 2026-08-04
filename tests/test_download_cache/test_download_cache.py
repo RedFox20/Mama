@@ -5,7 +5,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from mama.util import download_file, normalized_path
+from mama.utils.net import download_file
+from mama.utils.paths import normalized_path
 
 
 def _mock_urlopen(content: bytes, content_length=None):

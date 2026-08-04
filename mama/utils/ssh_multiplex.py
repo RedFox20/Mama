@@ -31,8 +31,8 @@ _CONTROL_SUBDIR = 'mama-cm'
 def _control_dir_candidates() -> list:
     """Where to keep our control sockets, best first. A read-only ~/.ssh loses multiplexing, so a writable
     temp dir comes first, and the uid keeps two users on one shared /tmp apart.
-    The joins stay f-strings: normalized_join() calls abspath, which rewrites '/tmp' into 'C:/tmp' on
-    Windows, and mama.util costs about 200ms to import on every git ssh spawn."""
+    The joins stay f-strings, because normalized_join() calls abspath, which rewrites '/tmp' into
+    'C:/tmp' on Windows."""
     uid = getattr(os, 'geteuid', lambda: 0)()  # Windows has no geteuid, and never opens a master anyway
     runtime = os.environ.get('XDG_RUNTIME_DIR')
     dirs = [f'{runtime.rstrip("/")}/{_CONTROL_SUBDIR}'] if runtime else []

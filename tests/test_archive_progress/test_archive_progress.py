@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from mama.utils import system
-from mama.util import ProgressBar
+from mama.utils.progress import ProgressBar
 from mama.papa_upload import (_archive_entries, _write_archive, _write_file, _compress_level,
                               _archive_total_size)
 

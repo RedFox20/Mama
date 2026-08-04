@@ -11,7 +11,7 @@ import pytest
 
 from mama import dependency_chain as dc
 from mama.build_scheduler import BUILD, Job, Scheduler
-from mama.util import GitError
+from mama.utils.errors import GitError
 from mama.utils import abort, sub_process
 from mama.utils.abort import BuildAborted
 from mama.utils.sub_process import SubProcess

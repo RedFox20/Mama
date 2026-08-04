@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from mama.types.git import repo_health_from_disk
-from mama.util import remove_tree
+from mama.utils.fileio import remove_tree
 from testutils import make_mock_dep
 
 

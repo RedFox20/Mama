@@ -10,7 +10,7 @@ import pytest
 
 from mama.papa_deploy import PapaFileInfo
 from mama.papa_upload import papa_upload_to, validate_archive
-from mama.util import normalized_path
+from mama.utils.paths import normalized_path
 
 
 class FakeTarget:

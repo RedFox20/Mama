@@ -69,7 +69,7 @@ def _forget_repo_status():
     """Drop the shared `git status` after every test. mama loads it once per run and every local dep
     reads it, so one test that loads it would answer for the working tree of the next."""
     yield
-    from mama import util
+    from mama.utils import git_status as util
     util.forget_repo_status()
 
 

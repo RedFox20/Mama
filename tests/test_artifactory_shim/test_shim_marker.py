@@ -3,7 +3,7 @@ import os
 
 from testutils import make_mock_dep
 
-from mama.util import MAMA_SHIM_FILENAME
+from mama.utils.paths import MAMA_SHIM_FILENAME
 
 
 def test_no_marker_means_not_shim(tmp_path):

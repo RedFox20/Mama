@@ -1,8 +1,10 @@
 """C++ Build Insights (Stage 2 of `buildstats`): wraps an MSVC build in a vcperf /timetrace session, then
 parses the Chrome-trace JSON to show where compile time goes. Non-MSVC builds skip this stage."""
 import os, json, tempfile
-import mama.util as util
-from .util import get_time_str, normalized_join
+from .utils.fileio import find_executable_from_system
+from .utils.paths import path_join
+from .utils.paths import normalized_join
+from .utils.progress import get_time_str
 from .utils.system import System, console, warning, Color, get_colored_text
 from .utils.sub_process import SubProcess
 
@@ -22,12 +24,12 @@ def find_vcperf(config) -> str:
     folder (which ships vcperf's DLLs alongside). Returns '' if not found."""
     env = os.getenv('VCPERF')
     if env and os.path.isfile(env): return env
-    found = util.find_executable_from_system('vcperf')
+    found = find_executable_from_system('vcperf')
     if found: return found
     candidates = []
     try: candidates.append(f'{config.get_msvc_bin64()}vcperf.exe')
     except Exception: pass
-    try: candidates.append(util.path_join(config.get_visualstudio_path(), _VS_VCPERF_SUBPATH))
+    try: candidates.append(path_join(config.get_visualstudio_path(), _VS_VCPERF_SUBPATH))
     except Exception: pass
     return next((c for c in candidates if c and os.path.isfile(c)), '')
 
@@ -289,7 +291,7 @@ def collect_clang_traces(build_dir: str, since: float = 0.0) -> list:
     compile_commands.json etc) and aggregates every file, so the order does not matter."""
     import glob
     out = []
-    for p in glob.glob(util.path_join(build_dir, '**', '*.json'), recursive=True):
+    for p in glob.glob(path_join(build_dir, '**', '*.json'), recursive=True):
         try:
             if os.path.getmtime(p) >= since: out.append(p)
         except OSError:

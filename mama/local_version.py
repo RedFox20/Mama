@@ -9,7 +9,8 @@ import hashlib, json, os
 from typing import TYPE_CHECKING
 
 from . import build_names
-from .util import path_join, normalized_path, read_text_from, save_file_if_contents_changed
+from .utils.fileio import read_text_from, save_file_if_contents_changed
+from .utils.paths import path_join, normalized_path
 
 if TYPE_CHECKING:
     from .build_dependency import BuildDependency

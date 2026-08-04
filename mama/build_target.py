@@ -17,7 +17,11 @@ from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to
 # papa_upload is deferred to the one call site in papa_package(), see there
 import mama.buildsys.msbuild as msbuild
-import mama.util as util
+from .utils.fileio import copy_if_needed, read_text_from
+from .utils.net import download_and_unzip, download_file
+from .utils.paths import glob_with_extensions, normalized_join, path_join
+from .utils.progress import get_time_str
+from .utils.versions import version_at_least
 from ._version import __version__
 import mama.buildsys.cmake.configure as cmake
 import mama.package as package
@@ -145,7 +149,7 @@ class BuildTarget:
         ```
         """
         if not subpath: return self.dep.src_dir
-        return util.path_join(self.dep.src_dir, subpath)
+        return path_join(self.dep.src_dir, subpath)
 
 
     def build_dir(self, subpath=''):
@@ -159,14 +163,14 @@ class BuildTarget:
         ```
         """
         if not subpath: return self.dep.build_dir
-        return util.path_join(self.dep.build_dir, subpath)
+        return path_join(self.dep.build_dir, subpath)
 
 
     def host_build_dir(self, subpath=''):
         """This target's build dir for the HOST platform (.../<name>/<host>), a sibling of build_dir().
         A host tool built by build_host_binary() lands here. Equals build_dir() on a native host build."""
-        host_dir = util.path_join(os.path.dirname(self.dep.build_dir), self.config.host_platform_name())
-        return util.path_join(host_dir, subpath) if subpath else host_dir
+        host_dir = path_join(os.path.dirname(self.dep.build_dir), self.config.host_platform_name())
+        return path_join(host_dir, subpath) if subpath else host_dir
 
 
     def build_host_binary(self, relpath, auto_build=True):
@@ -457,7 +461,7 @@ class BuildTarget:
         """
         dependency = all if all else self.select(**platforms)
         if dependency:
-            dependency = util.normalized_join(self.build_dir(), dependency)
+            dependency = normalized_join(self.build_dir(), dependency)
             self.build_products.append(dependency)
             #console(f'    {self.name}.build_products += {dependency}')
 
@@ -844,7 +848,7 @@ class BuildTarget:
                 self.requires_version('0.13.01')
         ```
         """
-        if util.version_at_least(__version__, min_version): return
+        if version_at_least(__version__, min_version): return
         raise RuntimeError(f'Target {self.name} requires mamabuild >= {min_version}, but this is {__version__}.' + \
                            ' Upgrade with:  pip install --upgrade mama')
 
@@ -942,7 +946,7 @@ class BuildTarget:
         - dst: destination path
         - filter: [None] a string or list of strings that filter files by suffix, e.g. filter=['.h'] or filter='.hpp'
         """
-        if util.copy_if_needed(src, dst, filter):
+        if copy_if_needed(src, dst, filter):
             if self.config.verbose: console(f'copy {src} --> {dst}')
 
 
@@ -959,7 +963,7 @@ class BuildTarget:
         dst = f'{self.build_dir()}/{copyToFolder}/{os.path.basename(builtFile)}'
         if not os.path.exists(src) and os.path.exists(dst):
             return # src is missing, but dst exists, ignore error
-        if util.copy_if_needed(src, dst):
+        if copy_if_needed(src, dst):
             if self.config.verbose: console(f'copy_built_file {src} --> {dst}')
 
 
@@ -976,7 +980,7 @@ class BuildTarget:
         """
         src = self.source_dir(src_dir)
         dst = dst_dir
-        if util.copy_if_needed(src, dst, filter):
+        if copy_if_needed(src, dst, filter):
             if self.config.verbose: console(f'copy_deployed_folder {src} --> {dst}')
 
 
@@ -991,7 +995,7 @@ class BuildTarget:
             # --> 'bin/file1'
         ```
         """
-        return util.download_file(remote_url, local_dir, force)
+        return download_file(remote_url, local_dir, force)
 
 
     def download_and_unzip(self, remote_zip: str, extract_dir: str, unless_file_exists=None):
@@ -1007,7 +1011,7 @@ class BuildTarget:
             # --> None    on failure
         ```
         """
-        return util.download_and_unzip(remote_zip, extract_dir, unless_file_exists)
+        return download_and_unzip(remote_zip, extract_dir, unless_file_exists)
 
 
     def visibility_hidden(self, hidden=True):
@@ -1106,7 +1110,7 @@ class BuildTarget:
             filename = filename[:-3]
         else:
             return None # no prefix, the compiler is something like /usr/bin/gcc-11
-        return util.path_join(os.path.dirname(cc), filename)
+        return path_join(os.path.dirname(cc), filename)
 
 
     def run(self, command: str, src_dir=False, exit_on_fail=True, quiet=False):
@@ -1473,18 +1477,18 @@ class BuildTarget:
           C/C++ source files in the source tree                                      -> cross-platform fallback
         0 when none match. The source walk skips build/vendored/test trees (see _NON_LIB_DIRS)."""
         bd = self.build_dir()
-        cc = util.path_join(bd, 'compile_commands.json')
+        cc = path_join(bd, 'compile_commands.json')
         if os.path.exists(cc):
-            return util.read_text_from(cc).count('"file"'), 'compile_commands'
+            return read_text_from(cc).count('"file"'), 'compile_commands'
         if os.path.isdir(bd):
-            n = sum(util.read_text_from(util.path_join(bd, fn)).count('<ClCompile Include=')
+            n = sum(read_text_from(path_join(bd, fn)).count('<ClCompile Include=')
                     for fn in os.listdir(bd) if fn.endswith('.vcxproj'))
             if n > 0: return n, 'vcxproj'
-            n = self._count_makefile_tus(util.path_join(bd, 'CMakeFiles'))
+            n = self._count_makefile_tus(path_join(bd, 'CMakeFiles'))
             if n > 0: return n, 'makefile'
         src = self.source_dir()
         if os.path.isdir(src):
-            srcs = util.glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
+            srcs = glob_with_extensions(src, ['.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm'],
                                              exclude_dirs=_NON_LIB_DIRS)
             return len(srcs), 'source'
         return 0, 'none'
@@ -1496,7 +1500,7 @@ class BuildTarget:
         total = 0
         for dirpath, _, files in os.walk(cmakefiles_dir):
             if 'DependInfo.cmake' in files:
-                total += util.read_text_from(util.path_join(dirpath, 'DependInfo.cmake')).count('.o"')
+                total += read_text_from(path_join(dirpath, 'DependInfo.cmake')).count('.o"')
         return total
 
     def cmake_build(self):
@@ -1513,9 +1517,9 @@ class BuildTarget:
             self._cmake_build_step()
         build_stop = time.time()
         if self.config.print:
-            e_config = util.get_time_str(config_stop - config_start)
-            e_build = util.get_time_str(build_stop - build_start)
-            e_total = util.get_time_str(build_stop - config_start)
+            e_config = get_time_str(config_stop - config_start)
+            e_build = get_time_str(build_stop - build_start)
+            e_total = get_time_str(build_stop - config_start)
             console(f'CMakeBuild {self.name} ({self.cmake_build_type}) config {e_config}' + \
                     f' build {e_build} total {e_total}', color=Color.GREEN)
 
@@ -1752,7 +1756,7 @@ class BuildTarget:
                 elapsed = time.time() - start
                 if self.config.print:
                     console(f'  - Testing {self.name} {test_args} N={self.config.test_until_failure}' +
-                            f' SUCCESS in {util.get_time_str(elapsed)}', color=Color.GREEN)
+                            f' SUCCESS in {get_time_str(elapsed)}', color=Color.GREEN)
             else:
                 if self.config.print:
                     console(f'  - Testing {self.name} {test_args}')

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console, System, warning
-from .util import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
+from .utils.paths import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
 if TYPE_CHECKING:

@@ -4,7 +4,7 @@ import os, re
 
 from .platform import Platform
 from .toolchain import Toolchain
-from mama.util import path_join
+from mama.utils.paths import path_join
 from mama.utils.system import System, console, warning, Color, get_colored_text
 
 

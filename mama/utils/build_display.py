@@ -5,7 +5,7 @@ from __future__ import annotations
 import re, time, threading
 from . import proc_cpu
 from .system import Color, get_colored_text
-from ..util import get_time_str, is_progress_line
+from ..utils.progress import get_time_str, is_progress_line
 
 
 _CURSOR_UP = '\x1b[1A'

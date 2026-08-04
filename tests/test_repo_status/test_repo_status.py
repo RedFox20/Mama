@@ -3,12 +3,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from testutils import make_git_root_with_local_pkgs, git_init_commit
-from mama import util
+from mama.utils import git_status as util
 
 
 def _spawn_count(fn):
     """(result, git processes spawned) for one call."""
-    with patch('mama.util._git_output', wraps=util._git_output) as git:
+    with patch('mama.utils.git_status._git_output', wraps=util._git_output) as git:
         return fn(), git.call_count
 
 
@@ -97,7 +97,7 @@ def test_the_memo_keeps_the_two_modes_apart(tmp_path):
     root, clone = _clone_inside_the_workspace(tmp_path)
     util.load_repo_status(str(root))
     (clone / 'dep.cpp').write_text('int dep(){ return 5; }\n')
-    with patch('mama.util._compute_git_dir_fingerprint', side_effect=['shared', 'asked']) as compute:
+    with patch('mama.utils.git_status._compute_git_dir_fingerprint', side_effect=['shared', 'asked']) as compute:
         assert util.git_dir_fingerprint(str(clone), shared_status=True) == 'shared'
         assert util.git_dir_fingerprint(str(clone), shared_status=False) == 'asked'
     assert compute.call_count == 2
@@ -119,7 +119,7 @@ def test_a_dir_that_git_does_not_track_loads_no_status(tmp_path):
     real toplevel above it and the dir is tracked after all."""
     plain = tmp_path / 'plain'
     plain.mkdir()
-    with patch('mama.util._git_output', return_value=b'') as git:
+    with patch('mama.utils.git_status._git_output', return_value=b'') as git:
         util.load_repo_status(str(plain))
         assert git.call_count == 1  # rev-parse answered nothing, so no status ran
     assert util._repo_status_kinds(str(plain)) is None

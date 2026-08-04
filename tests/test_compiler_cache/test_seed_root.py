@@ -1,7 +1,7 @@
 """Pins where the compiler seed lives: the workspace by default, the user cache under `globalcache`."""
 import pytest
 
-from mama import util
+from mama.utils import paths as util
 from mama.buildsys.cmake import configure as cc
 from testutils import make_configured_target
 

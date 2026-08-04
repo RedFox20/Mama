@@ -5,7 +5,7 @@ import os, subprocess
 from unittest.mock import patch
 import pytest
 
-from mama import util
+from mama.utils import git_status as util
 from testutils import make_mock_dep
 
 
@@ -77,14 +77,14 @@ def test_the_walk_spawns_no_git_when_nothing_moved(dep):
     # the whole point of the walk, and Windows only: off it there is no gate and git answers alone
     with patch.object(util.System, 'windows', True):
         util.record_source_walk(dep.src_dir, dep.build_dir)   # what a build does, under the same platform
-        with patch('mama.util._git_output') as git_output:
+        with patch('mama.utils.git_status._git_output') as git_output:
             assert _changed(dep) is False
         git_output.assert_not_called()
 
 
 def test_off_windows_git_answers_and_the_walk_never_runs(dep):
     # `git status` costs about 1ms on ext4, so the walk would add code for nothing
-    with patch.object(util.System, 'windows', False), patch('mama.util.source_fingerprint') as walk:
+    with patch.object(util.System, 'windows', False), patch('mama.utils.git_status.source_fingerprint') as walk:
         assert _changed(dep) is False
     walk.assert_not_called()
 

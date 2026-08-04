@@ -3,7 +3,10 @@ from typing import TYPE_CHECKING
 import os, contextlib, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
-from mama import util, build_names
+from mama.utils.errors import BuildError
+from mama.utils.fileio import file_sha1, read_text_from, write_text_to
+from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir
+from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
 
@@ -43,7 +46,7 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     if exit_status != 0:
         # BuildError, not Exception: the cmake output above already names the failure, so mama
         # reports a clean one-liner instead of a traceback through its internals.
-        raise util.BuildError(f'CMake configure failed for {target.name} (exit code {exit_status})')
+        raise BuildError(f'CMake configure failed for {target.name} (exit code {exit_status})')
     target.dep.save_enabled_sanitizers()
     target.dep.save_enabled_coverage()
 
@@ -55,9 +58,9 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     if target.config.cmake_toolchain_file: return
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
     if cc:
-        opt.append(f'CMAKE_C_COMPILER={util.forward_slashes(cc)}')
+        opt.append(f'CMAKE_C_COMPILER={forward_slashes(cc)}')
         if target.enable_cxx_build:
-            opt.append(f'CMAKE_CXX_COMPILER={util.forward_slashes(cxx)}')
+            opt.append(f'CMAKE_CXX_COMPILER={forward_slashes(cxx)}')
     elif 'CC' in os.environ or 'CXX' in os.environ:
         warning('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set')
 
@@ -102,7 +105,7 @@ def _cmake_version_number(config) -> str:
 
 
 def _build_files_dir(target:BuildTarget) -> str:
-    return util.path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
+    return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
 
 
 def _seed_src_dir(target:BuildTarget) -> str:
@@ -137,10 +140,10 @@ def _seed_probe(target:BuildTarget) -> str:
     paths empty, so resolve the toolset's cl.exe explicitly. seedcache records it and GC stats it cheaply."""
     config = target.config
     if config.msvc:
-        try: return util.normalized_path(config.get_msvc_cl64())
+        try: return normalized_path(config.get_msvc_cl64())
         except Exception: return ''
     _, cxx, _ = config.get_preferred_compiler_paths()
-    return util.normalized_path(cxx) if cxx else ''
+    return normalized_path(cxx) if cxx else ''
 
 
 def _seed_id(target:BuildTarget) -> str:
@@ -205,15 +208,15 @@ def _probe_toolchain(target:BuildTarget):
     opts = _platform_opts(target)
     _set_compiler_paths(target, opts)
     with tempfile.TemporaryDirectory(prefix='mama_seed_', ignore_cleanup_errors=True) as tmp:
-        tmp = util.normalized_path(tmp)  # shlex eats backslashes: never interpolate a raw Windows path
-        src, bld = util.path_join(tmp, 'src'), util.path_join(tmp, 'b')
+        tmp = normalized_path(tmp)  # shlex eats backslashes: never interpolate a raw Windows path
+        src, bld = path_join(tmp, 'src'), path_join(tmp, 'b')
         os.makedirs(src, exist_ok=True)
-        util.write_text_to(util.path_join(src, 'CMakeLists.txt'), _SEED_PROJECT)
+        write_text_to(path_join(src, 'CMakeLists.txt'), _SEED_PROJECT)
         cmd = f'{target.cmake_command} {_generator(target)} {_opts_to_defines(opts)}{flags} -S "{src}" -B "{bld}"'
         if config.verbose: console(f'  seed probe: {cmd}', color=Color.BLUE)
         if SubProcess.run(cmd, tmp, env=compute_env(target), io_func=lambda p, line: None) != 0:
             yield None; return
-        files_dir = util.path_join(bld, f'CMakeFiles/{_cmake_version_number(config)}')
+        files_dir = path_join(bld, f'CMakeFiles/{_cmake_version_number(config)}')
         yield (bld, files_dir) if seedcache.covers_core_langs(seedcache.detected_langs(files_dir)) else None
 
 
@@ -226,8 +229,8 @@ def _seed_root(target:BuildTarget) -> str:
     the 4-second probe, which is what a CI job and the test suite want. A developer keeps the local root,
     because one bad seed in the user cache would reach every project."""
     if target.config.global_compiler_cache:
-        return util.user_cache_dir('compiler_seed')
-    return util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+        return user_cache_dir('compiler_seed')
+    return path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
 
 
 def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
@@ -259,7 +262,7 @@ def _wipe_build_dir(target:BuildTarget):
     """Drop CMakeCache + CMakeFiles so a self-heal retry detects cleanly."""
     cache = target.build_dir('CMakeCache.txt')
     if os.path.exists(cache): os.remove(cache)
-    shutil.rmtree(util.path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
+    shutil.rmtree(path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
 
 
 def _cache_entry(cache_text:str, key:str) -> str:
@@ -279,8 +282,8 @@ def generator_build_file_exists(build_dir:str, generator:str) -> bool:
     generator must NOT make a Ninja-configured dir look complete, or `cmake --build` dies on a
     missing build.ninja. An unrecognized generator is trusted rather than wrongly wiped."""
     gen = generator.lower()
-    if 'ninja' in gen:         return os.path.exists(util.path_join(build_dir, 'build.ninja'))
-    if 'makefiles' in gen:     return os.path.exists(util.path_join(build_dir, 'Makefile'))
+    if 'ninja' in gen:         return os.path.exists(path_join(build_dir, 'build.ninja'))
+    if 'makefiles' in gen:     return os.path.exists(path_join(build_dir, 'Makefile'))
     # VS 18 (2026) with cmake 4.2 writes the XML solution `.slnx`, every older toolset writes `.sln`
     if 'visual studio' in gen: return any(f.endswith(('.sln', '.slnx')) for f in os.listdir(build_dir))
     if 'xcode' in gen:         return any(f.endswith('.xcodeproj') for f in os.listdir(build_dir))
@@ -291,9 +294,9 @@ def is_cmake_cache_valid(build_dir:str) -> bool:
     """True only when `build_dir` holds the artifacts of a configure that ran to COMPLETION. A plain existence
     check misses three poisoned shapes: truncated cache (no CMAKE_GENERATOR), no generated build file, and
     the other generator's stale leftover file. All three -> reconfigure."""
-    cache = util.path_join(build_dir, 'CMakeCache.txt')
+    cache = path_join(build_dir, 'CMakeCache.txt')
     if not os.path.exists(cache): return False
-    try: generator = cache_generator(util.read_text_from(cache))
+    try: generator = cache_generator(read_text_from(cache))
     except OSError: return False  # an unreadable cache counts as missing -> reconfigure
     if not generator: return False
     return generator_build_file_exists(build_dir, generator)
@@ -315,14 +318,14 @@ def _toolchain_fingerprint(target:BuildTarget) -> str:
 def _read_toolchain_fingerprint(build_dir:str) -> str:
     """Fingerprint the last completed configure of `build_dir` recorded. '' if none (never configured, or a
     dir from before mama wrote fingerprints)."""
-    try: return util.read_text_from(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE)).strip()
+    try: return read_text_from(path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE)).strip()
     except OSError: return ''
 
 
 def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
     """Persist the toolchain fingerprint next to the cache. Best-effort: a write failure makes the next
     run treat the dir as unfingerprinted (adopt), never an exception mid-configure."""
-    try: util.write_text_to(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE), fingerprint)
+    try: write_text_to(path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE), fingerprint)
     except OSError: pass
 
 
@@ -333,8 +336,8 @@ def _dependency_exports(target:BuildTarget) -> str:
     """Hash of `mama-dependencies.cmake`, the file that names every include dir and lib the dependencies
     of this target export. A dependency that rebuilds without changing its interface leaves this file
     alone, and its consumer then needs no configure. A new export lib or a moved include dir changes it."""
-    exports = util.path_join(target.build_dir(), 'mama-dependencies.cmake')
-    try: return util.file_sha1(exports)
+    exports = path_join(target.build_dir(), 'mama-dependencies.cmake')
+    try: return file_sha1(exports)
     except OSError: return ''
 
 
@@ -351,14 +354,14 @@ def _configure_fingerprint(target:BuildTarget, toolchain:str, cmd_inputs:list) -
 
 def _read_configure_fingerprint(build_dir:str) -> str:
     """What the last completed configure of `build_dir` recorded. '' when there is none."""
-    try: return util.read_text_from(util.path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE)).strip()
+    try: return read_text_from(path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE)).strip()
     except OSError: return ''
 
 
 def _record_configure_fingerprint(build_dir:str, fingerprint:str):
     """Persist the configure fingerprint. Best-effort, like the toolchain one: a write failure only
     makes the next run configure again."""
-    try: util.write_text_to(util.path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE), fingerprint)
+    try: write_text_to(path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE), fingerprint)
     except OSError: pass
 
 
@@ -370,13 +373,13 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     so this cannot mass-invalidate warm dirs."""
     if target.config.cmake_toolchain_file:
         return False  # the cache holds the toolchain's own choice, which never equals ours
-    try: cache_text = util.read_text_from(util.path_join(build_dir, 'CMakeCache.txt'))
+    try: cache_text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return False
     cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
     for key, want in (('CMAKE_CXX_COMPILER', cxx_path), ('CMAKE_C_COMPILER', cc_path)):
         cached = _cache_entry(cache_text, key)
         if not cached: continue
-        if want and util.normalized_path(cached) != util.normalized_path(want): return True  # compiler path moved
+        if want and normalized_path(cached) != normalized_path(want): return True  # compiler path moved
         # A relative name came from PATH, and os.path.exists cannot test it. Only an absolute path is proof.
         return os.path.isabs(cached) and not os.path.exists(cached)
     return False  # no compiler recorded in the cache -> nothing to compare, do not wipe
@@ -491,7 +494,7 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=N
             run_config(target, out=out)
             run_build(target, install, extraflags, rerun=False, out=out)
         else:
-            raise util.BuildError(f'Build failed for {target.name} (exit code {status})')
+            raise BuildError(f'Build failed for {target.name} (exit code {status})')
 
 
 def _unused_cli_flag(target:BuildTarget) -> str:

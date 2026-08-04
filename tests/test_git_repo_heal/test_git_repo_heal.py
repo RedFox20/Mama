@@ -3,7 +3,7 @@ import contextlib, os, pathlib
 import pytest
 from unittest.mock import patch
 from testutils import make_mock_dep
-from mama.util import has_source_content, is_dir_empty
+from mama.utils.paths import has_source_content, is_dir_empty
 
 
 def _seed(dep, *names):

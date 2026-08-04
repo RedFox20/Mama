@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from mama.util import normalized_join, path_join
+from mama.utils.paths import normalized_join, path_join
 
 
 @pytest.mark.parametrize('parts,joined', [

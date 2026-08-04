@@ -3,7 +3,7 @@ import os
 import pytest
 
 from testutils import is_linux, is_windows
-from mama.util import normalized_path
+from mama.utils.paths import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
 from mama.platforms.raspi import Raspi, triple_for_arch

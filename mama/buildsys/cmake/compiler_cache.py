@@ -3,7 +3,8 @@ publish() captures only the toolchain detection files, never project flags, and 
 
 from __future__ import annotations
 import os, shutil, hashlib, json, time, threading
-from mama.util import path_join, normalized_path, read_text_from
+from mama.utils.fileio import read_text_from
+from mama.utils.paths import path_join, normalized_path
 
 # lang -> (compiler module file, ABI probe binary or None)
 _LANG_FILES = {

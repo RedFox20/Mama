@@ -4,9 +4,8 @@ import os
 
 from .platform import Platform
 from .toolchain import Toolchain
-from mama.util import path_join
+from mama.utils.paths import path_join, forward_slashes
 from mama.utils.system import System, console, warning
-from mama import util
 
 
 # mama arch to the NDK's own tokens: the clang driver name and the ABI dir name.
@@ -116,7 +115,7 @@ class Android(Platform):
     def _append_env(paths:list, env: str):
         path = os.getenv(env)
         if path and os.path.exists(path):
-            paths.append(util.forward_slashes(path))
+            paths.append(forward_slashes(path))
 
 
     def init_ndk_path(self):
@@ -135,11 +134,11 @@ class Android(Platform):
                     # derive the SDK root from the NDK path, usually <SDK>/ndk/26.1.10909125 -> <SDK>
                     sdk_path = os.getenv('ANDROID_HOME') or os.getenv('ANDROID_SDK_ROOT')
                     if not sdk_path and os.path.exists(f'{ndk_path}/../../platforms'):
-                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                        sdk_path = forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
                     if not sdk_path and os.path.exists(f'{ndk_path}/../platforms'):
-                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/..'))
+                        sdk_path = forward_slashes(os.path.abspath(f'{ndk_path}/..'))
                     if not sdk_path: # default to the modern layout <SDK>/ndk/<version>
-                        sdk_path = util.forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
+                        sdk_path = forward_slashes(os.path.abspath(f'{ndk_path}/../..'))
                     self._set_ndk_sdk_paths(ndk_path, sdk_path)
                     return
 
@@ -149,12 +148,12 @@ class Android(Platform):
         Android._append_env(sdk_paths, 'ANDROID_SDK_ROOT')
 
         if os.getenv("HOME"):
-            user_sdk = util.forward_slashes(os.path.expanduser('~/Android/Sdk'))
+            user_sdk = forward_slashes(os.path.expanduser('~/Android/Sdk'))
             if os.path.exists(user_sdk):
                 sdk_paths += [user_sdk]
 
         if System.windows:
-            localappdata = util.forward_slashes(os.getenv("LOCALAPPDATA"))
+            localappdata = forward_slashes(os.getenv("LOCALAPPDATA"))
             if localappdata:
                 sdk_paths += [f'{localappdata}/Android/Sdk']
         elif System.linux:

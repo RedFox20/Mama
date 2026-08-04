@@ -2,7 +2,7 @@
 from unittest.mock import patch
 import pytest
 
-from mama import util
+from mama.utils import git_status as util
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +14,7 @@ def _empty_memo():
 
 def _count_calls(src_dir, times):
     """Call the fingerprint `times` times over a stub, and return how often the git work really ran."""
-    with patch('mama.util._compute_git_dir_fingerprint', return_value='abc123') as compute:
+    with patch('mama.utils.git_status._compute_git_dir_fingerprint', return_value='abc123') as compute:
         results = [util.git_dir_fingerprint(src_dir) for _ in range(times)]
     assert results == ['abc123'] * times
     return compute.call_count

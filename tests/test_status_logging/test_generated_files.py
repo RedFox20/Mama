@@ -6,7 +6,7 @@ as dirty, which cost each one a `git ls-files` it did not need.
 import os, subprocess
 import pytest
 
-from mama import util
+from mama.utils import git_status as util
 
 
 @pytest.fixture

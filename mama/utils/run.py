@@ -3,7 +3,7 @@ from typing import Tuple, TYPE_CHECKING
 import os, shlex, shutil
 from .sub_process import execute_echo
 from .system import System
-from ..util import normalized_path, normalized_join
+from ..utils.paths import normalized_path, normalized_join
 
 if TYPE_CHECKING:
     from ..build_target import BuildTarget

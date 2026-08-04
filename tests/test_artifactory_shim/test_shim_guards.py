@@ -9,7 +9,7 @@ from testutils import make_mock_dep, make_mock_shim_dep
 from mama.build_dependency import BuildDependency
 from mama.types.git import Git
 from mama.papa_deploy import papa_deploy_to
-from mama.util import has_shim_marker
+from mama.utils.paths import has_shim_marker
 
 
 def test_update_mamafile_tag_returns_false_for_shim(tmp_path):

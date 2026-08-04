@@ -4,7 +4,8 @@ import sys, os
 from .types.local_source import LocalSource
 from .utils.system import Color, console, warning
 from .utils.sub_process import execute, execute_piped_echo
-from .util import glob_with_extensions, glob_folders_with_name_match, load_repo_status
+from .utils.git_status import load_repo_status
+from .utils.paths import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency

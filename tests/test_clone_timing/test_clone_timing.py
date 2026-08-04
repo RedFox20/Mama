@@ -1,7 +1,7 @@
 """get_time_str format at each ms/s/m/h/d boundary and between transitions."""
 import pytest
 
-from mama.util import get_time_str
+from mama.utils.progress import get_time_str
 
 
 @pytest.mark.parametrize('seconds,expected', [

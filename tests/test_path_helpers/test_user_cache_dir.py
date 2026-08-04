@@ -2,7 +2,7 @@
 import os
 import pytest
 
-from mama import util
+from mama.utils import paths as util
 
 
 @pytest.fixture(autouse=True)

@@ -2,7 +2,7 @@
 import os, subprocess
 import pytest
 
-from mama import util
+from mama.utils import git_status as util
 from testutils import strip_ansi
 
 
