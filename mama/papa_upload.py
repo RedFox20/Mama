@@ -157,12 +157,9 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
 
 def _download_can_find_this_version(target:BuildTarget) -> bool:
     """True when the version this upload names is the one a DOWNLOAD would look for.
-
-    The two sides read the version differently. An upload runs the mamafile and uses the value in
-    memory. A download reads the file as text, because it must name the package before it clones
-    anything. A mamafile that computes the version, or assigns it twice, makes the two disagree. Mama
-    would then publish an archive no consumer can ever ask for, and every build would miss the cache
-    with no error to explain it. Refuse the upload instead."""
+    An upload runs the mamafile and uses the value in memory. A download reads the file as text, because
+    it must name the package before the clone. A computed or twice-assigned version makes the two disagree,
+    and mama would publish an archive no consumer can ever ask for. Refuse the upload instead."""
     executed = target.version or ''
     readable = pinned_version(target.dep)
     if executed == readable: return True
@@ -173,9 +170,9 @@ def _download_can_find_this_version(target:BuildTarget) -> bool:
 
 
 def papa_upload_to(target:BuildTarget, package_full_path:str):
-    """
-    - target: The configured and packaged target
-    - package_full_path: Full path to the deployed PAPA package
+    """Archives the deployed PAPA package, validates it, and uploads it to the artifactory server.
+    - target: the configured and packaged target
+    - package_full_path: full path to the deployed PAPA package
     """
     if not _download_can_find_this_version(target):
         return

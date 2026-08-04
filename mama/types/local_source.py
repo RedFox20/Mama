@@ -3,9 +3,7 @@ from .dep_source import DepSource
 from ..util import git_dir_fingerprint, path_join, save_file_if_contents_changed, read_text_from
 
 class LocalSource(DepSource):
-    """
-    For a BuildDependency whose source is a local directory
-    """
+    """For a BuildDependency whose source is a local directory."""
     def __init__(self, name:str, rel_path:str, mamafile:str, always_build:bool, args:list):
         super(LocalSource, self).__init__(name)
         self.is_src = True
@@ -23,8 +21,8 @@ class LocalSource(DepSource):
         return path_join(dep.build_dir, 'src_status')
 
     def working_tree_fingerprint(self, dep) -> str:
-        """Fingerprint of uncommitted edits inside this local dep's subfolder, as tracked by an
-        enclosing git repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint."""
+        """Fingerprint of uncommitted edits in this dep's subfolder, as tracked by an enclosing git
+        repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint."""
         return git_dir_fingerprint(dep.src_dir)
 
     def source_tree_changed(self, dep) -> bool:

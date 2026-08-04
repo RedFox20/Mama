@@ -102,9 +102,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     def is_header(path:str) -> bool:
         name = os.path.basename(path)
         if name.endswith(suffixes): return True
-        # Qt and QCoro name a stub header after the class it declares, with no extension, as in
-        # `#include <QCoro/QCoroTask>`. Ship one only when the header it forwards to is in the tree,
-        # so a LICENSE or an AUTHORS file never ships.
+        # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
+        # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
         return '.' not in name and name.lower() in stems
 
     exported = []  # export dir names already handled, so one name never ships twice
@@ -116,9 +115,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         src_dir, dst_dir, record = _include_deploy(target, includes_root, abs_include)
         first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
         if first != dst_dir:
-            # QCoro/ next to qcoro/ is ONE dir on Windows and macOS. The merge also puts a stub header
-            # beside the header it forwards to, which is how `#include "qcorotask.h"` resolves.
-            # Only one spelling survives on Linux, so the package tells the author which one won.
+            # Two dirs whose names differ only by case are ONE dir on Windows and macOS, and the merge puts
+            # a stub header beside its target. Only one spelling survives on Linux, so name the winner.
             dst_dir = first
             warning(f'  PAPA Deploy {target.name}: merged {record[2:]} into include/{os.path.basename(first)}.' + \
                     ' A consumer must write the surviving spelling.')
@@ -132,9 +130,9 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 def find_duplicate_trees(files:list) -> list:
     """(dir a, dir b, [file names]) for every pair of directories that hold the same file content twice.
-    QCoro installs its headers into include/qcoro AND include/qcoro6/qcoro, so a package that exports the
-    whole include dir ships both. That doubles the archive and gives the consumer two copies of every
-    header. files: (relative path, full path) for every file to compare."""
+    A project that installs its headers into two include dirs doubles the archive and gives the consumer
+    two copies of every header.
+    - files: (relative path, full path) for every file to compare"""
     by_name = {}
     for rel, full in files:
         by_name.setdefault((os.path.basename(rel), os.path.getsize(full)), []).append((rel, full))
@@ -193,10 +191,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     detail_echo = config.print and target.is_current_target() and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
-    # Defense-in-depth: never write into a directory holding a shim marker. A
-    # misconfigured caller could pass the shim's build_dir directly, which would
-    # corrupt the artifactory snapshot (papa.txt + unzipped tree) the next mama
-    # run depends on. The proper deploy-skip lives in _execute_deploy_tasks.
+    # Defense-in-depth: never write into a directory holding a shim marker. A misconfigured caller could
+    # pass the shim's build_dir and corrupt the artifactory snapshot. The deploy-skip lives in _execute_deploy_tasks.
     if has_shim_marker(package_full_path):
         raise RuntimeError(f'papa_deploy refused: {package_full_path} contains a mama_shim marker.')
 

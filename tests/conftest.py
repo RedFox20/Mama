@@ -2,8 +2,7 @@ import os
 import sys
 import pytest
 
-# Tests/ for `import testutils`, project root for `from mama.x import y` -
-# so no test file repeats the same sys.path.insert setup.
+# tests/ for `import testutils`, the project root for `from mama.x import y`, so no test file repeats the sys.path setup.
 _here = os.path.dirname(__file__)
 _repo_root = os.path.abspath(os.path.join(_here, '..'))
 sys.path.insert(0, _here)
@@ -56,11 +55,7 @@ def no_cmake_writes(monkeypatch):
 
 
 def pytest_configure(config):
-    # tmp_path trees go in the gitignored repo subtree, not system temp, for self-contained
-    # CI-identical isolation. The temproot, NOT basetemp: pytest then makes its own numbered and
-    # locked pytest-<N> dir per session under it, and keeps the last 3. A fixed basetemp is one exact
-    # dir, and pytest WIPES it at session start. A second pytest run then deletes the tmp dirs of the
-    # first one while it still runs. An explicit --basetemp or temproot still wins.
+    # Temproot, not basetemp: pytest makes a locked pytest-<N> dir per run under it. A wiped basetemp kills a concurrent run.
     if not config.option.basetemp:
         temproot = os.path.join(_repo_root, '.pytest_tmp')
         os.makedirs(temproot, exist_ok=True)

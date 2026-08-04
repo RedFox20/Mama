@@ -40,8 +40,7 @@ def get_colored_text(text:str, color):
     return colored(text, color=color) if color else text
 
 
-# Serialize writes and finalize any pending progress line before a normal
-# status print, so parallel redraws do not get glued to status lines.
+# serialize writes and finalize a pending progress line before a status print, so redraws do not glue to status lines
 _console_lock = threading.Lock()
 _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
@@ -67,10 +66,9 @@ def is_headless() -> bool:
 
 def _redraw_due() -> bool:
     """True when a progress redraw may print. Without a terminal a redraw appends a line instead of
-    overwriting one, so a CI log collects one flood of bars per download. Those throttle to one line
-    per _HEADLESS_PROGRESS_INTERVAL per thread. The first call only starts the timer, so a transfer
-    that finishes inside one interval prints its final line and nothing else. A captured redraw is
-    exempt: it feeds the live display, which already decides what reaches the screen."""
+    overwriting one, so those throttle to one line per _HEADLESS_PROGRESS_INTERVAL per thread. The first
+    call only starts the timer, so a transfer that finishes inside one interval prints only its final
+    line. A captured redraw is exempt: it feeds the live display, which decides what reaches the screen."""
     if not is_headless() or getattr(_capture, 'sink', None) is not None: return True
     now = time.monotonic()
     last = getattr(_progress_at, 'at', None)
@@ -87,20 +85,19 @@ def set_active_display(display):
 
 
 def capture_context():
-    """Snapshot this thread's console-capture state as a (sink, display, tid, build_slot) tuple. A
-    helper thread that runs io_func - SubProcess's reader thread - restores it with capture_to(*ctx).
-    Without that, io_func's console() lines have no sink and leak above the live region instead of
-    feeding the owning display task."""
+    """Snapshot this thread's console-capture state as a (sink, display, tid, build_slot) tuple. A helper
+    thread that runs io_func restores it with capture_to(*ctx). Without that, io_func's console() lines
+    have no sink and leak above the live region instead of feeding the owning display task."""
     return (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
             getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
 
 
 @contextlib.contextmanager
 def capture_to(sink, display=None, tid=None, build_slot=None):
-    """Route THIS thread's console() lines to `sink` (a display task feed) so a job's banners land
-    in its display line instead of tearing the live region. Restores the previous sink on exit.
-    `display`/`tid` let SubProcess report child pids for CPU sampling. `build_slot` is the
-    scheduler barrier so a custom build()'s cmake_build() can self-gate."""
+    """Route THIS thread's console() lines to `sink` for the `with` block, restoring the previous sink on exit.
+    sink: a display task feed, so a job's banners land in its display line instead of tearing the live region
+    display, tid: let SubProcess report child pids for CPU sampling
+    build_slot: the scheduler barrier, so a custom build()'s cmake_build() can self-gate"""
     prev = capture_context()
     _capture.sink, _capture.display, _capture.tid, _capture.build_slot = sink, display, tid, build_slot
     try:
@@ -110,16 +107,16 @@ def capture_to(sink, display=None, tid=None, build_slot=None):
 
 
 def build_barrier(weight: int):
-    """Wrap a heavy compile (cmake_build's build step) so it occupies `weight` budget cores in the
-    active scheduler, suspending the worker until admitted. A no-op (null context) on the serial
-    path / in tests, so mamafile build() call sites need no changes."""
+    """Wrap a heavy compile so it occupies `weight` budget cores in the active scheduler, suspending the
+    worker until admitted. A no-op on the serial path and in tests, so mamafile call sites need no changes.
+    weight: the number of budget cores the compile occupies"""
     factory = getattr(_capture, 'build_slot', None)
     return factory(weight) if factory is not None else contextlib.nullcontext()
 
 
 def report_subprocess(pid: int, started: bool):
-    """SubProcess calls this on child start/exit, routing the pid to this thread's display task
-    (set by capture_to) for process-tree CPU sampling. Best-effort: never breaks a build."""
+    """SubProcess calls this on child start/exit, routing the pid to this thread's display task (set by
+    capture_to) for process-tree CPU sampling. Best-effort: never breaks a build."""
     display = getattr(_capture, 'display', None)
     tid = getattr(_capture, 'tid', None)
     if display is None or tid is None: return
@@ -135,15 +132,13 @@ def console(text:str, color=None, end="\n"):
     global _progress_active
     is_redraw = text.startswith('\r')        # redraws start with \r (cursor reset), see progress()
     clean = text[1:] if is_redraw else text  # \r stripped: line-based sinks/region want a clean line
-    # While a display owns the screen, route EVERYTHING through it - any direct stdout write (even a
-    # \r-redraw or a partial) desyncs the region's cursor math and walks it down the screen. Owned
-    # output feeds the job's task preview. An ownerless full line goes above the region. An ownerless
-    # mid-progress redraw is dropped: the line-based region cannot place it without corruption.
+    # While a display owns the screen, route EVERYTHING through it: any direct stdout write desyncs the
+    # region's cursor math. Owned output feeds the job's task preview, an ownerless full line goes above
+    # the region, and an ownerless mid-progress redraw is dropped: the region cannot place it.
     sink = getattr(_capture, 'sink', None)
     if sink is not None or _active_display is not None:
-        # Split an embedded-newline message into SEPARATE lines: the display is line-based, and a
-        # multi-line string smuggled through as one 'line' shifts the terminal cursor, desyncing the
-        # live region's cursor-up math and stranding running task lines in the scrollback.
+        # Split an embedded-newline message into SEPARATE lines: the display is line-based, and a multi-line
+        # string smuggled through as one 'line' shifts the cursor and strands task lines in the scrollback.
         for part in (clean.split('\n') if '\n' in clean else (clean,)):
             line = get_colored_text(part, color)  # not `colored`: that name is termcolor's, imported above
             if sink is not None: sink(line)
@@ -161,8 +156,7 @@ def console(text:str, color=None, end="\n"):
 
 def progress(text:str, color=None, final=False):
     """Redraw an in-place progress line, always cleared to end-of-line. `final=True` commits it with a
-    newline. Otherwise the cursor stays on the line for the next redraw. A final line always prints.
-    See _redraw_due() for why the rest throttle without a terminal."""
+    newline and always prints, else the cursor stays for the next redraw (throttled, see _redraw_due)."""
     if not final and not _redraw_due(): return
     console('\r' + text, color=color, end='\n' if final else '')
 

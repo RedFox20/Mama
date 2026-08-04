@@ -8,8 +8,7 @@ if TYPE_CHECKING:
 
 
 # The canonical processor name per mama arch. This names what the TARGET runs on, never the host.
-# If the host value leaks in, a project that branches on it compiles host instructions into a
-# cross build. googletest adds -march=x86-64-v3 as soon as it reads x86_64.
+# If the host value leaks in, a project that branches on it compiles host instructions into a cross build.
 SYSTEM_PROCESSORS = {
     'arm64': 'aarch64', 'arm': 'armv7-a', 'x64': 'x86_64', 'x86': 'i686',
     'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el',
@@ -36,12 +35,10 @@ class Platform:
     """One target platform: what to build FOR, and how to find the tools that build it.
 
     Every platform mama supports is a subclass. Exactly one instance lives at `config.platform`.
-    A subclass overrides only what differs from the defaults below. `Linux` overrides a few
-    members. `Android` overrides the most.
+    A subclass overrides only what differs from the defaults below.
 
     A platform describes facts. It never formats a build-system option. `mama/buildsys/` renders
-    `toolchain()` into whatever the active build system needs, so a second build system costs no
-    change here.
+    `toolchain()` into whatever the active build system needs, so a second build system costs no change here.
     """
 
     ## --- identity, declared by the subclass ---
@@ -62,12 +59,11 @@ class Platform:
     cxx20_flag = 'c++20'       ## `c++2a` where the toolchain predates the final C++20 name
     ## clang dropped -dumpfullversion, so only ask a gcc-based toolchain for the full x.y.z version
     compiler_dumpfullversion = True
-    ## A system library differs per platform. Apple links '-framework Foundation'. Linux has a real
-    ## file to find under /usr/lib. Every other platform leaves it to the system linker.
+    ## Apple links a system library as '-framework X'. Linux finds a real file. The rest leave it to the linker.
     syslib_is_framework = False
     syslib_is_searchable = False
-    ## The IDE project extensions this platform's own generator emits, newest format first, and the
-    ## command that opens one. An empty tuple means mama falls back to VSCode.
+    ## The IDE project extensions this platform's generator emits, newest first, and the command that
+    ## opens one. An empty tuple means mama falls back to VSCode.
     ide_project_ext = ()
     ide_project_is_dir = False
     ide_open_command = ''
@@ -90,7 +86,9 @@ class Platform:
 
 
     def validate_arch(self, arch: str):
-        """Raise when `arch` cannot be built for this platform. Called once, after arg parsing."""
+        """Raise when this platform cannot build for the arch. Called once, after arg parsing.
+        arch: the target arch name from the CLI
+        """
         if self.supported_arches and arch not in self.supported_arches:
             raise RuntimeError(f'Unsupported arch={arch} on {self.name} platform!' + \
                                f' Supported={list(self.supported_arches)}')
@@ -105,7 +103,10 @@ class Platform:
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """Point this platform at an explicit toolchain. A root mamafile calls this from settings().
-        A native platform has nothing to find, so the default does nothing."""
+        A native platform has nothing to find, so the default does nothing.
+        toolchain_dir: the toolchain or SDK root to use, searched before the default paths
+        toolchain_file: an explicit build-system toolchain file
+        """
         pass
 
 
@@ -172,8 +173,9 @@ class Platform:
     ## --- flags ---
 
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
-        """Add the compiler flags this platform always needs. `add_flag` keeps an existing value,
-        so a mamafile that already set the flag wins."""
+        """Add the compiler flags this platform always needs.
+        add_flag: (flag, value) sink. It keeps an existing value, so a mamafile that set the flag wins
+        """
         for flag, value in self.cpu_flags.items():
             add_flag(flag, value)
         for define, value in self.compile_defines.items():
@@ -183,7 +185,9 @@ class Platform:
 
 
     def get_ld_flags(self, add_ld_flag: Callable[[str, str], None]):
-        """Add the linker flags this platform always needs."""
+        """Add the linker flags this platform always needs.
+        add_ld_flag: (flag, value) sink, same contract as add_flag in get_cxx_flags
+        """
         pass
 
 
@@ -193,7 +197,9 @@ class Platform:
 
 
     def make_program(self, target=None) -> str:
-        """The build tool cmake drives when the generator picks none. '' lets cmake decide."""
+        """The build tool cmake drives when the generator picks none. '' lets cmake decide.
+        target: the BuildTarget asking, unused by the default
+        """
         return ''
 
 

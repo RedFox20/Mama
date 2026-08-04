@@ -77,12 +77,10 @@ def save_file_if_contents_changed(filename: str, new_contents: str) -> bool:
 
 
 def path_join(first: str, *parts) -> str:
-    """Join with forward/ slashes and keep the path exactly where it points.
-
-    The relative sibling of normalized_join(). abspath() turns a relative path into a machine-specific
-    absolute one. On Windows it prepends the current drive, so `/tmp/x` becomes `C:/tmp/x`. Use this
-    for a path mama only prints, records, or hands to another tool. Use normalized_join() for a path
-    mama opens on this machine."""
+    """Join with forward/ slashes and keep the path exactly where it points. The relative sibling of
+    normalized_join(): abspath() turns a relative path into a machine-specific absolute one, and on
+    Windows it prepends the current drive. Use this for a path mama only prints, records, or hands to
+    another tool. Use normalized_join() for a path mama opens on this machine."""
     result = first.rstrip('/\\')
     for part in parts:
         part = part.lstrip('/\\')
@@ -179,9 +177,8 @@ def remove_tree(dir: str):
     shutil.rmtree(dir)
 
 
-# Subdirs that prove a checkout is already here, even with no file at the top level. `.git` is the
-# strongest of them: a working tree whose root holds only directories used to read as empty. Mama then
-# cloned over a good clone, and git failed with 'already exists and is not an empty directory'.
+# Subdirs that prove a checkout is already here, even with no top-level file. A working tree whose root
+# holds only directories used to read as empty, and mama then cloned over a good clone and failed.
 _OCCUPIED_SUBDIRS = {'.git', 'include', 'src', 'lib', 'bin'}
 
 
@@ -234,15 +231,13 @@ def read_lines_from(file: str) -> List[str]:
 
 
 def git_dir_fingerprint(src_dir: str) -> str:
-    """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD`
-    scoped to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or
-    a missing dir. Lets `mama build` catch in-place source edits - of a git dep clone, or of a
-    local dep tracked by an enclosing repo - without a full status check or reconfigure.
+    """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD` scoped
+    to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or a missing dir.
+    Lets `mama build` catch in-place source edits without a full status check or reconfigure.
 
-    Uses subprocess.run with stderr=DEVNULL, not SubProcess.run / execute_piped: a local
-    source dir may not be under git at all, and the `fatal: not a git repository` noise must
-    not reach the user. Scoping with `-- .` keeps a subfolder of a larger repo from
-    fingerprinting the parent's unrelated changes. Two git calls, near-free on a clean tree."""
+    Uses subprocess.run with stderr=DEVNULL, not SubProcess.run: a local source dir may not be under
+    git at all, and the `fatal: not a git repository` noise must not reach the user. Scoping with `-- .`
+    keeps a subfolder of a larger repo from fingerprinting the parent's unrelated changes."""
     if not src_dir or not os.path.exists(src_dir):
         return ''
     def git(args) -> bytes:
@@ -325,11 +320,11 @@ class ProgressBar:
 
 
 def download_file(remote_url:str, local_dir:str, force=False, message=None, name:str=None):
-    """Downloads remote_url into local_dir.
-    - force=False: use any existing local file without contacting the server.
-    - force=True:  open the connection and compare Content-Length. Skip the body transfer when the
-      sizes match, so an artifactory fetch does not re-download an archive already on disk.
-    - name: optional target name that prefixes the log lines under parallel updates."""
+    """Downloads remote_url into local_dir. Returns the local file path, or None on failure.
+    - force: [False] use any existing local file without contacting the server. When True, open the
+      connection and compare Content-Length, and skip the body transfer when the sizes match.
+    - message: [None] custom log line for the download start
+    - name: [None] target name that prefixes the log lines under parallel updates"""
     local_file = normalized_join(local_dir, os.path.basename(remote_url))
     indent = f'  - {name: <16} ' if name else '    '
     if not force and os.path.exists(local_file):
@@ -350,9 +345,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
         size = urlfile.info()['Content-Length']
         size = int(size.strip()) if size else None
 
-        # Size-match cache: skip the body transfer entirely when the local
-        # file matches the remote Content-Length. Costs one HTTP round-trip,
-        # already paid by opening the connection, and saves the whole body.
+        # size-match cache: one HTTP round-trip, already paid by opening the connection, saves the whole body
         if size is not None and os.path.exists(local_file) \
                 and os.path.getsize(local_file) == size:
             console(f'{indent}Artifactory CACHE (size-match) '
@@ -379,13 +372,10 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
 
 
 def unzip(local_zip: str, extract_dir: str, pwd: str = None):
-    """
-    Unzips an archive into extract_dir, throws on failure.
-    Extracts a file only when its current size or modified time mismatches.
-    Always sets the modified time from the zipfile info.
-    Preserves symlinks and sets the correct file permission attributes.
-    Returns the number of files actually extracted.
-    """
+    """Unzips an archive into extract_dir, throws on failure. Returns the number of files extracted.
+    Extracts a file only when its size or modified time mismatches, preserves symlinks and permissions,
+    and always sets the modified time from the zipfile info.
+    - pwd: [None] archive password"""
     def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
         zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
         # ZIP uses localtime
@@ -449,8 +439,7 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                     if not is_symlink:
                         perm = stat.S_IMODE(zipmember.external_attr >> 16)
                         os.chmod(dst_path, perm)
-                    # Always set the modification date from the zipmember timestamp.
-                    # This avoids needless file changes and full rebuilds.
+                    # set the modified time from the zip timestamp, so nothing reads as changed and rebuilds
                     time = get_zipinfo_datetime(zipmember)
                     mtime = time.timestamp()
                     if System.windows:
@@ -464,10 +453,8 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
 
 
 def try_unzip(local_file:str, extract_dir:str) -> bool:
-    """
-    Attempts to unzip an archive. Returns a tuple (success: bool, num_extracted: int).
-    (True, 0) means every destination file already matched the zip contents.
-    """
+    """Attempts to unzip an archive. Returns (success: bool, num_extracted: int).
+    (True, 0) means every destination file already matched the zip contents."""
     try:
         files_extracted = unzip(local_file, extract_dir)
         return (True, files_extracted)
@@ -517,10 +504,8 @@ def _passes_filter(src_file: str, filter) -> bool:
 
 
 def copy_file(src: str, dst: str, filter=None) -> bool:
-    """
-    Copies a single file when it passes the filter and has changed. Returns True if copied.
-    The filter is a string suffix, a list of suffixes, or a function of the file path.
-    """
+    """Copies a single file when it passes the filter and has changed. Returns True if copied.
+    - filter: [None] a string suffix, a list of suffixes, or a function of the file path"""
     if _passes_filter(src, filter):
         if os.path.isdir(dst):
             dst = path_join(dst, os.path.basename(src))
@@ -532,15 +517,11 @@ def copy_file(src: str, dst: str, filter=None) -> bool:
 
 
 def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) -> bool:
-    """
-    Copies an entire dir. Copies each file only when it passes the filter and has changed.
+    """Copies an entire dir. Copies each file only when it passes the filter and has changed.
     Returns True if any file was copied.
-    The filter is a string suffix, a list of suffixes, or a function of the file path.
-    If remap_root_dirname is True, src_dir contents map directly into out_dir, which
-    renames the source directory to out_dir's basename.
-    Example: copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True)
-             copies src/* -> include/mylib/* instead of src/* -> include/mylib/src/*
-    """
+    - filter: [None] a string suffix, a list of suffixes, or a function of the file path
+    - remap_root_dirname: [False] map src_dir contents directly into out_dir, so
+      copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True) copies src/* -> include/mylib/*"""
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
     if not os.path.exists(out_dir):
@@ -566,10 +547,8 @@ def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) 
 
 
 def copy_if_needed(src: str, dst: str, filter=None) -> bool:
-    """
-    Copies src -> dst dir or file when needed. Returns True if anything was copied.
-    The filter is a string suffix, a list of suffixes, or a function of the file path.
-    """
+    """Copies src -> dst dir or file when needed. Returns True if anything was copied.
+    - filter: [None] a string suffix, a list of suffixes, or a function of the file path"""
     if os.path.isdir(src):
         return copy_dir(src, dst, filter)
     else:
@@ -577,11 +556,9 @@ def copy_if_needed(src: str, dst: str, filter=None) -> bool:
 
 
 def is_network_error(e: Exception) -> bool:
-    """
-    Returns True only if the exception clearly indicates network unavailability
-    (DNS failure, connection refused/reset, timeout). Returns False for auth
-    errors (SSH key rejected, HTTP 401/403), HTTP 404, and anything ambiguous.
-    """
+    """True only if the exception clearly indicates network unavailability: DNS failure, connection
+    refused or reset, timeout. False for auth errors (SSH key rejected, HTTP 401/403), HTTP 404,
+    and anything ambiguous."""
     import subprocess, socket
     from urllib.error import HTTPError, URLError
 

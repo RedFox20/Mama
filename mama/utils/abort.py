@@ -18,8 +18,8 @@ _reason = ''
 
 
 def request(reason: str):
-    """Stage 1: stop every job that has not started yet. Idempotent. The FIRST reason stays, because
-    that is the cause the user must read. A later failure is only a consequence of it."""
+    """Stage 1: stop every job that has not started yet. Idempotent.
+    reason: the cause the user must read. The FIRST reason stays, a later failure is only a consequence."""
     global _reason
     with _lock:
         if _requested.is_set(): return

@@ -6,8 +6,7 @@ import pytest
 
 _MAMA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'mama')
 _SPAWN = re.compile(r'subprocess\.(run|Popen|check_output|call|check_call)\(|os\.(system|popen)\(')
-# Every raw spawn that is allowed, and why. sub_process.py IS the wrapper. ssh must stay silent,
-# because ssh warns once per bad ssh_config line. The two git probes swallow an expected `fatal:`.
+# Allowed raw spawns: sub_process.py IS the wrapper, ssh warns per bad ssh_config line, the git probes swallow a `fatal:`.
 _ALLOWED = {'utils/sub_process.py', 'utils/ssh_multiplex.py', 'types/git.py', 'util.py'}
 
 
@@ -37,8 +36,7 @@ def test_every_allowed_spawn_captures_stderr():
             call = ' '.join(lines[n - 1:n + 1])  # keyword args often wrap onto the next line
             if 'stderr=' in call or 'capture_output' in call: continue
             leaks.append(f'{rel}: {line.strip()}')
-    # Two stay by design: the no-capture Popen (io_func=None hands the child the real terminal) and
-    # execute(), the interactive launcher for `code` / `open` / a prompting apt-get. Pinned by code,
-    # not by line number, so an edit above them does not fail this test.
+    # Two stay by design: the no-capture Popen (io_func=None hands the child the real terminal) and the interactive
+    # execute(). Pinned by code, not by line number, so an edit above them does not fail this test.
     assert leaks == ['utils/sub_process.py: self.process = subprocess.Popen(args, cwd=cwd, env=env)',
                      'utils/sub_process.py: retcode = os.system(command)']

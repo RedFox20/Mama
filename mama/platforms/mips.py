@@ -18,7 +18,7 @@ class Mips(Platform):
     default_arch = 'mipsel'
     supported_arches = ('mips', 'mipsel', 'mips64', 'mips64el')
     # mipsel keeps the bare `mips` dir, because it is the default and every existing package uses it.
-    # The other three used to share it, so a big-endian build overwrote a little-endian one in place.
+    # Every other arch gets its own dir, so two endian variants never overwrite each other in place.
     build_dirs = {'mipsel': 'mips', 'mips': 'mipsbe', 'mips64': 'mips64', 'mips64el': 'mips64el'}
     platform_define = 'MIPS'
     compile_defines = {'MIPS': '1'}
@@ -117,8 +117,7 @@ class Mips(Platform):
         prefix = self.compiler_prefix()
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', tool_prefix=prefix,
-                         # ONLY, not NEVER: a MIPS toolchain ships its own binutils and cmake must find
-                         # them in the toolchain, never the host's
+                         # ONLY, not NEVER: the toolchain ships its own binutils, never use the host's
                          find_root_program='ONLY',
                          toolchain_file=self.toolchain_file or '', toolchain_file_is_complete=True)
 

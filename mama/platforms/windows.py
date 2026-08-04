@@ -8,8 +8,7 @@ from mama.utils.system import System, console
 from mama.utils.sub_process import execute_piped
 
 
-# Where Visual Studio installs itself, newest first. vswhere.exe answers this properly, so these are
-# only the fallback for a machine where the installer is missing.
+# Visual Studio install roots, newest first. Only the fallback for a machine with no vswhere.exe.
 VS_VARIANTS = ('Enterprise', 'Professional', 'Community')
 VS_ROOTS = [f'C:\\Program Files\\Microsoft Visual Studio\\{v}' for v in ('18', '2022')] + \
             [f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{v}' for v in ('2019', '2017')]
@@ -52,8 +51,7 @@ def vswhere_property(name: str) -> str:
 def find_visualstudio(verbose=False) -> str:
     """The Visual Studio install root. Raises when there is none: every MSVC path derives from it."""
     def find():
-        # inside the memo, so mama reports the detection once. A print per caller wrote the same line
-        # 8 times into one verbose build log.
+        # inside the memo, so the detection prints once, not once per caller
         vspath = vswhere_property('installationPath')
         if not vspath or not os.path.exists(vspath):
             variants = [f'{root}\\{v}' for root in VS_ROOTS for v in VS_VARIANTS]
@@ -71,9 +69,10 @@ def find_visualstudio(verbose=False) -> str:
 
 def latest_msvc_toolset(tools_root: str) -> str:
     """Newest MSVC toolset dir that still has the x64 cl.exe, or '' when none does. An upgrade can
-    leave the old version's dir behind without binaries, and os.listdir order is unspecified. So
-    sort by version, numerically because 14.51 > 14.9, and skip a toolset whose cl.exe is gone.
-    Every msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
+    leave a version dir behind without binaries, so sort by version, numerically because 14.51 > 14.9,
+    and skip a toolset whose cl.exe is gone. Every msvc_* path assumes bin/Hostx64/x64.
+    tools_root: the `VC\\Tools\\MSVC` dir that holds the versioned toolsets
+    """
     try:
         dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
     except OSError:
@@ -99,8 +98,7 @@ class Windows(Platform):
     supports_coverage_report = False
 
     def _build_toolchain(self) -> Toolchain:
-        # An x86 target needs the 32-bit host toolset. Everything else about the compiler comes from
-        # the toolset and the Windows SDK, so mama names no compiler path here.
+        # An x86 target needs the 32-bit host toolset. The toolset and the SDK pick the compiler, so mama names none.
         return Toolchain(system_name=self.system_name, host_toolset='x86' if self.arch() == 'x86' else '')
 
 

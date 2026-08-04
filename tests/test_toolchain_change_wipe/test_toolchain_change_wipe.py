@@ -120,8 +120,7 @@ def test_unfingerprinted_moved_compiler_heals_once(tmp_path):
 
 
 def test_unfingerprinted_unchanged_compiler_is_adopted_not_wiped(tmp_path):
-    # THE anti-mass-invalidation guarantee: a warm dir with an unchanged toolchain and no fingerprint yet is
-    # adopted (fingerprint recorded), never wiped.
+    # THE anti-mass-invalidation guarantee: a warm dir with an unchanged toolchain and no fingerprint is adopted, never wiped.
     cxx = tmp_path / 'clang++'; cxx.write_text('#!/bin/sh\n')
     t, dep = make_configured_target(tmp_path, compiler=(str(cxx), str(cxx), '21'))
     _valid_cache(t.build_dir(), cxx=str(cxx))

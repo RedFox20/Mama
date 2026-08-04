@@ -15,20 +15,13 @@ _SHARED_FILES = ['CMakeSystem.cmake']
 _VS_FILES = ['VCTargetsPath.txt']  # VS-generator MSBuild probe result (reusable, toolset-bound)
 _MANIFEST = 'seed.json'
 # Cache entries the injected CMakeCache.txt must carry, replayed verbatim from the probe's own cache.
-#
-# CMakeDetermineCompilerABI writes the ABI pair to the CACHE, not to the compiler module. Seeding skips
-# that probe, so without the replay every install-RPATH add_executable fails with 'not supported ...
-# unless on an ELF-based platform'.
-#
-# The compiler and toolchain entries are here for a sharper reason. mama passes -DCMAKE_C_COMPILER and
-# -DCMAKE_CXX_COMPILER on every configure. When the injected cache omits them, cmake reports changed
-# variables, deletes the cache MID-CONFIGURE and re-runs. The second pass no longer applies
-# CMAKE_TOOLCHAIN_FILE, so a cross build silently re-detects as the host and compiles with host flags.
+# The ABI probe writes its result to the CACHE only, and seeding skips the probe, so without the
+# replay every install-RPATH executable fails. The compiler and toolchain entries must match the -D
+# options mama passes, or cmake wipes the cache MID-CONFIGURE and re-detects a cross build as the host.
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
                       'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
 
-# Bumped when the seed shape changes. An older seed has the SAME fingerprint but replays too few cache
-# lines, so is_valid rejects it and the probe runs again.
+# Bumped when the seed shape changes. is_valid rejects an older format, so the probe runs again.
 _SEED_FORMAT = 3
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds. The fingerprint is the real gate. This TTL is only a backstop.
 
@@ -102,11 +95,9 @@ def compiler_from_module(build_files_dir: str, lang: str) -> str:
 
 def usable_compilers(build_files_dir: str) -> dict:
     """{lang: compiler path} for the core languages, or {} when any of them is unusable.
-
-    Mama writes a seed once and every later build dir reuses it. One bad seed therefore costs the slow
-    probe AND every build after it. cmake records an empty CMAKE_<lang>_COMPILER when detection fails,
-    and a build dir seeded from that compiles with "". Read the value back and stat it. A seed then
-    names a compiler this machine has, or mama writes no seed at all."""
+    cmake records an empty CMAKE_<lang>_COMPILER when detection fails, and every build dir seeded
+    from that compiles with "". Read the value back and stat it, so a seed always names a compiler
+    this machine has, or mama writes no seed at all."""
     compilers = {}
     for lang in _CORE_LANGS:
         compiler = compiler_from_module(build_files_dir, lang)
@@ -117,12 +108,9 @@ def usable_compilers(build_files_dir: str) -> dict:
 
 def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
     """_REPLAY_CACHE_KEYS lines verbatim from a configured dir's CMakeCache.txt, for inject() to replay.
-
-    A toolchain file that names the compiler leaves NO CMAKE_<lang>_COMPILER in the cache, because
-    cmake caches only what it detected itself. A seeded dir skips detection, so the cache stays empty
-    too. A CMakeLists that later runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset then clears
-    the compiler, and every ninja rule compiles with "". `compilers` carries what usable_compilers()
-    read from the modules, so the cache always names the same compiler."""
+    cmake caches only what it detected itself, so a toolchain file or a seeded dir leaves NO
+    CMAKE_<lang>_COMPILER entry, and a project that resets the compiler from an unset env var then
+    compiles with "". `compilers` fills the missing entries, so the cache always names the compiler."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: text = ''
     lines = [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
@@ -134,15 +122,18 @@ def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
 
 
 def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build_dir='', clock=time.time) -> bool:
-    """Capture detection artifacts from a freshly-configured `build_files_dir`
-    (`<build>/CMakeFiles/<ver>`) into `seed_dir`. Returns False when the detection is not usable. Each
-    file lands via a temp + os.replace so a concurrent reader never copies a half-written file. The
-    manifest records three things. `fingerprint` lets a load re-verify the toolchain. `probe` names the
-    compiler binary whose disappearance invalidates the seed. `compilers` is what a load re-checks."""
+    """Capture detection artifacts from a freshly configured build dir into `seed_dir`. Returns False
+    when the detection is not usable. Each file lands via a temp + os.replace, so a concurrent
+    reader never copies a half-written file.
+    build_files_dir: the `<build>/CMakeFiles/<ver>` dir of a completed configure
+    fingerprint: recorded so a load can re-verify the toolchain
+    probe: the compiler binary whose disappearance invalidates the seed
+    build_dir: supplies the CMakeCache.txt lines that inject() replays
+    clock: time source, default is time.time
+    """
     langs = detected_langs(build_files_dir)
     compilers = usable_compilers(build_files_dir)
-    # never publish a half-detected toolchain, one missing a core language, or one naming a compiler
-    # this machine does not have
+    # never publish a half-detected toolchain or one naming a compiler this machine does not have
     if not covers_core_langs(langs) or detection_is_partial(build_files_dir) or not compilers: return False
     os.makedirs(seed_dir, exist_ok=True)
     copied = []
@@ -186,9 +177,8 @@ def is_valid(manifest, fingerprint: str) -> bool:
 
 
 def gc_stale(seed_root: str, log=lambda m: None):
-    """One cheap sweep of sibling seeds: drop any that cannot be valid anymore - a legacy seed from an
-    older mama (no fingerprint recorded) or one whose compiler binary is gone (an upgraded or removed
-    toolset). The sweep never touches a seed for a still-installed toolchain, so alternate-config seeds survive."""
+    """One cheap sweep of sibling seeds: drop any that cannot be valid anymore, a legacy seed with no
+    fingerprint or one whose compiler binary is gone. A seed for a still-installed toolchain survives."""
     try: names = os.listdir(seed_root)
     except OSError: return
     for name in names:
@@ -218,11 +208,10 @@ def load(seed_dir: str, ttl=BACKSTOP_TTL, clock=time.time):
 
 
 def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str) -> bool:
-    """Make a fresh `build_dir` look already-configured so cmake skips ALL detection. Copies the
+    """Make a fresh `build_dir` look already configured, so cmake skips ALL detection. Copies the
     captured toolchain files into CMakeFiles/<ver>, then writes a CMakeCache.txt with the
-    PLATFORM_INFO_INITIALIZED marker and CMAKE_HOME_DIRECTORY. Returns False and writes NO marker when
-    the seed is empty, names no live compiler, or vanished mid-copy under a concurrent heal. The
-    caller then detects normally, instead of trusting a marker with no compiler files."""
+    PLATFORM_INFO_INITIALIZED marker and CMAKE_HOME_DIRECTORY. Returns False and writes NO marker
+    when the seed is empty, names no live compiler, or vanished mid-copy. The caller then detects normally."""
     manifest = load(seed_dir, ttl=float('inf'))
     if manifest and not _compilers_are_live(manifest): return False
     os.makedirs(build_files_dir, exist_ok=True)
@@ -237,8 +226,7 @@ def inject(seed_dir: str, build_dir: str, build_files_dir: str, src_dir: str) ->
     if not copied: return False
     cache = (f'CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1\n'
              f'CMAKE_HOME_DIRECTORY:INTERNAL={normalized_path(src_dir)}\n')
-    # ABI facts the skipped probe would set, plus the compiler/toolchain entries whose absence would
-    # make cmake reset the cache mid-configure and lose the toolchain file (see _REPLAY_CACHE_KEYS).
+    # ABI facts plus the compiler entries whose absence resets the cache mid-configure, see _REPLAY_CACHE_KEYS
     cache += ''.join(f'{line}\n' for line in manifest.get('cache_lines', []))
     with open(path_join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f:
         f.write(cache)
@@ -251,8 +239,8 @@ def purge(seed_dir: str):
 
 
 class Coordinator:
-    """Builds ONE seed per fingerprint from a synthetic C+CXX probe, then injects it into every fresh build
-    dir. The probe, not the first real target, is what makes it safe: the seed always covers both core
+    """Builds ONE seed per fingerprint from a synthetic C+CXX probe, then injects it into every fresh
+    build dir. The probe, not the first real target, makes it safe: the seed always covers both core
     languages. The election is in-process. A cross-process race only probes twice for identical content."""
 
     def __init__(self, seed_root, fp_fn, paths_fn, probe_fn=None, seed_fn=None, enabled=True, clock=time.time,
@@ -328,8 +316,7 @@ class Coordinator:
                 build_dir, build_files_dir = paths
                 ok = publish(self.seed_dir(target), build_files_dir, fingerprint=fp,
                              probe=self._probe(target), build_dir=build_dir, clock=self._clock)
-                # A refused publish spent the whole probe and gained nothing, so log it. Every build
-                # dir then detects its own toolchain, which is slow but always correct.
+                # a refused publish means every build dir detects its own toolchain: slow but correct, so log it
                 if not ok: self._log(f'compiler-seed probe rejected: {build_files_dir} named no usable compiler')
                 return ok
         except Exception as e:

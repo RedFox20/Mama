@@ -6,7 +6,7 @@ only unbuilt item. Section 5.3 parks it as potentially unnecessary.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a worse problem, in section 2, and P1 and P2 fixed it.
 
-**This document records its own corrections.** Three claims in earlier drafts turned out to be wrong.
+**This document records its own corrections.** Three claims in earlier drafts were wrong.
 Each one is kept next to the thing it was wrong about: the papa.txt blocker (section 4), the network saving
 (section 3.2) and the shared-archive gain (section 3.2). Leaving them in is the point. A reader who wonders whether
 anyone checked gets an answer instead of repeating the work.
@@ -106,9 +106,8 @@ consumer **downloaded** `...-8.0.1`. The result was a permanent cache miss. Ever
 rebuilt, with no warning, and nobody ever used the uploaded artifact. A computed version failed the same
 way, because the reader returned nothing and the download fell back to the commit hash.
 
-Keep this in mind when you extend the model. **Any version input that one side can see and the other
-cannot recreates this defect.** That single test rejects most tempting designs, including every one in
-section 7.
+**Any version input that one side can see and the other cannot recreates this defect.** That single
+test rejects most tempting designs, including every one in section 7.
 
 ---
 
@@ -152,7 +151,7 @@ branch runs depends on runtime state that no reader has before the clone.
 #### Why `mamafile_version.py` and not `types/git.py`  [V]
 
 The scan landed in `Git` because the old one-line regex lived there. Almost none of it is git work:
-parsing Python, judging a declaration and warning about it hold no git concept at all. Only
+parsing Python, judging a declaration and warning about it hold no git concept. Only
 `Git.fetch_self_version_from_remote` is genuinely git. It fetches the text for a dep that has no clone
 yet, and then asks `mamafile_version` what the text means.
 
@@ -180,7 +179,7 @@ Tests: `tests/test_version_from_pin/`.
 side always read the same declared value. The rename cannot drift into the section 2 defect.
 
 **Migration:** every tag-pinned and every branch-pinned dep gets a new archive name once, and the first
-build after it rebuilds and republishes them. How wide that wave is depends entirely on how a project
+build after it rebuilds and republishes them. How wide that wave is depends on how a project
 declares its deps. A tree of unpinned deps renames nothing.
 
 #### Two claims an earlier draft got wrong  [V]
@@ -230,9 +229,9 @@ qcoro,https://x/qcoro.git,,v0.13.0,mamadeps/qcoro.py,version_from=commit,LGPL
 
 So the mechanism exists, and no cached package would need a rewrite.
 
-**Mama is not going to use it.** section 5 shows that every case a mode would serve already has an answer. An
-unused mode is one more naming input a future reader must understand. Keep this section as the record of
-how a keyed field would work, in case a real case appears.
+**Mama will not use it.** Section 5 shows that every case a mode would serve already has an answer.
+An unused mode is one more naming input a future reader must understand. Keep this section as the
+record of how a keyed field would work, in case a real case appears.
 
 ## 5. Why no consumer-side version argument is needed  [V]
 
@@ -275,8 +274,7 @@ section 6. P1, P2 and 5.1 shrank its value. The literal covers a fixed version, 
 and an override mamafile covers a transformed one. What remains is a dep whose version lives in a file
 that only that dep knows about, and whose mamafile the consumer does not own.
 
-**Recommendation:** leave section 6 unbuilt until such a dep actually appears. Every case seen so far is
-already covered.
+**Recommendation:** leave section 6 unbuilt until such a dep appears.
 
 ## 6. `def version(self)`, executed in a probe context  [?]
 
@@ -372,4 +370,3 @@ Open work outside this document:
 
 - None. `feature/improved-version-parsing` is merged to `master` (PR #33). The first build after
   the merge rebuilds the deps section 3.2 renamed.
-- Every case that has come up so far is covered.

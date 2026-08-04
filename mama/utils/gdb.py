@@ -10,6 +10,9 @@ if TYPE_CHECKING:
 
 
 def filter_gdb_arg(args: str, default_gdb=False) -> Tuple[str, bool]:
+    """Strip a leading 'gdb' or 'nogdb' token. Returns (remaining_args, use_gdb).
+    args: the command arguments to filter
+    default_gdb: the use_gdb result when args does not choose"""
     if 'nogdb' == args: return '', False
     if 'nogdb ' in args: return args.replace('nogdb ', ''), False
     if 'gdb' == args: return '', True
@@ -25,6 +28,11 @@ def _is_running_leak_sanitizer(target: BuildTarget):
 
 
 def run_gdb(target: BuildTarget, command: str, src_dir=True):
+    """Run an executable under the platform debugger, with a backtrace on crash. A leak or address
+    sanitizer build runs without the debugger, which would disable LEAK detection.
+    target: the BuildTarget whose platform and directories apply
+    command: the executable and its arguments
+    src_dir: if True, the command runs relative to the source dir, else the build dir"""
     platform = target.config.platform
     if not platform.is_host_runnable:
         console(f'Cannot run tests for a {platform.name} build: this machine cannot execute them.')

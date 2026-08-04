@@ -26,14 +26,12 @@ class TestVariantSuffix:
         assert _suffix(long_name) == '-' + short
 
     def test_each_sanitizer_gets_its_own_field(self):
-        # One spelling for the build dir and the archive name. Nothing parses these names back into
-        # fields, so '-' can separate every token in both.
+        # Nothing parses these names back into fields, so '-' can separate every token in both names.
         assert _suffix('address,undefined') == '-asan-ubsan'
         assert _suffix('thread,leak') == '-tsan-lsan'
 
     def test_the_sanitizer_order_is_preserved(self):
-        # The suffix keeps the order the user passed. Nothing in the build cares, and a
-        # deterministic function of the input is easier to reproduce.
+        # The suffix keeps the order the user passed: a deterministic function of the input is easier to reproduce.
         assert _suffix('undefined,address') == '-ubsan-asan'
 
     def test_unknown_sanitizer_passed_through_verbatim(self):
@@ -79,8 +77,7 @@ class TestArchiveName:
         assert name == 'pkg-linux-24-gcc14-x64-debug-ubsan-abc1234'
 
     def test_a_coverage_build_no_longer_shares_the_plain_name(self):
-        # A coverage build produces instrumented binaries. It used to upload under the plain name and
-        # serve them to every consumer that asked for a normal build.
+        # A coverage build produces instrumented binaries, so the plain name would serve them to normal consumers.
         name = art.artifactory_archive_name(_make_target(coverage='default'))
         assert name == 'pkg-linux-24-gcc14-x64-release-cov-abc1234'
 

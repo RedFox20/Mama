@@ -36,7 +36,7 @@ def test_has_source_content_ignores_what_mama_generated(tmp_path):
     d.mkdir()
     assert not has_source_content(str(d))
     (d / 'mama.cmake').write_text('')
-    assert not has_source_content(str(d))             # the exact shape of the reported broken ffmpeg dir
+    assert not has_source_content(str(d))             # mama's own proxy file is not source
     (d / '.git').mkdir()
     assert not has_source_content(str(d))             # a half-finished clone has no working tree to lose
     (d / 'ffmpeg.c').write_text('')
@@ -44,8 +44,7 @@ def test_has_source_content_ignores_what_mama_generated(tmp_path):
 
 
 def test_has_source_content_sees_source_hidden_in_subdirs(tmp_path):
-    # is_dir_empty only names the subdirs that prove a checkout. An rsync'd tree of project-specific
-    # dirs still reads as 'empty' to it, so the wipe guard must not inherit that gap.
+    # is_dir_empty only names the subdirs that prove a checkout, so the wipe guard must not inherit that gap.
     d = tmp_path / 'dep'
     (d / 'libavcodec').mkdir(parents=True)
     assert is_dir_empty(str(d)) and has_source_content(str(d))
@@ -68,7 +67,7 @@ def test_a_dir_with_nothing_in_it_is_still_empty(tmp_path):
 
 
 def test_a_dir_holding_only_mama_generated_files_heals(tmp_path):
-    # the reported case: ffmpeg/ held nothing but the mama.cmake proxy mama wrote there itself
+    # a dep dir can hold nothing but the mama.cmake proxy mama wrote there itself
     dep = make_mock_dep(tmp_path)
     _seed(dep, 'mama.cmake')
     assert _checkout(dep) == (True, True, True)
@@ -81,8 +80,7 @@ def test_a_broken_git_with_nothing_checked_out_heals(tmp_path):
 
 
 def test_an_rsynced_sandbox_copy_without_git_is_never_clobbered(tmp_path):
-    # Sandbox builds rsync a dep's source (often excluding .git) and may edit it. A re-clone over
-    # that destroys the sandbox the local development depends on.
+    # Sandbox builds rsync a dep's source without .git and may edit it. A re-clone over that destroys the sandbox.
     dep = make_mock_dep(tmp_path)
     _seed(dep, 'mama.cmake', 'ffmpeg.c')
     assert _checkout(dep) == (False, False, False)
@@ -122,8 +120,7 @@ def _wipe_call(dep, broken=False):
 
 
 def test_an_automatic_heal_wipes_only_the_source(tmp_path):
-    # Every platform shares dep_dir: a tree broken for THIS one must not delete a sibling's
-    # artifactory package/shim/build output - a concurrent `mama <host> build` may be reading it.
+    # Every platform shares dep_dir: a concurrent `mama <host> build` may be reading a sibling's package/shim/build output.
     dep = make_mock_dep(tmp_path)
     _seed(dep, '.git')
     assert _wipe_call(dep, broken=True).kwargs == {'source_only': True}

@@ -207,8 +207,7 @@ def test_cpu_sampling_updates_task_and_renders_percent():
 
 
 def test_late_cpu_sample_does_not_resurrect_a_detached_task():
-    # The sampler runs off-lock. If the task detaches during that window, the sampler must NOT write
-    # back the stale CPU it computed - else a dead subprocess shows as busy until the task finishes.
+    # The sampler runs off-lock: a stale CPU written after a mid-scan detach shows a dead subprocess as busy until finish.
     d, _, _ = _disp(isatty=True, sample_interval=999)
     d.start_task(1, 'build', 'x'); d.attach_pid(1, 7)
     def sampler(snap):
@@ -277,8 +276,7 @@ def test_set_pending_shows_then_clears_the_blocked_task_line():
 
 
 def test_render_skips_when_another_thread_is_drawing():
-    # A non-forced render must not block while another thread holds the render lock (that block would
-    # stall the subprocess reader -> fill the pipe -> stall the compiler). It skips, a later draw covers it.
+    # A blocked non-forced render stalls the reader -> fills the pipe -> stalls the compiler. Skip, a later draw covers it.
     d, out, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'x'); clk.tick(0.2)
     d._render_lock.acquire()
@@ -313,8 +311,7 @@ def test_build_barrier_is_noop_without_scheduler_else_uses_slot():
 
 
 def test_multiline_console_reaches_the_sink_as_separate_lines():
-    # A multi-line message smuggled through as ONE line shifts the terminal cursor and desyncs the
-    # live region's cursor-up math, stranding running task lines in the scrollback.
+    # A multi-line message passed as ONE line shifts the cursor and desyncs the live region's cursor-up math.
     sink = []
     with system.capture_to(sink.append):
         system.console('\n\n#### CMakeBuild myapp')
@@ -415,8 +412,7 @@ def test_scan_diagnostics_caps_and_counts_full_totals():
 
 
 def test_scan_diagnostics_catches_cmakes_error_at_form():
-    # 'CMake Error at <file>' has no colon after the severity, so the generic form missed it entirely -
-    # which is how a failing target's real error went absent from the end-of-build summary.
+    # 'CMake Error at <file>' has no colon after the severity, so the generic form alone misses it.
     diags, n_err, n_warn = scan_diagnostics([
         'CMake Error at /usr/share/cmake-3.28/Modules/FindOpenSSL.cmake:668 (find_package):',
         'CMake Warning at CMakeLists.txt:5 (message):'])
@@ -498,7 +494,7 @@ def test_a_cmake_block_keeps_its_body_not_just_the_header():
     assert (n_err, n_warn) == (0, 1)
     text = diags[0][1]
     assert text.startswith('CMake Warning:')
-    assert 'Manually-specified variables' in text and 'BUILD_APPS' in text  # the body used to be dropped
+    assert 'Manually-specified variables' in text and 'BUILD_APPS' in text  # the body must survive, not only the header
     assert 'Configuring done' not in text                                   # the blank pair ends the block
 
 
@@ -522,8 +518,7 @@ def test_a_runaway_cmake_block_is_capped_and_says_so():
 
 
 def test_a_render_after_close_cannot_redraw_over_the_final_output():
-    # the CPU sampler can outlive close()'s 1s join (a slow process scan) and would otherwise redraw
-    # the region below the build summary, with _drawn already reset to 0
+    # the CPU sampler can outlive close()'s 1s join and would redraw the region below the build summary
     d, out, clk = _disp(isatty=True)
     d.start_task('t', 'build', 'protobuf'); clk.tick(2.0)
     d.close()

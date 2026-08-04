@@ -97,8 +97,7 @@ def _run_child(*args):
     that lands during interpreter startup kills the child before it installs its own handler."""
     lines = []
     def run():
-        # A killed child can raise out of run() (the reader hits a closed PTY). Unhandled in a thread,
-        # pytest reports that against whichever test is running, as a teardown error.
+        # A killed child can raise out of run() (reader hits a closed PTY). Unhandled in a thread, pytest logs a teardown error.
         try: SubProcess.run([PY, *args], io_func=lambda p, l: lines.append(l))
         except BaseException: pass
     threading.Thread(target=run, daemon=True).start()
@@ -120,8 +119,7 @@ _STUBBORN = ('import signal, time\n'
              'print("ready", flush=True)\n'
              'time.sleep(30)\n')
 
-# argv: the file the kid touches once it ignores SIGINT, then the file this parent writes the kid pid
-# to. The parent itself stops on the request, so only the group sweep can stop the kid.
+# argv: the kid's SIGINT-ignored marker file, then the kid pid file. The parent stops, so only the group sweep stops the kid.
 _PARENT_OF_A_STUBBORN_KID = '''
 import os, subprocess, sys, time
 ready, pidfile = sys.argv[1], sys.argv[2]
@@ -188,8 +186,7 @@ def test_a_failed_load_stops_the_clones_already_running():
     start = time.monotonic()
     with pytest.raises(SystemExit):
         dc.load_dependency_chain(root)
-    # The clones stop on the request, so the grace never runs out. Without the stop this waits the
-    # full 10s: the pool's shutdown drains every clone it started.
+    # The clones stop on the request, so the grace never runs out. Without the stop, the pool shutdown drains the full 10s clones.
     assert time.monotonic() - start < 3.0
 
 

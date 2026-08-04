@@ -70,11 +70,8 @@ class BuildTarget:
         self.dep  = dep
         self.args = [] # user defined args for this target (must be a list)
         self.install_target = 'install'
-        # Pins the last field of the artifactory archive name, in place of the commit hash. It MUST be a
-        # single raw string literal. Mama names a package before it clones anything. The reader,
-        # mamafile_version.py, reads this value from the mamafile TEXT and never runs the file. That
-        # reader cannot see a computed value, and it stops at the first assignment. Either shape makes
-        # the download look for one name while the upload publishes another. See the README, "Package naming".
+        # Pins the last field of the artifactory archive name, in place of the commit hash. It MUST be ONE
+        # raw string literal: mamafile_version.py reads it from the mamafile TEXT and never runs the file.
         self.version = ''
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
@@ -183,8 +180,8 @@ class BuildTarget:
         The child owns its own config, so this process builds no foreign config. When this build IS
         the host, returns the local build path.
 
-        - relpath -- binary path relative to the build dir, '.exe' is appended on Windows
-        - auto_build -- [True] bootstrap the host build on a miss, else return None"""
+        - relpath: binary path relative to the build dir, '.exe' is appended on Windows
+        - auto_build: [True] bootstrap the host build on a miss, else return None"""
         if System.windows and not os.path.splitext(relpath)[1]:
             relpath += '.exe'  # host tools are executables, add the suffix once for every caller
         host = self.config.host_platform_name()
@@ -199,12 +196,10 @@ class BuildTarget:
         if self.config.print:
             console(f'  - {self.name: <16} bootstrapping host binary: mama {host} build target={self.name}', color=Color.BLUE)
         # sys.executable + the mama.main entry, because there is no __main__.py for `python -m mama`.
-        # cwd is the root project so the child resolves the same dependency graph. The child computes
-        # the correct host archive name and does fetch-or-build, so this cross config never guesses it.
+        # cwd is the root project, so the child resolves the same dependency graph.
         argv = [sys.executable, '-c', 'from mama.main import __main__; __main__()', host, 'build', f'target={self.name}']
-        # io_func is MANDATORY here. Without it the child inherits our stdout, and on a pty it draws
-        # its OWN live region over ours. The two fight for the same rows and strand our task lines in
-        # the scrollback. Captured, the output feeds this target's display line, log and failure replay.
+        # io_func is MANDATORY: an inherited pty lets the child draw its own live region over ours.
+        # Captured, the output feeds this target's display line, log and failure replay.
         def child_output(p, line: str):
             line = line.rstrip()
             if line: console(f'  {self.name: <16} | {line}')
@@ -225,9 +220,8 @@ class BuildTarget:
         The ENV variables `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS`
         override the username and password, for use in build systems.
 
-        - ftp_url -- address of the Artifactory FTP server
-        - auth -- ['store'] 'store' keeps the credentials in the secure keyring of the system.
-                  If authentication fails, mama clears the stored credentials.
+        - ftp_url: address of the Artifactory FTP server
+        - auth: ['store'] 'store' keeps the credentials in the system keyring. Failed authentication clears them.
         ```
             def dependencies(self):
                 self.set_artifactory_ftp('myserver.com', auth='store')
@@ -248,12 +242,11 @@ class BuildTarget:
         If the dependency folder has no `mamafile.py`, provide your own
         relative or absolute mamafile path.
 
-        - name -- name of the dependency
-        - source_dir -- path of the local folder
-        - mamafile -- [None] optional custom mamafile path
-        - always_build -- [False] always build this dependency. Useful when chaining
-                          sub-projects that do not depend on each other.
-        - args -- [[]] extra arguments for the target mamafile, read back via `self.args`
+        - name: name of the dependency
+        - source_dir: path of the local folder
+        - mamafile: [None] optional custom mamafile path
+        - always_build: [False] always build this dependency, for chained sub-projects that do not depend on each other
+        - args: [[]] extra arguments for the target mamafile, read back via `self.args`
         ```
         self.add_local('zlib', '3rdparty/zlib')
         self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
@@ -275,13 +268,13 @@ class BuildTarget:
 
         For a PUBLIC repository, use only an `https://` URL to prevent clone failures.
 
-        - git_url -- the git URL to clone from
-        - git_branch -- [''] branch to check out
-        - git_tag -- [''] tag to check out
-        - git_commit -- [''] commit to check out, used as the tag when git_tag is empty
-        - mamafile -- [None] optional custom mamafile path
-        - shallow -- [True] use a shallow clone
-        - args -- [[]] extra arguments for the child target, read back via `self.args`
+        - git_url: the git URL to clone from
+        - git_branch: [''] branch to check out
+        - git_tag: [''] tag to check out
+        - git_commit: [''] commit to check out, used as the tag when git_tag is empty
+        - mamafile: [None] optional custom mamafile path
+        - shallow: [True] use a shallow clone
+        - args: [[]] extra arguments for the child target, read back via `self.args`
         ```
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git')
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git', git_branch='master')
@@ -304,9 +297,9 @@ class BuildTarget:
 
         If the remote artifactory does not have this package, the build stops with an error.
 
-        - version -- ['latest'] mama picks the matching remote package for this version
-        - fullname -- [None] use only this exact artifactory package as an override.
-                      Useful for source-only packages and for platform-specific configuration.
+        - version: ['latest'] mama picks the matching remote package for this version
+        - fullname: [None] use only this exact artifactory package as an override,
+          for source-only packages and for platform-specific configuration
         ```
         self.add_artifactory_pkg('mylib', version='latest')
         self.add_artifactory_pkg('mylib', version='df76b66')
@@ -336,7 +329,7 @@ class BuildTarget:
     def find_target(self, name, recursive=True):
         """
         Finds a child BuildTarget by name.
-        - recursive -- [True] also search the children of children
+        - recursive: [True] also search the children of children
         ```
             zlib = self.find_target('zlib')
         ```
@@ -366,12 +359,12 @@ class BuildTarget:
     def inject_products(self, dst_dep, src_dep, include_path, libs, libfilters=None):
         """
         Injects products from `src_dep` into `dst_dep` as CMake defines.
-        - dst_dep -- name of the dependency that receives the defines
-        - src_dep -- name of the dependency that provides the products
-        - include_path -- name of the include define
-        - libs -- name of the library define
-        - libfilters -- [None] simple substring match over the exported libs.
-                        If nothing matches, mama picks the first exported lib.
+        - dst_dep: name of the dependency that receives the defines
+        - src_dep: name of the dependency that provides the products
+        - include_path: name of the include define
+        - libs: name of the library define
+        - libfilters: [None] simple substring match over the exported libs.
+          If nothing matches, mama picks the first exported lib.
         ```
         self.inject_products('libpng', 'zlib',
                              'ZLIB_INCLUDE_DIR', 'ZLIB_LIBRARY',
@@ -454,8 +447,8 @@ class BuildTarget:
         A project with no build dependencies always rebuilds, so make sure to
         call add_build_dependency() or export_lib().
 
-        - all -- [None] path used on every platform, relative to the build directory
-        - platforms -- per-platform paths, @see select() for the platform names
+        - all: [None] path used on every platform, relative to the build directory
+        - platforms: per-platform paths, @see select() for the platform names
         ```
             self.add_build_dependency('customProduct.dat')
             self.add_build_dependency(windows='custom.lib', linux='libcustom.a')
@@ -514,14 +507,12 @@ class BuildTarget:
             self.export_include('installed/MyLib/include', build_dir=True)
 
         ```
-        - include_path -- the include folder to export
-        - build_dir -- [False] resolve include_path against the build directory
-        - includes_filter -- [None] replaces self.include_glob_filter, the header suffixes deployed
-             during artifactory packaging. This setting applies to the entire target!
-        - as_includes_root -- [False] if set, this include_path is the root of all includes and
-                              mama strips any directory prefix. For example:
-                              self.export_include('src/mylib', as_includes_root='mylib')
-                              -> 'deploy/include/mylib/\\*' instead of 'deploy/include/src/mylib/\\*'
+        - include_path: the include folder to export
+        - build_dir: [False] resolve include_path against the build directory
+        - includes_filter: [None] replaces self.include_glob_filter, the header suffixes deployed
+          during artifactory packaging. This setting applies to the entire target!
+        - as_includes_root: [False] if set, this include_path is the root of all includes and mama strips
+          the directory prefix: 'deploy/include/mylib/\\*' instead of 'deploy/include/src/mylib/\\*'
         """
         if includes_filter is not None:
             self.include_glob_filter = includes_filter
@@ -540,10 +531,10 @@ class BuildTarget:
         self.export_includes(['include', 'src/moreincludes'])
         self.export_includes(['installed/include', 'installed/src/moreincludes'], build_dir=True)
         ```
-        - include_paths -- [['']] the include folders to export
-        - build_dir -- [False] resolve the paths against the build directory
-        - includes_filter -- [None] replaces self.include_glob_filter, the header suffixes deployed
-             during artifactory packaging. This setting applies to the entire target!
+        - include_paths: [['']] the include folders to export
+        - build_dir: [False] resolve the paths against the build directory
+        - includes_filter: [None] replaces self.include_glob_filter, the header suffixes deployed
+          during artifactory packaging. This setting applies to the entire target!
         """
         if includes_filter is not None:
             self.include_glob_filter = includes_filter
@@ -561,9 +552,9 @@ class BuildTarget:
         self.export_lib('mylib.a')                    # from build dir
         self.export_lib('lib/mylib.a', src_dir=True)  # from project source dir
         ```
-        - relative_path -- path of the lib
-        - src_dir -- [False] resolve against the source directory
-        - build_dir -- [True] resolve against the build directory
+        - relative_path: path of the lib
+        - src_dir: [False] resolve against the source directory
+        - build_dir: [True] resolve against the build directory
         """
         if src_dir and build_dir:
             build_dir = False
@@ -577,11 +568,11 @@ class BuildTarget:
         Exports several libs relative to the build directory using EXTENSION MATCHING.
         If src_dir=True, the path is relative to the source directory.
 
-        - path -- ['.'] folder to search
-        - pattern_substrings -- [['.lib', '.a']] substrings that select the files
-        - src_dir -- [False] resolve against the source directory
-        - build_dir -- [True] resolve against the build directory
-        - order -- [None] partial lib names that set the link order, for the Linux linker
+        - path: ['.'] folder to search
+        - pattern_substrings: [['.lib', '.a']] substrings that select the files
+        - src_dir: [False] resolve against the source directory
+        - build_dir: [True] resolve against the build directory
+        - order: [None] partial lib names that set the link order, for the Linux linker
         ```
         self.export_libs()                     # gather any .lib or .a from build dir
         self.export_libs('.', ['.dll', '.so']) # gather any .dll or .so from build dir
@@ -604,10 +595,10 @@ class BuildTarget:
         """
         Exports a single asset file from this target for later deployment.
 
-        - asset -- path of the asset file
-        - category -- [None] groups the assets and flattens the folder structure
-        - src_dir -- [True] resolve against the source directory
-        - build_dir -- [False] resolve against the build directory
+        - asset: path of the asset file
+        - category: [None] groups the assets and flattens the folder structure
+        - src_dir: [True] resolve against the source directory
+        - build_dir: [False] resolve against the build directory
         ```
         self.export_asset('extras/csharp/NanoMesh.cs')
             --> {deploy}/extras/csharp/NanoMesh.cs
@@ -625,11 +616,11 @@ class BuildTarget:
         """
         Exports asset files with a recursive glob for later deployment.
 
-        - assets_path -- folder to search
-        - pattern_substrings -- [[]] substrings that select the files
-        - category -- [None] groups the assets and flattens the folder structure
-        - src_dir -- [True] resolve against the source directory
-        - build_dir -- [False] resolve against the build directory
+        - assets_path: folder to search
+        - pattern_substrings: [[]] substrings that select the files
+        - category: [None] groups the assets and flattens the folder structure
+        - src_dir: [True] resolve against the source directory
+        - build_dir: [False] resolve against the build directory
         ```
         self.export_assets('extras/csharp', ['.cs'])
             --> {deploy}/extras/csharp/NanoMesh.cs
@@ -647,9 +638,9 @@ class BuildTarget:
         """
         For UNIX: finds and exports a system library so mamabuild links it automatically.
 
-        - name -- name of the system library
-        - apt -- [''] name of the apt package that provides the library, used in the error hint
-        - required -- [True] if False, a missing syslib is not an error
+        - name: name of the system library
+        - apt: [''] name of the apt package that provides the library, used in the error hint
+        - required: [True] if False, a missing syslib is not an error
 
         :returns: TRUE if the syslib export succeeded. FALSE if required=False and the search failed.
         ```
@@ -699,8 +690,6 @@ class BuildTarget:
         Adds C++ flags for the compilation step.
         Accepts strings, lists of strings, or space separated strings.
         ```
-            self.add_cxx_flags('-Wall')
-            self.add_cxx_flags(['-Wall', '-std=c++17'])
             self.add_cxx_flags('-Wall', '-std=c++17')
             self.add_cxx_flags('-Wall -std=c++17')
         ```
@@ -715,8 +704,6 @@ class BuildTarget:
         Adds C flags for the compilation step.
         Accepts strings, lists of strings, or space separated strings.
         ```
-            self.add_c_flags('-Wall')
-            self.add_c_flags(['-Wall', '-std=c99'])
             self.add_c_flags('-Wall', '-std=c99')
             self.add_c_flags('-Wall -std=c99')
         ```
@@ -731,8 +718,6 @@ class BuildTarget:
         Adds C AND C++ flags for the compilation step.
         Accepts strings, lists of strings, or space separated strings.
         ```
-            self.add_cl_flags('-Wall')
-            self.add_cl_flags(['-Wall', '-march=native'])
             self.add_cl_flags('-Wall', '-march=native')
             self.add_cl_flags('-Wall -march=native')
         ```
@@ -749,8 +734,6 @@ class BuildTarget:
         Adds flags for the linker step. Mama does no platform check here.
         Accepts strings, lists of strings, or space separated strings.
         ```
-            self.add_ld_flags('-rdynamic')
-            self.add_ld_flags(['-rdynamic', '-s'])
             self.add_ld_flags('-rdynamic', '-s')
             self.add_ld_flags('-rdynamic -s')
         ```
@@ -809,9 +792,9 @@ class BuildTarget:
     def enable_from_env(self, name, enabled='ON', force=False):
         """
         Adds a CMake option if the environment variable `name` is set to 1, ON or TRUE.
-        - name -- the environment variable to check
-        - enabled -- ['ON'] the value the CMake option gets
-        - force -- [False] add the option even when the variable is not set
+        - name: the environment variable to check
+        - enabled: ['ON'] the value the CMake option gets
+        - force: [False] add the option even when the variable is not set
         ```
             self.enable_from_env('BUILD_TESTS')
         ```
@@ -854,7 +837,7 @@ class BuildTarget:
         Require a minimum mamabuild version for this mamafile. When the running mama is older,
         this stops the build during target load, before any configure or build work.
         The error message includes an upgrade hint, instead of a late failure on a missing API.
-        - min_version -- the minimum mamabuild version, for example '0.13.01'
+        - min_version: the minimum mamabuild version, for example '0.13.01'
         ```
             def settings(self):
                 self.requires_version('0.13.01')
@@ -954,10 +937,9 @@ class BuildTarget:
             self.copy(self.build_dir('libAwesome.so'),
                       self.source_dir('deploy/Awesome.aar/jni/armeabi-v7a'))
         ```
-        - src -- source file or folder
-        - dst -- destination path
-        - filter -- [None] a string or list of strings that filter files by suffix,
-                    for example filter=['.h'] or filter='.hpp'
+        - src: source file or folder
+        - dst: destination path
+        - filter: [None] a string or list of strings that filter files by suffix, e.g. filter=['.h'] or filter='.hpp'
         """
         if util.copy_if_needed(src, dst, filter):
             if self.config.verbose: console(f'copy {src} --> {dst}')
@@ -966,8 +948,8 @@ class BuildTarget:
     def copy_built_file(self, builtFile: str, copyToFolder: str):
         """
         Copies a file within the build directory.
-        - builtFile -- source path relative to the build directory
-        - copyToFolder -- destination folder relative to the build directory
+        - builtFile: source path relative to the build directory
+        - copyToFolder: destination folder relative to the build directory
         ```
             self.copy_built_file('RelWithDebInfo/libawesome.a', 'lib')
         ```
@@ -983,9 +965,9 @@ class BuildTarget:
     def copy_deployed_folder(self, src_dir: str, dst_dir: str, filter: list = None):
         """
         Copies a folder from the source directory.
-        - src_dir -- source folder relative to the source directory
-        - dst_dir -- destination folder path
-        - filter -- [None] a string or list of strings that filter files by suffix
+        - src_dir: source folder relative to the source directory
+        - dst_dir: destination folder path
+        - filter: [None] a string or list of strings that filter files by suffix
         ```
             self.copy_deployed_folder('deploy/NanoMesh', 'C:/Projects/Game/Plugins')
             # --> 'C:/Projects/Game/Plugins/NanoMesh
@@ -1000,9 +982,9 @@ class BuildTarget:
     def download_file(self, remote_url: str, local_dir: str, force=False):
         """
         Downloads a file if it does not already exist.
-        - remote_url -- URL to download from
-        - local_dir -- destination folder
-        - force -- [False] download even when the file exists
+        - remote_url: URL to download from
+        - local_dir: destination folder
+        - force: [False] download even when the file exists
         ```
             self.download_file('http://example.com/file1', 'bin')
             # --> 'bin/file1'
@@ -1014,9 +996,9 @@ class BuildTarget:
     def download_and_unzip(self, remote_zip: str, extract_dir: str, unless_file_exists=None):
         """
         Downloads and unzips an archive if it does not already exist.
-        - remote_zip -- URL of the archive
-        - extract_dir -- destination folder for extraction
-        - unless_file_exists -- [None] if this file exists, skip the download and unzip steps
+        - remote_zip: URL of the archive
+        - extract_dir: destination folder for extraction
+        - unless_file_exists: [None] if this file exists, skip the download and unzip steps
         ```
             self.download_and_unzip('http://example.com/archive.zip',
                                     'bin', 'bin/unzipped_file.txt')
@@ -1053,7 +1035,7 @@ class BuildTarget:
     def enable_fortran(self, path=''):
         """
         Enables Fortran for this target only.
-        - path -- [''] optional custom path or command for the Fortran compiler
+        - path: [''] optional custom path or command for the Fortran compiler
         ```
             self.enable_fortran()   # attempt to autodetect fortran
             self.enable_fortran('/SysGCC/bin/gfortran')  # specify fortran explicitly
@@ -1094,15 +1076,15 @@ class BuildTarget:
                     configure='configure'):
         """
         Creates a new GnuProject instance for building GNU projects from source.
-        - name -- name of the project, for example 'gmp'
-        - version -- version of the project, for example '6.2.1'
-        - url -- [''] URL to download the project, for example 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
-        - git -- [''] git URL to clone the project from
-        - build_products -- [[]] the final products to build, for example
-                            [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
-                            Supported project variables: {{installed}}, {{source}}, {{build}}
-        - autogen -- [False] run ./autogen.sh before ./configure
-        - configure -- ['configure'] the configuration command, can also be 'make config' etc
+        - name: name of the project, for example 'gmp'
+        - version: version of the project, for example '6.2.1'
+        - url: [''] URL to download the project, for example 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
+        - git: [''] git URL to clone the project from
+        - build_products: [[]] the final products to build, for example
+          [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
+          Supported project variables: {{installed}}, {{source}}, {{build}}
+        - autogen: [False] run ./autogen.sh before ./configure
+        - configure: ['configure'] the configuration command, can also be 'make config' etc
         ```
             gmp = self.gnu_project('gmp', '6.2.1', url='https://gmplib.org/download/gmp/{{project}}.tar.xz')
             gmp.configure()
@@ -1130,11 +1112,11 @@ class BuildTarget:
         """
         Runs a command in the build or source folder.
         Use this for custom commands or custom build systems.
-        - command -- the command line to run
-        - src_dir -- [False] if True, the command runs relative to the source directory
-        - exit_on_fail -- [True] exit the build when the command fails
-        - quiet -- [False] suppress all output of the command. Mama still runs it and
-                   checks the exit code. Use for a noisy sub-step like a script's own `git clone`.
+        - command: the command line to run
+        - src_dir: [False] if True, the command runs relative to the source directory
+        - exit_on_fail: [True] exit the build when the command fails
+        - quiet: [False] suppress all output. Mama still runs the command and checks the exit code.
+          Use for a noisy sub-step like a script's own `git clone`.
         ```
             self.run('./configure', src_dir=True)
             self.run('make release -j7') # run in build dir
@@ -1147,10 +1129,10 @@ class BuildTarget:
     def run_program(self, working_dir: str, command: str, exit_on_fail=True, env=None):
         """
         Runs any program in any directory. Use this for custom tools.
-        - working_dir -- the directory to run in
-        - command -- the command line to run
-        - exit_on_fail -- [True] exit the build when the program fails
-        - env -- [None] optional environment variables dict
+        - working_dir: the directory to run in
+        - command: the command line to run
+        - exit_on_fail: [True] exit the build when the program fails
+        - env: [None] optional environment variables dict
         ```
             self.run_program(self.source_dir('bin'),
                              self.source_dir('bin/DbTool'))
@@ -1164,10 +1146,10 @@ class BuildTarget:
         Runs a program with gdb if requested, otherwise runs it normally.
         To control this, add 'gdb' or 'nogdb' to args.
         Inside start(), `mama start=gdb` or `mama start=nogdb` controls the GDB enablement.
-        - command -- the program to run
-        - args -- argument string, 'gdb' and 'nogdb' are filtered out
-        - src_dir -- [True] run relative to the source directory
-        - gdb_by_default -- [True] the default when args select neither
+        - command: the program to run
+        - args: argument string, 'gdb' and 'nogdb' are filtered out
+        - src_dir: [True] run relative to the source directory
+        - gdb_by_default: [True] the default when args select neither
         """
         args, gdb = filter_gdb_arg(args, gdb_by_default)
         if gdb:
@@ -1191,11 +1173,10 @@ class BuildTarget:
         """
         Runs a gtest executable.
         Writes the gtest report to {source_dir}/test/report.xml.
-        - executable -- which executable to run
-        - args -- a string of options separated by spaces:
-          'gdb', 'nogdb' or a gtest fixture/test partial name
-        - src_dir -- [True] if True, the executable path is relative to the source directory
-        - gdb -- [False] if True, run with gdb
+        - executable: which executable to run
+        - args: a string of space separated options: 'gdb', 'nogdb' or a gtest fixture/test partial name
+        - src_dir: [True] if True, the executable path is relative to the source directory
+        - gdb: [False] if True, run with gdb
         ```
             self.gtest("bin/MyAppGtests", "nogdb", src_dir=True)
             self.gtest("bin/MyAppGtests", "MyFixtureName.TheTestName", src_dir=True)
@@ -1321,29 +1302,15 @@ class BuildTarget:
 
 
     def default_package(self):
-        """
-        Performs default packaging steps.
-        This is called if self.package() did not export anything.
-        It can also be called manually to collect includes and libs.
-        ```
-        def package(self):
-            self.default_package()
-        ```
-        """
+        """Performs the default packaging steps. Mama calls this when self.package() exported nothing.
+        A package() override can also call it to collect the default includes and libs."""
         if self.no_includes: self.default_package_includes()
         if self.no_libs: self.default_package_libs()
 
 
     ## TODO: move this into `package.py`
     def default_package_includes(self):
-        """
-        Performs default INCLUDE packaging steps.
-        It can also be called manually to collect includes.
-        ```
-        def package(self):
-            self.default_package_includes()
-        ```
-        """
+        """Performs the default INCLUDE packaging steps. A package() override can call it to collect includes."""
         # try common C and C++ library include patterns
         if   self.export_include('include', build_dir=True):  pass
         elif self.export_include('include', build_dir=False): pass
@@ -1353,14 +1320,7 @@ class BuildTarget:
 
     ## TODO: move this into `package.py`
     def default_package_libs(self):
-        """
-        Performs default LIB packaging steps.
-        It can also be called manually to collect libs.
-        ```
-        def package(self):
-            self.default_package_libs()
-        ```
-        """
+        """Performs the default LIB packaging steps. A package() override can call it to collect libs."""
         if self.export_libs(self.cmake_build_type, src_dir=False): pass
         elif self.export_libs('lib', src_dir=False): pass
         elif self.export_libs('.', src_dir=False): pass
@@ -1372,11 +1332,6 @@ class BuildTarget:
         ```
         def deploy(self):
             self.papa_deploy('deploy/NanoMesh')
-        ```
-        Or:
-        ```
-        def deploy(self):
-            self.default_deploy()
         ```
         """
         self.default_deploy()
@@ -1396,12 +1351,12 @@ class BuildTarget:
             package_path/{libs}
             package_path/{assets}
 
-        - package_path -- where to deploy the package
-        - src_dir -- [False] deploy to the source dir instead of the build dir
-        - r_includes -- [False] recursively export includes from dynamic libraries
-        - r_dylibs -- [False] recursively export all *.dll *.so *.dylib libraries
-        - r_syslibs -- [False] include system libraries from child dependencies
-        - r_assets -- [False] include assets from child dependencies
+        - package_path: where to deploy the package
+        - src_dir: [False] deploy to the source dir instead of the build dir
+        - r_includes: [False] recursively export includes from dynamic libraries
+        - r_dylibs: [False] recursively export all *.dll *.so *.dylib libraries
+        - r_syslibs: [False] include system libraries from child dependencies
+        - r_assets: [False] include assets from child dependencies
 
         Example: `self.papa_deploy('MyPackageName')`
 
@@ -1431,7 +1386,7 @@ class BuildTarget:
         """
         Perform test steps here with the test args.
         `mama test arg1 arg2 arg3`
-        - args -- the argument string from the `mama test` command line
+        - args: the argument string from the `mama test` command line
         ```
             def test(self, args):
                 # runs an executable with GDB
@@ -1447,7 +1402,7 @@ class BuildTarget:
         """
         Start a custom process through mama.
         `mama target start=arg`
-        - args -- the argument string from the `mama start=...` command line
+        - args: the argument string from the `mama start=...` command line
         ```
         def start(self, args):
             if 'dbtool' in args:
@@ -1683,9 +1638,8 @@ class BuildTarget:
         self._run_packaging()
 
     def _run_packaging(self):
-        # package() is user mamafile code that asserts on build outputs, so it needs something to
-        # package. Wipe, upload, deploy and test walk the task chain without building. They would
-        # otherwise run package() against artifacts never produced, or ones a wipe just deleted.
+        # package() is user mamafile code that asserts on build outputs. Wipe, upload, deploy and test walk
+        # the task chain without building, so they would package artifacts never produced or just deleted.
         if not self._build_work_enabled() and not self.dep.has_usable_artifacts():
             if self.config.verbose or self.config.deploy or self.config.upload:
                 warning(f'  - Target {self.name: <16} PACKAGE skipped: nothing built, no artifacts on disk')
@@ -1695,8 +1649,7 @@ class BuildTarget:
         # unless the user asked for a local rebuild.
         if self.dep.should_rebuild or not self.dep.from_artifactory:
             self.packaging_result = 'target.package()'
-            # Clear the libs that artifactory_load_target() loaded, so the
-            # repackaging starts from empty, unpolluted exports.
+            # clear the libs artifactory_load_target() loaded, so repackaging starts from empty exports
             old_includes = self.exported_includes
             old_libs = self.exported_libs
             old_syslibs = self.exported_syslibs
@@ -1707,11 +1660,7 @@ class BuildTarget:
                 self.exported_syslibs = []
                 self.exported_assets = []
 
-            # this must populate exports by calling:
-            #  - export_include() / export_includes()
-            #  - export_lib() / export_libs()
-            #  - export_syslib()
-            #  - export_asset() / export_assets()
+            # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
             self.package() # user customization
 
             # the user provided no packaging, use the default packaging instead
@@ -1774,11 +1723,8 @@ class BuildTarget:
 
 
     def _require_source(self, action: str) -> bool:
-        """
-        For commands that need source on disk (test, start, open),
-        refuses on a shim with a clear message that points at `mama unshallow`.
-        Returns True when the action may proceed, False when refused.
-        """
+        """For a command that needs source on disk (test, start, open): refuses on a shim and points
+        at `mama unshallow`. Returns True when the action may proceed, False when refused."""
         if not self.dep.is_artifactory_shim():
             return True
         if self.config.print:
@@ -1858,8 +1804,8 @@ class BuildTarget:
     def ms_build(self, projectfile, properties:dict = dict()):
         """
         Invokes MSBuild on the specified projectfile with the given properties.
-        - projectfile -- the solution or project file, relative to the source directory
-        - properties -- [dict()] MSBuild properties
+        - projectfile: the solution or project file, relative to the source directory
+        - properties: [dict()] MSBuild properties
         ```
         def build(self):
             self.cmake_build()

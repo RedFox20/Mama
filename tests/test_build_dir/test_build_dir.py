@@ -83,7 +83,7 @@ def test_a_yocto_board_is_named_by_its_own_build_dir():
 
 
 def test_msan_uses_the_same_short_name_as_the_archive():
-    # The dir used to say 'linux-memory' while the archive said 'msan': two tables, one axis.
+    # the dir and the archive must not spell one axis two ways ('linux-memory' vs 'msan')
     c = linux_config()
     c.sanitize = 'memory'
     assert build_dir_name(c) == 'linux-msan'

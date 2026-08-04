@@ -50,8 +50,7 @@ def test_the_retired_buildtimes_flag_is_no_longer_recognized():
 
 
 def test_announce_once_prints_a_key_only_the_first_time(monkeypatch):
-    # platform option builders run per fingerprint computation, not per configure - a plain console()
-    # repeats 'Toolchain: ...' several times per target with nothing new to say
+    # platform option builders run per fingerprint computation, so a plain console() repeats 'Toolchain: ...' per target
     printed = []
     monkeypatch.setattr('mama.build_config.console', lambda t, **k: printed.append(t))
     c = object.__new__(BuildConfig)

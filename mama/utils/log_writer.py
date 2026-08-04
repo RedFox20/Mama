@@ -7,10 +7,8 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves, st
 
 class AsyncLogWriter:
     def __init__(self, stream, flush_interval=1.0):
-        """`stream`: an open, writable text stream this writer owns. open_build_log wraps the
-        packages/mamabuild.log case, and tests pass a capture stream. `flush_interval`: writes go to
-        the buffered stream as they arrive, but the loop flushes only on an idle lull, so bursts
-        amortize and the log still stays tail-able mid-build."""
+        """stream: an open, writable text stream this writer owns and closes
+        flush_interval: seconds of idle lull before a flush, so bursts amortize and the log stays tail-able"""
         self._stream = stream
         self._flush_interval = flush_interval
         self._q: queue.Queue = queue.Queue()
@@ -45,8 +43,7 @@ class AsyncLogWriter:
 
 
 def open_build_log(path: str):
-    """Open `path` (truncating) as an AsyncLogWriter, or None when it cannot be created: the log must
-    never break a build."""
+    """Open `path` (truncating) as an AsyncLogWriter, or None when it cannot be created: the log must never break a build."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         return AsyncLogWriter(open(path, 'w', encoding='utf-8'))

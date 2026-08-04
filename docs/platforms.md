@@ -1,7 +1,7 @@
 # How mama handles platforms
 
-A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, and seven more. This is the shape
-of that support. For the mamafile-facing API, see the README.
+A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, and seven more. For the
+mamafile-facing API, see the README.
 
 ## Three layers
 

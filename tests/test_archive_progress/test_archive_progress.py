@@ -124,7 +124,7 @@ def test_archive_total_size_ignores_dir_entries(tmp_path):
 
 
 def test_a_large_file_advances_the_bar_while_it_is_written(tmp_path):
-    # the pinned bug: a 60MB lib left the bar frozen, then the bar jumped
+    # a whole-file step would leave the bar frozen for a large lib, then jump
     big = tmp_path / 'libbig.a'
     big.write_bytes(b'x' * (3*1024*1024 + 7))
     bar = Mock()

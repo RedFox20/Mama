@@ -23,8 +23,7 @@ def test_second_acquirer_times_out_but_still_runs_then_frees(tmp_path):
     d = str(tmp_path / 'dep')
     with interprocess_dir_lock(d, timeout=5) as first:
         assert first is True
-        # a distinct fd on the same file conflicts even within one process (flock is per-open-file) -> the
-        # nested acquire times out, but its block still runs (best-effort, never blocks the build forever)
+        # flock is per-open-file, so a second fd conflicts even in-process: the acquire times out but the block still runs
         with interprocess_dir_lock(d, timeout=0.3) as second:
             assert second is False
     with interprocess_dir_lock(d, timeout=5) as again:

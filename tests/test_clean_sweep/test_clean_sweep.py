@@ -44,7 +44,7 @@ def test_sweep_on_a_missing_workspace_is_a_noop(tmp_path):
 
 
 def test_sweep_reaches_the_args_dirs_of_one_dep(tmp_path):
-    # An unreachable dep declares no args, so its linux-lgpl dir used to survive every clean.
+    # an unreachable dep declares no args, so only the sweep can reach its linux-lgpl dir
     ws, root, config = _workspace(tmp_path)
     _marked(ws, 'libffmpeg', 'linux-lgpl')
     _marked(ws, 'libffmpeg', 'linux-cpp20-lgpl')

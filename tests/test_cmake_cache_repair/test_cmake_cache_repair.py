@@ -30,8 +30,7 @@ def test_cache_generator_reads_the_exact_key():
 
 
 def test_a_stale_other_build_system_file_does_not_count(tmp_path):
-    # Targets pick their own build system: a leftover Makefile must NOT make a Ninja-configured dir
-    # look complete, or `cmake --build` dies on the missing build.ninja every time.
+    # A leftover Makefile must not make a Ninja-configured dir look complete: `cmake --build` dies on the missing build.ninja.
     d = str(tmp_path / 'b')
     write_cmake_cache(d, NINJA); write_build_file(d, 'Makefile')
     assert not cc.is_cmake_cache_valid(d)
@@ -49,7 +48,7 @@ def test_a_visual_studio_dir_is_valid_with_either_solution_format(tmp_path):
 
 
 def test_a_visual_studio_slnx_dir_skips_the_reconfigure(tmp_path):
-    # the .slnx read as a killed configure, so every `mama build` wiped the dir and paid a full rebuild
+    # a .slnx that reads as a killed configure makes every `mama build` wipe the dir and pay a full rebuild
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), VS); write_build_file(t.build_dir(), 'Foo.slnx')
     assert _run_config_recording(t, dep) == []
@@ -63,8 +62,7 @@ def test_unknown_generator_is_trusted_not_wiped(tmp_path):
 
 
 def test_cache_without_generated_build_file_is_repaired(tmp_path):
-    # A find_package failure leaves a COMPLETE cache but no build.ninja. A skipped reconfigure then
-    # dies with "ninja: error: loading 'build.ninja'" on every later build until the dir is wiped.
+    # A find_package failure leaves a COMPLETE cache but no build.ninja. A skipped reconfigure then dies on every later build.
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), COMPLETE)
     assert _run_config_recording(t, dep) == ['conf']

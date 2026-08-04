@@ -37,7 +37,7 @@ def test_compiler_record_round_trips(tmp_path):
 
 
 def test_a_package_without_a_compiler_record_still_loads(tmp_path):
-    # pre-change packages have no C record: unknown must not read as mismatch
+    # older packages have no C record: unknown must not read as mismatch
     papa = tmp_path / 'papa.txt'
     papa.write_text('P Example\nI include\n')
     info = PapaFileInfo(str(papa))

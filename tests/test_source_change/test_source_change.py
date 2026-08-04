@@ -76,8 +76,7 @@ def _should_build_reasons(dep, loaded_from_pkg):
 
 
 def test_source_edit_rebuilds_git_dep_even_when_from_artifactory(tmp_path):
-    # regression: a prebuilt pkg can also have a source clone on disk; a `not from_artifactory`
-    # guard wrongly skipped the working-tree check for exactly that dep.
+    # a prebuilt pkg can also have a source clone on disk, so from_artifactory must not skip the working-tree check
     dep = _git_dep_with_repo(tmp_path)
     dep.from_artifactory = True
     (Path(dep.src_dir) / 'lib.cpp').write_text('int f(){return 9;}\n')

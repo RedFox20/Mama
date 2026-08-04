@@ -250,9 +250,9 @@ def run_coverage_report(target: BuildTarget):
 
 
 def mamabuild(args, source_dir=os.getcwd()):
-    """ Main entry point for MamaBuild. Parses the command line arguments and executes the requested actions.
-        - args: list of command line arguments, without the script name. Ex: ['build', 'target=all', 'debug']
-        - source_dir: the directory to treat as the main project source
+    """Main entry point for MamaBuild. Parses the command line arguments and executes the requested actions.
+    - args: list of command line arguments, without the script name, e.g. ['build', 'target=all', 'debug']
+    - source_dir: the directory to treat as the main project source
     """
     if sys.version_info < (3, 10):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
@@ -360,9 +360,8 @@ def mamabuild(args, source_dir=os.getcwd()):
         flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
         flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
-        # `build/upload/deploy X` runs X and what X needs - not the whole tree. An out-of-scope dep would
-        # do no build work but still reach _run_packaging(), which re-packages a target that was never
-        # built and asserts on missing libs. Upload/deploy of the deps is still gated per-target.
+        # `build/upload/deploy X` runs X and what X needs, not the whole tree. An out-of-scope dep builds
+        # nothing yet still reaches _run_packaging(), which asserts on missing libs. Deploy stays gated per-target.
         targeted = ((config.build or config.upload or config.deploy)
                     and config.has_target() and not config.targets_all() and not config.deps_only)
         if targeted and dep is not None:
@@ -396,9 +395,8 @@ def mamabuild(args, source_dir=os.getcwd()):
             chain = ' -> '.join([d.name for d in flat_deps_reverse])
             console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
 
-        # Parallel by default, only an explicit `serial` selects the serial runner. A one-dep graph has
-        # nothing to overlap, but the parallel scheduler owns the live display, and the serial runner
-        # would dump raw cmake output instead.
+        # Parallel by default, only an explicit `serial` selects the serial runner. Even a one-dep graph
+        # goes parallel: that scheduler owns the live display, and the serial runner dumps raw cmake output.
         if config.serial_load:
             execute_task_chain(flat_deps_reverse)
         else:

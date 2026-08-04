@@ -10,9 +10,7 @@ def _b(name, ts, args=None): return {'ph': 'B', 'name': name, 'ts': ts, **({'arg
 def _e(ts): return {'ph': 'E', 'ts': ts}
 def _x(name, ts, dur): return {'ph': 'X', 'name': name, 'ts': ts, 'dur': dur}
 
-# Real vcperf shape: CL Invocation -> FrontEndPass -> C1DLL -> <source> (+ nested includes); BackEndPass ->
-# C2DLL -> codegen leaves. CL0 (a.cpp -> C:\proj): frontend 100us (incl big.h 60us), backend 60us (someFunc).
-# CL1 (b.cpp -> C:\other): frontend 60us, re-includes big.h 20us, no backend. Link 0 -> C:\proj, 50us.
+# Real vcperf nesting: CL Invocation -> FrontEndPass -> C1DLL -> <source> (+ nested includes), BackEndPass -> C2DLL -> leaves.
 def _fe(src, ts, dur, inc=None):  # one FrontEndPass: C1DLL -> source, optional nested include (name, ts, dur)
     body = [_b('C1DLL', ts), _b(src, ts)] + ([_x(inc[0], inc[1], inc[2])] if inc else []) + [_e(ts + dur), _e(ts + dur)]
     return [_b('FrontEndPass', ts), *body, _e(ts + dur)]

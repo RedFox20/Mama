@@ -21,7 +21,7 @@ from mama.util import get_time_str
 
     # 1m-59m: 'Xm Ys' (note the space - already established project style)
     (60,       '1m 0s'),
-    (67,       '1m 7s'),    # the example from the user request
+    (67,       '1m 7s'),
     (125,      '2m 5s'),
     (3599,     '59m 59s'),
 

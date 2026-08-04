@@ -28,11 +28,9 @@ def artifactory_archive_name(target:BuildTarget):
     """
     Builds the archive name for a papa deploy package:
     {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
-    Example: opencv-linux-24-gcc14-x64-release-df76b66
-
-    The version field is the first of these the dep has: a `self.version` literal in the mamafile,
-    the pinned `git_tag`, or the commit hash. A `git_branch` pin labels the hash and does not
-    replace it. See docs/roadmap-target-version.md.
+    The version is the first of: mamafile `self.version`, the pinned `git_tag`, or the commit hash.
+    A `git_branch` pin labels the hash and does not replace it.
+    target: the BuildTarget whose dep and config name the archive
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
@@ -41,8 +39,7 @@ def artifactory_archive_name(target:BuildTarget):
 
     version = ''
 
-    # A mamafile version wins over every dep source type and any commit hash.
-    # It replaces the commit hash in the archive name.
+    # a mamafile version wins over every dep source type and replaces the commit hash in the archive name
     if target.version:
         version = target.version
     else:
@@ -54,15 +51,12 @@ def artifactory_archive_name(target:BuildTarget):
             version = p.version
         elif p.is_git:
             git:Git = p
-            # A git_tag pin names the package after the tag. The consumer wrote the tag, so the download
-            # and the upload read the same value, with no commit hash resolution. A tag is immutable by
-            # convention, so the tag alone identifies the source. add_git stores a git_commit pin in the
-            # tag field, and Git.is_hex_string tells the two apart. A commit pin takes the hash path below.
+            # A tag is immutable by convention, so the tag alone names the package with no hash resolution.
+            # add_git stores a git_commit pin in the tag field, and Git.is_hex_string routes it to the hash path below.
             version = '' if Git.is_hex_string(git.tag) else build_names.sanitize_version(git.tag)
             if not version:
-                # No tag. The commit hash identifies the source, and a branch pin puts its name in front
-                # for a reader: 'feat-experimental-radio-a1b2c3d'. The branch CANNOT replace the hash,
-                # because a branch moves: one name would then serve every commit ever pushed to it.
+                # No tag: the commit hash identifies the source, and a branch pin only prefixes it for a reader.
+                # A branch moves, so its name alone would serve every commit ever pushed to it.
                 commit = git.get_commit_hash(target.dep)
                 if not commit:
                     return None # nothing to do at this point
@@ -77,8 +71,7 @@ def artifactory_archive_name(target:BuildTarget):
     platform, os_major, _ = target.config.get_distro_info()
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
-    # The SAME suffix the dep's build dir carries, computed once at dep init: e.g. '-cov-asan-lgpl'.
-    # It reads from the dep, not from target.args, because the dep holds the pre-parse consumer args.
+    # The SAME suffix the dep's build dir carries, read from the dep: it holds the pre-parse consumer args.
     # The pre-clone shim probe and the upload then compose the same name.
     build_type = ('release' if target.config.release else 'debug') + target.dep.variant_suffix
 
@@ -257,8 +250,10 @@ def _warn_on_compiler_mismatch(target:BuildTarget, papa:PapaFileInfo):
 
 def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -> Tuple[bool, list]:
     """
-    Reconfigures `target` from {deploy_path}/papa.txt.
-    Returns (fetched:bool, dep_sources:list)
+    Reconfigures `target` from {deploy_path}/papa.txt. Returns (fetched:bool, dep_sources:list).
+    target: the BuildTarget to fill with the papa.txt exports
+    deploy_path: the directory that holds papa.txt
+    num_files_copied: the extracted file count, shown by the verbose report
     """
     papa_list = normalized_join(deploy_path, 'papa.txt')
     if not os.path.exists(papa_list):
@@ -310,10 +305,8 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
         if d.is_pkg:
             raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
 
-        # NB: a 404 here for a git dep is NORMAL. No prebuilt archive exists for the current
-        # commit. DO NOT wipe git_status. check_status already detects a url, tag, branch or
-        # commit change by direct comparison. A wiped status makes the next `mama update`
-        # falsely report 'SCM change detected' and forces a full rebuild of an up-to-date dep.
+        # A 404 for a git dep is NORMAL: no prebuilt archive exists for this commit. Do NOT wipe git_status.
+        # check_status detects real SCM changes by direct comparison, and a wiped status forces a false full rebuild.
 
         return None
 
@@ -330,16 +323,15 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
 
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
-    Tries to fetch a prebuilt package from artifactory.
-    Returns (fetched:bool, dep_sources:list)
+    Tries to fetch a prebuilt package from artifactory. Returns (fetched:bool, dep_sources:list).
+    target: the BuildTarget to load the package into
     """
     url = target.config.artifactory_ftp
     if not url:
         return (False, None)
 
-    # A pinned version names the UPLOADED archive, because artifactory_archive_name drops the
-    # commit hash. A probe without the pin asks for a name uploads no longer produce. A
-    # hash-named archive it finds instead can only be a stale pre-pin leftover.
+    # A pinned version replaces the commit hash in the uploaded archive name, so the probe must use the pin.
+    # A hash-named archive it finds instead can only be a stale pre-pin leftover.
     if not target.version:
         target.version = pinned_version(target.dep)
 
@@ -368,15 +360,11 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
 
 def try_load_artifactory_shim(dep) -> Tuple:
     """
-    Probes artifactory for a prebuilt package, named by the commit hash that
-    `git ls-remote` resolves without a clone. On a hit, constructs a default
-    BuildTarget and loads the papa.txt exports and deps into it. It then writes
-    the shim marker and returns the target plus its child dep_sources.
-
-    On a miss, or when artifactory is not configured, returns (None, None) and
-    leaves the dep state untouched, so the caller can use the clone path.
-
-    Returns (target_or_None, dep_sources_or_None).
+    Probes artifactory for a prebuilt package named by the commit hash that ls-remote resolves without a clone.
+    On a hit, loads the papa.txt exports into a default BuildTarget, writes the shim marker, and
+    returns (target, dep_sources). On a miss it leaves the dep untouched and returns (None, None),
+    so the caller can use the clone path.
+    dep: the git BuildDependency to probe
     """
     from .build_target import BuildTarget  # local import to avoid cycle
 
@@ -388,8 +376,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
 
     git: Git = dep.dep_source
 
-    # Resolve the commit hash without a clone. `init_commit_hash` supports
-    # ls-remote and respects the stored git_status cache when `update` is not set.
+    # resolve the commit hash without a clone, honoring the git_status cache when `update` is not set
     commit_hash = git.init_commit_hash(dep, use_cache=True, fetch_remote=True)
     if not commit_hash:
         if config.verbose:
@@ -397,15 +384,12 @@ def try_load_artifactory_shim(dep) -> Tuple:
         return (None, None)
     git.commit_hash = commit_hash  # cache for downstream consumers
 
-    # First probe: version-named if a local mamafile pins self.version (fetch_and_reconfigure
-    # resolves it), else commit-hash-named. Works for the common case.
+    # first probe: version-named when a local mamafile pins self.version, else commit-hash-named
     probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
     fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
 
-    # Fallback: the dep may pin target.version (e.g. boost 1.60) in its own not-yet-cloned
-    # mamafile, so its archive name holds no commit hash. Sparse-fetch only the mamafile,
-    # grep self.version, and re-probe with that version. A version-pinned first probe gets
-    # no fallback: a re-probe by hash would resurrect a stale pre-pin archive.
+    # Fallback: the dep may pin self.version in its own not-yet-cloned mamafile, so sparse-fetch only the
+    # mamafile and re-probe with that version. A re-probe by hash after a version pin would resurrect a stale archive.
     if not fetched and not probe_target.version:
         version = git.fetch_self_version_from_remote(dep)
         if version:
@@ -420,7 +404,6 @@ def try_load_artifactory_shim(dep) -> Tuple:
         dep.from_artifactory = False
         return (None, None)
 
-    # Hit: write the marker and return the configured target.
     archive = artifactory_archive_name(probe_target)
     dep.write_shim_marker(archive_name=archive or '', commit_hash=commit_hash)
     config.update_stats.record_shim()

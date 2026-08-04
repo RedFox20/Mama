@@ -10,23 +10,23 @@ if TYPE_CHECKING:
 
 
 def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> Tuple[str, str, str]:
-    """ Extracts the `cwd`, `exe` and `args` from a command string """
+    """Extracts (cwd, exe, args) from a command string, with the platform executable suffix applied.
+    target: supplies the platform exe suffix
+    command: the command string, shlex-split
+    cwd: run the command in this directory
+    root_dir: run the command relative to this directory"""
     shell_args = shlex.split(command)
     program = shell_args[0]
     args = ' '.join(shell_args[1:]) if shell_args else ''
 
-    # Add or strip the executable suffix. Gated on the HOST as well as the target: a mamafile runs
-    # HOST tools during a cross build, so a Windows host must not have `protoc.exe` stripped just
-    # because the TARGET platform (android, raspi, mips) has no suffix of its own.
+    # The suffix is gated on the HOST as well as the target: a mamafile runs HOST tools during a cross
+    # build, so a Windows host must not have `protoc.exe` stripped for a suffix-less TARGET platform.
     suffix = target.config.platform.exe_suffix()
     if System.windows and suffix and not program.endswith(suffix): program += suffix
     elif not System.windows and not suffix and program.endswith('.exe'): program = program[:-4]
 
     if root_dir:
-        # the command runs relative to root_dir:
-        # program: bin/app.exe
-        # cwd: /path/to/root_dir/bin
-        # exe: /path/to/root_dir/bin/app.exe
+        # relative to root_dir: bin/app.exe -> cwd root_dir/bin, exe root_dir/bin/app.exe
         cwd = normalized_join(root_dir, os.path.dirname(program))
         if program.startswith('/'):
             exe = program
@@ -37,10 +37,7 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
             if not exe:
                 exe = normalized_join(root_dir, program)
     elif cwd:
-        # the command runs in cwd:
-        # program: bin/app.exe
-        # cwd: /path/to/project
-        # exe: /path/to/project/bin/app.exe
+        # in cwd: bin/app.exe -> cwd unchanged, exe cwd/bin/app.exe
         if program.startswith('/'):
             exe = program
         elif program.startswith('./'):
@@ -50,10 +47,7 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
             if not exe:
                 exe = normalized_join(cwd, program)
     else:
-        # the command runs in the directory of the executable:
-        # program: bin/app.exe
-        # cwd: /path/to/bin
-        # exe: /path/to/bin/app.exe
+        # in the directory of the executable: bin/app.exe -> cwd /abs/bin, exe /abs/bin/app.exe
         cwd = os.path.dirname(os.path.abspath(program))
         exe = shutil.which(program) # a program on PATH wins over a local one
         if not exe:

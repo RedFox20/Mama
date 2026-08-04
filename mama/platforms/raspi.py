@@ -7,12 +7,10 @@ from .toolchain import Toolchain
 from mama.utils.system import System, console
 
 
-# Every Raspberry Pi since the Pi 3 is ARMv8, so arm64 is the default and arm is the legacy path. The
-# triple drives the compiler name, the sysroot and the include dir, so a new arch is one entry here.
+# The triple drives the compiler name, the sysroot and the include dir, so a new arch is one entry here.
 _TRIPLES = {'arm64': 'aarch64-linux-gnu', 'arm': 'arm-linux-gnueabihf'}
 _MARCH = {'arm64': 'armv8-a', 'arm': 'armv7-a'}
-# armv7-a on its own declares no FPU, but the gnueabihf triple defaults to -mfloat-abi=hard and
-# then refuses to compile at all. neon-vfpv4 is what the Pi 2 and 3 (Cortex-A7/A53) actually have.
+# The gnueabihf triple defaults to hard float, so armv7-a must name an FPU. neon-vfpv4 is what the Pi 2 and 3 have.
 _FPU = {'arm': 'neon-vfpv4'}
 SUPPORTED_ARCHES = tuple(_TRIPLES)
 
@@ -77,8 +75,7 @@ class Raspi(Platform):
 
     def _layouts(self, root: str) -> list:
         """Where a toolchain root can keep its bin/ dir. The legacy Broadcom `tools` repo nests the
-        32-bit toolchain under arm-bcm2708/<triple>/. A distro cross package (gcc-aarch64-linux-gnu)
-        and a modern standalone toolchain put it straight in bin/."""
+        32-bit toolchain under arm-bcm2708/<triple>/. Every other toolchain puts it straight in bin/."""
         return [root, f'{root}/arm-bcm2708/{self.triple()}']
 
 
@@ -102,12 +99,11 @@ class Raspi(Platform):
 
 
     def init_toolchain(self, toolchain_dir: str = None, toolchain_file=None):
-        """Point every path at `toolchain_dir`, whose bin/ must hold `<triple>-gcc`.
-
-        A standalone toolchain carries its own `<triple>/sysroot`. A distro cross package
-        (gcc-aarch64-linux-gnu) has none, and its gcc already knows where the target headers live.
-        So this method sets the sysroot and the extra include dir ONLY when they exist. A --sysroot
-        that is not there makes every compile fail on missing system headers."""
+        """Point every path at the toolchain root. Set the sysroot and the extra include dir ONLY
+        when they exist: a distro cross package has none, its gcc already knows the target headers,
+        and a --sysroot that is not there makes every compile fail on missing system headers.
+        toolchain_dir: the toolchain root, its bin/ must hold `<triple>-gcc`
+        """
         triple = self.triple()
         self.toolchain_dir = toolchain_dir
         self.compilers = f'{toolchain_dir}/bin/'
@@ -126,9 +122,8 @@ class Raspi(Platform):
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc{ext}', cxx=f'{prefix}g++{ext}',
                          include_paths=tuple(self.get_includes()),
-                         # NEVER, not ONLY: a distro cross package ships no binutils of its own, so the
-                         # build system must take the compiler tools mama named. mama passes the sysroot
-                         # as a compiler flag instead, because a distro package has none at all.
+                         # NEVER, not ONLY: a distro cross package ships no binutils and no sysroot, so
+                         # the build system takes the tools mama named, and the sysroot goes as a flag
                          find_root_program='NEVER')
 
 

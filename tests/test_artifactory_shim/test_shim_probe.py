@@ -58,8 +58,7 @@ def test_fetch_succeeds_writes_marker(tmp_path):
 
 
 def test_uses_resolved_hash_not_tag(tmp_path):
-    # Phase 1 contract: init_commit_hash with use_cache=True + fetch_remote=True.
-    # Tag-vs-hash logic lives in init_commit_hash. The probe trusts the returned hash.
+    # Tag-vs-hash logic lives in init_commit_hash (use_cache=True + fetch_remote=True). The probe trusts the returned hash.
     dep = make_mock_dep(tmp_path)
     with patch.object(Git, 'init_commit_hash', return_value='def5678') as hash_mock, \
          patch.object(artifactory_mod, 'artifactory_fetch_and_reconfigure',

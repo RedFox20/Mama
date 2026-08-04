@@ -121,8 +121,7 @@ def test_build_governor_respects_core_budget():
 
 
 def test_ungated_build_bypasses_cpu_and_budget_gate():
-    # The root build is ungated: it launches even when the budget is full and CPU is pegged (it runs
-    # alone after all deps), gated only by its own deps being done.
+    # The root build runs alone after all deps, so only its own deps gate it, never the budget or the CPU.
     sched = _sched(core_budget=8, overprovision=1.0, cpu_sampler=lambda: 100.0)
     sched._reserved = 8; sched._cpu_now = 100.0  # budget exhausted, CPU maxed
     assert sched._can_launch(Job('leaf', BUILD, lambda: None, weight=8)) is False    # normal build held back
@@ -161,8 +160,7 @@ def test_build_dep_jobs_marks_root_build_ungated():
 
 
 def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
-    # a wide project with ~20 small leaf deps ran one-at-a-time under the old CPU gate. Small TU
-    # weights must fill the core budget concurrently even while the sampler reads saturated.
+    # small TU weights must fill the core budget concurrently even while the CPU sampler reads saturated
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=2) for i in range(12)]
     sched = _sched(cpu_sampler=lambda: 99.0, core_budget=16)  # 16/2 = 8 fit at once
@@ -303,8 +301,7 @@ def test_build_dep_jobs_resolves_weight_lazily_per_dep():
 
 
 def test_keyboard_interrupt_aborts_build_kills_children_and_returns_interrupted():
-    # Ctrl+C lands in the scheduler loop: abort_hook fires (kills children), the in-flight job is
-    # released, and run() returns a synthetic KeyboardInterrupt job so the caller fails the build.
+    # Ctrl+C in the scheduler loop: abort_hook kills children, run() returns a synthetic KeyboardInterrupt job to fail the build.
     released, hook, n = threading.Event(), [], {'i': 0}
     def sampler():
         n['i'] += 1
@@ -326,8 +323,7 @@ def test_build_slot_bails_when_build_already_failing():
 
 
 def test_pending_log_is_called_without_holding_the_scheduler_lock():
-    # The display writes to the terminal from this callback. Holding _cond across it stalls every
-    # job launch and completion behind a frame write.
+    # The display writes to the terminal from this callback. Holding _cond across it stalls every job behind a frame write.
     held = []
     def probe(hint):
         got = [None]

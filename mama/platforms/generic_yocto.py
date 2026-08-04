@@ -70,7 +70,7 @@ class GenericYocto(Platform):
 
 
     def distro_version(self) -> tuple:
-        """The SDK version, eg (5, 0, 4). Unlike every other platform this carries no name. The
+        """The SDK version, eg (5, 0, 4), with no name unlike every other platform. The
         artifactory archive name expects that shape."""
         return self._resolved().sdk_version
 
@@ -104,8 +104,10 @@ class GenericYocto(Platform):
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """Find the SDK. An explicit `toolchain_dir` is searched first, then the board's own paths,
-        then whatever its env vars name."""
+        """Find the SDK in the board's own paths, then in whatever its env vars name.
+        toolchain_dir: an explicit SDK root, searched first
+        toolchain_file: an explicit cmake toolchain file, paired with the explicit toolchain_dir
+        """
         # TODO: expand support to enable Windows host cross-compilation?
         if not System.linux:
             raise RuntimeError(f'{self.name} only supported on Linux')
@@ -209,8 +211,7 @@ class GenericYocto(Platform):
 
 
     def get_ld_flags(self, add_ld_flag: Callable[[str, str], None]):
-        # -Wl,--as-needed keeps an embedded binary from linking libraries it never calls, which
-        # bloats it and can break at runtime on a resource-constrained device
+        # --as-needed keeps an embedded binary from linking libraries it never calls, which bloats it
         add_ld_flag('-Wl,--as-needed')
 
 

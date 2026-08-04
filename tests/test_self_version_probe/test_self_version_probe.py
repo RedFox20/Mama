@@ -106,9 +106,7 @@ class TestFetchSelfVersionFromRemote:
             mock_show.assert_not_called()
 
     def test_returns_none_for_local_mamafile_override(self):
-        # A parent-repo override (dep.mamafile is a resolved local path) is not in the remote
-        # repo: `git show HEAD:<local path>` can never work, and the local file was already
-        # checked by resolve_pinned_version. Must return None without any network work.
+        # A parent-repo override is a local path not in the remote repo: return None without any network work.
         dep, git = _make_dep()
         dep.mamafile = 'C:/parent/mamadeps/libfoo.py'
         with patch.object(Git, '_run_git_with_filtered_progress') as mock_clone, \
@@ -128,8 +126,7 @@ class TestFetchSelfVersionFromRemote:
         assert 'HEAD:subdir/mama_alt.py' in captured['cmd']
 
     def test_uses_blobless_no_checkout_clone_and_probe_label(self):
-        # PROBE label keeps update_stats.record_clone from firing for what is not a real clone.
-        # --filter=blob:none + --no-checkout keep the fetch under a kilobyte.
+        # PROBE label keeps record_clone from firing. --filter=blob:none + --no-checkout keep the fetch under a kilobyte.
         dep, git = _make_dep()
         captured = {}
         def fake_clone(self_, dep_, cmd, label):
@@ -213,9 +210,7 @@ class TestShimProbeFallback:
         assert fetch_versions == [None, '1.0']
 
     def test_pinned_probe_miss_gets_no_fallback(self):
-        # A local mamafile pin makes the FIRST probe version-named (applied inside
-        # fetch_and_reconfigure). On a miss there must be no hash-named re-probe: any
-        # hash-named archive predates the pin, which was bumped precisely to bury it.
+        # A pin makes the FIRST probe version-named. On a miss, no hash-named re-probe: such an archive predates the pin.
         dep, _ = _make_dep()
         def fake_fetch(target):
             target.version = '34.0'  # what resolve_pinned_version does on the real path
@@ -255,8 +250,7 @@ class TestResolvePinnedVersion:
         return dep
 
     def test_reads_pin_from_mamafile_on_disk(self, tmp_path):
-        # version pinned inside configure(): never executed on the download probe path,
-        # which is exactly why it must be read from disk instead.
+        # configure() never runs on the download probe path, so the pin must be read from disk
         mf = tmp_path / 'protobuf.py'
         mf.write_text("class protobuf:\n"
                       "    def configure(self):\n"

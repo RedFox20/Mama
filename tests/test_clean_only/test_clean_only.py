@@ -54,8 +54,7 @@ def _fetched_during_load(dep):
 
 
 def test_clean_does_not_clone_missing_sources(tmp_path):
-    # `mama clean all` used to spend minutes cloning deps whose shim marker an earlier clean removed,
-    # then deleted the fresh clone.
+    # a clean-only run must not clone a missing source that the clean deletes right after
     assert _fetched_during_load(_git_dep(tmp_path, clean=True, build=False)) == 0
 
 

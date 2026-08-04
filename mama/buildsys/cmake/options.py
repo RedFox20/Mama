@@ -11,17 +11,12 @@ if TYPE_CHECKING:
 
 
 def use_toolchain_file(config:BuildConfig, toolchain:str) -> str:
-    """Record the toolchain file a platform picked and return its cmake option. Every platform that has
-    one routes through here, so `config.cmake_toolchain_file` answers "is a toolchain file in play" with
-    one bool read - nothing has to scan the option list.
-
-    It also decides whether mama may name the compiler. A toolchain file REWRITES that choice. The
-    Android NDK's takes our `bin/aarch64-linux-android29-clang`, puts `bin/clang` in the cache and
-    drives the target with `--target=` instead. Same compiler, different string - and the string is all
-    cmake compares. On a build dir that already holds a cache (a warm dir, or one the compiler seed
-    pre-populated) our -DCMAKE_C_COMPILER then reads as a CHANGED variable, so cmake deletes the cache
-    and re-runs. That second pass loses the seeded platform info and re-detects, so a cross build
-    compiles with host flags."""
+    """Record the toolchain file a platform picked and return its cmake option. Every platform that
+    has one routes through here, so `config.cmake_toolchain_file` answers "is a toolchain file in
+    play" with one bool read. The record also stops mama from naming the compiler: a toolchain file
+    REWRITES that choice to its own string, and the string is all cmake compares. On a build dir
+    that already holds a cache, our -DCMAKE_C_COMPILER then reads as a CHANGED variable. cmake
+    then wipes the cache mid-configure, loses the seeded platform info and re-detects as the host."""
     config.cmake_toolchain_file = toolchain
     return f'CMAKE_TOOLCHAIN_FILE="{toolchain}"'
 
@@ -38,20 +33,17 @@ def _toolchain_file(target:BuildTarget, platform:Platform, tc:Toolchain) -> str:
     return tc.toolchain_file
 
 
-# The cross binutils a toolchain names explicitly. cmake derives them from the compiler path when
-# the toolchain does not name them, which picks the host's wherever find-root restricts the search.
+# Cross binutils named explicitly: cmake otherwise derives them from the compiler path, which picks
+# the host's wherever find-root restricts the search.
 _BINUTILS = ('ar', 'readelf', 'strip', 'ranlib')
 
 
 def platform_opts(target:BuildTarget) -> list:
     """Render the active platform's Toolchain into cmake options.
 
-    This is the ONLY place a platform fact becomes a cmake option. A platform describes what it needs
-    (see mama/platforms/toolchain.py) and never formats a `-D` flag, so a second build system reads the
-    same description and writes its own.
-
-    Config-level only, no project flags, so the seed probe and the seed fingerprint can both use it and
-    stay target-independent."""
+    This is the ONLY place a platform fact becomes a cmake option. A platform never formats a `-D`
+    flag, so a second build system reads the same facts and writes its own. Config-level only, no
+    project flags, so the seed probe and the seed fingerprint can both use it and stay target-independent."""
     config:BuildConfig = target.config
     platform = config.platform
     tc = platform.toolchain()
@@ -60,9 +52,8 @@ def platform_opts(target:BuildTarget) -> list:
     if platform.platform_define: opts.append(f'{platform.platform_define}=TRUE')
     if tc.host_toolset: opts.append(f'CMAKE_GENERATOR_TOOLSET=host={tc.host_toolset}')
     if platform.is_cross:
-        # EVERY cross platform emits both. The toolchain file cannot carry the processor alone: the
-        # compiler seed writes CMAKE_PLATFORM_INFO_INITIALIZED, cmake then skips system determination,
-        # the toolchain file never runs, and the processor falls back to the host's.
+        # EVERY cross platform emits both. On a seeded build dir cmake skips system determination, the
+        # toolchain file never runs, and a processor it alone carries falls back to the host's.
         opts.append(f'CMAKE_SYSTEM_NAME={tc.system_name}')
         if tc.system_processor: opts.append(f'CMAKE_SYSTEM_PROCESSOR={tc.system_processor}')
     opts += list(tc.extra_opts)

@@ -90,8 +90,10 @@ class Android(Platform):
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """A root mamafile points mama at an explicit NDK CMake toolchain file. The NDK itself is
-        still discovered, because the toolchain file alone does not name the clang binaries."""
+        """Use an explicit NDK CMake toolchain file. The NDK itself is still discovered, because
+        the toolchain file alone does not name the clang binaries.
+        toolchain_file: path to the NDK CMake toolchain file to use
+        """
         if toolchain_file: self.set_toolchain_path(toolchain_file)
         self.init_default()
 
@@ -212,8 +214,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
 
     def make_program(self, target=None) -> str:
         """The NDK ships its own make for hosts that have none. Linux always has one, so '' there
-        lets the build system find it. This is the ONLY place android names a make program. Naming
-        it here AND in the generic option builder passed the option to cmake twice."""
+        lets the build system find it. ONLY this place names a make program, or cmake gets it twice."""
         if System.windows: platform_dir = 'windows-x86_64'
         elif System.macos: platform_dir = 'darwin-x86_64'
         else: return ''

@@ -9,9 +9,8 @@
 
 ## 0. How to use this document
 
-Each roadmap item below is designed to be **landed alone** and leave the tree stable. Do not
-batch them. Every item states its own goal, evidence, risks, test plan, done-criteria and
-rollback.
+Each roadmap item below **lands alone** and leaves the tree stable. Do not batch them. Every
+item states its own goal, evidence, risks, test plan, done-criteria and rollback.
 
 Evidence is tagged so you know how much to trust it:
 
@@ -21,7 +20,7 @@ Evidence is tagged so you know how much to trust it:
 
 The commit hashes quoted below predate a squash of the branch history, so they no longer
 resolve on `master`. Verify a claim by the quoted code and the named test suite, never by the
-hash. **Line numbers drift too - always grep for the quoted code, never trust the number alone.**
+hash. **Line numbers drift too - grep for the quoted code, never trust the number alone.**
 
 ---
 
@@ -35,15 +34,15 @@ dependency that was supposedly present. Diagnosis chain:
    at **configure** time, so the path must exist before configure completes.
 2. The bootstrap for that is a nested `mama <host> build target=protobuf` child process.
 3. A **targeted** build takes the classic path and calls `load_dependency_chain(root)`, which
-   loads/clones the **entire** graph - so the nested Linux child was re-cloning shared deps into
-   the *same* source trees the outer Android build was compiling from.
+   loads/clones the **entire** graph. The nested Linux child therefore re-cloned shared deps
+   into the *same* source trees the outer Android build was compiling from.
 4. Two mama **processes** writing the same git working trees corrupted them. The in-process
    `threading.Lock` at `BuildDependency._load_lock` does not span processes. **[V]**
 
-That corruption is fixed (section 2). What remains is the *waste*: the nested child still loads the
-whole graph to build one leaf. "Scoped discovery" (Item 4) is the proposal to fix the waste -
-and it is now an **optimization, not a correctness fix**. Items 1-3 are hardening that stands
-on its own merit regardless of whether Item 4 ever happens.
+That corruption is fixed (section 2). What remains is the *waste*: the nested child still loads
+the whole graph to build one leaf. "Scoped discovery" (Item 4) fixes the waste, and it is now an
+**optimization, not a correctness fix**. Items 1-3 are hardening that stands on its own, with or
+without Item 4.
 
 ---
 
@@ -72,13 +71,12 @@ consumer-side commit must wait for the pin bump or its CI breaks.
 
 ### Landed - **Item 0**: `settings()` under the parallel loader
 
-The fix landed. `execute_unified` loads the ROOT up front, before the display and before any
-parallel job starts **[V]** (`mama/dependency_chain.py`, `root.load()` before
-`_make_scheduler`). Root `settings()` therefore picks the compiler and the toolchain first.
-Right after root
-`settings()`, `_load` runs `lock_compiler()` and `init_platform_toolchain()`, so a root
-`set_*_toolchain()` beats the default SDK probe **[V]**. `tests/test_root_settings_order/`
-pins the order on both execution paths.
+`execute_unified` loads the ROOT up front, before the display and before any parallel job
+starts **[V]** (`mama/dependency_chain.py`, `root.load()` before `_make_scheduler`). Root
+`settings()` therefore picks the compiler and the toolchain first. Right after root `settings()`,
+`_load` runs `lock_compiler()` and `init_platform_toolchain()`, so a root `set_*_toolchain()`
+beats the default SDK probe **[V]**. `tests/test_root_settings_order/` pins the order on both
+execution paths.
 
 Sibling non-root `settings()` still run **concurrently on different threads**, so any global
 `config` mutation from a non-root `settings()` is still a data race **[V]**. The landed fix
@@ -105,7 +103,7 @@ scheduler still loads every dep, and a `DepsOnlyScope` narrows CONFIGURE and BUI
 named target's dependencies. **Any other `target=X` run takes the classic
 `load_dependency_chain(root)` path.** Scoped discovery only ever concerns that branch.
 
-`execute_unified` - used only for *non*-targeted builds - is **already an incremental loader** **[V]**
+`execute_unified` is **already an incremental loader** **[V]**
 (`mama/dependency_chain.py:983-994`): `_do_load` loads one dep, then `grow()` adds jobs for its
 newly discovered children under the scheduler lock. It never stops early. This is the machinery
 Item 4 should extend rather than replace.
@@ -146,10 +144,10 @@ if self.target is None: return self.has_build_files()  # load failed/never ran: 
 
 A child inherits the parent's workspace **[V]** (`BuildDependency(self, self.config, self.workspace, ...)`),
 and `_update_dep_name_and_dirs` derives `dep_dir = workspaces_root/workspace/name`. So a dep's
-location is known **before** its mamefile is parsed. This is what makes a pre-clone probe
-structurally possible.
+location is known **before** its mamafile is parsed. This makes a pre-clone probe structurally
+possible.
 
-### 3.4 A mamefile is readable without cloning *only sometimes*
+### 3.4 A mamafile is readable without cloning *only sometimes*
 
 `mamafile_path()` **[V]**:
 
@@ -165,8 +163,8 @@ So **free** expansion = `add_local` deps and `add_git(..., mamafile="...")` over
 ### 3.5 An artifactory shim probe is NOT cheap - kills the obvious design
 
 Only the commit-hash step is cheap (`git ls-remote`, 5s timeout). The **dependency list lives
-in `papa.txt` inside the archive**, so obtaining it requires downloading the complete
-`{archive}.zip` over HTTP and unzipping it into `build_dir` **[R]**
+in `papa.txt` inside the archive**, so to read it mama must download the complete
+`{archive}.zip` over HTTP and unzip it into `build_dir` **[R]**
 (`artifactory.py:283-290` -> `:311-314` -> `:252-280`). There is no range fetch, no `papa.txt`
 endpoint, no manifest sidecar.
 
@@ -201,9 +199,9 @@ different parent can win -> different clone -> different commit hash -> **differ
 different `papa.txt` `D` records**. This is the strongest argument for never letting a scoped
 build *upload*.
 
-### 3.8 Global config is writable from any mamefile's `settings()`
+### 3.8 Global config is writable from any mamafile's `settings()`
 
-`self.config` is public on `BuildTarget` and the README documents mamefiles writing it. Reported
+`self.config` is public on `BuildTarget` and the README documents mamafiles writing it. Reported
 unguarded, root-relevant setters **[R]**:
 
 | Setter | Global effect | Guarded? |
@@ -250,16 +248,15 @@ Combined with section 2's race, non-root `settings()` today are both **concurren
 
 ### Item 0 - `settings()` under the parallel loader *(landed)*
 
-Landed, see section 2. The fix loads the root up front and serializes nothing else. It guards
-no setter, so Item 2 keeps its full scope.
+Landed, see section 2. It guards no setter, so Item 2 keeps its full scope.
 
 ---
 
 ### Item 1 - Zombie hardening: guard `dep.target is None` in graph walks
 
-**Standalone value:** yes, independent of scoped discovery. A dep can already have `target is
-None` today from an interrupted clone or a mamefile that failed to parse - that is exactly why the
-guard at `build_dependency.py:212` was added. Every *other* walk lacks it.
+**Standalone value:** yes, independent of scoped discovery. An interrupted clone or a failed
+mamafile parse already leaves `target is None` today - that is why the guard at
+`build_dependency.py:212` exists. Every *other* walk lacks it.
 
 **Reported unguarded dereferences [R]** - re-verify each:
 `dependency_chain.py:53-55` (`_get_exported_libs`), `:286-291`
@@ -297,12 +294,12 @@ loaded set. Existing `tests/test_target_scoped_build/...:185` is the precedent t
   setters in section 3.8 that are documented as root-only but unenforced - priority order:
   `use_gcc_stdlib_for_clang`, `BuildConfig.set_artifactory_ftp`, `enable_fortran`,
   `set_arch`/`set_platform`. **Rebase onto Item 0 first**. It may already cover some of these.
-- **2b.** In `add_child`, when a name is re-declared with a **different** url/branch/tag/mamefile,
+- **2b.** In `add_child`, when a name is re-declared with a **different** url/branch/tag/mamafile,
   emit a `warning()` naming both declarations. Do **not** raise - that would break existing
   projects that rely on first-wins.
 
 **Risk:** **medium - this is behavior-changing.** A project today may *depend* on a non-root
-mamefile setting one of these (e.g. a dep setting the artifactory URL). Turning that into a no-op
+mamafile setting one of these (e.g. a dep setting the artifactory URL). Turning that into a no-op
 silently changes their build.
 
 **Mitigation:** land 2a as **warn-only first** (log "ignored, root-only" *without* changing
@@ -360,7 +357,7 @@ by `3b0c654`.
 
 **Design, corrected by section 3.5:** two tiers only.
 
-- **Free** - mamefile already on disk: `add_local`, `add_git(mamafile=...)` overrides, already-cloned
+- **Free** - mamafile already on disk: `add_local`, `add_git(mamafile=...)` overrides, already-cloned
   trees.
 - **Expensive** - clone *or* shim. **Do not build a shim tier** (section 3.5).
 
@@ -368,7 +365,7 @@ Algorithm: BFS from root expanding **only** free children, stopping the moment X
 fully loading X's subtree. **If free expansion is exhausted without finding X, fall back to today's
 full `load_dependency_chain`.**
 
-That fallback is what dissolves the chicken-and-egg problem (section 3.9 / `find_dependency` needs
+That fallback dissolves the chicken-and-egg problem (section 3.9 / `find_dependency` needs
 `get_children()`, which is empty for an unloaded dep): on fallback, target resolution and the
 `"Available targets: ..."` typo message are byte-identical to today.
 
@@ -437,8 +434,7 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 
 1. **Re-verify every [R] claim**, especially section 3.5 (shim cost) and section 3.8 (setter list) - the whole
    plan pivots on those two.
-2. Answered: the landed Item 0 fix loads the root first and guards no setter, so Item 2a keeps
-   its full scope.
+2. Answered: the landed Item 0 fix guards no setter, so Item 2a keeps its full scope.
 3. Item 3 is behavior-changing. Is narrowing `mama test X` to X's subtree *desirable*, or do users
    rely on it building the tree? Needs a product decision, not just a code one.
 4. Is Item 4 worth the loader risk at all? Measure first: time a cold

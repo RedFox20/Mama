@@ -15,8 +15,7 @@ def _dep(name, children=(), usable=True):
 
 
 def _tree():
-    #  root -> X -> A(unbuilt), B(built)
-    #       -> C(unbuilt, unrelated to X)
+    #  root -> X -> {A(unbuilt), B(built)}, C(unbuilt, unrelated to X)
     a, b, c = _dep('A', usable=False), _dep('B'), _dep('C', usable=False)
     x = _dep('X', [a, b])
     return _dep('root', [x, c]), x, a, b, c
@@ -33,18 +32,14 @@ def test_an_unbuilt_dep_of_the_target_is_revived():
 
 
 def test_an_unbuilt_dep_outside_the_target_subtree_is_left_alone():
-    # Regression: marking every unbuilt dep in the workspace made `mama build target=protobuf` build
-    # unrelated targets - and a mamafile that shells out to `mama build target=Y` then re-entered
-    # itself, forking until the machine died.
+    # marking every unbuilt dep in the workspace builds unrelated targets and lets a shelling-out mamafile fork itself
     root, _, _, _, c = _tree()
     _mark(root)
     assert not c.should_rebuild
 
 
 def test_a_dep_that_depends_on_the_target_is_never_revived():
-    # The fork bomb, exactly: rpclib.configure() shells out to `mama build target=protobuf` to get a
-    # host protoc. If that child revives rpclib (it depends on protobuf, so it sits ABOVE it), the
-    # child re-enters the same configure() and spawns another child, forever.
+    # rpclib.configure() shells out to `mama build target=protobuf`. Reviving rpclib (ABOVE protobuf) re-enters it, forever.
     protobuf = _dep('protobuf', usable=False)
     rpc = _dep('rpclib', [protobuf], usable=False)
     root = _dep('myapp', [rpc], usable=False)
@@ -114,8 +109,7 @@ def _executed_deps(args, tmp_path):
 
 
 def test_building_one_target_does_not_execute_unrelated_targets(tmp_path):
-    # `mama build protobuf` used to hand every dep a job; the out-of-scope ones did no build work but
-    # still ran package(), which asserts on libs that were never built.
+    # an out-of-scope dep does no build work but would still run package(), which asserts on libs that were never built
     names = _executed_deps(['build', 'protobuf'], tmp_path)
     assert names == ['protobuf']
     assert 'rpcservice' not in names and 'myapp' not in names
@@ -127,8 +121,7 @@ def test_building_a_mid_tree_target_still_includes_what_it_needs(tmp_path):
 
 
 def test_uploading_one_target_does_not_execute_unrelated_targets(tmp_path):
-    # `mama upload protobuf` used to run build_phase (packaging) for the whole workspace; an unrelated
-    # dep then asserted on a lib that was never built. Scope it like a targeted build.
+    # upload must scope like a targeted build, or an unrelated dep packages libs that were never built
     names = _executed_deps(['upload', 'protobuf'], tmp_path)
     assert names == ['protobuf']
     assert 'rpcservice' not in names and 'myapp' not in names
@@ -159,8 +152,7 @@ def _runner_used(args, tmp_path):
 
 
 def test_a_single_target_build_still_uses_the_live_display(tmp_path):
-    # The scheduler owns the display, and the serial runner dumps raw cmake output. A one-dep
-    # graph must NOT fall back to it just because there is nothing to overlap.
+    # The scheduler owns the display and the serial runner dumps raw cmake output: a one-dep graph must not fall back to it.
     assert _runner_used(['build', 'protobuf'], tmp_path) == 'parallel'
 
 
@@ -169,8 +161,7 @@ def test_serial_flag_still_opts_out(tmp_path):
 
 
 def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
-    # Regression: mark_unbuilt_target_deps() was imported but never called, so this whole behavior was
-    # dead code - and the unit tests above passed because they call it directly. Drive mamabuild instead.
+    # the unit tests above call mark_unbuilt_target_deps directly, so only driving mamabuild proves the wiring exists
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     protobuf = _dep('protobuf', usable=False)
     rpc = _dep('rpclib', [protobuf])
@@ -183,8 +174,7 @@ def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
 
 
 def test_has_usable_artifacts_survives_a_dep_whose_target_never_loaded(tmp_path):
-    # a dep can sit in the tree with target=None (mamafile failed to parse, clone interrupted); the
-    # scoping pass walks every child, so an unguarded self.target.build_products crashed the whole run
+    # a dep can sit in the tree with target=None (mamafile failed to parse), and the scoping pass walks every child
     from pathlib import Path
     dep = _artifact_dep(tmp_path)
     dep.target = None

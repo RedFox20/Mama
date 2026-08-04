@@ -1,9 +1,8 @@
 # mama build vs update: dependency-loading behavior
 
 Reference spec for what the dependency loader must and must NOT do under each
-top-level command. Captures invariants that the build-target/shim plumbing has
-to honor. Update this file when the contract changes. The code is the truth,
-but this document is the intent.
+top-level command. The code is the truth, but this document is the intent.
+Update this file when the contract changes.
 
 ## The two commands
 
@@ -14,8 +13,8 @@ For deps with a valid shim: no network, no re-unzip, no ls-remote.
 artifactory cache zip may be re-fetched, shim build_dirs are re-extracted.
 
 **`mama build noart`** - no artifactory fetches. mama still allows ls-remote
-on shimmed deps, so it detects and drops an upstream-advanced shim.
-That triggers a clone+build-from-source fallback.
+on shimmed deps, so it detects an upstream-advanced shim, drops it, and falls
+back to clone+build-from-source.
 
 `mama build` is the hot path. It runs many times per developer per day. It
 MUST be cheap.
@@ -24,10 +23,9 @@ MUST be cheap.
 
 For a non-root git dep, the loader sees one of these on-disk states:
 
-1. **Valid shim, papa.txt present** - the dep has been previously satisfied
-   from artifactory. `mama_shim` marker exists, `papa.txt` exists in the
-   build_dir, build products are extracted. This is the steady state of
-   shimmed deps.
+1. **Valid shim, papa.txt present** - the steady state of a dep satisfied from
+   artifactory. The `mama_shim` marker and `papa.txt` exist in the build_dir,
+   and the build products are extracted.
 2. **Stale shim** - marker exists but the upstream commit advanced (only
    detectable via ls-remote).
 3. **Real clone** - a `.git` directory exists. The dep is built from source.
@@ -52,14 +50,13 @@ Specifically **not** `SHIM FETCHED` (misleading - mama fetched nothing), and
 ### State 2: stale shim (rare, but must not silently miss it)
 
 - Without `update`: trust the shim. Do NOT auto-detect staleness on every
-  `mama build`. The user opted into a fast build. The cost of an ls-remote
-  per shim across N deps is exactly the wasted work this doc exists to
-  prevent.
+  `mama build`. The user opted into a fast build, and an ls-remote per shim
+  across N deps is exactly the wasted work a fast build must avoid.
 - With `update`: ls-remote, detect mismatch, drop marker, fall through to
   the regular clone+probe path.
-- Edge case: under `noart`, ls-remote IS still performed (it is cheap, and
-  noart already trades the artifactory fetch for a build-from-source if
-  upstream advanced).
+- Edge case: under `noart`, ls-remote IS still performed. It is cheap, and
+  noart already trades the artifactory fetch for a build-from-source when
+  upstream advanced.
 
 ### State 3: real clone
 

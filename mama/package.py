@@ -64,8 +64,7 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
     include_path = target_root_path(target, include_path, build_dir=build_dir)
     if os.path.exists(include_path):
         if as_includes_root:
-            # Export the parent of this include, so a consumer writes
-            # #include <mylib/file.h> and not <src/mylib/file.h>.
+            # export the parent of this include, so a consumer writes #include <mylib/file.h>, not <src/mylib/file.h>
             includes_root = include_path
             if type(as_includes_root) == str:
                 alias_name = str(as_includes_root) # the user passed the alias, e.g. 'mylib'
@@ -74,8 +73,7 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
             include_path = normalized_path(include_path + '/../')
             target.includes_root = (include_path, includes_root, alias_name)
         if not include_path in target.exported_includes:
-            # an as_includes_root export ships one subdir of the parent it records, so the parent
-            # covers nothing else. Compare against the subdir it really ships.
+            # an as_includes_root export records the parent but ships one subdir, so compare against that subdir
             root_path, root_src, _ = target.includes_root
             shipped = [root_src if e == root_path else e for e in target.exported_includes]
             overlap = _overlapping_include(shipped, include_path)
@@ -84,9 +82,8 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
                         'One export covers those headers already.')
             target.exported_includes.append(include_path)
         return True
-    # A named include path that is not on disk is a packaging fault, the same as a missing lib.
-    # The caller then runs default_package_includes(), which can pick a shallower `include` dir.
-    # That ships a package whose headers no consumer can reach, so report the miss here.
+    # A named include path that is not on disk is a packaging fault, like a missing lib. The fallback
+    # default_package_includes() can pick a shallower dir and ship headers no consumer can reach, so report it.
     warning(f'export_include failed to find: {include_path}')
     return False
 

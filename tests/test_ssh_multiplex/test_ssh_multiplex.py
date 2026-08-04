@@ -135,8 +135,7 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
     def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
-        # Microsoft OpenSSH ControlMaster is unreliable, so native Windows skips
-        # multiplex entirely. Keepalives still help.
+        # Microsoft OpenSSH ControlMaster is unreliable, so native Windows skips multiplex entirely. Keepalives still help.
         monkeypatch.setattr(sm.System, 'windows', True)
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
@@ -151,8 +150,7 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
 
     def test_windows_user_configured_multiplex_respected(self, monkeypatch):
-        # a user who configured multiplex (e.g. ~/.ssh/config pointing at Cygwin ssh)
-        # keeps their config untouched, even on Windows
+        # a user who configured multiplex (for example via Cygwin ssh) keeps their config untouched, even on Windows
         monkeypatch.setattr(sm.System, 'windows', True)
         probe = {
             'controlmaster': 'auto', 'controlpath': '~/.ssh/sockets/%C',
@@ -249,9 +247,7 @@ class TestEnsureMasterIdempotent:
         assert sm._warmed[('git', 'example.com', None)]['we_own_master'] is True
 
     def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
-        # When _open_master fails, ControlMaster/Path/Persist must leave opts.
-        # Otherwise N parallel fetches race to be the master and trigger
-        # N concurrent auths, the exact thing this is meant to prevent.
+        # When _open_master fails, Control* must leave opts, or N parallel fetches race to be the master and auth N times.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
@@ -310,9 +306,7 @@ class TestWrapperPathSafety:
         wrapper = os.path.abspath(os.path.join(
             os.path.dirname(__file__), '..', '..', 'mama', 'utils', 'mama_ssh.py'))
         mama_dir = os.path.dirname(os.path.dirname(wrapper))
-        # A subprocess gives a fresh interpreter with no pre-cached `types`.
-        # os.execvp becomes a no-op BEFORE the wrapper runs, so the wrapper
-        # cannot replace the process before the probe reads sys.path back.
+        # A fresh interpreter has no pre-cached `types`. A no-op os.execvp lets the probe read sys.path back after the wrapper.
         probe = tmp_path / 'probe.py'
         probe.write_text(textwrap.dedent(f"""
             import json, os, sys

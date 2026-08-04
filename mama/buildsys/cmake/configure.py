@@ -49,12 +49,9 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
 
 
 def _set_compiler_paths(target:BuildTarget, opt:list[str]):
-    """
-    Name the compilers for cmake on every configure, so Ninja and other backends never pick the
-    wrong ones. `compute_env` strips CC/CXX from the subprocess env (not the global os.environ),
-    so this is thread-safe. A toolchain file picks the compiler itself, so mama must not name
-    one too - see use_toolchain_file.
-    """
+    """Name the compilers for cmake on every configure, so no backend picks the wrong ones.
+    `compute_env` strips CC/CXX from the subprocess env, so this is thread-safe. A toolchain file
+    picks the compiler itself, so mama must not name one too - see use_toolchain_file."""
     if target.config.cmake_toolchain_file: return
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
     if cc:
@@ -82,9 +79,8 @@ _BACKSLASH_PATH = re.compile(r'(?:\\[\w.\-+~$()]+)+')
 
 
 def _opts_to_defines(opts:list[str]) -> str:
-    """`-D` flags for the cmake command line. Backslash PATHS become forward slashes because SubProcess
-    shlex-splits the command, which strips them: a raw Windows path a mamafile passes via
-    add_cmake_options() silently arrives as C:ProjectsfoobinX.exe. cmake takes / on every platform."""
+    """`-D` flags for the cmake command line. Backslash PATHS become forward slashes: SubProcess
+    shlex-splits the command, which silently strips them. cmake takes / on every platform."""
     opts_defines = ''
     for opt in opts:
         opts_defines += '-D' + _BACKSLASH_PATH.sub(lambda m: m.group(0).replace('\\', '/'), opt) + ' '
@@ -137,9 +133,8 @@ def _toolchain_inputs(target:BuildTarget) -> dict:
 
 
 def _seed_probe(target:BuildTarget) -> str:
-    """The compiler binary whose disappearance means the seed is stale (an upgraded or removed toolset).
-    For MSVC that is the toolset's cl.exe, which `get_preferred_compiler_paths` leaves empty, so resolve
-    it explicitly. seedcache records it and GC checks it cheaply with os.path.exists."""
+    """The compiler binary whose disappearance means the seed is stale. MSVC leaves the compiler
+    paths empty, so resolve the toolset's cl.exe explicitly. seedcache records it and GC stats it cheaply."""
     config = target.config
     if config.msvc:
         try: return util.normalized_path(config.get_msvc_cl64())
@@ -149,11 +144,9 @@ def _seed_probe(target:BuildTarget) -> str:
 
 
 def _seed_id(target:BuildTarget) -> str:
-    """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. The hash alone already covers platform
-    and arch, but a HOST seed reaching a cross build dir is catastrophic and silent. cmake sees
-    CMAKE_PLATFORM_INFO_INITIALIZED, skips system determination, never runs the toolchain file, and the
-    project compiles with host flags. The directory name carries the platform so a hash collision cannot
-    cause that mistake, and the platform is obvious on disk."""
+    """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. A HOST seed reaching a cross build
+    dir would make cmake skip system determination and compile with host flags, silently. The name
+    carries the platform, so a hash collision cannot cause that, and the platform is obvious on disk."""
     config = target.config
     fp = seedcache.compute_fingerprint(_seed_inputs(target))
     # Config-only, NOT dep.build_dir_name: this names a COMPILER seed, and a dep's args do not
@@ -172,9 +165,8 @@ def _seed_inputs(target:BuildTarget) -> dict:
         'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
         'toolchain': _toolchain_inputs(target),
         'stdlib': _abi_stdlib(config),  # libc++ vs libstdc++ changes the CXX ABI probe's implicit link libs
-        # The seed shape belongs to the toolchain identity of a build dir. An older seed wrote a cache
-        # with no CMAKE_<lang>_COMPILER, and a dir seeded from it keeps that hole forever. A new format
-        # flips every fingerprint once, so run_config wipes those dirs and seeds them again.
+        # The seed shape belongs to the toolchain identity of a build dir. A new format flips every
+        # fingerprint once, so run_config wipes the dirs an older seed shaped and seeds them again.
         'seedfmt': seedcache._SEED_FORMAT,
     }
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
@@ -202,9 +194,9 @@ _SEED_PROJECT = 'cmake_minimum_required(VERSION 3.15)\nproject(mama_seed C CXX)\
 
 @contextlib.contextmanager
 def _probe_toolchain(target:BuildTarget):
-    """Detect the toolchain in a throwaway C+CXX project, not in whichever real target configures first (a
-    C-only one would seed no CXX). Yields (build_dir, build_files_dir), or None when the probe missed a language.
-    Context manager: the temp tree lives exactly until publish has copied it."""
+    """Detect the toolchain in a throwaway C+CXX project, not in whichever real target configures
+    first: a C-only one would seed no CXX. Yields (build_dir, build_files_dir), or None when the
+    probe missed a language. The temp tree lives exactly until publish has copied it."""
     config = target.config
     c_abi, cxx_abi = _abi_flags(config)  # same ABI inputs as the real targets, per language
     flags = (f' -DCMAKE_C_FLAGS="{c_abi}"' if c_abi else '') + (f' -DCMAKE_CXX_FLAGS="{cxx_abi}"' if cxx_abi else '')
@@ -246,9 +238,8 @@ def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
 
 
 def _note(target:BuildTarget, out, text:str):
-    """Report a build-dir decision on the target's OWN output, so mamabuild.log keeps the reason next to
-    the configure it explains. A bare warning() depends on the thread capture of the running phase. A
-    reason that misses the log leaves a slow reconfigure with nothing to explain it."""
+    """Report a build-dir decision on the target's OWN output, so the log keeps the reason next to
+    the configure it explains. A bare warning() depends on the thread capture of the running phase."""
     if target.config.print: warning_to(out, f'  - Target {target.name: <16} {text}')
 
 
@@ -272,10 +263,9 @@ def cache_generator(cache_text:str) -> str:
 
 
 def generator_build_file_exists(build_dir:str, generator:str) -> bool:
-    """True when the build file THIS generator emits exists. Deliberately generator-specific: targets pick
-    their own build system, so a leftover Makefile from an earlier Unix-Makefiles configure must NOT
-    make a Ninja-configured dir look complete - `cmake --build` would then die on a missing build.ninja.
-    An unrecognized generator is trusted (let cmake decide) rather than wrongly wiped."""
+    """True when the build file THIS generator emits exists. A leftover Makefile from another
+    generator must NOT make a Ninja-configured dir look complete, or `cmake --build` dies on a
+    missing build.ninja. An unrecognized generator is trusted rather than wrongly wiped."""
     gen = generator.lower()
     if 'ninja' in gen:         return os.path.exists(util.path_join(build_dir, 'build.ninja'))
     if 'makefiles' in gen:     return os.path.exists(util.path_join(build_dir, 'Makefile'))
@@ -305,9 +295,8 @@ _TOOLCHAIN_FINGERPRINT_FILE = 'mama_toolchain.fingerprint'
 
 
 def _toolchain_fingerprint(target:BuildTarget) -> str:
-    """Hash of THIS target's toolchain identity - compiler, generator, arch, platform, SDK, cross toolchain
-    (the same inputs the seed cache fingerprints). Every completed configure records it in the build dir,
-    so the NEXT configure can tell that the toolchain moved since the dir was built."""
+    """Hash of THIS target's toolchain identity, the same inputs the seed cache fingerprints. Every
+    completed configure records it, so the NEXT one can tell that the toolchain moved since."""
     return seedcache.compute_fingerprint(_seed_inputs(target))
 
 
@@ -326,10 +315,9 @@ def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
 
 
 def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
-    """One-time heal for a dir that predates recorded fingerprints. True only when the compiler in the
-    cache is DEFINITELY not the current one: the recorded path differs from the preferred compiler, or
-    no longer exists on disk. No explicit compiler (MSVC) or no cached compiler -> False. Never wipe on
-    missing evidence, so this cannot mass-invalidate warm dirs whose toolchain is unchanged."""
+    """One-time heal for a dir that predates recorded fingerprints. True only when the cached
+    compiler is DEFINITELY not the current one: the recorded path differs from the preferred
+    compiler, or is gone from disk. Never wipe on missing evidence, so this cannot mass-invalidate warm dirs."""
     if target.config.cmake_toolchain_file:
         return False  # the cache holds the toolchain's own choice, which never equals ours
     cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
@@ -354,11 +342,9 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         if current_sanitizers != previous_sanitizers:
             must_configure = True
 
-    # Wipe, never soft-reconfigure, a build dir whose toolchain has since MOVED - a changed compiler,
-    # NDK or SDK path (e.g. a nix store rev bump relocates the Android NDK). cmake keeps stale cache
-    # vars like CMAKE_SYSTEM_PROCESSOR, which then mis-drive the project's own CMakeLists. A recorded
-    # fingerprint that differs proves the move. A dir that predates fingerprints falls back to its cached
-    # compiler path. An unfingerprinted dir with a matching or unknown toolchain stays, so this never mass-wipes.
+    # Wipe, never soft-reconfigure, a build dir whose toolchain has since MOVED: cmake keeps stale
+    # cache vars like CMAKE_SYSTEM_PROCESSOR, which mis-drive the project's own CMakeLists. A differing
+    # recorded fingerprint proves the move. A dir that predates fingerprints falls back to its cached compiler path.
     toolchain_fingerprint = _toolchain_fingerprint(target)
     if os.path.exists(target.build_dir('CMakeCache.txt')):
         recorded = _read_toolchain_fingerprint(target.build_dir())
@@ -368,9 +354,9 @@ def run_config(target:BuildTarget, out=None, _seed=True):
             _note(target, out, 'toolchain changed since last configure - wiping build dir')
             _wipe_build_dir(target)
 
-    # A half-written cache or compiler detection from a killed configure poisons this run. Drop both
-    # so it reconfigures clean instead of trusting what merely EXISTS. The detection check runs even
-    # with no cache at all: a kill mid-detection often saves none, and a `use` seed would re-add the marker.
+    # A half-written cache or compiler detection from a killed configure poisons this run, so drop both
+    # and reconfigure clean. The detection check runs even with no cache at all: a kill mid-detection
+    # often saves none, and a `use` seed would re-add the marker.
     if seedcache.detection_is_partial(_build_files_dir(target)) \
        or (os.path.exists(target.build_dir('CMakeCache.txt')) and not is_cmake_cache_valid(target.build_dir())):
         _note(target, out, 'incomplete build dir (interrupted configure) - rebuilding it')
@@ -447,10 +433,8 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=N
 
 
 def _unused_cli_flag(target:BuildTarget) -> str:
-    """Silence cmake's `Manually-specified variables were not used by the project` block. mama always
-    passes CMAKE_C_COMPILER, so every C++-only project reports it, and the warning says nothing about
-    that project. Kept under `verbose`, where it is the only signal that an add_cmake_options() name is
-    misspelled."""
+    """Silence cmake's unused-variables block: mama always passes CMAKE_C_COMPILER, so every C++-only
+    project reports it. Kept under `verbose`, the only signal that an add_cmake_options() name is misspelled."""
     return '' if target.config.verbose else '--no-warn-unused-cli '
 
 
@@ -468,9 +452,8 @@ def _generator(target:BuildTarget):
 
 
 def _make_program(target:BuildTarget) -> str:
-    """The build tool cmake drives. Ninja when the target enabled it, else what the platform
-    provides (only the Android NDK ships one). ONE call site only: naming the platform's make
-    here AND inside the platform's own option list passes CMAKE_MAKE_PROGRAM twice."""
+    """The build tool cmake drives: Ninja when the target enabled it, else what the platform
+    provides. ONLY this place names it, or cmake gets CMAKE_MAKE_PROGRAM twice."""
     config:BuildConfig = target.config
     if target.enable_ninja_build: return config.ninja_path
     return config.platform.make_program(target)
@@ -609,9 +592,9 @@ def _build_config(target:BuildTarget, install:bool):
 
 
 def _jobs(target:BuildTarget) -> int:
-    """Build parallelism for this target: a scheduler-sized `_build_jobs` (from the TU probe)
-    when set, else the global `config.jobs`. Per-target so concurrent builds never clobber
-    a shared `-j` value. The root runs alone after all deps, so it always gets full `config.jobs`."""
+    """Build parallelism for this target: a scheduler-sized `_build_jobs` when set, else the global
+    `config.jobs`. Per-target, so concurrent builds never clobber a shared `-j` value. The root
+    runs alone after all deps, so it always gets full `config.jobs`."""
     if target.dep.is_root: return target.config.jobs
     return target._build_jobs or target.config.jobs
 

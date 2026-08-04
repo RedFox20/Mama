@@ -27,12 +27,13 @@ else:
 
 @contextlib.contextmanager
 def interprocess_dir_lock(lock_dir: str, timeout: float, poll: float = 0.1):
-    """Hold an exclusive cross-process lock on `lock_dir` for the `with` block. Yields True on acquire, or
-    False when the acquire timed out after `timeout` seconds. A timed-out caller still runs, unlocked.
-    Always releases on exit. Different `lock_dir`s never contend, so loads of different deps stay parallel."""
-    # The sidecar lives beside lock_dir, never inside it: a reclone wipe removes the whole lock_dir, and a lock
-    # file deleted while held unlinks its inode, so the next opener makes a fresh inode and exclusion silently
-    # breaks. The parent location survives a wipe of the directory it guards.
+    """Hold an exclusive cross-process lock on `lock_dir` for the `with` block. Yields True on acquire, else
+    False on timeout, and a timed-out caller still runs, unlocked. Always releases on exit.
+    lock_dir: the directory to guard. Different lock_dirs never contend, so loads of different deps stay parallel
+    timeout: seconds to wait for the lock
+    poll: seconds between lock attempts"""
+    # The sidecar lives beside lock_dir, never inside it: a lock file wiped while held unlinks its inode,
+    # so the next opener makes a fresh inode and exclusion silently breaks.
     lock_dir = os.path.normpath(lock_dir)
     parent = os.path.dirname(lock_dir) or '.'
     os.makedirs(parent, exist_ok=True)

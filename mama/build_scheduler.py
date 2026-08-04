@@ -176,8 +176,8 @@ class Scheduler:
                     if self._gen != gen: continue  # state moved while we drew: re-evaluate, do not sleep on it
                 if not progressed:
                     if self._n_running == 0 and self._pending and not self._error:
-                        # nothing running and nothing launchable: the remaining jobs have unmet
-                        # deps that no running job can satisfy -> a dependency cycle. Do not hang.
+                        # nothing runs and nothing can launch: the remaining jobs wait on deps no
+                        # running job can satisfy -> a dependency cycle. Do not hang.
                         self._error = self._pending[0]
                         self._error.error = RuntimeError(f'Cyclical dependency at {self._error}')
                         break
@@ -304,7 +304,6 @@ class Scheduler:
                 self._error = job  # the first failure wins and stops further launches
             self._cond.notify_all()
         if first_failure and self._abort_hook:
-            # Fail fast: stop the running child processes, so the build exits now. Otherwise it drains
-            # every running sibling first. The hook runs outside the lock, because it waits for a grace
-            # period. The notify_all above already woke the barriers.
+            # Fail fast: stop the running child processes now, instead of draining every running sibling.
+            # The hook waits for a grace period, so it runs outside the lock. notify_all already woke the barriers.
             self._abort_hook(f'{job.node.name if job.node else job.key} failed')

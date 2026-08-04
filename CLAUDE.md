@@ -28,12 +28,11 @@ that gets committed.
 - **One-liner `if` for a single short statement.** Use `if cond: do_thing()` on
   one line when the body is a single short call.
 - **No em-dashes (U+2014) in code, comments, or docs.** Use a regular ASCII dash
-  `-` instead. An em-dash looks fancy in prose, but it is noise in a source file
-  and hard to grep for. The same applies to any other non-ASCII punctuation, such
-  as the arrow `→`. Write `->`.
+  `-` instead. Non-ASCII punctuation is noise in a source file and hard to grep
+  for. The same applies to the Unicode arrow (U+2192). Write `->`.
 - **Yellow output goes through `warning(text)`** (from `mama.utils.system`),
-  not `console(text, color=Color.YELLOW)`. The helper exists so every warning
-  passes through one function and looks the same.
+  not `console(text, color=Color.YELLOW)`. One function, one look for every
+  warning.
 - **Cache a repeated or invariant calculation.** Never compute the same value
   twice. A `sum()`, probe, `.encode()` or `stat` evaluated twice in one
   expression (for example in a filter AND in the value it builds) is a finding.
@@ -150,10 +149,10 @@ it as unsafe in a multi-threaded program, and mama runs many threads in parallel
 
 ## SSH multiplex / parallel loading
 
-- Parallel load is the default for every run, and `serial` opts out. The
-  `fetch_slot` semaphore caps the concurrent git fetches at 8
-  (`DEFAULT_MAX_CONCURRENT_FETCHES`), whatever `parallel_max` asks for. `parallel_max` (default 20) sizes the scheduler's LOAD
-  pool. Both are independent of the worker thread count.
+- Parallel load is the default for every run, and `serial` opts out. The `fetch_slot`
+  semaphore caps concurrent git fetches at 8 (`DEFAULT_MAX_CONCURRENT_FETCHES`),
+  whatever `parallel_max` asks for. `parallel_max` (default 20) sizes the scheduler's
+  LOAD pool. Both are independent of the worker thread count.
 - The `SubProcess.run` calls of the shim probe also go through `fetch_slot`. Count
   the slot acquisitions per probe: one for the clone, and one more for `git show`.
 - `ensure_master_for_url` is idempotent and serialized per host.
@@ -171,23 +170,21 @@ it as unsafe in a multi-threaded program, and mama runs many threads in parallel
 
 ### Test code style
 
-The same brevity and DRY rules that apply to `mama/` apply to `tests/`. The old
-habit was "tests are throwaway, verbosity is fine". In this repo that habit added
-about 13% removable noise to the new test suite. Do not repeat it.
+The same brevity and DRY rules that apply to `mama/` apply to `tests/`. Tests are
+not throwaway code, so verbosity is not fine there either.
 
 - **Shared stub-builders live in `tests/testutils.py`**, not duplicated per file.
   A second `def _make_dep(tmpdir): config = Mock(); ...` in a new test file is
   duplication. Check `testutils.py` first. Extend or parameterize the existing
-  helper. The current `_make_dep` and `_make_target_with_status` duplication across
-  6 shim/probe/noart/404 test files is the largest case.
+  helper.
 - **Use the pytest `tmp_path` fixture**, not `tempfile.mkdtemp()` with a
-  `try / shutil.rmtree() finally`. `tmp_path` is function-scoped, it cleans itself
-  up, and it is a `pathlib.Path`. Shorter, no boilerplate, no chance of a leak.
+  `try / shutil.rmtree() finally`. `tmp_path` is a function-scoped `pathlib.Path`
+  that removes itself. Shorter, no boilerplate, no chance of a leak.
 - **No `sys.path.insert(...)` boilerplate** in a test file. `tests/conftest.py` is
   the right place for any test-bootstrap path manipulation.
-- **Module docstring: 1-2 lines max, "what this file pins".** The bug background,
-  the fix design and the why-this-was-tricky belong in the commit message. Do not
-  copy them into the test file docstring. The copy goes stale faster there.
+- **Module docstring: 1-2 lines max, "what this file pins".** The bug background
+  and the fix design belong in the commit message, not in the docstring, where
+  the copy goes stale faster.
 - **No class docstring that paraphrases what every test in the class checks.** The
   test method names and their assertions already say it.
 - **Per-test docstrings only when an unusual invariant needs an explanation.** Do
@@ -207,15 +204,14 @@ Edit -> Review -> Refactor -> Test -> (Edit) -> Review  [until 0 issues]
 ```
 
 **This loop is the default behavior, not an option.** Every change set goes through
-it: a one-line fix, a doc edit, an "obviously trivial" diff. The skill exists
-because verbosity and duplication appear most often in the changes that looked fine
-on first write.
+it: a one-line fix, a doc edit, an "obviously trivial" diff. Verbosity and duplication
+appear most often in the changes that looked fine on first write.
 
 **Run the review at every hand-off, not only at the end of a task.** Before you answer
 the user with work in the tree, and while the test suite runs. Its step 0 re-reads
-`ste-writing` and `output-style` from disk. Both drift out of a long session, and a rule
-you cannot see is a rule you do not apply. A `Stop` hook in `.claude/settings.json` says
-the same thing when the tree holds uncommitted changes.
+`ste-writing` and `output-style` from disk, because both drift out of a long session.
+A `Stop` hook in `.claude/settings.json` says the same thing when the tree holds
+uncommitted changes.
 
 Every task ends with these steps:
 1. Implement the change, then start the test suite **in the background**. The suite takes about
@@ -228,11 +224,10 @@ Every task ends with these steps:
    addressed".
 4. Re-run the suite and re-run the review. Loop until `REVIEW PASSED - 0 issues`.
 5. **Never commit until a human has reviewed the diff and approved it.** A green
-   suite and a passed review are necessary but NOT sufficient. A small quirk, such
-   as a wrong guard clause or an over-broad `and not ...` condition, can pass every
-   test and still break the feature. Tests do not catch that class of bug, because
-   the test carries the same wrong assumption as the code. Present the diff, wait
-   for the approval of the human, then commit.
+   suite and a passed review are necessary but NOT sufficient. A wrong guard clause
+   or an over-broad `and not ...` condition can pass every test and still break the
+   feature. The test carries the same wrong assumption as the code. Present
+   the diff, wait for the approval of the human, then commit.
 
 The skill checks: the 130-column limit, no 3+ line single expressions, no break
 after `(`, one-liner `if`, no em-dashes, `warning()` instead of `Color.YELLOW`,
@@ -247,9 +242,9 @@ first, no preamble, no recap, no closing pleasantry, lists capped at five.
 It also runs the `ste-writing` lint over the prose the diff adds - every
 docstring, comment, console string and exception message: no contractions, no
 semicolon in prose, no non-ASCII punctuation, sentences under 20 words, active
-voice, plain verbs, no idiom, one name for one thing. A code comment is held to
-the same standard as an error string, because it ships with the code. This is
-the rule set that slips most often, so the greps in the skill are not optional.
+voice, plain verbs, no idiom, one name for one thing. A code comment gets the
+same standard as an error string, because it ships with the code. This rule set
+slips most often, so the greps in the skill are not optional.
 
 **Less code means fewer bugs.** A reduction of 30-60% on a refactored file is
 normal under these rules. A refactor that does not reduce the line count was too

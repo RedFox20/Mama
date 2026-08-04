@@ -24,10 +24,9 @@ def scan_mamafile(mamafile_text: str) -> VersionScan:
     return a name the UPLOAD side never publishes. So it reports what it saw, and `trusted_version`
     refuses.
 
-    Parses the file instead of a text scan. `ast.parse` costs about 0.14ms on a real mamafile, on a path
-    that already spends 100ms or more on the network. It is also EXACT. A line scan counts a docstring
-    that documents `self.version` as an assignment, then refuses the real pin next to it. The line scan
-    stays as the fallback for a mamafile this Python cannot parse."""
+    Parses with ast, which is cheap and EXACT. A line scan counts a docstring that documents
+    `self.version` as an assignment, then refuses the real pin next to it. The line scan stays as the
+    fallback for a mamafile this Python cannot parse."""
     try:
         return _scan_ast(ast.parse(mamafile_text))
     except (SyntaxError, ValueError):

@@ -1,41 +1,41 @@
 # Mama Build Tool
 Mama - A modular C++ build tool so simple even your mama can use it
 
-Mama turns a tree of C++ libraries - your own and third-party - into a single
-`mama build`. It clones the sources, configures them, and builds them in the right order
-for every platform and compiler you target. The results link into your project.
-No central package repository, no Docker containers, no hand-written toolchain glue -
-just git repos, a minimal set of system libs, and the compilers you already have.
+Mama turns a tree of C++ libraries, your own and third-party, into a single `mama build`.
+It clones, configures and builds them in dependency order for every platform and compiler
+you target, then links the results into your project. No central package repository, no
+Docker, no hand-written toolchain glue: only git repos, a minimal set of system libs, and
+the compilers you already have.
 
 Building is one command: `mama build windows`. Mama picks up trivial CMake projects and
-header-only or stand-alone C libraries automatically. Larger projects add a
-small `mamafile.py` to declare their dependencies and build steps.
+header-only or stand-alone C libraries automatically. Larger projects add a small
+`mamafile.py` to declare their dependencies and build steps.
 
 ![mama build demo](docs/demo.gif)
 
 ## Why Mama
 
-- **One command, the whole DAG.** Mama resolves C++ dependencies into a build graph and drives
-  it end to end - clone, configure, compile, in dependency order. `mama build <target>` does just
-  that target's subtree, nothing more.
-- **Everything parallel.** Clones, configures and compiles all run at once under one scheduler - a
-  leaf builds while a deeper dep still clones. The slowest subtrees launch first, and the core budget
-  is RAM-capped so a wide build cannot OOM the box.
-- **Multi-platform, multi-compiler - no Docker.** Toolchains used as designed: `linux`, `linux-clang`,
-  `windows`, `android` and other cross-builds land side by side, never clobbering. Three platforms at once? Run
-  three builds, `mama build <platform>` each. Sanitizers (asan/lsan/tsan/ubsan) and coverage are plain flags.
-- **Any build system.** CMake, GNU Make, MSBuild, or a custom `build()` step - all through the
+- **One command, the whole DAG.** Mama resolves C++ dependencies into a build graph and drives it
+  end to end: clone, configure, compile, in dependency order. `mama build <target>` does only that
+  target's subtree.
+- **Everything parallel.** Clones, configures and compiles run at once under one scheduler, so a
+  leaf builds while a deeper dep still clones. The slowest subtrees launch first, and the core
+  budget is RAM-capped so a wide build cannot OOM the box.
+- **Multi-platform, multi-compiler, no Docker.** `linux`, `linux-clang`, `windows`, `android` and
+  other cross-builds land side by side, never clobbering. For three platforms, run three builds,
+  `mama build <platform>` each. Sanitizers (asan/lsan/tsan/ubsan) and coverage are plain flags.
+- **Any build system.** CMake, GNU Make, MSBuild, or a custom `build()` step, all through the
   same scheduler and live display.
 - **Faster CMake configures.** Compiler detection (~5s of a ~6.5s cold configure) runs once per
   toolchain, and every fresh build dir reuses the result.
 - **In-source, project-scoped, reproducible.** Dependencies pull from git (pinned by
   tag/branch/commit) or local folders. Heavy libs like OpenCV and FFmpeg build from source, so a
-  fresh checkout builds identically - only a minimal set of system libs is assumed.
-- **Resilient & cached.** Fail-fast Ctrl+C, self-healing build dirs after an interrupted
+  fresh checkout builds identically with only a minimal set of system libs assumed.
+- **Resilient and cached.** Fail-fast Ctrl+C, self-healing build dirs after an interrupted
   configure, and `mama upload` to a private artifactory server so matching commits are fetched
   instead of rebuilt.
 - **Build stats.** `mama build buildstats` prints per-package timing bars plus a
-  frontend/backend/link breakdown (MSVC vcperf, Clang `-ftime-trace`) - the slowest TUs, costliest
+  frontend/backend/link breakdown (MSVC vcperf, Clang `-ftime-trace`): the slowest TUs, costliest
   headers, heaviest codegen.
 - **Also included.** Correct-order linking via `MAMA_INCLUDES`/`MAMA_LIBS`, `clang-tidy` and
   coverage as flags, and `mama init` to adopt an existing CMake project in one step.
@@ -44,13 +44,11 @@ For additional documentation explore: [build_target.py](mama/build_target.py)
 
 
 ## Who is this FOR?
-Anyone who develops cross-platform C++ libraries or applications which
-target any combination of [Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, Xilinx, MIPS, i.MX8MP].
-And anyone who is not satisfied with system-wide dependencies and linker
-bugs caused by incompatible system-wide libraries on Linux.
-
-If you require an easy to use, reproducible project/namespace scoped package+build system, this is for you.
-Your builds do not rely on hard-to-configure system packages. All you need to type is `mama build`.
+Anyone who develops cross-platform C++ libraries or applications for any combination of
+[Windows, Linux, macOS, iOS, Android, Raspberry, Oclea, Xilinx, MIPS, i.MX8MP]. And anyone
+who wants a reproducible, project-scoped package and build system instead of incompatible
+system-wide libraries and the linker bugs they cause. Your builds do not rely on
+hard-to-configure system packages. All you need to type is `mama build`.
 
 ### Supported platforms ###
 - Windows (64-bit x86_64, 32-bit x86, 64-bit arm64, 32-bit armv7) default is latest MSVC
@@ -65,8 +63,8 @@ Your builds do not rely on hard-to-configure system packages. All you need to ty
 - Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
 
 ## Who is this NOT for?
-Single platform projects with platform specific build configuration and system wide dependency management
-such as Linux exclusive G++ projects using apt-get libraries or iOS-only apps using cocoapods.
+Single-platform projects with platform-specific build configuration and system-wide dependency
+management, such as Linux-only G++ projects using apt-get libraries or iOS-only apps using cocoapods.
 
 
 ## Artifactory
@@ -151,13 +149,12 @@ Call `mama help` for more usage information.
 ```
 
 The `https-override` / `ssh-override` flags rewrite the git access protocol of every
-`add_git()` dependency at build time, without editing any mamafile. Use them when an
-environment can only reach git over one protocol: `https-override` for hosts that only
-allow https access tokens (no ssh keys), `ssh-override` for hosts where https is blocked
-and ssh keys are required. They work for GitHub, GitLab (including nested groups),
-Bitbucket and self-hosted/custom-port servers. Local paths (`/srv/..`, `file://`, `C:/..`)
-stay untouched. The conversion drops embedded https credentials and ssh custom ports,
-and re-points an existing clone's `origin` remote so `fetch`/`pull` follow
+`add_git()` dependency at build time, without editing any mamafile. Use `https-override`
+for hosts that only allow https access tokens (no ssh keys), and `ssh-override` for hosts
+where https is blocked and ssh keys are required. They work for GitHub, GitLab (including
+nested groups), Bitbucket and self-hosted/custom-port servers. Local paths (`/srv/..`,
+`file://`, `C:/..`) stay untouched. The conversion drops embedded https credentials and ssh
+custom ports, and re-points an existing clone's `origin` remote so `fetch`/`pull` follow
 the chosen protocol.
 
 ```
@@ -169,7 +166,7 @@ the chosen protocol.
 ```
   if_needed                      Only upload if package does not already exist on server.
   art                            Always fetch packages from artifactory; failure will throw.
-  noart                          Temporarily ignore artifactory package fetching, however CACHE will still be used and fetches check for git staleness.
+  noart                          Skip artifactory fetching. The local CACHE is still used and fetches check git staleness.
 ```
 
 ### Sanitizer and coverage flags
@@ -195,9 +192,9 @@ mama build buildstats opencv      # scope the deep breakdown to a single target
 
 **Stage 1 - per-package bars.** One normalized horizontal bar per package, slowest first,
 segmented into load (git/artifactory), configure (CMake) and build (compile+link), with the
-package's total wall time on the right. Bar length scales against the slowest package, so the
-long poles are obvious at a glance. Packages faster than 0.33s are omitted as noise. On UTF-8
-terminals the segments use block shades, on legacy Windows code pages they fall back to ASCII.
+package's total wall time on the right. Bar length scales against the slowest package.
+Packages faster than 0.33s are omitted as noise. UTF-8 terminals get block shades, legacy
+Windows code pages fall back to ASCII.
 
 ```
   Build times     ░ load  ▒ configure  ▓ build
@@ -205,28 +202,28 @@ terminals the segments use block shades, on legacy Windows code pages they fall 
   ReCpp           ░▒▒▓▓▓▓▓▓                       31.4s
 ```
 
-**Stage 2 - deep compiler breakdown.** Where the compile time actually went: frontend (parse)
-vs backend (codegen) vs link, the achieved build parallelism, the slowest translation units,
-the costliest headers (total parse time and include count) and the costliest codegen symbols.
-This stage is compiler-specific:
+**Stage 2 - deep compiler breakdown.** Where the compile time went: frontend (parse) vs
+backend (codegen) vs link, the achieved build parallelism, the slowest translation units,
+the costliest headers (total parse time and include count) and the costliest codegen
+symbols. This stage is compiler-specific:
 
-- **MSVC** - the build is wrapped in a [vcperf](https://learn.microsoft.com/en-us/cpp/build-insights/)
-  `/timetrace` session and the trace is written to `packages/<project>/<platform>/mama_timetrace.json`.
+- **MSVC** - mama wraps the build in a [vcperf](https://learn.microsoft.com/en-us/cpp/build-insights/)
+  `/timetrace` session and writes the trace to `packages/<project>/<platform>/mama_timetrace.json`.
   vcperf must be on `PATH`, in the MSVC toolset, or pointed at by the `VCPERF` env var. A one-time
-  elevated `vcperf /grantusercontrol` is the prerequisite for capturing without admin rights.
-  Without vcperf, Stage 1 still prints and mama skips Stage 2 with a warning.
-- **Clang** - the build is instrumented with `-ftime-trace` and the per-TU JSONs written during
-  this run are collected from the build dirs. Use `mama build clang buildstats` on Linux.
+  elevated `vcperf /grantusercontrol` enables capture without admin rights. Without vcperf,
+  Stage 1 still prints and mama skips Stage 2 with a warning.
+- **Clang** - mama instruments the build with `-ftime-trace` and collects the per-TU JSONs
+  written during this run from the build dirs. Use `mama build clang buildstats` on Linux.
 - **GCC** - no per-file trace exists, so only Stage 1 prints.
 
-Both stages only see what was actually compiled. An up-to-date incremental build reports
-`no compiler activity captured` - use `rebuild` when you want to profile a full build.
+Both stages only see what this run compiled. An up-to-date incremental build reports
+`no compiler activity captured`, so use `rebuild` to profile a full build.
 
 ### Clang-Tidy static analysis
 
 Mama runs [clang-tidy](https://clang.llvm.org/extra/clang-tidy/) static analysis during the build.
-When enabled, CMake sets `CMAKE_C_CLANG_TIDY` and `CMAKE_CXX_CLANG_TIDY` so that clang-tidy runs on
-every compiled source file.
+When enabled, CMake sets `CMAKE_C_CLANG_TIDY` and `CMAKE_CXX_CLANG_TIDY` so clang-tidy runs
+on every compiled source file.
 
 ```
 mama build clang-tidy             # Run clang-tidy analysis during build
@@ -264,15 +261,15 @@ def settings(self):
   install-clang-<ver>            Install Clang <ver> for Ubuntu. Ex: install-clang-18
   install-gcc-<ver>              Install GCC <ver> for Linux. Ex: install-gcc-13
   install-msbuild                Install MSBuild for Linux.
-  install-ndk-<ver>              Install Android NDK <ver> for Linux or Windows. Ex: install-ndk-25c. Use install-ndk- to list available versions.
+  install-ndk-<ver>              Install Android NDK <ver> for Linux/Windows. Ex: install-ndk-25c. install-ndk- lists versions.
 ```
 
 ## Mamafile Reference
 
 ### Requiring a minimum mamabuild version
 
-When a mamafile relies on newer mamabuild features, declare the minimum version. The build aborts
-during target load - before any configure/build work - with an upgrade hint if mama is too old:
+When a mamafile relies on newer mamabuild features, declare the minimum version. If mama is
+too old, the build aborts during target load, before any configure or build work:
 
 ```py
 def settings(self):
@@ -283,12 +280,11 @@ def settings(self):
 Target myapp requires mamabuild >= 0.13.01, but this is 0.12.5. Upgrade with:  pip install --upgrade mama
 ```
 
-Versions compare segment-wise as numbers, so `0.13.01` correctly outranks `0.9.5` and a shorter
+Versions compare segment-wise as numbers, so `0.13.01` outranks `0.9.5` and a shorter
 version zero-pads (`0.13` < `0.13.01`).
 
-> Note: `requires_version` itself exists only from 0.13.01 onward. On an older mama the mamafile
-> fails with `AttributeError: ... has no attribute 'requires_version'` - which is still the signal
-> to upgrade.
+> Note: `requires_version` itself exists only from 0.13.01 onward. An older mama fails with
+> `AttributeError: ... has no attribute 'requires_version'`, which is still the signal to upgrade.
 
 ### Adding dependencies
 
@@ -323,9 +319,8 @@ class MyLib(mama.BuildTarget):
             self.add_cmake_options('BUILD_SHARED_LIBS=ON')
 ```
 
-**Mamafile discovery**: When a dependency has no explicit `mamafile=` path, mama first
-checks `mama/{name}.py` in the parent project, then falls back to `mamafile.py` in the
-dependency's own source root.
+**Mamafile discovery**: Without an explicit `mamafile=` path, mama first checks
+`mama/{name}.py` in the parent project, then `mamafile.py` in the dependency's source root.
 
 ### Inter-dependency configuration
 
@@ -377,8 +372,8 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 | `enable_cxx_build` | `True` | Enable C++ compiler |
 | `enable_multiprocess_build` | `True` | Enable parallel compilation |
 | `clean_intermediate_files` | `False` | Clean intermediate build files after build |
-| `version` | `''` | Pins the archive name's last field instead of the commit hash. Must be one raw string literal - see [Pinning a version](#pinning-a-version-selfversion) |
-| `args` | `[]` | Arguments passed from parent via `add_git(args=)` / `add_local(args=)`. Also name the archive and the build dir |
+| `version` | `''` | Replaces the commit hash in the archive name, see [Pinning a version](#pinning-a-version-selfversion) |
+| `args` | `[]` | Arguments from the parent's `add_git(args=)` / `add_local(args=)`. Also name the archive and the build dir |
 
 ### Platform detection properties
 
@@ -572,8 +567,8 @@ class AlphaGL(mama.BuildTarget):
         self.gdb(f'bin/AlphaGLTests {args}')
 ```
 
-If a dependency is non-trivial (it has dependencies and configuration),
-you can simply place a target mamafile at: `mama/{DependencyName}.py`
+If a dependency is non-trivial (it has dependencies and configuration), place a target
+mamafile at `mama/{DependencyName}.py`.
 
 Example dependency config `AlphaGL/mama/libpng.py`
 ```py
@@ -597,8 +592,8 @@ class libpng_static(mama.BuildTarget):
 ```
 
 ### Clean include deployment with `as_includes_root`
-When developing a library where source and headers live together (e.g. `src/mylib/mylib.h`),
-you can use `as_includes_root='mylib'` to deploy headers with a clean namespace:
+When source and headers live together (e.g. `src/mylib/mylib.h`), use
+`as_includes_root='mylib'` to deploy headers with a clean namespace:
 ```py
 def package(self):
     self.export_libs('.', ['.lib', '.a'])
@@ -607,11 +602,10 @@ def package(self):
     self.export_include('src', as_includes_root='mylib')
 ```
 
-During development, mama sets the actual include path to `src/` so that IDE navigation
-and error messages point to the real source files. `papa deploy` exports only headers
-to `include/mylib/`, so consumers get clean `#include <mylib/mylib.h>` paths.
-
-This is also the default behavior of `default_package_includes()` when only a `src/` folder exists.
+During development, mama sets the include path to `src/` so IDE navigation and error
+messages point to the real source files. `papa deploy` exports only headers to
+`include/mylib/`, so consumers get clean `#include <mylib/mylib.h>` paths. This is also the
+default behavior of `default_package_includes()` when only a `src/` folder exists.
 
 ## Example output from Mama Build
 ```
@@ -680,13 +674,13 @@ Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`.
 | no pin | the commit | `qcoro-...-release-a1b2c3d` |
 
 A tag names the package on its own, because a tag is immutable by convention. A **branch keeps the
-commit**, because a branch moves: the branch name alone would serve every commit ever pushed to it
-under one archive name. Mama keeps a pin verbatim except for characters a file name cannot hold, so
-`release/1.0` becomes `release-1.0`. It never strips a leading `v` and never changes case, because
-`v1.0`, `V1.0` and `1.0` may be three different tags in one repo.
+commit**, because a branch moves and its name alone would serve every commit ever pushed to it.
+Mama keeps a pin verbatim except for characters a file name cannot hold, so `release/1.0` becomes
+`release-1.0`. It never strips a leading `v` and never changes case, because `v1.0`, `V1.0` and
+`1.0` may be three different tags in one repo.
 
 `[-variant]` is every axis that makes this build different from a plain one, coarsest first. It is
-empty for a plain release build, so those names never change. The same string also names the build
+empty for a plain release build, so those names never change. The same string names the build
 directory (`linux-cov-asan-lgpl`), so a build and the package it uploads can never disagree:
 
 | axis | token | comes from |
@@ -695,10 +689,9 @@ directory (`linux-cov-asan-lgpl`), so a build and the package it uploads can nev
 | sanitizers | `-asan` `-tsan` `-lsan` `-ubsan` `-msan` | `sanitize=address` / `asan` / ... |
 | dep args | `-lgpl` `-cpp20` | `add_git(..., args=['LGPL'])` in the consumer |
 
-Mama normalizes every dep arg, so one set of args always spells one name. It lowercases the arg, turns
-`+` into `p` (`C++20` -> `cpp20`) and drops every other non-alphanumeric character (`NEWMATH=1` ->
-`newmath1`). It then sorts the tokens and removes the duplicates. The call order and the letter case
-therefore never change a name.
+Mama normalizes every dep arg so one set of args always spells one name: lowercase, `+` to `p`
+(`C++20` -> `cpp20`), drop every other non-alphanumeric character (`NEWMATH=1` -> `newmath1`),
+then sort the tokens and remove duplicates. Call order and letter case never change a name.
 
 ### Pinning a version: `self.version`
 
@@ -714,11 +707,11 @@ Use it when the dep's own mamafile should decide the version, whatever tag a con
 tag-pinned dep already names itself after the tag (see the table above), so most deps need nothing
 here.
 
-**It must be a single raw string literal.** To download a package, mama needs the archive name *before*
-it clones anything. So it never runs the mamafile. It reads the file as text and takes the first
-`self.version = '<literal>'` it finds. Pre-clone that text comes from `git show HEAD:mamafile.py` on the
-remote. Post-clone it comes from the file on disk. The upload side does the opposite: it runs the
-mamafile and uses the value in memory. Three rules follow:
+**It must be a single raw string literal.** Mama needs the archive name *before* it clones anything,
+so it never runs the mamafile. It reads the file as text and takes the first
+`self.version = '<literal>'` it finds. Pre-clone that text comes from `git show HEAD:mamafile.py` on
+the remote, post-clone from the file on disk. The upload side runs the mamafile and uses the value
+in memory. Three rules follow:
 
 1. **A literal, in any method.** `init()`, `settings()` and `configure()` all work: the method does not
    matter, the assignment does. A module-level constant assigned once (`V = '8.0.1'` then
@@ -742,7 +735,7 @@ class ffmpeg(mama.BuildTarget):
         self.version = '8.1.0'    # ffmpeg-ubuntu-24-gcc14.3-x64-release-8.1.0
 ```
 
-To build one repo two ways, do not branch the version - pass args from the consumer:
+To build one repo two ways, do not branch the version. Pass args from the consumer:
 
 ```python
 # in the consumer's mamafile, NOT in a conditional self.version
@@ -839,10 +832,8 @@ We are open for any improvements and feedback via pull requests.
 
 ### Development Setup
 Mama requires `setuptools>=77.0`, because `pyproject.toml` declares the license as a PEP 639
-expression. Check the version with `pip3 show setuptools`.
-
-You can configure local development with `$ pip3 install -e . --no-cache-dir` but make sure you have
-setuptools (>=77.0) and latest pip3 (>22.3). This command will fail with older toolkits.
+expression. Check the version with `pip3 show setuptools`. Configure local development with
+`$ pip3 install -e . --no-cache-dir`. The command fails with setuptools < 77.0 or pip3 <= 22.3.
 
 ### Running Tests
 
@@ -863,7 +854,7 @@ Uploading a source distribution:
 2. Build sdist: `python -m build`
 3. Verify the metadata: `twine check dist/*`
 4. Upload with twine: `twine upload --skip-existing dist/*`
-It will prompt for Username and Password, unless you set up ~/.pypirc file:
+Twine prompts for Username and Password, unless a ~/.pypirc file exists:
 ```
 [distutils]
 index-servers = pypi

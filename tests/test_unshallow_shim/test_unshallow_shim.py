@@ -40,7 +40,7 @@ def test_unshallow_converts_shim_to_clone_without_refetch(tmp_path):
     assert dep.is_artifactory_shim()
     clone_mock, fetch_mock = _load_unshallow_target(dep)
     clone_mock.assert_called_once()
-    fetch_mock.assert_not_called()    # the bug: post-clone probe re-fetched the pkg, making the clone moot
+    fetch_mock.assert_not_called()    # a post-clone pkg re-fetch would make the clone moot
     assert not dep.is_artifactory_shim()
     assert not dep.from_artifactory
 

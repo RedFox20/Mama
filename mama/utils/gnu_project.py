@@ -14,16 +14,12 @@ if TYPE_CHECKING:
 class BuildProduct:
     """ One build product of a project, and where to deploy it """
     def __init__(self, built_path:str, deploy_path:str=None, strip=None, is_dir=False):
-        """
-            - built_path: where the built file exists.
-                          Supported project variables {{installed}}, {{source}}, {{build}}
-            - deploy_path: where to deploy the file, or None when no deploy is needed
-            - strip: whether to strip the binary on deploy
-            - is_dir: whether built_path is a directory
-        """
+        """built_path: where the built file exists, supports the variables {{installed}}, {{source}}, {{build}}
+        deploy_path: where to deploy the file, or None when no deploy is needed
+        strip: whether to strip the binary on deploy, default strips files but not directories
+        is_dir: whether built_path is a directory"""
         self.built_path = built_path
         self.deploy_path = deploy_path
-        # default when strip is not given: strip files, do not strip directories
         self.strip = strip if strip != None else not is_dir
         self.is_dir = is_dir
 
@@ -45,17 +41,14 @@ class GnuProject:
                  build_products=[],
                  autogen=False,
                  configure='configure'):
-        """
-        - target: mama.BuildTarget that builds this GnuProject and collects the build products
-        - name: name of the project, e.g. 'gmp'
-        - version: version of the project, e.g. '6.2.1'
-        - url: url to download the project, e.g. 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
-        - git: git repository to clone the project from
-        - build_products: the final products, e.g. [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
-                          Supported project variables {{installed}}, {{source}}, {{build}}
-        - autogen: whether to run ./autogen.sh before ./configure
-        - configure: the configure command, 'configure' by default, but can be 'make config' etc
-        """
+        """target: the mama.BuildTarget that builds this GnuProject and collects the build products
+        name: the project name, e.g. 'gmp'
+        version: the project version, e.g. '6.2.1'
+        url: url to download the project, e.g. 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
+        git: git repository to clone the project from
+        build_products: BuildProduct or list, paths support the variables {{installed}}, {{source}}, {{build}}
+        autogen: whether to run ./autogen.sh before ./configure
+        configure: the configure command, 'configure' by default, but can be 'make config' etc"""
         self.target = target
         self.name = name
         self.version = version
@@ -163,9 +156,7 @@ class GnuProject:
 
 
     def checkout_code(self):
-        """
-        Gets the source code: downloads and extracts the archive, or clones the git repository.
-        """
+        """ Gets the source code: downloads and extracts the archive, or clones the git repository """
         source = self.source_dir()
         configure_file = self.get_configure_file()
         autogen_file = f'{self.source_dir()}/autogen.sh' if self.autogen else ''
@@ -234,12 +225,10 @@ class GnuProject:
 
 
     def configure(self, options='', autogen_opts='', prefix=''):
-        """
-        Only configures the project, which generates the Makefile
-            - options: extra options for the configure script
-            - autogen_opts: extra options for ./autogen.sh when autogen is enabled
-            - prefix: install prefix argument, defaults to '--prefix {install_dir()}'
-        """
+        """Only configures the project, which generates the Makefile.
+        options: extra options for the configure script
+        autogen_opts: extra options for ./autogen.sh when autogen is enabled
+        prefix: install prefix argument, defaults to '--prefix {install_dir()}'"""
         console(f'>>> Configuring {self.name}', color=Color.GREEN)
         self.configure_env()
 
@@ -276,11 +265,9 @@ class GnuProject:
 
 
     def make(self, opts='', multithreaded=False):
-        """
-        Only makes the project
-            - opts: extra options for make
-            - multithreaded: if True, adds the -j option to build with multiple threads
-        """
+        """Only makes the project.
+        opts: extra options for make
+        multithreaded: if True, adds the -j option to build with multiple threads"""
         make_opts = self._get_make_opts(opts, multithreaded)
         console(f'>>> Make {self.name} {make_opts}', color=Color.GREEN)
         self.configure_env()
@@ -289,7 +276,8 @@ class GnuProject:
 
 
     def install(self, no_prefix=False):
-        """ Only installs the project. no_prefix=True omits the PREFIX= make argument """
+        """Only installs the project. Returns the install dir.
+        no_prefix: if True, omits the PREFIX= make argument"""
         console(f'>>> Installing {self.name}', color=Color.GREEN)
         self.configure_env()
         prefix = '' if no_prefix else f'PREFIX={self.install_dir()}'
@@ -301,14 +289,12 @@ class GnuProject:
 
     def build(self, options='', make_opts='', prefix='',
               multithreaded=False, install=True):
-        """
-        Downloads, extracts, configures, makes and installs the project
-            - options: extra options for the configure script
-            - make_opts: extra options for make
-            - prefix: install prefix argument, see configure()
-            - multithreaded: if True, adds the -j option to build with multiple threads
-            - install: if True, also runs the install step
-        """
+        """Downloads, extracts, configures, makes and installs the project.
+        options: extra options for the configure script
+        make_opts: extra options for make
+        prefix: install prefix argument, see configure()
+        multithreaded: if True, adds the -j option to build with multiple threads
+        install: if True, also runs the install step"""
         project_dir = self.source_dir()
         autoconf_makefile = f'{project_dir}/Makefile' if self.configure_command == 'configure' else None
         try:
@@ -353,7 +339,10 @@ class GnuProject:
 
 
     def deploy(self, src_path:str, dest_path=None, strip=False):
-        """ Deploys src_path to dest_path, and optionally strips the binary """
+        """Deploys src_path to dest_path.
+        src_path: the file to deploy, supports the variables {{installed}}, {{source}}, {{build}}
+        dest_path: the deploy target, defaults to src_path
+        strip: if True, strips the binary on deploy"""
         if not src_path:
             raise RuntimeError('src_path must be specified')
 
@@ -373,7 +362,10 @@ class GnuProject:
 
 
     def deploy_dir(self, src_dir, dest_dir, strip=False):
-        """ Deploys every file under src_dir into dest_dir, and optionally strips them """
+        """Deploys every file under src_dir into dest_dir.
+        src_dir: the directory to deploy, supports the variables {{installed}}, {{source}}, {{build}}
+        dest_dir: the deploy target directory
+        strip: if True, strips each deployable binary"""
         src_dir = self.get_parsed_path(src_dir)
         if not os.path.exists(src_dir):
             raise Exception(f'Failed to deploy from {src_dir}, directory does not exist')

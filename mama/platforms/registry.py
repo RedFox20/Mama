@@ -12,9 +12,8 @@ from .imx8mp import Imx8mp
 from ..utils.system import System
 
 
-# Every platform mama supports, in CMake guard order. The generated mama.cmake tests these guards
-# in this order. android is also UNIX and APPLE also matches Darwin, so the specific platforms
-# must come before WIN32, APPLE and UNIX. Adding a platform means adding one line here.
+# Every platform mama supports, in CMake guard order: android is also UNIX and APPLE also matches
+# Darwin, so the specific platforms come before WIN32, APPLE and UNIX. A new platform is one line here.
 PLATFORMS = (Android, Windows, Ios, Macos, Raspi, Oclea, Xilinx, Imx8mp, Mips, Linux)
 
 

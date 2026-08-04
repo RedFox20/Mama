@@ -21,9 +21,8 @@ if TYPE_CHECKING:
     from .build_target import BuildTarget
 
 
-# Backstop for the cross-process dep-dir lock. A shim or clone of one dep takes seconds to minutes, and
-# the git_timeout kills a stalled clone and releases the lock, so a waiter almost never reaches this.
-# If it does, it proceeds without the lock, so a stuck holder cannot block a build forever.
+# Backstop for the cross-process dep-dir lock: the git_timeout kills a stalled clone and releases the
+# lock first. On expiry the waiter proceeds without the lock, so a stuck holder cannot block a build forever.
 _LOAD_LOCK_TIMEOUT_SEC = 300
 
 
@@ -119,9 +118,9 @@ class BuildDependency:
 
     def add_child(self, dep_source: DepSource) -> BuildDependency:
         """
-        Add a child dependency to this BuildDependency. Under parallel_load two parents can add the
-        same child concurrently. The registry lock makes the lookup and creation atomic, so a
-        shared (diamond) dep resolves to one instance.
+        Add a child dependency. Under parallel_load two parents can add the same child concurrently, and
+        the registry lock makes lookup and creation atomic, so a shared (diamond) dep resolves to one instance.
+        dep_source: the DepSource that names the child
         """
         with self.config.dep_registry_lock:
             dep = self.config.loaded_dependencies.get(dep_source.name)
@@ -142,9 +141,8 @@ class BuildDependency:
 
 
     def add_children(self, dep_sources):
-        """Add papa.txt children and skip any child already present. One dep can load its artifactory
-        package twice: the shim probe, then the re-extract after a clean. Both report the same list.
-        The duplicate raise in add_child must stay for a real mamafile double-declare."""
+        """Add papa.txt children, skipping any child already present: a shim probe and a post-clean re-extract
+        report the same list. The duplicate raise in add_child must stay for a real mamafile double-declare."""
         existing = {c.name for c in self.children}
         for dep_source in dep_sources:
             if dep_source.name not in existing: self.add_child(dep_source)
@@ -160,17 +158,9 @@ class BuildDependency:
     def _update_dep_name_and_dirs(self, name):
         self.name = name
         dep_name = name
-        # TODO: a branch or tag in the dep name complicates the package system and adds little value.
-        # if self.dep_source.is_git:
-        #     git:Git = self.dep_source
-        #     if git.branch:
-        #         branch_name = git.branch.replace('/', '-') # BUGFIX: branches with slashes
-        #         dep_name = f'{self.name}-{branch_name}'
-        #     elif git.tag:
-        #         dep_name = f'{self.name}-{git.tag}'
-        # Compute the variant suffix once here. The build dir below and the artifactory archive name read
-        # it, so a build and the package it uploads always agree on the variant. A second parent that
-        # adds this dep with more args recomputes it (see update_existing_dependency).
+        # A branch or tag in the dep name complicates the package system and adds little value, so dep_name stays plain.
+        # The build dir and the artifactory archive name both read this variant suffix, so a build and its
+        # uploaded package always agree. A second parent that adds more args recomputes it (update_existing_dependency).
         self.variant_suffix = build_names.build_variant_suffix(self.config, self.target_args)
         self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
         self.build_dir_name = build_names.build_dir_name(self.config, self.variant_suffix)
@@ -269,10 +259,8 @@ class BuildDependency:
 
 
     def read_shim_marker(self) -> dict:
-        """
-        Return a dict of shim metadata, or an empty dict when there is no marker.
-        Keys: name, url, branch, tag, hash, archive.
-        """
+        """Return a dict of shim metadata, or an empty dict when there is no marker.
+        Keys: name, url, branch, tag, hash, archive."""
         result = {}
         path = self.mama_shim_file()
         if not os.path.exists(path):
@@ -294,9 +282,8 @@ class BuildDependency:
 
 
     def try_load_cached_shim(self, check_staleness: bool = True):
-        """Use the local cache of an existing shim. With `check_staleness`, run ls-remote
-        first and drop the marker when upstream advanced. Return the configured
-        BuildTarget, or None on a cache miss or a stale shim."""
+        """Use the local cache of an existing shim. Return the configured BuildTarget, or None on a miss or a stale shim.
+        check_staleness: if True, run ls-remote first and drop the marker when upstream advanced"""
         from .artifactory import artifactory_load_target  # local import: avoid cycle
         from .build_target import BuildTarget
         from .types.git import Git
@@ -307,9 +294,8 @@ class BuildDependency:
         stored_hash = marker.get('hash', '')
         if not stored_hash: return None
 
-        # A pinned self.version replaces the commit hash in the archive name. A shim cached under
-        # another name predates the pin, so it is exactly the stale package the pin invalidates.
-        # Re-probe instead of trusting it.
+        # A pinned self.version replaces the commit hash in the archive name, so a shim cached under
+        # another name predates the pin and is exactly the stale package it invalidates. Re-probe instead.
         pinned = pinned_version(self)
         stored_archive = marker.get('archive', '')
         if pinned and stored_archive and not stored_archive.endswith(f'-{pinned}'):
@@ -346,8 +332,7 @@ class BuildDependency:
     ## @return True if the dependency has changed
     def load(self):
         # Under parallel_load a shared (diamond) dep can get two concurrent load() calls. The lock
-        # serializes loads of THIS dep, so exactly one thread clones it. Different deps still
-        # clone concurrently.
+        # serializes loads of THIS dep only, so exactly one thread clones it and other deps stay concurrent.
         with self._load_lock:
             if self.already_loaded:
                 return self.should_rebuild
@@ -371,16 +356,14 @@ class BuildDependency:
 
 
     def _force_source_clone(self) -> bool:
-        """A `rebuild` or a `mama unshallow` of THIS target must produce a real clone, even from a
-        cached shim. Drop the shim so the git path clones source instead of the prebuilt package.
+        """A `rebuild` or `unshallow` of THIS target must produce a real clone, even from a cached shim.
         A plain `clean` does NOT force a clone. It reloads the package after the clean."""
         return (self.config.rebuild or self.config.unshallow) and self.is_current_target()
 
 
     def _drop_stale_shim_marker(self):
-        """Remove a marker left in the build dir of a dep that now has a real clone. A rebuild, an
-        unshallow, or a build for another platform can clone the source without dropping this marker.
-        The two shim checks then disagree: is_artifactory_shim() returns False, so deploy runs,
+        """Remove a marker left where a real clone now exists: a rebuild, unshallow, or another platform's
+        build can clone without dropping it. is_artifactory_shim() then returns False, so deploy runs,
         but papa_deploy refuses any directory with a marker."""
         if self.is_real_clone() and has_shim_marker(self.build_dir):
             if self.config.verbose: console(f'  - Target {self.name: <16} STALE shim marker dropped (real clone on disk)')
@@ -388,9 +371,8 @@ class BuildDependency:
 
 
     def _try_artifactory_shim(self) -> bool:
-        """Pre-clone artifactory load for a non-root git dep. It uses a cached
-        shim or probes artifactory via ls-remote. Return True when the dep
-        loads without a clone."""
+        """Pre-clone artifactory load for a non-root git dep: a cached shim or an ls-remote probe.
+        Return True when the dep loads without a clone."""
         self._drop_stale_shim_marker()
         # rebuild/unshallow target: drop the shim marker so the git path clones source.
         if self._force_source_clone():
@@ -398,22 +380,18 @@ class BuildDependency:
                 if self.config.print:
                     console(f'  - Target {self.name: <16} REBUILD shim -> source clone', color=Color.BLUE)
                 self.remove_shim_marker()
-            # Build-from-source means "use the source of this target". Suppress the post-clone probe so it
-            # does not reload the prebuilt package over the clone (also true for an already-cloned target).
+            # suppress the post-clone probe so it cannot reload the package over the clone (also for an already-cloned target)
             self.did_check_artifactory = True
             return False
-        # Existing shim: trust the local cache under plain `mama build`. Under
-        # noart, still run ls-remote to catch an upstream-advanced shim. A
-        # mismatch drops the marker, so the git path of the caller clones instead.
-        # Under `update` skip the cached path, so the regular probe re-extracts.
+        # Plain `mama build` trusts the cached shim. Under noart the ls-remote check still drops an
+        # upstream-advanced shim, so the caller clones instead. Under `update` the regular probe re-extracts.
         if self.is_artifactory_shim() and not self.config.update:
             cached = self.try_load_cached_shim(check_staleness=self.config.disable_artifactory)
             if cached is not None:
                 self.target = cached
                 self.did_check_artifactory = True
                 return True
-        # Regular shim probe: skip when a real clone already exists - for an
-        # already-cloned dep the regular update path (fetch+reset) is correct.
+        # regular shim probe: for an already-cloned dep the update path (fetch+reset) is correct, so skip it
         if not self.is_real_clone() and self.can_fetch_artifactory(print=False, which='SHIM'):
             shim_target, shim_deps = try_load_artifactory_shim(self)
             if shim_target is not None:
@@ -442,9 +420,8 @@ class BuildDependency:
 
 
     def _reload_artifactory_after_clean(self, target) -> bool:
-        """Re-fetch the artifactory package that a plain `clean` removed from the build dir. The cached
-        zip lives in dep_dir (clean only removes build_dir), so this re-extracts offline. Return True
-        on success. On failure the caller continues to the regular post-clone probe."""
+        """Re-extract the artifactory package that a plain `clean` removed. The cached zip lives in dep_dir,
+        so this works offline. On failure the caller continues to the regular post-clone probe."""
         self.create_build_dir_if_needed()
         fetched, dependencies = artifactory_fetch_and_reconfigure(target)
         if fetched and dependencies: self.add_children(dependencies)
@@ -468,15 +445,12 @@ class BuildDependency:
             self._update_dep_name_and_dirs(self.name)
             self.create_build_dir_if_needed()
             if self.dep_source.is_git:
-                # One cross-process lock over BOTH the shim setup and the checkout. A sibling `mama <host>
-                # build` (the build_host_binary bootstrap) can create this SAME dep_dir, and the other
-                # process must never read a half-written clone as a broken tree. The lock is keyed on
-                # dep_dir. Different deps never contend, so parallel loads stay concurrent. After the
-                # checkout returns the tree is a real clone, so the mamafile parse below needs no lock.
+                # One dep_dir-keyed cross-process lock over BOTH the shim setup and the checkout: a sibling
+                # `mama <host> build` process must never read a half-written clone as a broken tree.
+                # Different deps never contend, and the mamafile parse below needs no lock.
                 with interprocess_dir_lock(self.dep_dir, timeout=_LOAD_LOCK_TIMEOUT_SEC):
                     loaded_from_pkg = self._try_artifactory_shim()
-                    # A clean deletes build dirs and never needs source. Without this guard, a dep whose shim
-                    # marker a PREVIOUS clean removed clones from scratch - minutes of git for a dir we then delete.
+                    # a clean never needs source: without this guard a shim-less dep clones minutes of git, then deletes it
                     if not loaded_from_pkg and not conf.clean_only():
                         git_changed = self._git_checkout_if_needed() ## pull git before the target mamafile load
             elif not conf.clean_only():
@@ -485,8 +459,7 @@ class BuildDependency:
 
         if conf.clean and is_target:
             self.clean() ## requires a parsed mamafile target
-            # A plain `clean` removed the build dir, including the libs of a shim-loaded artifactory
-            # package. Re-extract it so dependents can still link. (`rebuild` dropped the shim above.)
+            # a plain clean removed the shim-loaded package libs: re-extract so dependents can link (rebuild dropped the shim)
             if loaded_from_pkg:
                 loaded_from_pkg = self._reload_artifactory_after_clean(target)
 
@@ -540,8 +513,7 @@ class BuildDependency:
         is_target = self.is_current_target()
 
         def noart(r, expected=False):
-            # `expected`: our own decision to skip, because a clean or rebuild ignores artifactory by
-            # design. Show it only under verbose. A second line next to the CLEAN/BUILD line is noise.
+            # `expected`: a clean or rebuild skips artifactory by design, so show the line only under verbose
             show = self.config.verbose if expected else (self.config.print or force_art)
             if print and show:
                 warning(f'  - Target {self.name: <16} NO ARTIFACTORY PKG [{which} {r}]')
@@ -587,9 +559,8 @@ class BuildDependency:
                 warning(f'  - Target {target.name: <16} BUILD [{r}]{args}')
             return True
 
-        # An artifactory shim has no source on disk, so there is nothing to build.
-        # _load() already loaded the shim. A rebuild requires `mama unshallow`
-        # to convert it to a real clone first.
+        # An artifactory shim has no source on disk, so there is nothing to build. A rebuild requires
+        # `mama unshallow` to convert it to a real clone first.
         if self.is_artifactory_shim():
             return False
 
@@ -608,8 +579,7 @@ class BuildDependency:
         if self.dep_source.is_git and self.is_real_clone():
             if self.dep_source.source_tree_changed(self): return build('source modified')
 
-        # in-place edits of a local dep tracked by an enclosing git repo: same fast fingerprint
-        # path, so a large root build does not silently skip a modified subfolder.
+        # in-place edits of a local dep: the same fast fingerprint path, so a root build does not skip a modified subfolder
         if self.dep_source.is_src and self.dep_source.source_tree_changed(self):
             return build('source modified')
 
@@ -619,8 +589,7 @@ class BuildDependency:
         if not self.is_root and conf.build and conf.target == target.name:
             return build('build target='+conf.target)
 
-        # A previous build or an artifactory download recorded the build products.
-        # A missing one forces a rebuild to re-acquire it.
+        # a build product that a previous build or download recorded but is now missing forces a rebuild
         missing_product = self.find_first_missing_build_product()
         if missing_product:
             return build(f'{missing_product} does not exist')
@@ -652,10 +621,8 @@ class BuildDependency:
 
 
     def after_load(self):
-        # A shim has no source, so a changed child cannot change what it produces. _should_build()
-        # already refuses to mark one. Without the same guard here the flag reaches _run_packaging,
-        # which then drops the exports the fetched papa.txt carries and re-derives them from the
-        # unzipped tree. That papa.txt came from a real source build, so a re-derive only loses data.
+        # A shim has no source, so a changed child cannot change what it produces. Without this guard the
+        # rebuild flag makes _run_packaging re-derive the exports and lose the papa.txt data of the real build.
         if self.config.no_specific_target() and not self.is_artifactory_shim():
             first_changed = next((c for c in self.children if c.should_rebuild), None)
             if first_changed and not self.should_rebuild:
@@ -747,8 +714,7 @@ class BuildDependency:
 
 
     def update_mamafile_tag(self):
-        # A shim has no source, so the mamafile to tag does not exist on disk. The explicit
-        # short-circuit keeps a parent-mamafile fetch from flagging the shim as modified every run.
+        # a shim has no source to tag: the short-circuit keeps a parent-mamafile fetch from flagging it modified every run
         if self.is_artifactory_shim():
             return False
         return self.src_dir and update_mamafile_tag(self.config, self.mamafile_path(), self.build_dir)
@@ -801,9 +767,7 @@ class BuildDependency:
     
 
     def path_relative_to_us(self, relpath) -> str:
-        """
-        Convert a relative path to an absolute path. The base is this mamafile dir, else the source dir.
-        """
+        """Convert a relative path to absolute. The base is this mamafile dir, else the source dir."""
         if not relpath or os.path.isabs(relpath):
             return relpath # the path is already None or absolute
         elif self.mamafile:
@@ -815,10 +779,8 @@ class BuildDependency:
 
 
     def get_mamafile_path_relative_to_us(self, name, relative_mamafile) -> str:
-        """
-        Resolve a relative mamafile path against this dep. Without one, look for
-        mama/<name>.py. Return None when neither exists.
-        """
+        """Resolve a relative mamafile path against this dep, else look for mama/<name>.py.
+        Return None when neither exists."""
         if relative_mamafile:
             local_mamafile = self.path_relative_to_us(relative_mamafile)
             if not os.path.exists(local_mamafile):
@@ -848,8 +810,6 @@ class BuildDependency:
     def find_missing_dependency(self):
         last_build = [dep.rstrip() for dep in read_lines_from(f'{self.build_dir}/mama_dependency_libs')]
         current = [dep.get_dependency_name() for dep in self.get_children()]
-        #console(f'{self.name: <32} last_build: {last_build}')
-        #console(f'{self.name: <32} current:    {current}')
         for last in last_build:
             if not (last in current):
                 return last.strip()
