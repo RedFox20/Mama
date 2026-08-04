@@ -1,7 +1,7 @@
 # The version field: how it works now, and what is left to build
 
-**Status:** P1 and P2 have landed (section 3), on branch `feature/improved-version-parsing`. Section 6 is the only
-unbuilt item, and section 5.3 parks it deliberately.
+**Status:** P1 and P2 are merged to `master` (PR #33, section 3). Section 6, `def version(self)`, is the
+only unbuilt item. Section 5.3 parks it as potentially unnecessary.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
 still sees it. It does. The investigation found a worse problem, in section 2, and P1 and P2 fixed it.
@@ -370,5 +370,6 @@ those stay unchanged.
 
 Open work outside this document:
 
-- Merge `feature/improved-version-parsing`, then expect one rebuild wave for the deps section 3.2 renamed.
-- Nothing else. Every case that has come up so far is covered.
+- None. `feature/improved-version-parsing` is merged to `master` (PR #33). The first build after
+  the merge rebuilds the deps section 3.2 renamed.
+- Every case that has come up so far is covered.

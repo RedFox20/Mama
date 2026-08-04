@@ -1,6 +1,6 @@
 # Roadmap: load-phase and config hardening (and possible scoped discovery)
 
-**Status:** planning only. No code in this roadmap has been written. Items 1+ are proposals.
+**Status:** Item 0 has landed (section 2). Items 1+ are unbuilt proposals.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Repo:** `RedFox20/Mama` (`mama/` package).
 **Consumer that triggered the work:** a downstream ground-control project, generalized here as `GCS`.
@@ -19,9 +19,9 @@ Evidence is tagged so you know how much to trust it:
 - **[R]** - reported by a sub-audit with a file:line citation, but not independently re-read.
   **Re-verify before acting on it.**
 
-`file.py:NN` line numbers were accurate at commit `3b0c654`. `mama/build_dependency.py` is
-under active concurrent development (see section 2), so **line numbers drift - always grep for the
-quoted code, never trust the number alone.**
+The commit hashes quoted below predate a squash of the branch history, so they no longer
+resolve on `master`. Verify a claim by the quoted code and the named test suite, never by the
+hash. **Line numbers drift too - always grep for the quoted code, never trust the number alone.**
 
 ---
 
@@ -51,13 +51,13 @@ on its own merit regardless of whether Item 4 ever happens.
 
 ### Landed on `master`
 
-| Commit | What |
+| Change | Verify by |
 |---|---|
-| `9b31fac` | `fix:` wipe build dirs whose toolchain moved instead of soft-reconfiguring. Records a toolchain fingerprint per build dir, wipes on mismatch. Fixed Android `-march=x86-64-v3` leaking into arm64 after a nix NDK path change. |
-| `0a3f149` | `feature:` `build_host_binary()` - `config.host_platform_name()`, `BuildTarget.host_build_dir()`, `BuildTarget.build_host_binary(relpath, auto_build=True)`, `config.root_source_dir`. Cheap-checks the host build dir, else bootstraps `mama <host> build target=<name>`. |
-| `3b0c654` | `fix:` cross-process dep lock. `mama/utils/dir_lock.py` (`flock`/`msvcrt`, sidecar kept **outside** `dep_dir` so a reclone-wipe cannot unlink a held lock, OS-released so it cannot hang). Wraps shim+checkout in `_load`. |
+| `fix:` wipe build dirs whose toolchain moved instead of soft-reconfiguring. Records a toolchain fingerprint per build dir, wipes on mismatch. Fixed Android `-march=x86-64-v3` leaking into arm64 after a nix NDK path change. | `tests/test_toolchain_change_wipe/` |
+| `feature:` `build_host_binary()` - `config.host_platform_name()`, `BuildTarget.host_build_dir()`, `BuildTarget.build_host_binary(relpath, auto_build=True)`, `config.root_source_dir`. Cheap-checks the host build dir, else bootstraps `mama <host> build target=<name>`. | `tests/test_host_binary/` |
+| `fix:` cross-process dep lock. `mama/utils/dir_lock.py` (`flock`/`msvcrt`, sidecar kept **outside** `dep_dir` so a reclone-wipe cannot unlink a held lock, OS-released so it cannot hang). Wraps shim+checkout in `_load`. | `tests/test_dep_dir_lock/` |
 
-`2d8f54b` (`guard package() on having artifacts...`) landed from another source between two of
+A `guard package() on having artifacts` change landed from another source between two of
 these. **Expect more concurrent commits in `build_dependency.py`.**
 
 ### Not landed - consumer-side rewire (uncommitted, deliberate)
@@ -70,36 +70,19 @@ That rewire requires mama >= `0a3f149`, but the consumer still pins an older rev
 consumer-side commit must wait for the pin bump or its CI breaks.
 `requires_version('0.13.01')` accepts newer, so a `0.13.02` release satisfies it.
 
-### Inbound from another model - **Item 0**
+### Landed - **Item 0**: `settings()` under the parallel loader
 
-A patch is being written for: *`settings()` is not loaded correctly under the parallel loader.*
+The fix landed. `execute_unified` loads the ROOT up front, before the display and before any
+parallel job starts **[V]** (`mama/dependency_chain.py`, `root.load()` before
+`_make_scheduler`). Root `settings()` therefore picks the compiler and the toolchain first.
+Right after root
+`settings()`, `_load` runs `lock_compiler()` and `init_platform_toolchain()`, so a root
+`set_*_toolchain()` beats the default SDK probe **[V]**. `tests/test_root_settings_order/`
+pins the order on both execution paths.
 
-Relevant code, unchanged as of `3b0c654` **[V]**:
-
-```python
-# mama/build_dependency.py  (in _load)
-target.settings() ## customization point for project settings
-if self.is_root:
-    conf.lock_compiler()  # root settings() is the last prefer_clang/gcc; lock before any dep loads
-    self._update_dep_name_and_dirs(self.name)  # build_dir was computed pre-flip, re-resolve it
-target.dependencies() ## customization point for additional dependencies
-```
-
-```python
-# mama/dependency_chain.py  (in load_dependency_chain)
-changed = dep.load()
-if dep.config.parallel_load:
-    futures = []
-    for child in dep.get_children():
-        futures.append(e.submit(load_dependency, child))
-```
-
-Sibling `settings()` therefore run **concurrently on different threads**, so any global
-`config` mutation from a non-root `settings()` is a data race with nondeterministic ordering. **[V]**
-
-**This is the same surface as Item 2.** Whoever lands Item 2 must rebase onto the settings()
-patch and re-check that the two do not double-guard or contradict each other. Item 2 may
-shrink to a subset once the settings() patch lands - that is a good outcome, not a conflict.
+Sibling non-root `settings()` still run **concurrently on different threads**, so any global
+`config` mutation from a non-root `settings()` is still a data race **[V]**. The landed fix
+serializes only the root load and guards no setter, so Item 2 keeps its full scope.
 
 ---
 
@@ -109,16 +92,18 @@ Facts an auditor needs before touching anything.
 
 ### 3.1 Two execution paths
 
-`_can_unify(config)` **[R]** (`mama/main.py:191-197`) picks the engine:
+`_can_unify(config)` **[V]** (`mama/main.py`) picks the engine:
 
 ```python
 return (not config.serial_load and (config.build or config.update)
-        and config.no_specific_target() and not config.list and not config.deps_only
+        and (config.no_specific_target() or config.deps_only) and not config.list
         and not config.dirty and not config.mama_init)
 ```
 
-`no_specific_target()` = no target or `target=all`. **Therefore any `target=X` always takes the
-classic `load_dependency_chain(root)` path.** Scoped discovery only ever concerns that branch.
+`no_specific_target()` = no target or `target=all`. A `deps_only` run also unifies: the
+scheduler still loads every dep, and a `DepsOnlyScope` narrows CONFIGURE and BUILD jobs to the
+named target's dependencies. **Any other `target=X` run takes the classic
+`load_dependency_chain(root)` path.** Scoped discovery only ever concerns that branch.
 
 `execute_unified` - used only for *non*-targeted builds - is **already an incremental loader** **[V]**
 (`mama/dependency_chain.py:983-994`): `_do_load` loads one dep, then `grow()` adds jobs for its
@@ -263,13 +248,10 @@ Combined with section 2's race, non-root `settings()` today are both **concurren
 
 ## 4. Roadmap
 
-### Item 0 - `settings()` under the parallel loader *(external, inbound)*
+### Item 0 - `settings()` under the parallel loader *(landed)*
 
-Owned by another model. Not specified here. **Land first.** Items 2 and 4 touch the same code and
-must rebase onto it.
-
-Ask the author to record: does the fix serialize `settings()`, reorder it, or make specific
-setters safe? Item 2's scope depends on the answer.
+Landed, see section 2. The fix loads the root up front and serializes nothing else. It guards
+no setter, so Item 2 keeps its full scope.
 
 ---
 
@@ -455,7 +437,8 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 
 1. **Re-verify every [R] claim**, especially section 3.5 (shim cost) and section 3.8 (setter list) - the whole
    plan pivots on those two.
-2. Does the Item 0 `settings()` patch make Item 2a redundant, partly or wholly?
+2. Answered: the landed Item 0 fix loads the root first and guards no setter, so Item 2a keeps
+   its full scope.
 3. Item 3 is behavior-changing. Is narrowing `mama test X` to X's subtree *desirable*, or do users
    rely on it building the tree? Needs a product decision, not just a code one.
 4. Is Item 4 worth the loader risk at all? Measure first: time a cold
@@ -472,7 +455,7 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 ## 8. Sequencing summary
 
 ```
-Item 0 (external: settings() parallel fix)     <- land first
+Item 0 (settings() parallel fix)               <- landed
    \_ Item 1 (zombie guards)                   <- standalone, low risk, do next
         \_ Item 2 (setter guards, warn-first)  <- standalone, 2-stage release
              \_ Item 3 (scope executed chain)  <- behavior change, needs decision
