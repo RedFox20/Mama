@@ -1,4 +1,4 @@
-"""Pins mama.util file helpers."""
+"""Pins the mama.utils.fileio file helpers."""
 import os
 from mama.utils.fileio import is_file_unmodified
 

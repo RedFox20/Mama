@@ -80,8 +80,9 @@ def test_an_unknown_host_falls_back_instead_of_answering_empty(monkeypatch):
 
 def test_the_deferred_imports_still_work_when_called():
     """A deferred import that names the wrong module fails only at call time, so prove it resolves."""
-    from mama import util
-    assert callable(util.download_file) and callable(util.unzip)
+    from mama.utils.archive import unzip
+    from mama.utils.net import download_file
+    assert callable(download_file) and callable(unzip)
     importlib.import_module('mama.papa_upload')  # the module build_target defers
     from mama.utils import sub_process
     assert not sub_process._kill_group(-1)  # exercises the psutil branch guard, no such pid

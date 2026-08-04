@@ -71,6 +71,26 @@ def test_mama_itself_never_touches_the_shim():
     assert 'moved to' not in out.stdout
 
 
+def test_no_mama_source_and_no_test_imports_the_shim():
+    """The shim exists for mamafiles in repos mama does not control. A mama module or a test that
+    imports it prints a deprecation line the reader can do nothing about, and a function-local import
+    hides from a line-start grep, which is exactly how three of them survived the split."""
+    import os, re
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    pattern = re.compile(r'from (?:\.{1,2}|mama\.)util import|from mama import util\b|import mama\.util\b')
+    hits = []
+    for folder in ('mama', 'tests'):
+        for current, _, files in os.walk(os.path.join(root, folder)):
+            if '__pycache__' in current: continue
+            for name in files:
+                if not name.endswith('.py') or name in ('util.py', 'test_shim_compat.py'): continue
+                path = os.path.join(current, name)
+                with open(path, encoding='utf-8') as f:
+                    hits += [f'{os.path.relpath(path, root)}:{n}' for n, line in enumerate(f, 1)
+                             if pattern.search(line)]
+    assert not hits, f'these import the deprecated shim instead of mama/utils/: {hits}'
+
+
 def test_the_shim_imports_nothing_costly():
     """The shim resolves lazily, so importing it must not pull the heavy modules back in."""
     code = ('import sys, mama.util, json; '

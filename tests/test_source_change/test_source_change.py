@@ -61,7 +61,7 @@ def test_save_status_round_trips_fingerprint(tmp_path):
 def test_legacy_status_without_tree_line_treated_as_clean(tmp_path):
     dep = _git_dep_with_repo(tmp_path)
     git = dep.dep_source
-    from mama.util import save_file_if_contents_changed
+    from mama.utils.fileio import save_file_if_contents_changed
     save_file_if_contents_changed(git.git_status_file(dep), f"{git.url}\n\nmain\nabc1234\n")
     assert not git.source_tree_changed(dep)  # clean tree vs legacy 4-line status
 

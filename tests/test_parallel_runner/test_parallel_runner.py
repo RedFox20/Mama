@@ -173,7 +173,7 @@ def _quiet_display():
 
 
 def test_build_error_reports_cleanly_without_a_traceback(capsys):
-    from mama.util import BuildError
+    from mama.utils.errors import BuildError
     dc._handle_failure(_quiet_display(), _failed(BuildError('CMake configure failed for rpcservice (exit 1)')))
     out = strip_ansi(capsys.readouterr().out)
     assert '[BUILD FAILED]  rpcservice' in out

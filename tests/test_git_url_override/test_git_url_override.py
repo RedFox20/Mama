@@ -82,7 +82,7 @@ def test_git_progress_status_classifies_transfer_lines():
 
 
 def test_is_progress_line_matches_git_and_download_bars():
-    from mama.util import is_progress_line
+    from mama.utils.progress import is_progress_line
     assert is_progress_line('remote: Counting objects:  10% (29/290)')  # git clone output
     assert is_progress_line('  ReCpp  receiving objects  42%')          # mama's collapsed git redraw
     assert is_progress_line('  |=====<-----|  42% (1.2s)')              # mama's artifactory download bar
