@@ -14,7 +14,7 @@ def has_shim_marker(directory: str) -> bool:
     return os.path.exists(os.path.join(directory, MAMA_SHIM_FILENAME))
 
 
-def is_file_modified(src: str, dst: str):
+def is_file_unmodified(src: str, dst: str):
     return os.path.getmtime(src) == os.path.getmtime(dst) and\
            os.path.getsize(src) == os.path.getsize(dst)
 
@@ -36,7 +36,7 @@ def copy_files(fromFolder: str, toFolder: str, fileNames: List[str]):
             continue
         destFile = path_join(toFolder, os.path.basename(file))
         destFileExists = os.path.exists(destFile)
-        if destFileExists and is_file_modified(sourceFile, destFile):
+        if destFileExists and is_file_unmodified(sourceFile, destFile):
             console(f"skipping copy '{destFile}'")
             continue
         console(f"copyto '{toFolder}'  '{sourceFile}'")
