@@ -160,13 +160,23 @@ it as unsafe in a multi-threaded program, and mama runs many threads in parallel
 ## Tests
 
 - Test directories live under `tests/test_<feature>/`. Each one is a pytest package.
-- Mock external IO (subprocess, urlopen, ftplib) heavily. A test must not use the
-  network unless it is an integration test (`test_git_pin_change/`,
-  `test_papa_deploy/`).
+- Mock external IO (subprocess, urlopen, ftplib) heavily. **No test uses the network.**
+  The git integration tests clone the local bare repo the `example_remote` fixture
+  builds, so they stay fast and they never fail on a flaky connection.
 - When you patch, write `patch('mama.<module>.<name>')`. Patch where the code looks
   the name up, not where the code defines it.
 - Always run the **full** suite (`python -m pytest tests/`) before you commit. The
-  full suite takes about 35 seconds.
+  full suite takes about 75 seconds.
+- **To find out why something is slow, run `bench/profile_mama.py`.** It counts the
+  child processes a run spawns and marks any that averages over 0.5 seconds. mama is
+  IO bound, so that table answers the question more often than a profiler does. Its
+  docstring explains all three modes.
+
+  ```
+  python bench/profile_mama.py census pytest tests/test_git_pin_change/
+  python bench/profile_mama.py census mama build
+  python bench/profile_mama.py tests        # the slowest tests
+  ```
 
 ### Test code style
 
