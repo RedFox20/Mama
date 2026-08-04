@@ -20,7 +20,25 @@ def _version(dep):
 def test_the_same_tree_always_names_the_same_version(tmp_path):
     dep = _dep(tmp_path)
     assert _version(dep) == _version(dep)
-    assert len(_version(dep)) == 16
+
+
+def test_the_version_reads_local_and_ten_hex_digits(tmp_path):
+    """An artifactory listing must say which packages a source tree named, not a commit or a tag."""
+    version = _version(_dep(tmp_path))
+    digits = version.removeprefix('local-')
+    assert version.startswith('local-')
+    assert len(digits) == 10 and all(c in '0123456789abcdef' for c in digits)
+
+
+def test_the_archive_name_ends_with_the_local_suffix(tmp_path):
+    from mama.artifactory import artifactory_archive_name
+    dep = _dep(tmp_path)
+    target = Mock(name='t', dep=dep, version='', config=dep.config)
+    target.name = dep.name
+    dep.config.get_distro_info = lambda: ('ubuntu', '24', '')
+    dep.config.compiler_version = lambda: 'gcc14.3'
+    dep.config.arch, dep.config.release = 'x64', True
+    assert artifactory_archive_name(target).endswith('-' + _version(dep))
 
 
 def test_an_edit_to_a_source_file_changes_the_version(tmp_path):

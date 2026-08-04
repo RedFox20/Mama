@@ -227,6 +227,19 @@ version = h.hexdigest()[:16]
 `file_hash` is `sha1(normalized_bytes).digest()`, 20 bytes. Normalized means CRLF folded to LF when
 the first 8000 bytes hold no NUL byte, which is git's own text rule.
 
+The version field reads `local-<10 hex digits>`, so the archive name ends with it:
+
+```
+logging-ubuntu-24-gcc14.3-x64-release-local-4b52af2211
+```
+
+The `local-` prefix tells a reader of an artifactory listing which packages a source tree named,
+against which a commit or a tag named. 10 hex digits is 40 bits. The fields before the version
+already separate module, platform, os major, compiler, arch and build type, so one namespace holds
+the published builds of ONE module for ONE config. At 1000 of those the odds of a collision are 1 in
+2.2 million, and at 10000 they are 1 in 22 thousand. Widening the field costs nothing but a
+rebuild wave, so raise `_DIGEST_CHARS` if a project ever publishes at that scale.
+
 **The NUL byte between the path and the hash is load-bearing.** Without a delimiter the pairs
 `("ab", "c")` and `("a", "bc")` produce one value. A path cannot hold a NUL byte, and the digest has
 a fixed width, so one NUL separates them unambiguously.

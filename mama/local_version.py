@@ -18,6 +18,14 @@ if TYPE_CHECKING:
 _MEMO_FILE = 'src_version_memo'
 _TEXT_PROBE = 8000  # git reads this many bytes to decide whether a file is text
 
+# The version field of a local module reads `local-<digest>`, so an artifactory listing says at a
+# glance which packages a source tree named and which a commit or a tag named.
+VERSION_PREFIX = 'local-'
+# 10 hex digits is 40 bits. The archive name already separates modules, platforms, compilers, arches
+# and build types, so one namespace holds the published builds of ONE module for ONE config. At 1000
+# of those the odds of a collision are 1 in 2.2 million, and at 10000 they are 1 in 22 thousand.
+_DIGEST_CHARS = 10
+
 # Dirs and suffixes that never change what a build produces. Kept short on purpose.
 # `_NON_LIB_DIRS` in build_target.py is NOT usable here. It drops test, docs, external and
 # third_party, and an edit to any of those can change the library mama ships.
@@ -26,10 +34,13 @@ _IGNORED_SUFFIXES = {'.o', '.obj', '.a', '.so', '.dll', '.dylib', '.lib', '.pyc'
 
 
 def compute_version(dep: BuildDependency) -> str:
-    """The 16 hex digit name of this local module, from the content of its source tree.
+    """The `local-<10 hex digits>` name of this module, from the content of its source tree.
 
     Content, not mtime: a fresh checkout stamps every file with the checkout time, so two machines
-    would never agree on an mtime name. Content makes every clean checkout of one commit agree."""
+    would never agree on an mtime name. Content makes every clean checkout of one commit agree.
+
+    ONE function spells this value. The download side and the upload side both call it over the same
+    tree on the same disk, so the two can never disagree about the name of the archive."""
     entries = []
     memo = _load_memo(dep)
     fresh = {}
@@ -42,7 +53,7 @@ def compute_version(dep: BuildDependency) -> str:
         h.update(rel_path.encode('utf-8'))
         h.update(b'\0')  # a path holds no NUL, so this keeps ('ab','c') and ('a','bc') apart
         h.update(file_hash)
-    return h.hexdigest()[:16]
+    return VERSION_PREFIX + h.hexdigest()[:_DIGEST_CHARS]
 
 
 def is_publishable(dep: BuildDependency) -> bool:
