@@ -1,5 +1,5 @@
 import os, shlex, shutil, threading, queue, time, signal
-import subprocess, psutil
+import subprocess  # psutil is deferred, see _kill_group
 from functools import lru_cache
 from . import abort
 from .system import System, console, error, report_subprocess, capture_to, capture_context
@@ -26,9 +26,13 @@ def _kill_group(gid) -> bool:
 
     Windows has no process group kill, so psutil walks the tree instead. psutil is already a mama
     dependency, and it replaces a `taskkill /F /T` child that cost about 300ms per kill. Spawning a
-    process to stop one is the wrong move anyway, because this runs precisely while mama aborts."""
+    process to stop one is the wrong move anyway, because this runs precisely while mama aborts.
+
+    psutil imports here, not at the top of the module. It costs about 32ms, only a Windows kill
+    needs it, and a kill is rare."""
     try:
         if System.windows:
+            import psutil
             root = psutil.Process(gid)
             for child in root.children(recursive=True):  # children first, so the root spawns no more
                 try: child.kill()

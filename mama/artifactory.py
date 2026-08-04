@@ -1,5 +1,8 @@
 from __future__ import annotations
-import os, sys, ftplib, traceback, getpass
+import os, sys, traceback, getpass
+# ftplib is NOT imported here. It pulls ssl, which costs about 21ms of every mama start, and only
+# an upload needs it. The two functions that touch it at runtime import it themselves. The
+# `ftplib.FTP_TLS` annotations below stay valid because this module postpones annotations.
 from typing import List, Tuple, TYPE_CHECKING
 
 from . import build_names
@@ -151,6 +154,7 @@ def _store_artifactory_ftp_credentials(config:BuildConfig, url, username, passwo
 
 
 def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config:BuildConfig, url:str):
+    import ftplib  # deferred: see the note at the top of this module
     connected = False
     while True:
         username, password = _get_artifactory_ftp_credentials(config, url)
@@ -210,6 +214,7 @@ def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:st
 
 
 def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
+    import ftplib  # deferred: see the note at the top of this module
     config = target.config
     url = config.artifactory_ftp
     if not url: raise RuntimeError(f'Artifactory Upload failed: artifactory_ftp not set by config.set_artifactory_ftp()')

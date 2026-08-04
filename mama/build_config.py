@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, psutil, shutil, threading, time
+import os, sys, tempfile, shutil, threading, time  # psutil is deferred, see _default_build_jobs
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -79,6 +79,7 @@ class BuildConfig:
     def _default_build_jobs() -> int:
         """Default parallel build jobs: Linux keeps ONE core free, so a full build cannot freeze the
         desktop or trip the OOM killer. Windows and macOS use all cores. `jobs=N` overrides this."""
+        import psutil  # deferred: psutil costs about 32ms to import, and only this line needs it
         cpu = psutil.cpu_count() or 4
         return max(1, cpu - 1) if System.linux else cpu
 

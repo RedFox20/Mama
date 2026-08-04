@@ -15,7 +15,7 @@ from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
 from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to
-from .papa_upload import papa_upload_to
+# papa_upload is deferred to the one call site in papa_package(), see there
 import mama.buildsys.msbuild as msbuild
 import mama.util as util
 from ._version import __version__
@@ -1721,6 +1721,8 @@ class BuildTarget:
         self.deploy() # user customization
 
         if self.config.upload:
+            # deferred: papa_upload pulls zipfile, which costs about 28ms, and only an upload needs it
+            from .papa_upload import papa_upload_to
             papa_upload_to(self, self.papa_path)
 
 

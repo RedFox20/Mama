@@ -34,7 +34,7 @@ def test_execute_deploy_tasks_skips_deploy_for_shim(tmp_path):
     _, target = _make_target(tmp_path, as_shim=True)
     deploy_ran = []
     target.deploy = lambda: deploy_ran.append(True)
-    with patch('mama.build_target.papa_upload_to') as upload_mock:
+    with patch('mama.papa_upload.papa_upload_to') as upload_mock:
         target._execute_deploy_tasks()
         upload_mock.assert_not_called()
     assert not deploy_ran
@@ -52,7 +52,7 @@ def test_execute_deploy_tasks_runs_deploy_for_non_shim(tmp_path):
 def test_execute_deploy_tasks_skips_upload_for_shim(tmp_path, if_needed):
     # shim => already on artifactory. The upload is a no-op success (returns, no raise) regardless of if_needed.
     _, target = _make_target(tmp_path, as_shim=True, deploy=False, upload=True, if_needed=if_needed)
-    with patch('mama.build_target.papa_upload_to') as upload_mock:
+    with patch('mama.papa_upload.papa_upload_to') as upload_mock:
         target._execute_deploy_tasks()
         upload_mock.assert_not_called()
 
@@ -60,6 +60,6 @@ def test_execute_deploy_tasks_skips_upload_for_shim(tmp_path, if_needed):
 def test_execute_deploy_tasks_uploads_for_non_shim(tmp_path):
     _, target = _make_target(tmp_path, as_shim=False, deploy=False, upload=True)
     target.deploy = lambda: None
-    with patch('mama.build_target.papa_upload_to') as upload_mock:
+    with patch('mama.papa_upload.papa_upload_to') as upload_mock:
         target._execute_deploy_tasks()
         upload_mock.assert_called_once()

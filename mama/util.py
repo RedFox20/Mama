@@ -1,11 +1,12 @@
-import os, re, stat, shutil, tempfile, zipfile, subprocess, hashlib
+import os, re, stat, shutil, tempfile, subprocess, hashlib
 from functools import lru_cache
 from typing import List
-import time, ssl, pathlib, random
+import time, pathlib, random
 from .utils.system import System, Color, console, progress
-from urllib import request
-from datetime import datetime
-from dateutil import tz
+
+# ssl, urllib.request, zipfile, datetime and dateutil are NOT imported here. They cost about 79ms
+# together, every mama start pays it, and only download_file and unzip need them. Each of those
+# imports its own. Keep it that way, and see tests/test_import_cost/.
 
 MAMA_SHIM_FILENAME = 'mama_shim'
 
@@ -590,6 +591,8 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
       connection and compare Content-Length, and skip the body transfer when the sizes match.
     - message: [None] custom log line for the download start
     - name: [None] target name that prefixes the log lines under parallel updates"""
+    import ssl  # deferred: ssl costs about 26ms to import, and only a download needs it
+    from urllib import request
     local_file = normalized_join(local_dir, os.path.basename(remote_url))
     indent = f'  - {name: <16} ' if name else '    '
     if not force and os.path.exists(local_file):
@@ -641,6 +644,11 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
     Extracts a file only when its size or modified time mismatches, preserves symlinks and permissions,
     and always sets the modified time from the zipfile info.
     - pwd: [None] archive password"""
+    # deferred: zipfile and dateutil cost about 53ms together, and only an unzip needs them. The
+    # nested annotations below resolve when this function runs, so the import must lead it.
+    import zipfile
+    from datetime import datetime
+    from dateutil import tz
     def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
         zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
         # ZIP uses localtime
