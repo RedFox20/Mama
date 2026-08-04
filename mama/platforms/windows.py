@@ -3,7 +3,7 @@ import os
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
 from .platform import Platform
 from .toolchain import Toolchain
-from mama.util import find_executable_from_system
+from mama.util import find_executable_from_system, path_join
 from mama.utils.system import System, console
 from mama.utils.sub_process import execute_piped
 
@@ -81,7 +81,7 @@ def latest_msvc_toolset(tools_root: str) -> str:
     dirs.sort(key=lambda n: tuple(int(p) if p.isdigit() else 0 for p in n.split('.')), reverse=True)
     for d in dirs:
         if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
-            return os.path.join(tools_root, d)
+            return path_join(tools_root, d)
     return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
 
 

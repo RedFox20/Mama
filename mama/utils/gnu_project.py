@@ -391,12 +391,12 @@ class GnuProject:
             reldir = fulldir[len(root):].lstrip('\\/')
             for file in files:
                 if reldir:
-                    dst_folder = os.path.join(dest_dir, reldir)
+                    dst_folder = mama.util.path_join(dest_dir, reldir)
                 else:
                     dst_folder = dest_dir
                 os.makedirs(dst_folder, exist_ok=True)
-                src_file = os.path.join(fulldir, file)
-                dst_file = os.path.join(dst_folder, file)
+                src_file = mama.util.path_join(fulldir, file)
+                dst_file = mama.util.path_join(dst_folder, file)
                 if strip and self.can_strip(src_file):
                     self.strip(src_file, dest_path=dst_file)
                 else:

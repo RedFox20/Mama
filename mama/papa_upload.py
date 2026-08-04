@@ -5,7 +5,7 @@ import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .mamafile_version import pinned_version
-from .util import get_file_size_str, console, normalized_join, forward_slashes, ProgressBar
+from .util import get_file_size_str, console, normalized_join, path_join, forward_slashes, ProgressBar
 from .utils.system import error
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 
@@ -101,7 +101,7 @@ def _include_files(include:str, package_full_path:str) -> list:
     files = []
     for full_dir, _, names in os.walk(include):
         for name in names:
-            src_file = os.path.join(full_dir, name)
+            src_file = path_join(full_dir, name)
             files.append((forward_slashes(os.path.relpath(src_file, package_full_path)), src_file))
     return files
 

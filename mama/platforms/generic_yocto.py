@@ -4,6 +4,7 @@ import os, re
 
 from .platform import Platform
 from .toolchain import Toolchain
+from mama.util import path_join
 from mama.utils.system import System, console, warning, Color, get_colored_text
 
 
@@ -97,7 +98,7 @@ class GenericYocto(Platform):
                         versions.append(name)
                 # listdir order is not guaranteed cross-platform, sort newest first
                 versions.sort(key=lambda n: [int(p) for p in n.split('.')], reverse=True)
-                expanded += [os.path.join(path, v) for v in versions]
+                expanded += [path_join(path, v) for v in versions]
             expanded.append(path)
         return expanded
 

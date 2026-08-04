@@ -31,10 +31,10 @@ def find_executable_from_system(name: str, follow_symlinks=False) -> str:
 
 def copy_files(fromFolder: str, toFolder: str, fileNames: List[str]):
     for file in fileNames:
-        sourceFile = os.path.join(fromFolder, file)
+        sourceFile = path_join(fromFolder, file)
         if not os.path.exists(sourceFile):
             continue
-        destFile = os.path.join(toFolder, os.path.basename(file))
+        destFile = path_join(toFolder, os.path.basename(file))
         destFileExists = os.path.exists(destFile)
         if destFileExists and is_file_modified(sourceFile, destFile):
             console(f"skipping copy '{destFile}'")
@@ -55,7 +55,7 @@ def deploy_framework(framework: str, deployFolder: str):
         raise IOError(f'no framework found at: {framework}')
     if os.path.exists(deployFolder):
         name = os.path.basename(framework)
-        deployPath = os.path.join(deployFolder, name)
+        deployPath = path_join(deployFolder, name)
         console(f'Deploying framework to {deployPath}')
         remove_tree(deployPath)  # not `rm -rf`: a shell splits a path with a space and deletes the wrong tree
         shutil.copytree(framework, deployPath)
@@ -76,13 +76,19 @@ def save_file_if_contents_changed(filename: str, new_contents: str) -> bool:
     return True
 
 
-def path_join(first: str, second: str) -> str:
-    """ Always join with forward/ slashes """
-    first  = first.rstrip('/\\')
-    second = second.lstrip('/\\')
-    if not first: return second
-    if not second: return first
-    return first + '/' + second
+def path_join(first: str, *parts) -> str:
+    """Join with forward/ slashes and keep the path exactly where it points.
+
+    The relative sibling of normalized_join(). abspath() turns a relative path into a machine-specific
+    absolute one, and on Windows it prepends the current drive, so `/tmp/x` becomes `C:/tmp/x`. Use this
+    for a path mama only prints, records, or hands to another tool. Use normalized_join() for a path
+    mama opens on this machine."""
+    result = first.rstrip('/\\')
+    for part in parts:
+        part = part.lstrip('/\\')
+        if not part: continue
+        result = f'{result.rstrip("/")}/{part}' if result else part
+    return result
 
 
 def forward_slashes(pathstring: str) -> str:
@@ -128,9 +134,7 @@ def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List
         for file in dirfiles:
             _, fext = os.path.splitext(file)
             if fext in extensions:
-                pathstring = os.path.join(dirpath, file)
-                pathstring = normalized_path(pathstring)
-                results.append(pathstring)
+                results.append(normalized_join(dirpath, file))
     return results
 
 
@@ -150,14 +154,10 @@ def glob_with_name_match(rootdir: str, pattern_substrings: list, match_dirs=True
         if match_dirs:
             for dir in dirnames:
                 if strstr_multi(dir, pattern_substrings):
-                    pathstring = os.path.join(dirpath, dir)
-                    pathstring = normalized_path(pathstring)
-                    results.append(pathstring)
+                    results.append(normalized_join(dirpath, dir))
         for file in dirfiles:
             if strstr_multi(file, pattern_substrings):
-                pathstring = os.path.join(dirpath, file)
-                pathstring = normalized_path(pathstring)
-                results.append(pathstring)
+                results.append(normalized_join(dirpath, file))
     return results
 
 
@@ -335,7 +335,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
       body transfer when sizes match (used for artifactory fetches so we don't
       re-download archives already on disk).
     - name: optional target name for prefixing log lines under parallel updates."""
-    local_file = os.path.join(local_dir, os.path.basename(remote_url))
+    local_file = normalized_join(local_dir, os.path.basename(remote_url))
     indent = f'  - {name: <16} ' if name else '    '
     if not force and os.path.exists(local_file):
         console(f'{indent}Using locally cached {local_file}')
@@ -535,7 +535,7 @@ def copy_file(src: str, dst: str, filter=None) -> bool:
     """
     if _passes_filter(src, filter):
         if os.path.isdir(dst):
-            dst = os.path.join(dst, os.path.basename(src))
+            dst = path_join(dst, os.path.basename(src))
         if _should_copy(src, dst):
             #console(f'copy {src}\n --> {dst}')
             shutil.copyfile(src, dst, follow_symlinks=True)
@@ -568,13 +568,13 @@ def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) 
 
         reldir = fulldir[len(root):].lstrip('\\/')
         if reldir:
-            dst_folder = os.path.join(out_dir, reldir)
+            dst_folder = path_join(out_dir, reldir)
             os.makedirs(dst_folder, exist_ok=True)
         else:
             dst_folder = out_dir
         for file in files:
-            src_file = os.path.join(fulldir, file)
-            dst_file = os.path.join(dst_folder, file)
+            src_file = path_join(fulldir, file)
+            dst_file = path_join(dst_folder, file)
             copied |= copy_file(src_file, dst_file, filter)
     return copied
 

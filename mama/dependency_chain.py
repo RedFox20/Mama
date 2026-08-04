@@ -5,7 +5,8 @@ from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
-from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, get_time_str, BuildError
+from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, \
+                  get_time_str, path_join, BuildError
 from . import build_names
 from .utils import abort, ssh_multiplex, system
 from .utils.sub_process import SubProcess
@@ -94,11 +95,11 @@ def sweep_orphaned_build_dirs(root: BuildDependency, config: BuildConfig) -> int
     try: names = os.listdir(workspace)
     except OSError: return 0
     for name in names:
-        dep_dir = os.path.join(workspace, name)
+        dep_dir = path_join(workspace, name)
         try: subdirs = os.listdir(dep_dir)
         except OSError: continue  # a file in the workspace, or a dir mama may not read
         for sub in subdirs:
-            build_dir = os.path.join(dep_dir, sub)
+            build_dir = path_join(dep_dir, sub)
             if not build_names.is_build_dir_of(sub, config_dir) or not os.path.isdir(build_dir): continue
             if not any(os.path.exists(os.path.join(build_dir, m)) for m in _BUILD_DIR_MARKERS): continue
             if config.print: console(f'  - Target {name: <16} CLEAN  {sub} (orphaned)')
@@ -518,7 +519,7 @@ def _make_display(config):
     out = sys.stdout
     isatty = not system.is_headless()  # a CI runner with a pty still must not get cursor-up escapes
     root = config.workspaces_root
-    log = open_build_log(os.path.join(root, 'packages', 'mamabuild.log')) if root else None
+    log = open_build_log(path_join(root, 'packages', 'mamabuild.log')) if root else None
     return BuildDisplay(out, isatty=isatty, clock=time.monotonic,
                         term_size=lambda: tuple(shutil.get_terminal_size((100, 24))),
                         verbose=config.verbose, log=log, platform=config.name())

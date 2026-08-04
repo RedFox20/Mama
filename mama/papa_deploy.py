@@ -8,7 +8,7 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .util import normalized_join, read_lines_from, forward_slashes, file_sha1 \
+from .util import normalized_join, path_join, read_lines_from, forward_slashes, file_sha1 \
                 , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
 from .utils.system import warning
 
@@ -169,7 +169,7 @@ def _deployed_include_files(package_full_path:str) -> list:
     files = []
     for full_dir, _, names in os.walk(f'{package_full_path}/include'):
         rel_dir = forward_slashes(os.path.relpath(full_dir, package_full_path))
-        files += [(f'{rel_dir}/{name}', os.path.join(full_dir, name)) for name in names]
+        files += [(f'{rel_dir}/{name}', path_join(full_dir, name)) for name in names]
     return files
 
 

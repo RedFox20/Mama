@@ -1082,7 +1082,7 @@ class BuildTarget:
             filename = filename[:-3]
         else:
             return None # there is no prefix it's something like /usr/bin/gcc-11
-        return os.path.join(os.path.dirname(cc), filename)
+        return util.path_join(os.path.dirname(cc), filename)
 
 
     def run(self, command: str, src_dir=False, exit_on_fail=True, quiet=False):

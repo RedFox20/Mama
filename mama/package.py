@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console, System, warning
-from .util import normalized_path, glob_with_name_match, glob_with_extensions
+from .util import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
 from .types.asset import Asset
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ def is_a_library(lib: str):
 
 def target_root_path(target: BuildTarget, path: str, build_dir: bool):
     root = target.build_dir() if build_dir else target.source_dir()
-    return normalized_path(os.path.join(root, path))
+    return normalized_join(root, path)
 
 
 def get_lib_basename(lib: str|tuple):

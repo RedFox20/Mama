@@ -4,6 +4,7 @@ import os
 
 from .platform import Platform
 from .toolchain import Toolchain
+from mama.util import path_join
 from mama.utils.system import System, console, warning
 from mama import util
 
@@ -218,7 +219,7 @@ Or define env ANDROID_HOME with path to Android SDK root with valid NDK-s.''')
         if System.windows: platform_dir = 'windows-x86_64'
         elif System.macos: platform_dir = 'darwin-x86_64'
         else: return ''
-        return os.path.join(self.android_ndk(), 'prebuilt', platform_dir, 'bin', 'make')
+        return path_join(self.android_ndk(), 'prebuilt', platform_dir, 'bin', 'make')
 
 
     def _toolchain_path(self) -> str:

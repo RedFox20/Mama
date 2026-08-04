@@ -3,7 +3,7 @@ from typing import Tuple, TYPE_CHECKING
 import os, shlex, shutil
 from .sub_process import execute_echo
 from .system import System
-from ..util import normalized_path
+from ..util import normalized_path, normalized_join
 
 if TYPE_CHECKING:
     from ..build_target import BuildTarget
@@ -28,15 +28,15 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         # program: bin/app.exe
         # cwd: /path/to/root_dir/bin
         # exe: /path/to/root_dir/bin/app.exe
-        cwd = os.path.join(root_dir, os.path.dirname(program))
+        cwd = normalized_join(root_dir, os.path.dirname(program))
         if program.startswith('/'):
             exe = program # already absolute
         elif program.startswith('./'):
-            exe = os.path.join(root_dir, program[2:]) # turn relative to absolute
+            exe = normalized_join(root_dir, program[2:]) # turn relative to absolute
         else:
             exe = shutil.which(program) # is it a common executable?
             if not exe:
-                exe = os.path.join(root_dir, program) # turn relative to absolute
+                exe = normalized_join(root_dir, program) # turn relative to absolute
         #print(f'ROOT cwd={cwd} exe={exe} args={args}')
     elif cwd:
         # if CWD is set, then command will be run in this dir
@@ -46,11 +46,11 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
         if program.startswith('/'):
             exe = program # already absolute
         elif program.startswith('./'):
-            exe = os.path.join(cwd, program[2:]) # turn relative to absolute
+            exe = normalized_join(cwd, program[2:]) # turn relative to absolute
         else:
             exe = shutil.which(program) # is it a common executable?
             if not exe:
-                exe = os.path.join(cwd, program) # turn relative to absolute
+                exe = normalized_join(cwd, program) # turn relative to absolute
         #print(f'CWD cwd={cwd} exe={exe} args={args}')
     else:
         # otherwise the command will be run at the same dir as the executable

@@ -1,6 +1,6 @@
 import os
 from .build_dependency import BuildDependency
-from .util import read_lines_from, write_text_to
+from .util import read_lines_from, write_text_to, path_join
 from .utils.system import console
 import re
 
@@ -133,12 +133,12 @@ def find_cpp_main(src_dir):
     # use top-level glob in src/ to match anything with "main" in the name and .cpp extension
     for entry in os.listdir(src_dir):
         if entry.endswith('.cpp') and 'main' in entry.lower():
-            return os.path.join(src_dir, entry)
+            return path_join(src_dir, entry)
     return None
 
 
 def write_default_cpp_main(src_dir, project_name):
-    main_cpp = os.path.join(src_dir, f'{project_name}_main.cpp')
+    main_cpp = path_join(src_dir, f'{project_name}_main.cpp')
     contents = f'''#include <rpp/debugging.h>
 
 int main(int argc, char** argv, char** envp)
@@ -158,7 +158,7 @@ def mama_init_project(root: BuildDependency):
     else:
         console(f'{root.name} Mamafile already exists: {mamafile}')
 
-    src_dir = os.path.join(root.src_dir, 'src')
+    src_dir = path_join(root.src_dir, 'src')
     cpp_main = find_cpp_main(src_dir)
     if cpp_main:
         console(f'{root.name} Found C++ main file: {cpp_main}')

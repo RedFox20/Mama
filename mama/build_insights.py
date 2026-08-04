@@ -4,7 +4,7 @@ TUs, costliest headers. vcperf is a pure observer of whatever the build command 
 buildstats` profiles the iterative build and `rebuild buildstats` the full one. Non-MSVC builds skip this."""
 import os, json, tempfile
 import mama.util as util
-from .util import get_time_str, normalized_path
+from .util import get_time_str, normalized_join
 from .utils.system import System, console, warning, Color, get_colored_text
 from .utils.sub_process import SubProcess
 
@@ -29,7 +29,7 @@ def find_vcperf(config) -> str:
     candidates = []
     try: candidates.append(f'{config.get_msvc_bin64()}vcperf.exe')
     except Exception: pass
-    try: candidates.append(os.path.join(config.get_visualstudio_path(), _VS_VCPERF_SUBPATH))
+    try: candidates.append(util.path_join(config.get_visualstudio_path(), _VS_VCPERF_SUBPATH))
     except Exception: pass
     return next((c for c in candidates if c and os.path.isfile(c)), '')
 
@@ -37,7 +37,7 @@ def find_vcperf(config) -> str:
 def timetrace_path(build_dir: str) -> str:
     """Where vcperf writes the trace: the root project's platform build dir, so other tools can find it at
     a stable per-project location (packages/<project>/<platform>/mama_timetrace.json), not a temp file."""
-    return normalized_path(os.path.join(build_dir, 'mama_timetrace.json'))
+    return normalized_join(build_dir, 'mama_timetrace.json')
 
 
 def _start_reason(output: str) -> str:
@@ -69,7 +69,7 @@ class VcPerfSession:
     def _clear_stale(self):
         """Best-effort discard of a session left open by a crashed run, so /start can succeed. /stopnoanalyze
         needs an output path; we write a throwaway ETL and delete it."""
-        etl = normalized_path(os.path.join(tempfile.gettempdir(), 'mama_stale.etl'))
+        etl = normalized_join(tempfile.gettempdir(), 'mama_stale.etl')
         self._run([self.vcperf, '/stopnoanalyze', _SESSION, etl])
         try: os.remove(etl)
         except OSError: pass
@@ -291,7 +291,7 @@ def collect_clang_traces(build_dir: str, since: float = 0.0) -> list:
     parser. Sorted newest-first is irrelevant; the parser aggregates all."""
     import glob
     out = []
-    for p in glob.glob(os.path.join(build_dir, '**', '*.json'), recursive=True):
+    for p in glob.glob(util.path_join(build_dir, '**', '*.json'), recursive=True):
         try:
             if os.path.getmtime(p) >= since: out.append(p)
         except OSError:

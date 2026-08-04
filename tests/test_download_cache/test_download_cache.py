@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from mama.util import download_file
+from mama.util import download_file, normalized_path
 
 
 def _mock_urlopen(content: bytes, content_length=None):
@@ -26,7 +26,7 @@ class TestSizeMatchCache:
         opened = _mock_urlopen(b'NEW' * 100, content_length=1024)
         opened.read = MagicMock(side_effect=AssertionError('body must not be read'))
         with patch('mama.util.request.urlopen', return_value=opened):
-            assert download_file('http://x.example/archive.zip', str(tmp_path), force=True) == str(cached_path)
+            assert download_file('http://x.example/archive.zip', str(tmp_path), force=True) == normalized_path(cached_path)
         assert cached_path.read_bytes() == b'x' * 1024
 
     def test_downloads_when_local_size_differs_from_remote(self, tmp_path):
@@ -35,7 +35,7 @@ class TestSizeMatchCache:
         new_body = b'NEW' * 200
         opened = _mock_urlopen(new_body, content_length=600)
         with patch('mama.util.request.urlopen', return_value=opened):
-            assert download_file('http://x.example/archive.zip', str(tmp_path), force=True) == str(cached_path)
+            assert download_file('http://x.example/archive.zip', str(tmp_path), force=True) == normalized_path(cached_path)
         assert cached_path.read_bytes() == new_body
 
     def test_downloads_when_no_local_file(self, tmp_path):
@@ -50,7 +50,7 @@ class TestSizeMatchCache:
         cached_path = tmp_path / 'a.zip'
         cached_path.write_bytes(b'hello')
         with patch('mama.util.request.urlopen', side_effect=AssertionError('must not open URL')):
-            assert download_file('http://x.example/a.zip', str(tmp_path), force=False) == str(cached_path)
+            assert download_file('http://x.example/a.zip', str(tmp_path), force=False) == normalized_path(cached_path)
 
     def test_size_match_reported_to_user(self, tmp_path, capsys):
         local_dir = str(tmp_path)
