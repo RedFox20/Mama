@@ -326,6 +326,42 @@ def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
     except OSError: pass
 
 
+_CONFIGURE_FINGERPRINT_FILE = 'mama_configure.fingerprint'
+
+
+def _dependency_exports(target:BuildTarget) -> str:
+    """Hash of `mama-dependencies.cmake`, the file that names every include dir and lib the dependencies
+    of this target export. A dependency that rebuilds without changing its interface leaves this file
+    alone, and its consumer then needs no configure. A new export lib or a moved include dir changes it."""
+    exports = util.path_join(target.build_dir(), 'mama-dependencies.cmake')
+    try: return util.file_sha1(exports)
+    except OSError: return ''
+
+
+def _configure_fingerprint(target:BuildTarget, toolchain:str, cmd_inputs:list) -> str:
+    """Hash of EVERYTHING mama feeds one cmake configure: the toolchain, every option it passes, and the
+    exports of its dependencies. An input this misses is a silently stale build, so `cmd_inputs` takes
+    the whole option list, never a subset of it.
+
+    A change to CMakeLists.txt is deliberately absent. That file belongs to cmake, which re-runs itself
+    through its own ZERO_CHECK rule when any listed input is newer than the generated build system."""
+    return seedcache.compute_fingerprint({'toolchain': toolchain, 'cmd': cmd_inputs,
+                                          'exports': _dependency_exports(target)})
+
+
+def _read_configure_fingerprint(build_dir:str) -> str:
+    """What the last completed configure of `build_dir` recorded. '' when there is none."""
+    try: return util.read_text_from(util.path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE)).strip()
+    except OSError: return ''
+
+
+def _record_configure_fingerprint(build_dir:str, fingerprint:str):
+    """Persist the configure fingerprint. Best-effort, like the toolchain one: a write failure only
+    makes the next run configure again."""
+    try: util.write_text_to(util.path_join(build_dir, _CONFIGURE_FINGERPRINT_FILE), fingerprint)
+    except OSError: pass
+
+
 def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     """One-time heal for a dir that predates recorded fingerprints. True only when the cached compiler is
     DEFINITELY not the current one. Two proofs: the recorded path differs from the preferred compiler, or
@@ -389,6 +425,17 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     # Last, so cmake_opts can never override it by accident. Set target.cmake_install_prefix instead.
     install_prefix = f'-DCMAKE_INSTALL_PREFIX="{target.cmake_install_prefix}"'
 
+    # `update` asks for a configure per target, whether or not anything reached cmake differently. A warm
+    # configure of a real project costs about 50 seconds, so compare the inputs first and skip when they
+    # match. `mama configure` is the explicit override and never lands here.
+    configure_fingerprint = _configure_fingerprint(target, toolchain_fingerprint,
+                                                   [type_flags, cmake_defines, install_prefix, src_dir])
+    if must_configure and not target.config.run_cmake_configure \
+       and _read_configure_fingerprint(target.build_dir()) == configure_fingerprint \
+       and is_cmake_cache_valid(target.build_dir()):
+        _note(target, out, 'configure inputs unchanged - skipping cmake configure')
+        return
+
     # Reuse cached compiler detection on a fresh build dir: prepare() injects a CMakeFiles seed and
     # a PLATFORM_INFO_INITIALIZED CMakeCache, so cmake skips ALL detection (about 5s).
     cache_exists = os.path.exists(target.build_dir('CMakeCache.txt'))
@@ -409,9 +456,10 @@ def run_config(target:BuildTarget, out=None, _seed=True):
             _wipe_build_dir(target)
             return run_config(target, out=out, _seed=False)
         raise
-    # Record the toolchain identity only after a completed configure, so the next run's move check
-    # never compares against a false baseline. A failed configure leaves the previous or absent fingerprint.
+    # Record both identities only after a completed configure, so the next run never compares against a
+    # false baseline. A failed configure leaves the previous fingerprints, or none at all.
     _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)
+    _record_configure_fingerprint(target.build_dir(), configure_fingerprint)
 
 
 _RERUNNABLE_ERRORS = (
