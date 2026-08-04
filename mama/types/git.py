@@ -184,13 +184,28 @@ class Git(DepSource):
 
 
     def run_git(self, dep: BuildDependency, git_command, throw=True):
+        """Run one git subcommand for `dep`, confined to the repository of that dependency.
+
+        --git-dir and --work-tree turn the confinement into something git enforces. Without them git
+        resolves the repository by walking UPWARD from the working directory. A corrupt `.git` then
+        sends a `reset --hard` into the enclosing checkout of the developer, which destroys uncommitted
+        work. With them, the same corrupt `.git` makes git refuse with `not a git repository`."""
         # A shim has no .git, so git run in src_dir would walk up and hit the wrong repo.
         if dep.is_artifactory_shim():
             msg = f'Target {dep.name} is an artifactory shim; cannot run `git {git_command}`'
             if dep.config.verbose: error(f'  {dep.name: <16} {msg}')
             if throw: raise RuntimeError(msg)
             return 1
-        cmd = f"git {git_command}"
+        verb = git_command.split(' ', 1)[0]
+        # Belt and braces over the scope flags above. A command that can destroy work asks the slow
+        # check first. It never asks a memo, because a stale `healthy` is the one wrong answer that
+        # would matter. A build runs no destructive command at all, so this costs nothing there.
+        if verb not in _READONLY_GIT_CMDS and self._is_repo_broken(dep):
+            msg = f'refused `git {verb}` for {dep.name}: {dep.src_dir} holds no usable repository of its own'
+            error(f'  {dep.name: <16} {msg}')
+            if throw: raise GitError(msg)
+            return 1
+        cmd = f'git --git-dir="{dep.src_dir}/.git" --work-tree="{dep.src_dir}" {git_command}'
         if dep.config.verbose:
             warning(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
@@ -205,7 +220,6 @@ class Git(DepSource):
             if not noise: tail.append(line)     # the report shows the same lines as the screen
             if dep.config.verbose or not noise: console(f'  {dep.name: <16} {line}')
         start = time.monotonic()
-        verb = git_command.split(' ', 1)[0]
         with ssh_multiplex.fetch_slot():
             if verb in _NETWORK_GIT_CMDS: ssh_multiplex.pace_new_connection()
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.

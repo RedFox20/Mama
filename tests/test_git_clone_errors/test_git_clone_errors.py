@@ -103,7 +103,8 @@ def test_a_failed_fetch_reports_the_git_output_and_the_command():
         git.run_git(dep, 'fetch origin main -q')
     msg = str(raised.value)
     assert '[GIT FETCH FAILED]  libfoo' in msg and 'Repository not found' in msg
-    assert 'git fetch origin main -q' in msg and 'does not exist' in msg
+    # the report names the command as it really ran, scope flags and all, so a user can paste it back
+    assert 'fetch origin main -q' in msg and '--git-dir' in msg and 'does not exist' in msg
 
 
 def test_the_report_prints_red_without_a_traceback(capsys):
