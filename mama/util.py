@@ -90,6 +90,13 @@ def forward_slashes(pathstring: str) -> str:
     return pathstring.replace('\\', '/')
 
 
+def short_path(path) -> str:
+    """The last two parts of `path`, for a message that names a file. A consumer that sets mamafile=
+    gets `mamadeps/qcoro.py`, the file it can edit, instead of a `qcoro/mamafile.py` that exists nowhere.
+    '' for an empty path."""
+    return '/'.join(forward_slashes(path).split('/')[-2:]) if path else ''
+
+
 def back_slashes(pathstring: str) -> str:
     """ Replace all forward/ slashes with back\\ slashes"""
     return pathstring.replace('/', '\\')

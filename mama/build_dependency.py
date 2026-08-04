@@ -10,7 +10,7 @@ from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
 from .mamafile_version import pinned_version
 from .util import normalized_join, normalized_path, read_text_from, write_text_to, read_lines_from, \
-                  has_shim_marker, MAMA_SHIM_FILENAME
+                  short_path, has_shim_marker, MAMA_SHIM_FILENAME
 from . import build_names
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
@@ -658,8 +658,8 @@ class BuildDependency:
         if missing_dep: return build(f'{missing_dep} was removed')
 
         if not self.from_artifactory:
-            if self.update_mamafile_tag(): return build(target.name+'/mamafile.py modified')
-            if self.update_cmakelists_tag(): return build(target.name+'/CMakeLists.txt modified')
+            if self.update_mamafile_tag(): return build(f'{short_path(self.mamafile_path())} modified')
+            if self.update_cmakelists_tag(): return build(f'{short_path(self.cmakelists_path())} modified')
 
         if conf.print:
             console(f'  - Target {target.name: <16} OK', color=Color.GREEN)
