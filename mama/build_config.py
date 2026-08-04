@@ -179,6 +179,10 @@ class BuildConfig:
         self.cmake_toolchain_file = ''
         self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
         self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
+        # Where the compiler seed lives. False keeps it in the workspace, so `rm -rf packages/` heals a
+        # broken seed. True moves it to the user cache dir, where one probe serves every checkout on this
+        # machine. MAMA_GLOBAL_COMPILER_CACHE=1 turns it on for a whole test session or CI job.
+        self.global_compiler_cache = os.getenv('MAMA_GLOBAL_COMPILER_CACHE') == '1'
         self.global_workspace = False
         # The root project dir, set by mamabuild from source_dir. A `mama <host> build` bootstrap child
         # uses it as cwd, so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
@@ -241,6 +245,7 @@ class BuildConfig:
             elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'serial':    self.serial_load = True
             elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True
+            elif arg == 'globalcache': self.global_compiler_cache = True  # seed in the user cache, not in packages/
             elif arg.startswith('parallel_max='):
                 try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass

@@ -127,6 +127,25 @@ def normalized_join(path1: str, *pathsN) -> str:
     return normalized_path(os.path.join(path1, *pathsN))
 
 
+@lru_cache(maxsize=1)
+def _cache_base() -> str:
+    """The per-user cache dir of this platform. The temp dir when there is no home to put it in."""
+    if System.windows: base = os.environ.get('LOCALAPPDATA', '')
+    elif System.macos: base = os.path.expanduser('~/Library/Caches')
+    else:              base = os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache')
+    if not base or base.startswith('~'): base = tempfile.gettempdir()
+    return path_join(base, 'mama')
+
+
+@lru_cache(maxsize=None)
+def user_cache_dir(*parts) -> str:
+    """Cache dir for what belongs to this machine and this user, not to one workspace. The compiler seed
+    is the example. MAMA_CACHE_DIR overrides the location. A CI job points it at a directory it keeps
+    between runs, and a test points it at its own tmp dir. LOCALAPPDATA and an env override both arrive
+    with back slashes, so the result goes through forward_slashes."""
+    return forward_slashes(path_join(os.environ.get('MAMA_CACHE_DIR') or _cache_base(), *parts))
+
+
 def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List[str] = None) -> List[str]:
     results = []
     exclude = set(exclude_dirs) if exclude_dirs else None

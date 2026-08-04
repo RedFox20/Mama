@@ -217,16 +217,28 @@ def _probe_toolchain(target:BuildTarget):
         yield (bld, files_dir) if seedcache.covers_core_langs(seedcache.detected_langs(files_dir)) else None
 
 
+def _seed_root(target:BuildTarget) -> str:
+    """Where the compiler seeds live.
+
+    The workspace by default, under `packages/`, so `rm -rf packages/` still heals a broken seed. Under
+    `globalcache` the root moves to the user cache dir. The seed id carries the platform, the arch and a
+    compiler hash, so one probe there serves every checkout on this machine. A new checkout then skips
+    the 4-second probe, which is what a CI job and the test suite want. A developer keeps the local root,
+    because one bad seed in the user cache would reach every project."""
+    if target.config.global_compiler_cache:
+        return util.user_cache_dir('compiler_seed')
+    return util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+
+
 def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:
-    """Lazily build the per-run, config-shared Coordinator. Seed lives in the workspace `packages`
-    dir (dirname(dirname(build_dir))) so deleting `packages/` purges it."""
+    """Lazily build the per-run, config-shared Coordinator. See _seed_root for where the seeds live."""
     config = target.config
     co = config._seed_coord
     if co is not None: return co
     with _seed_lock:
         co = config._seed_coord
         if co is None:
-            root = util.path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+            root = _seed_root(target)
             log = (lambda m: console(m, color=Color.BLUE)) if config.verbose else None
             co = seedcache.Coordinator(root, fp_fn=_seed_id,
                                        paths_fn=_seed_paths, probe_fn=_seed_probe, seed_fn=_probe_toolchain,

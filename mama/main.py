@@ -88,6 +88,7 @@ def print_usage():
     console('    verbose    - Greatly increases verbosity for build dependencies and cmake')
     console('    parallel   - Load dependencies in parallel')
     console('    unshallow  - Allow unshallowing shallow git clones')
+    console('    globalcache - Keep the cmake compiler seed in the user cache dir, so every checkout shares one probe')
     console('    https-override - rewrite add_git() ssh urls (git@host:path) to https://host/path')
     console('    ssh-override   - rewrite add_git() https urls to ssh (git@host:path)')
     console('    serial     - Disable parallel build of dependencies, useful for debugging')

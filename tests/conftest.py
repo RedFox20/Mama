@@ -22,6 +22,15 @@ def pytest_runtest_setup(item):
         pytest.skip('needs a case-sensitive filesystem')
 
 
+@pytest.fixture(scope='session', autouse=True)
+def _own_cache_dir(tmp_path_factory):
+    """Give the suite one shared compiler seed, in a cache dir of its own. The seed then costs one cmake
+    probe for the whole suite instead of one per test. A build defaults to a workspace seed, so the flag
+    has to say so. MAMA_CACHE_DIR keeps every test out of the cache of the developer."""
+    os.environ['MAMA_CACHE_DIR'] = str(tmp_path_factory.mktemp('mama_cache'))
+    os.environ['MAMA_GLOBAL_COMPILER_CACHE'] = '1'
+
+
 @pytest.fixture(autouse=True)
 def _restore_cwd():
     """Restore the working directory after every test. The integration tests chdir into their own
