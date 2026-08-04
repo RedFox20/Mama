@@ -315,17 +315,18 @@ class Git(DepSource):
         raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
 
 
-    def working_tree_fingerprint(self, dep: BuildDependency) -> str:
+    def working_tree_fingerprint(self, dep: BuildDependency, reason='') -> str:
         """'' for a clean tree, else a content-aware hash of uncommitted source. See
-        util.git_dir_fingerprint. A shim has no working tree on disk, so it counts as clean."""
-        return git_dir_fingerprint(dep.src_dir) if dep.is_real_clone() else ''
+        util.git_dir_fingerprint. A shim has no working tree on disk, so it counts as clean.
+        reason: what wanted this answer, for the `verbose` status log"""
+        return git_dir_fingerprint(dep.src_dir, reason=f'git {reason}') if dep.is_real_clone() else ''
 
 
     def source_tree_changed(self, dep: BuildDependency) -> bool:
         """True when the working-tree source differs from the snapshot stored at the last build."""
         status = self.read_stored_status(dep)
         stored = status[4] if status and len(status) > 4 else ''
-        return self.working_tree_fingerprint(dep) != stored
+        return self.working_tree_fingerprint(dep, 'did the source change since the last build') != stored
 
 
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
@@ -526,7 +527,7 @@ class Git(DepSource):
 
     def save_status(self, dep: BuildDependency):
         commit = self.get_commit_hash(dep)
-        tree = self.working_tree_fingerprint(dep)
+        tree = self.working_tree_fingerprint(dep, 'record the tree this build used')
         status = self.format_git_status(self.url, self.tag, self.branch, commit, tree)
         if save_file_if_contents_changed(self.git_status_file(dep), status):
             if dep.config.verbose:

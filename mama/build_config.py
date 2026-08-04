@@ -241,7 +241,8 @@ class BuildConfig:
                 self.build = True # configure implies a build
             elif arg == 'init':      self.mama_init = True
             elif arg == 'silent':    self.print = False
-            elif arg == 'verbose':   self.verbose = True
+            # every working-tree check then names the dep, the caller and what it found, see _log_status_check
+            elif arg == 'verbose':   self.verbose = True; util.log_status_checks = True
             elif arg == 'parallel':  self.parallel_load = True
             elif arg == 'serial':    self.serial_load = True
             elif arg == 'nocache' or arg == 'no-compiler-cache': self.no_compiler_cache = True

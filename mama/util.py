@@ -2,7 +2,7 @@ import os, re, stat, shutil, tempfile, zipfile, subprocess, hashlib
 from functools import lru_cache
 from typing import List
 import time, ssl, pathlib, random
-from .utils.system import System, console, progress
+from .utils.system import System, Color, console, progress
 from urllib import request
 from datetime import datetime
 from dateutil import tz
@@ -259,6 +259,21 @@ memoize_git_fingerprints = True
 
 _repo_status = None  # (repo root, {rel path: status code}) from ONE `git status` for the whole run
 
+# `verbose` turns this on, see BuildConfig. Every working-tree check then says which dependency it read,
+# which caller wanted it, where the answer came from, and what it found.
+log_status_checks = False
+
+
+def _log_status_check(src_dir: str, reason: str, source: str, found: str, seconds: float):
+    """One line per working-tree check, so a slow run names the dependency and the caller that paid."""
+    name = os.path.basename(src_dir.rstrip('/\\')) or src_dir
+    console(f'  {name: <16} status [{reason}] {source} -> {found} ({1000*seconds:.0f}ms)', color=Color.BLUE)
+
+
+def _kinds_text(kinds: tuple) -> str:
+    """What a fresh check found, naming both kinds, because only untracked files skip the diff."""
+    return ' '.join(w for w, on in zip(('tracked', 'untracked'), kinds) if on) or 'clean'
+
 
 def _git_output(args: list, cwd: str) -> bytes:
     """The stdout of one git command, or b'' when it fails.
@@ -332,8 +347,19 @@ def _repo_status_kinds(src_dir: str):
     if src != top and not src.startswith(top + '/'): return None
     if src != top and os.path.exists(path_join(src_dir, '.git')): return None  # a clone or a submodule
     prefix = '' if src == top else src[len(top)+1:] + '/'
-    codes = [code for path, code in entries.items() if path.startswith(prefix)]
-    return any(c != '??' for c in codes), any(c == '??' for c in codes)
+    return _kinds_of({p: c for p, c in entries.items() if p.startswith(prefix)})
+
+
+def _kinds_of(entries: dict) -> tuple:
+    """(tracked changes, untracked files) from parsed `git status` entries, ignoring the files mama
+    itself writes into a source dir. mama drops `mama.cmake` into every dependency, and counting it
+    reported every clean dependency as dirty. Each one then paid for a `git ls-files` it did not need.
+    A file the DEVELOPER left untracked still counts, which is the point of the check."""
+    tracked = untracked = False
+    for path, code in entries.items():
+        if code != '??': tracked = True
+        elif os.path.basename(path) not in _NON_SOURCE_ENTRIES: untracked = True
+    return tracked, untracked
 
 
 def forget_git_dir_fingerprint(src_dir: str):
@@ -343,7 +369,7 @@ def forget_git_dir_fingerprint(src_dir: str):
     _git_fingerprints.pop((src_dir, True), None)
 
 
-def git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
+def git_dir_fingerprint(src_dir: str, shared_status=False, reason='') -> str:
     """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD` scoped
     to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or a missing dir.
     Lets `mama build` catch in-place source edits without a full status check or reconfigure.
@@ -361,22 +387,28 @@ def git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
     if not src_dir or not os.path.exists(src_dir):
         return ''
     if not memoize_git_fingerprints:
-        return _compute_git_dir_fingerprint(src_dir, shared_status)
+        return _compute_git_dir_fingerprint(src_dir, shared_status, reason)
     key = (src_dir, shared_status)
     if key not in _git_fingerprints:
-        _git_fingerprints[key] = _compute_git_dir_fingerprint(src_dir, shared_status)
+        _git_fingerprints[key] = _compute_git_dir_fingerprint(src_dir, shared_status, reason)
+    elif log_status_checks:
+        # a memo hit knows the answer but not which kind of change made it, so it says neither
+        _log_status_check(src_dir, reason, 'memo', 'dirty' if _git_fingerprints[key] else 'clean', 0.0)
     return _git_fingerprints[key]
 
 
-def _compute_git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
+def _compute_git_dir_fingerprint(src_dir: str, shared_status=False, reason='') -> str:
     """The git work behind git_dir_fingerprint, with no memo in front of it. Scoping every command with
     `-- .` keeps a subfolder of a larger repo from reading the parent's unrelated changes."""
+    started = time.time()
     kinds = _repo_status_kinds(src_dir) if shared_status else None
+    source = 'shared status'
     if kinds is None:  # no shared status covers this dir, so ask git about this dir alone
         # status reports the same set as the two content commands together: staged and unstaged changes
         # against HEAD, plus untracked files that .gitignore does not cover.
-        codes = _parse_status(_git_output(['status', '--porcelain', '-z', '--', '.'], src_dir)).values()
-        kinds = any(c != '??' for c in codes), any(c == '??' for c in codes)
+        kinds = _kinds_of(_parse_status(_git_output(['status', '--porcelain', '-z', '--', '.'], src_dir)))
+        source = 'own git status'
+    if log_status_checks: _log_status_check(src_dir, reason, source, _kinds_text(kinds), time.time() - started)
     tracked, untracked = kinds
     if not tracked and not untracked:
         return ''  # clean tree, and a pinned dependency almost always is
@@ -388,6 +420,7 @@ def _compute_git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
         return ''
     h = hashlib.sha1(diff)
     for rel in sorted(filter(None, others.split('\0'))):
+        if os.path.basename(rel) in _NON_SOURCE_ENTRIES: continue  # mama wrote it, so it is not a source edit
         try:
             st = os.stat(path_join(src_dir, rel))
             h.update(f'\0{rel}\0{st.st_size}\0{st.st_mtime_ns}'.encode())

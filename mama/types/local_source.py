@@ -21,22 +21,23 @@ class LocalSource(DepSource):
     def src_status_file(self, dep) -> str:
         return path_join(dep.build_dir, 'src_status')
 
-    def working_tree_fingerprint(self, dep) -> str:
+    def working_tree_fingerprint(self, dep, reason='') -> str:
         """Fingerprint of uncommitted edits in this dep's subfolder, as tracked by an enclosing git
         repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint.
 
         A local module lives inside the root working tree, so the run's shared status already knows
         whether this subfolder changed. That answer costs no process."""
-        return git_dir_fingerprint(dep.src_dir, shared_status=True)
+        return git_dir_fingerprint(dep.src_dir, shared_status=True, reason=f'local {reason}')
 
     def source_tree_changed(self, dep) -> bool:
         """True when the subfolder differs from the snapshot stored at the last build."""
         f = self.src_status_file(dep)
         stored = read_text_from(f) if os.path.exists(f) else ''
-        return self.working_tree_fingerprint(dep) != stored
+        return self.working_tree_fingerprint(dep, 'did the subfolder change since the last build') != stored
 
     def save_status(self, dep):
-        save_file_if_contents_changed(self.src_status_file(dep), self.working_tree_fingerprint(dep))
+        save_file_if_contents_changed(self.src_status_file(dep),
+                                      self.working_tree_fingerprint(dep, 'record the tree this build used'))
 
     @staticmethod
     def from_papa_string(s: str) -> "LocalSource":
