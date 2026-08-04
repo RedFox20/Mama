@@ -54,3 +54,6 @@ bench/_out/
 
 # Fingerprint of the last passing mama-style-review (see .claude/settings.json)
 .claude/.review-passed
+
+# Planning phase marker. While it exists, the Stop hook asks for no review.
+.claude/.planning

@@ -7,7 +7,7 @@
             "type": "command",
             "shell": "bash",
             "timeout": 10,
-            "command": "git status --porcelain | grep -q . && [ \"$(bash .claude/review-hash.sh)\" != \"$(cat .claude/.review-passed 2>/dev/null)\" ] && printf '%s' '{\"systemMessage\":\"Changes since the last passing review: run /mama-style-review before you finish.\",\"hookSpecificOutput\":{\"hookEventName\":\"Stop\",\"additionalContext\":\"The tree changed since the last passing review. Run the mama-style-review skill: step 0 re-reads .claude/skills/ste-writing/SKILL.md and .claude/skills/output-style/SKILL.md, because both rule sets drift out of a long session. The review records .claude/.review-passed when it reports 0 issues, and this reminder then stays quiet until the diff changes again.\"}}' || true"
+            "command": "[ -f .claude/.planning ] && exit 0; git status --porcelain | grep -q . && [ \"$(bash .claude/review-hash.sh)\" != \"$(cat .claude/.review-passed 2>/dev/null)\" ] && printf '%s' '{\"systemMessage\":\"Changes since the last passing review: run /mama-style-review before you finish.\",\"hookSpecificOutput\":{\"hookEventName\":\"Stop\",\"additionalContext\":\"The tree changed since the last passing review. Run the mama-style-review skill: step 0 re-reads .claude/skills/ste-writing/SKILL.md and .claude/skills/output-style/SKILL.md, because both rule sets drift out of a long session. The review records .claude/.review-passed when it reports 0 issues, and this reminder then stays quiet until the diff changes again.\"}}' || true"
           }
         ]
       }

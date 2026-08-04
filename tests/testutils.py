@@ -177,15 +177,19 @@ def grep_mama_sources(needles, skip=()) -> list:
     return hits
 
 
-def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
-                  branch='main', tag='', mamafile=None, **config_overrides):
+def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git', branch='main', tag='',
+                  mamafile=None, commit='abc1234', **config_overrides):
     """Real BuildDependency wired to a mock BuildConfig + a Git dep_source.
     Used by shim/probe/load-integration/noart tests that need real
-    is_artifactory_shim() / shim-marker semantics on disk."""
+    is_artifactory_shim() / shim-marker semantics on disk.
+    commit: pre-resolved commit hash. Without it, every path that names a package runs a real
+            `git ls-remote https://example.com/...`, which reaches the network. Pass None for a test
+            that drives the resolution itself."""
     from mama.build_dependency import BuildDependency
     from mama.types.git import Git
     config = make_mock_config(tmp_path, **config_overrides)
     git = Git(name=name, url=url, branch=branch, tag=tag, mamafile=mamafile, shallow=True, args=[])
+    git.commit_hash = commit
     dep = BuildDependency(parent=None, config=config, workspace='packages', dep_source=git)
     dep.is_root = False  # tests rarely have a real parent chain
     dep.create_build_dir_if_needed()

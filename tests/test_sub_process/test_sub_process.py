@@ -104,7 +104,7 @@ class TestTimeout:
     def test_long_running_command_times_out(self):
         with pytest.raises(subprocess.TimeoutExpired):
             SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
-                           io_func=lambda p, line: None, timeout=0.3)
+                           io_func=lambda p, line: None, timeout=0.15)
 
     def test_fast_command_does_not_time_out(self):
         assert SubProcess.run([PY, '-c', 'print("done")'],
@@ -117,14 +117,14 @@ class TestIdleTimeout:
         t0 = time.monotonic()
         with pytest.raises(subprocess.TimeoutExpired):
             SubProcess.run([PY, '-c', 'import time; time.sleep(5)'],
-                           io_func=lambda p, l: None, idle_timeout=0.4)
-        assert time.monotonic() - t0 < 5  # died on the 0.4s idle bound, not the child's 5s sleep
+                           io_func=lambda p, l: None, idle_timeout=0.2)
+        assert time.monotonic() - t0 < 5  # died on the 0.2s idle bound, not the child's 5s sleep
 
     def test_idle_timeout_spares_a_chatty_child(self):
-        # Streaming output keeps resetting the idle clock, so total runtime (0.6s) > idle (0.4s) is fine.
+        # Streaming output keeps resetting the idle clock, so total runtime (0.3s) > idle (0.2s) is fine.
         status, lines = _py_run(
-            'import sys, time\nfor i in range(6): print(i); sys.stdout.flush(); time.sleep(0.1)',
-            idle_timeout=0.4)
+            'import sys, time\nfor i in range(6): print(i); sys.stdout.flush(); time.sleep(0.05)',
+            idle_timeout=0.2)
         assert status == 0 and lines == ['0', '1', '2', '3', '4', '5']
 
 

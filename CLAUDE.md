@@ -223,6 +223,18 @@ the user with work in the tree, and while the test suite runs. Its step 0 re-rea
 A `Stop` hook in `.claude/settings.json` says the same thing when the tree holds
 uncommitted changes.
 
+**The review never runs in the planning phase.** Planning writes no code, so there is no
+diff to review. The file `.claude/.planning` marks the phase. While it exists, the `Stop`
+hook stays quiet and you must not start the review. Create it when a session turns to
+planning, and delete it when you write the first line of code:
+
+```
+touch .claude/.planning     # planning starts
+rm .claude/.planning        # implementation starts, the review is live again
+```
+
+Another agent may hold uncommitted work in the same tree. Review only what you wrote.
+
 Every task ends with these steps:
 1. Implement the change, then start the test suite **in the background**. The suite takes about
    two minutes, and a review costs nothing while it runs.

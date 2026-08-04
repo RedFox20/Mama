@@ -1,5 +1,5 @@
 import os, shlex, shutil, threading, queue, time, signal
-import subprocess
+import subprocess, psutil
 from functools import lru_cache
 from . import abort
 from .system import System, console, error, report_subprocess, capture_to, capture_context
@@ -21,14 +21,19 @@ _live_procs = set()   # live SubProcess instances. terminate_all() stops every o
 
 
 def _kill_group(gid) -> bool:
-    """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows), and report whether the
-    call succeeded. A group whose members already exited is empty, so the call fails: the intended no-op.
-    Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs, and the abort
-    flag must not block it, because it runs precisely while mama aborts."""
+    """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows). True when the kill
+    reached the root. False when it was already gone, which the caller treats as a no-op.
+
+    Windows has no process group kill, so psutil walks the tree instead. psutil is already a mama
+    dependency, and it replaces a `taskkill /F /T` child that cost about 300ms per kill. Spawning a
+    process to stop one is the wrong move anyway, because this runs precisely while mama aborts."""
     try:
         if System.windows:
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(gid)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+            root = psutil.Process(gid)
+            for child in root.children(recursive=True):  # children first, so the root spawns no more
+                try: child.kill()
+                except psutil.Error: pass
+            root.kill()
         else:
             os.killpg(gid, signal.SIGKILL)
         return True
