@@ -302,6 +302,27 @@ def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **
     return dep
 
 
+def git_init_commit(cwd):
+    """Turn `cwd` into a git repo and commit everything already in it. Sets the identity, because a
+    machine with no global git identity cannot commit."""
+    from mama.utils.sub_process import execute_piped
+    for cmd in ['init -q', 'config user.email t@t', 'config user.name t', 'add -A', 'commit -q -m init']:
+        execute_piped(['git', *cmd.split()], cwd=str(cwd))
+
+
+def make_git_root_with_local_pkgs(tmp_path, count=1):
+    """A git repo at `tmp_path/root` holding `count` committed local packages under `libs/`. Returns the
+    list of BuildDependency, one per package, which share the one enclosing repo."""
+    root = tmp_path / 'root'
+    for i in range(count):
+        sub = root / 'libs' / f'pkg{i}'
+        sub.mkdir(parents=True)
+        (sub / 'lib.cpp').write_text(f'int f{i}(){{ return {i}; }}\n')
+    git_init_commit(root)
+    return [make_mock_local_dep(tmp_path, src_dir=root / 'libs' / f'pkg{i}', name=f'pkg{i}')
+            for i in range(count)]
+
+
 def make_mock_shim_dep(tmp_path, stored_hash='abc1234', write_papa_txt=False, **config_overrides):
     """make_mock_dep + a shim marker already written. Optionally seeds papa.txt
     so artifactory_load_target can parse it (for noart cache-hit tests)."""

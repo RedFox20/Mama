@@ -2,18 +2,11 @@
 must trigger a cmake build when its own subfolder has uncommitted edits, and stay fast otherwise."""
 from pathlib import Path
 from unittest.mock import Mock, patch
-from testutils import make_mock_local_dep
-from mama.utils.sub_process import execute_piped
+from testutils import make_mock_local_dep, make_git_root_with_local_pkgs
 
 
 def _root_repo_with_local_pkg(tmp_path):
-    root = tmp_path / 'root'
-    sub = root / 'libs' / 'foo'
-    sub.mkdir(parents=True)
-    (sub / 'lib.cpp').write_text('int f(){return 1;}\n')
-    for cmd in ['init -q', 'config user.email t@t', 'config user.name t', 'add -A', 'commit -q -m init']:
-        execute_piped(['git', *cmd.split()], cwd=str(root))
-    return make_mock_local_dep(tmp_path, src_dir=sub)
+    return make_git_root_with_local_pkgs(tmp_path)[0]
 
 
 def test_modified_tracked_file_changes_fingerprint(tmp_path):

@@ -65,6 +65,15 @@ def _restore_cwd():
 
 
 @pytest.fixture(autouse=True)
+def _forget_repo_status():
+    """Drop the shared `git status` after every test. mama loads it once per run and every local dep
+    reads it, so one test that loads it would answer for the working tree of the next."""
+    yield
+    from mama import util
+    util.forget_repo_status()
+
+
+@pytest.fixture(autouse=True)
 def _disarm_abort():
     """Clear the process-wide abort flag after every test. A test that sets the flag and then fails
     leaves it set. Every later test that spawns a subprocess then dies on that stale flag."""

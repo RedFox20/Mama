@@ -4,7 +4,7 @@ import sys, os
 from .types.local_source import LocalSource
 from .utils.system import Color, console, warning
 from .utils.sub_process import execute, execute_piped_echo
-from .util import glob_with_extensions, glob_folders_with_name_match
+from .util import glob_with_extensions, glob_folders_with_name_match, load_repo_status
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
@@ -317,6 +317,10 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     if config.clean and config.no_target() and not config.deps_only:
         root.clean()
+
+    # ONE `git status` for the whole run, before the walk, so every local dependency reads its own
+    # subfolder out of it instead of spawning its own git. Eager, so a parallel load needs no lock.
+    load_repo_status(source_dir)
 
     if config.sched_debug:  # TEMP: load the tree, print the build-weight calc per target, then stop
         load_dependency_chain(root)

@@ -23,8 +23,11 @@ class LocalSource(DepSource):
 
     def working_tree_fingerprint(self, dep) -> str:
         """Fingerprint of uncommitted edits in this dep's subfolder, as tracked by an enclosing git
-        repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint."""
-        return git_dir_fingerprint(dep.src_dir)
+        repo. '' when the subfolder is clean or not under git. See git_dir_fingerprint.
+
+        A local module lives inside the root working tree, so the run's shared status already knows
+        whether this subfolder changed. That answer costs no process."""
+        return git_dir_fingerprint(dep.src_dir, shared_status=True)
 
     def source_tree_changed(self, dep) -> bool:
         """True when the subfolder differs from the snapshot stored at the last build."""

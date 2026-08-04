@@ -257,52 +257,121 @@ _git_fingerprints = {}  # src_dir -> fingerprint, the memo of git_dir_fingerprin
 # subcommand changes one. A test that edits a tree itself sets this False, so every call asks git again.
 memoize_git_fingerprints = True
 
+_repo_status = None  # (repo root, {rel path: status code}) from ONE `git status` for the whole run
+
+
+def _git_output(args: list, cwd: str) -> bytes:
+    """The stdout of one git command, or b'' when it fails.
+
+    Uses subprocess.run with stderr=DEVNULL, not SubProcess.run. A source dir may not be under git at
+    all, and the `fatal: not a git repository` noise must not reach the user."""
+    try:
+        cp = subprocess.run(['git', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=cwd, timeout=10)
+        return cp.stdout if cp.returncode == 0 else b''
+    except Exception:
+        return b''
+
+
+def _parse_status(out: bytes) -> dict:
+    """{path: status code} for one `git status --porcelain -z`. A rename or a copy stores its old path
+    in the next field, and that field carries no status code of its own."""
+    fields = out.split(b'\0')
+    entries = {}
+    i = 0
+    while i < len(fields):
+        field = fields[i]
+        i += 1
+        if len(field) < 4: continue  # an empty tail field, or the old path this loop already skipped
+        code = field[:2]
+        entries[field[3:].decode('utf-8', 'replace')] = code.decode()
+        if code[:1] in b'RC': i += 1  # the next field holds the old path of the rename or the copy
+    return entries
+
+
+def load_repo_status(root_dir: str):
+    """Read every pending change of the repository at `root_dir` with ONE `git status`.
+
+    Each local dependency then filters its own subfolder out of this result. The alternative asks git
+    once per dependency, and a process costs about 23ms on Windows before git does any work. mama
+    loads this before the dependency walk starts, so a parallel load reads it without a lock. The
+    result stays empty when `root_dir` is not under git."""
+    global _repo_status
+    _repo_status = None
+    top = _git_output(['rev-parse', '--show-toplevel'], root_dir).decode('utf-8', 'replace').strip()
+    if not top: return
+    entries = _parse_status(_git_output(['status', '--porcelain', '-z'], top))
+    # Both sides of every later compare go through _case_key, so store the keys that way once.
+    _repo_status = (_case_key(forward_slashes(top)), {_case_key(p): c for p, c in entries.items()})
+
+
+def forget_repo_status():
+    """Drop the shared status. A test that edits a working tree after the load calls this."""
+    global _repo_status
+    _repo_status = None
+
+
+def _case_key(path: str) -> str:
+    """The comparable spelling of a path. Windows matches a file name without case, so a compare that
+    keeps the case reads `c:/projects` and `C:/Projects` as two different dirs. os.path.normcase is
+    not usable here, because on Windows it also turns every forward slash into a back slash."""
+    return path.lower() if System.windows else path
+
+
+def _repo_status_kinds(src_dir: str):
+    """(tracked edits, untracked files) under `src_dir`, read from the run's shared status. None when
+    no status is loaded, or when `src_dir` lies outside the repository the status covers."""
+    if _repo_status is None or not memoize_git_fingerprints: return None
+    top, entries = _repo_status
+    src = _case_key(forward_slashes(os.path.abspath(src_dir)))
+    if src != top and not src.startswith(top + '/'): return None
+    prefix = '' if src == top else src[len(top)+1:] + '/'
+    codes = [code for path, code in entries.items() if path.startswith(prefix)]
+    return any(c != '??' for c in codes), any(c == '??' for c in codes)
+
 
 def forget_git_dir_fingerprint(src_dir: str):
     """Drop the memo of `src_dir`. run_git calls this after a git subcommand that can change the tree."""
     _git_fingerprints.pop(src_dir, None)
 
 
-def git_dir_fingerprint(src_dir: str) -> str:
+def git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
     """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD` scoped
     to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or a missing dir.
     Lets `mama build` catch in-place source edits without a full status check or reconfigure.
 
-    Two things keep the cost down. mama memoizes the answer per source dir, because one build asks twice
-    per dependency and the tree holds still between the two. A `git status` then gates the two content
-    commands, so a clean tree costs ONE process instead of two. A pinned dependency is clean.
+    Three things keep the cost down. The run's shared status answers a local dependency, which then
+    spawns no git at all. mama also memoizes the answer per source dir, because one build asks twice
+    per dependency and the tree holds still between the two. A status then gates the two content
+    commands, so a clean tree costs no process at all. A pinned dependency is clean.
 
-    Uses subprocess.run with stderr=DEVNULL, not SubProcess.run: a local source dir may not be under
-    git at all, and the `fatal: not a git repository` noise must not reach the user. Scoping with `-- .`
-    keeps a subfolder of a larger repo from fingerprinting the parent's unrelated changes."""
+    `shared_status` says this dir belongs to the root working tree, which only a local dependency can
+    claim. A git dependency clones into the workspace dir, which .gitignore hides from the root status,
+    so the root status would call every edited clone clean."""
     if not src_dir or not os.path.exists(src_dir):
         return ''
     if not memoize_git_fingerprints:
-        return _compute_git_dir_fingerprint(src_dir)
+        return _compute_git_dir_fingerprint(src_dir, shared_status)
     if src_dir not in _git_fingerprints:
-        _git_fingerprints[src_dir] = _compute_git_dir_fingerprint(src_dir)
+        _git_fingerprints[src_dir] = _compute_git_dir_fingerprint(src_dir, shared_status)
     return _git_fingerprints[src_dir]
 
 
-def _compute_git_dir_fingerprint(src_dir: str) -> str:
-    """The git work behind git_dir_fingerprint, with no memo in front of it."""
-    def git(args) -> bytes:
-        try:
-            cp = subprocess.run(['git', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=src_dir, timeout=10)
-            return cp.stdout if cp.returncode == 0 else b''
-        except Exception:
-            return b''
-    # status reports the same set as the two content commands together: staged and unstaged changes
-    # against HEAD, plus untracked files that .gitignore does not cover.
-    status = git(['status', '--porcelain', '-z', '--', '.'])
-    if not status:
-        return ''  # clean tree, and a pinned dependency almost always is. One process answered it
-    entries = status.split(b'\0')
-    untracked = any(e.startswith(b'??') for e in entries)
-    tracked = any(e and not e.startswith(b'??') for e in entries)
+def _compute_git_dir_fingerprint(src_dir: str, shared_status=False) -> str:
+    """The git work behind git_dir_fingerprint, with no memo in front of it. Scoping every command with
+    `-- .` keeps a subfolder of a larger repo from reading the parent's unrelated changes."""
+    kinds = _repo_status_kinds(src_dir) if shared_status else None
+    if kinds is None:  # no shared status covers this dir, so ask git about this dir alone
+        # status reports the same set as the two content commands together: staged and unstaged changes
+        # against HEAD, plus untracked files that .gitignore does not cover.
+        codes = _parse_status(_git_output(['status', '--porcelain', '-z', '--', '.'], src_dir)).values()
+        kinds = any(c != '??' for c in codes), any(c == '??' for c in codes)
+    tracked, untracked = kinds
+    if not tracked and not untracked:
+        return ''  # clean tree, and a pinned dependency almost always is
     # status already named WHICH kinds changed, so each content command runs only when it has work
-    diff = git(['diff', 'HEAD', '--', '.']) if tracked else b''
-    others = git(['ls-files', '--others', '--exclude-standard', '-z']).decode('utf-8', 'replace') if untracked else ''
+    diff = _git_output(['diff', 'HEAD', '--', '.'], src_dir) if tracked else b''
+    others = _git_output(['ls-files', '--others', '--exclude-standard', '-z', '--', '.'],
+                         src_dir).decode('utf-8', 'replace') if untracked else ''
     if not diff and not others:
         return ''
     h = hashlib.sha1(diff)
