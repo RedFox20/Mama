@@ -32,6 +32,17 @@ def _own_cache_dir(tmp_path_factory):
 
 
 @pytest.fixture(scope='session')
+def buildable_example_remote(tmp_path_factory):
+    """The same remote, but with no mamafile, so mama really configures and builds the clone. Only a test
+    that links the library wants this. It publishes its own variables, so the order of the two fixtures
+    within a session cannot matter."""
+    info = make_example_remote(tmp_path_factory.mktemp('buildable_remote'), buildable=True)
+    os.environ['MAMA_TEST_BUILD_REMOTE_URL'] = info['url']
+    os.environ['MAMA_TEST_BUILD_REMOTE_OLD'] = info['old']
+    return info
+
+
+@pytest.fixture(scope='session')
 def example_remote(tmp_path_factory):
     """Publish the local example remote through the environment, so each test mamafile names no url of its
     own. Built once per session. Before this, every git integration test cloned github, which cost about

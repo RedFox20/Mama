@@ -404,6 +404,11 @@ _REMOTE_FILES = {
                   'namespace example { void print_remote(const std::string& s) { printf("%s\\n", s.c_str()); } }\n',
     'README.md': 'Example remote for the mama git tests.\n',
 }
+# A pin test reads remote.h to learn which commit it got, and never opens a build artifact. This mamafile
+# turns the cmake configure and build of the dependency off, which costs about 2.5 seconds per clone on
+# Windows. test_papa_deploy links the real library, so it asks for a remote WITHOUT this file.
+_REMOTE_MAMAFILE = 'import mama\n\nclass ExampleRemote(mama.BuildTarget):\n    def build(self):\n' \
+                   '        self.nothing_to_build()\n'
 
 
 @pytest.fixture(autouse=True)
@@ -419,10 +424,12 @@ def unmemoized_git_fingerprints():
     util.memoize_git_fingerprints = True
 
 
-def make_example_remote(work_dir) -> dict:
+def make_example_remote(work_dir, buildable=False) -> dict:
     """Build the example remote as a local bare repo, so no git test reaches the network. It carries the
     shape every pin test needs. Commit `old` lacks the REMOTE_VERSION line and commit `new` has it.
     Each one gets a tag, v1.0.0 and v2.0.0, and a branch, `old` and `master`.
+    buildable: ship no mamafile, so mama configures and builds the clone. Only a test that links the
+               library needs that. Every other test reads a source file and pays 2.5 seconds for nothing.
     Returns {url, old, new}, where url is a file:// url and both values are full commit hashes."""
     work = os.path.join(str(work_dir), 'work')
     os.makedirs(work, exist_ok=True)
@@ -430,7 +437,8 @@ def make_example_remote(work_dir) -> dict:
         return execute_piped(['git', *args], cwd=work) or ''
     git('init', '-q', '-b', 'master')
     git('config', 'user.email', 'test@mama'); git('config', 'user.name', 'mama test')
-    for name, text in _REMOTE_FILES.items(): write_text_to(os.path.join(work, name), text)
+    files = _REMOTE_FILES if buildable else {**_REMOTE_FILES, 'mamafile.py': _REMOTE_MAMAFILE}
+    for name, text in files.items(): write_text_to(os.path.join(work, name), text)
     for version, tag in (('', 'v1.0.0'), ('#define REMOTE_VERSION 2\n', 'v2.0.0')):
         write_text_to(os.path.join(work, 'remote.h'), _REMOTE_HEADER.format(version=version))
         git('add', '-A'); git('commit', '-q', '-m', tag); git('tag', tag)
