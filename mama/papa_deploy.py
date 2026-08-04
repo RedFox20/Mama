@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os, hashlib, itertools
+import os, itertools
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -8,7 +8,7 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .util import normalized_join, read_lines_from, forward_slashes \
+from .util import normalized_join, read_lines_from, forward_slashes, file_sha1 \
                 , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
 from .utils.system import warning
 
@@ -132,11 +132,6 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
             copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)
 
 
-def _file_hash(path:str) -> str:
-    with open(path, 'rb') as file:
-        return hashlib.sha1(file.read()).hexdigest()
-
-
 def find_duplicate_trees(files:list) -> list:
     """(dir a, dir b, [file names]) for every pair of directories that hold the same file content twice.
     QCoro installs its headers into include/qcoro AND include/qcoro6/qcoro, so a package that exports the
@@ -150,7 +145,7 @@ def find_duplicate_trees(files:list) -> list:
         if len(group) < 2: continue  # a unique name and size cannot collide with anything
         by_hash = {}
         for rel, full in group:
-            by_hash.setdefault(_file_hash(full), []).append(rel)
+            by_hash.setdefault(file_sha1(full), []).append(rel)
         for rels in by_hash.values():
             for first, second in itertools.combinations(sorted(rels), 2):
                 dir_a, dir_b = os.path.dirname(first), os.path.dirname(second)

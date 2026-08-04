@@ -90,6 +90,13 @@ def forward_slashes(pathstring: str) -> str:
     return pathstring.replace('\\', '/')
 
 
+def file_sha1(path: str) -> str:
+    """sha1 of a file's bytes. The one place mama identifies a file by content, so a recipe tag and a
+    duplicate-tree report answer the same way."""
+    with open(path, 'rb') as file:
+        return hashlib.sha1(file.read()).hexdigest()
+
+
 def short_path(path) -> str:
     """The last two parts of `path`, for a message that names a file. A consumer that sets mamafile=
     gets `mamadeps/qcoro.py`, the file it can edit, instead of a `qcoro/mamafile.py` that exists nowhere.
