@@ -13,8 +13,8 @@ def _machine_name() -> str:
 
     NOT platform.machine(). Python 3.12 and later answer platform.uname() on Windows with a WMI
     query, which costs about 60ms of EVERY mama start. The environment and os.uname() hold the
-    same fact for free. platform.machine() stays as the last resort, so no host loses detection,
-    and its import stays inside this branch because the import alone costs about 12ms."""
+    same fact for free. platform.machine() stays as the last resort, so no host loses detection.
+    Its import sits inside that branch, because the import alone costs about 12ms."""
     if is_windows:
         # A 32-bit python on 64-bit windows reads x86 from PROCESSOR_ARCHITECTURE, and the real
         # architecture from PROCESSOR_ARCHITEW6432.
