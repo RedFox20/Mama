@@ -134,6 +134,40 @@ it as unsafe in a multi-threaded program, and mama runs many threads in parallel
 - Atomic commits: one logical change per commit. A bug fix and a refactor go into
   two commits, even in one session.
 
+## changelog.txt
+
+`changelog.txt` in the repo root lists every release, newest first. **Update it when
+you finish a feature or a bug fix, in the same commit that carries the change.** A
+changelog written at release time from the git log is guesswork.
+
+New entries go under the `unreleased` heading at the top. The release step renames
+that heading to the version and the date.
+
+```
+release: 0.13.10 (2026-Aug-04)
+ - feature: minimal description of feature 1
+ - bugfix: minimal description of a fixed bug
+```
+
+- **80 columns max per line**, and one line per entry. No wrapped entries.
+- Prefixes: `feature:`, `bugfix:`, `perf:`, `refactor:`, `build:`.
+- Say what changed for a USER of mama, not which function moved. Summarize a
+  five-commit feature as one line.
+- Newest release first. Date format `YYYY-Mon-DD`.
+
+## Release process
+
+1. Bump the patch version in `mama/_version.py`. Bump the minor version only when
+   the user asks for it.
+2. Rename the `unreleased` heading in `changelog.txt` to
+   `release: {major}.{minor}.{patch} (YYYY-Mon-DD)`. Add the entries any commit
+   missed.
+3. Commit: `release: v{major}.{minor}.{patch} <50 char description>`.
+4. Push the release commit.
+5. Run `./deploy.sh` to publish the build to PyPI.
+
+Steps 4 and 5 reach outside this machine, so ask the user before you run them.
+
 ## Artifactory + git status invariants
 
 - **A 404 from artifactory for a git dep is NORMAL.** It means there is no prebuilt

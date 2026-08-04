@@ -1,0 +1,260 @@
+Mama Build Tool - changelog
+Newest release first. See docs/ for the design notes behind the larger changes.
+
+unreleased
+ - feature: a local module names its package by its own source content
+ - feature: globalcache shares the compiler seed across every checkout
+ - feature: bench/profile_mama.py profiles one mama run and explains itself
+ - perf: one git status per run instead of one per local dependency
+ - perf: read HEAD, local tags and repo health from disk instead of spawning git
+ - perf: memoize the executable lookup and the working-tree fingerprint
+ - perf: mama update skips a cmake configure when cmake sees no change
+ - perf: skip the submodule commands for a repo that declares none
+ - bugfix: every git command stays inside its dependency, never the repo above
+ - bugfix: confirm a recipe change with a content hash before rebuilding
+ - bugfix: keep ssh control sockets in a temp dir so ~/.ssh can mount read-only
+ - bugfix: wipe a build dir whose MSVC toolset an upgrade deleted
+ - bugfix: the artifactory tag names the MSVC toolset minor, not only the major
+ - bugfix: do not merge linux builds, it leads to build failure
+ - bugfix: mama init crash, and the build reason names the editable mamafile
+
+release: 0.13.10 (2026-Aug-03)
+ - bugfix: deploy duplicate path names into a single dir, whatever their case
+ - bugfix: support VS 18 (2026) .slnx, and stop the every-run reconfigure
+
+release: 0.13.9 (2026-Aug-03)
+ - feature: improved self.version parsing, upload refuses unfindable names
+ - feature: sanitizer builds get their own artifactory artifact names
+ - bugfix: papa no longer ships duplicate include trees
+
+release: 0.13.8 (2026-Jul-31)
+ - feature: discover versioned Yocto SDK installs
+ - bugfix: properly clean orphaned targets
+
+release: 0.13.07 (2026-Jul-30)
+ - feature: platform consolidation, one class per target platform
+ - feature: dep args name the build dir and package, for parallel configs
+ - feature: better error messages and cleaner termination handling
+
+release: 0.13.06 (2026-Jul-29)
+ - feature: raspi 64-bit support out of the box
+ - feature: target.cmake_install_prefix is configurable
+ - bugfix: remove a stale SHIM marker on the shim to full-clone transition
+
+release: 0.13.05 (2026-Jul-28)
+ - bugfix: initialize the cross-compiler seed cache so it stops trashing itself
+ - bugfix: ssh multiplex permissions and git repo healing aggressiveness
+
+release: 0.13.04 (2026-Jul-28)
+ - bugfix: a cross build with a toolchain file no longer re-detects as host
+ - bugfix: subprocess stderr no longer leaks into the build display
+
+release: 0.13.03 (2026-Jul-28)
+ - feature: build_host_binary() bootstraps a host tool while cross-compiling
+ - feature: progress bar for PAPA archiving, with the active file named
+ - feature: every build status line carries its target platform
+ - bugfix: auto-heal a corrupt .git tree by re-cloning, not failing
+ - bugfix: serialize a dep's clone, so parallel builds cannot corrupt it
+ - bugfix: scope upload and deploy to the target subtree, not the workspace
+ - bugfix: a reclone wipes only the source, never a sibling platform's build dir
+ - bugfix: the banner names the resolved cross compiler, not the host's
+ - bugfix: ssh multiplex failures now retry, and git/ssh noise is filtered out
+
+release: 0.13.02 (2026-Jul-23)
+ - bugfix: resolve package versions correctly, and support new setuptools
+
+release: 0.13.01 (2026-Jul-22)
+ - feature: parallel DAG build engine over clone, configure and build
+ - feature: detect local source package edits and remember them as tags
+ - bugfix: mama build detects in-place source edits of git deps
+ - bugfix: do not repoint compile_commands.json on sanitized or coverage builds
+
+release: 0.12.08 (2026-Jun-06)
+ - bugfix: validate zip contents against papa.txt before uploading
+
+release: 0.12.07 (2026-Jun-05)
+ - bugfix: mama unshallow works on shims and limbo'd dirs
+ - feature: unified progress reporting
+
+release: 0.12.06 (2026-Jun-05)
+ - bugfix: correct nested include paths in papa upload archives
+ - bugfix: -fno-sanitize-recover, so a sanitizer error fails the build
+ - bugfix: unshallow targets properly, and block accidental shim reuploads
+
+release: 0.12.04 (2026-Jun-02)
+ - feature: ssh-override and https-override rewrite git clone urls automatically
+
+release: 0.12.03 (2026-Jun-02)
+ - feature: separate build dirs for sanitizer and coverage builds
+ - bugfix: output draining in sub_process
+
+release: 0.12.02 (2026-Jun-01)
+ - feature: lazy git clones through the artifactory shim
+ - bugfix: SubProcess emits progress at once, ninja and cmake not silent
+
+release: 0.11.33 (2026-May-28)
+ - feature: sanitizer package names, because asan and tsan builds cannot mix
+
+release: 0.11.32 (2026-May-28)
+ - feature: improved gcovr support for clang
+ - bugfix: disable ssh multiplex on native Windows, handle FTP errors
+
+release: 0.11.29 (2026-May-05)
+ - bugfix: Windows sys.path shadow and Microsoft OpenSSH multiplex breakage
+
+release: 0.11.28 (2026-May-04)
+ - feature: ssh multiplexing cleanup
+
+release: 0.11.27 (2026-Apr-30)
+ - feature: concurrent git pull via ssh multiplexing, speeds up mama update
+
+release: 0.11.26 (2026-Apr-10)
+ - feature: improved vswhere detection
+
+release: 0.11.25 (2026-Apr-10)
+ - feature: support --version and --help cli args
+
+release: 0.11.24 (2026-Apr-10)
+ - feature: linux compiler lookup order is CXX, ~/.local/bin, /etc/alternatives
+
+release: 0.11.23 (2026-Apr-07)
+ - bugfix: crash during a verbose deps_only build
+
+release: 0.11.22 (2026-Apr-06)
+ - bugfix: as_includes_root no longer exports empty includes
+
+release: 0.11.21 (2026-Mar-29)
+ - bugfix: properly deploy [root] includes
+
+release: 0.11.20 (2026-Mar-29)
+ - feature: as_includes_root deploys clean #include <lib/lib.h> paths
+
+release: 0.11.19 (2026-Mar-29)
+ - feature: the include deployment filter is customizable
+
+release: 0.11.18 (2026-Mar-27)
+ - feature: deps_only applies to a named target, to rebuild just its deps
+
+release: 0.11.17 (2026-Mar-27)
+ - feature: allow multiple gtest filters
+
+release: 0.11.16 (2026-Mar-24)
+ - feature: android build option ndk-<ver> picks a specific installed NDK
+
+release: 0.11.15 (2026-Mar-24)
+ - feature: clang-tidy for the Android NDK, and an install-ndk-rXX utility
+
+release: 0.11.14 (2026-Mar-23)
+ - feature: configure run-clang-tidy when installing clang
+
+release: 0.11.13 (2026-Mar-23)
+ - bugfix: unzip and git dependencies, and git_dir init
+
+release: 0.11.12 (2026-Mar-19)
+ - feature: deps_only as an alternative to all
+
+release: 0.11.11 (2026-Mar-19)
+ - feature: configure is back, and ASAN flag changes auto-configure
+
+release: 0.11.10 (2026-Mar-17)
+ - feature: detect when artifactory syslib exports have gone stale
+
+release: 0.11.09 (2026-Mar-14)
+ - feature: test_until_failure summary, and improved docs
+ - bugfix: gcovr verbosity and fragility in CI
+
+release: 0.11.07 (2026-Mar-14)
+ - bugfix: gcovr used the wrong version and did not enable coverage
+
+release: 0.11.06 (2026-Mar-14)
+ - bugfix: /etc/alternatives was preferred over a better compiler
+ - build: cmake 3.25 or newer, for C++26 support
+
+release: 0.11.05 (2026-Mar-14)
+ - bugfix: resolve relative symlinks for clang-tidy
+
+release: 0.11.04 (2026-Mar-14)
+ - bugfix: critical BuildDependency init error
+
+release: 0.11.03 (2026-Mar-14)
+ - bugfix: resolve symlinks for clang-tidy
+
+release: 0.11.02 (2026-Mar-13)
+ - feature: public mamabuild entry point in the mama module init
+
+release: 0.11.01 (2026-Mar-13)
+ - feature: test_until_failure
+ - bugfix: test failures when changing directories
+
+release: 0.10.17 (2026-Mar-12)
+ - bugfix: -pie belongs to ldflags, not cxxflags
+
+release: 0.10.16 (2026-Mar-12)
+ - feature: settings can prefer the Ninja build system
+
+release: 0.10.15 (2026-Mar-11)
+ - feature: install-gcc utility automates installing GCC on Ubuntu
+
+release: 0.10.14 (2026-Mar-11)
+ - feature: install-clang uses generic apt-get calls
+
+release: 0.10.13 (2026-Mar-11)
+ - bugfix: suppress benign gcovr negative hit warnings completely
+
+release: 0.10.12 (2026-Mar-11)
+ - bugfix: gcovr ignores negative hits
+
+release: 0.10.11 (2026-Mar-11)
+ - bugfix: gcovr support
+
+release: 0.10.10 (2026-Mar-11)
+ - bugfix: update the deprecated gcovr sort flag
+
+release: 0.10.9 (2026-Mar-10)
+ - feature: clang-tidy integration
+ - feature: mama init generates a C++20 project
+ - refactor: one config class for every yocto_linux target
+
+release: 0.10.5 (2026-Mar-06)
+ - feature: config.windows became config.msvc, Win64 has more compilers
+ - bugfix: link and load versioned .so.1.2.3 files
+ - build: require python 3.10
+
+release: 0.10.2 (2026-Feb-27)
+ - feature: IMX8M Plus platform support
+ - feature: prefer gcc by default, clang support is less maintained
+
+release: 0.9.25 (2026-Feb-27)
+ - bugfix: artifactory upload if_needed command
+
+release: 0.9.24 (2026-Feb-27)
+ - bugfix: stop forcing the NDK's make for android builds
+
+release: 0.9.23 (2026-Feb-19)
+ - feature: git_commit pinning for dependencies
+ - feature: update or test one named target instead of the whole tree
+ - bugfix: android build issues
+ - bugfix: gcc and clang version detection use the right dumpversion flag
+ - bugfix: mama test on windows, and python 3.8 compatibility
+
+release: 0.7.29 (2023-Mar-09)
+ - bugfix: windows subprocess handling
+
+release: 0.7.28 (2023-Mar-09)
+ - bugfix: python 3.8 backwards compatibility
+
+release: 0.7.26 (2023-Mar-08)
+ - bugfix: mama update no longer fails on a missing target
+
+release: 0.7.22 (2023-Mar-06)
+ - feature: cross-compilation and packaging improvements
+
+release: 0.7.20 (2023-Mar-06)
+ - feature: artifactory package upload and download
+ - feature: android and raspberry pi cross-compilation
+
+release: 0.7.7 (2023-Feb-08)
+ - feature: papa package format for prebuilt dependencies
+
+release: 0.6.16 (2022-Oct-19)
+ - feature: first public release, cmake dependency builds from a mamafile
