@@ -161,9 +161,8 @@ class GenericYocto(Platform):
         if self.config.print: self._print_toolchain_status()
 
         if not os.path.exists(self.compilers):
-            raise EnvironmentError(f'''No {self.name} toolchain compilers detected!
-    Default search paths: {paths}
-    Define env {envs[0]} with path to {self.name} tools.''')
+            raise EnvironmentError(f'No {self.name} toolchain compilers found. Searched: {paths}.' + \
+                                   f' Set env {envs[0]} to the {self.name} tools path.')
 
 
     def _print_toolchain_status(self):

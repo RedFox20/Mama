@@ -12,7 +12,8 @@ class LocalSource(DepSource):
         self.always_build = always_build
         self.args = args
 
-    def __str__(self):  return f'DepSource LocalSource {self.name} {self.rel_path} {self.mamafile} always_build={self.always_build}'
+    def __str__(self):
+        return f'DepSource LocalSource {self.name} {self.rel_path} {self.mamafile} always_build={self.always_build}'
     def __repr__(self): return self.__str__()
 
     # A local dep has no git_status of its own. The working-tree state of the enclosing repo gates

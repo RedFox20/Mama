@@ -219,7 +219,8 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
             artifactory_ftp_login(ftp, config, url)
             if config.if_needed and artifact_already_exists(ftp, target, file_path):
                 if config.print:
-                    console(f'  - Artifactory Upload skipped: artifact already exists: {target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
+                    console(f'  - Artifactory Upload skipped: artifact already exists: ' + \
+                            f'{target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
             return True

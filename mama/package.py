@@ -194,7 +194,8 @@ def export_asset(target: BuildTarget, asset: str, category=None, build_dir=False
 
 def export_assets(target: BuildTarget, assets_path: str, pattern_substrings: list, category=None, build_dir=True):
     assets_path += '/'
-    assets = glob_with_name_match(target_root_path(target, assets_path, build_dir=build_dir), pattern_substrings, match_dirs=False)
+    assets = glob_with_name_match(target_root_path(target, assets_path, build_dir=build_dir),
+                                  pattern_substrings, match_dirs=False)
     if assets:
         for full_asset in assets:
             target.exported_assets.append(Asset(assets_path, full_asset, category))

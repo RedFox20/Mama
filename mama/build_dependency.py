@@ -700,7 +700,8 @@ class BuildDependency:
 
     def ensure_cmakelists_exists(self):
         if not os.path.exists(self.cmakelists_path()):
-            raise IOError(f'Could not find {self.cmakelists_path()}! Add a CMakelists.txt, or add `self.nothing_to_build()` to configuration step. Also note that filename CMakeLists.txt is case sensitive.')
+            raise IOError(f'{self.cmakelists_path()} not found. Add a CMakeLists.txt (the file name is case' + \
+                          ' sensitive), or call `self.nothing_to_build()` in the configure step.')
 
 
     def mamafile_path(self):
