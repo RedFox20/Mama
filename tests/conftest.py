@@ -9,7 +9,7 @@ sys.path.insert(0, _here)
 sys.path.insert(0, _repo_root)
 
 
-from testutils import is_linux, has_case_sensitive_fs  # after the sys.path setup above, so tests/ is importable
+from testutils import is_linux, has_case_sensitive_fs, make_example_remote  # after the sys.path setup above
 
 
 def pytest_runtest_setup(item):
@@ -29,6 +29,19 @@ def _own_cache_dir(tmp_path_factory):
     has to say so. MAMA_CACHE_DIR keeps every test out of the cache of the developer."""
     os.environ['MAMA_CACHE_DIR'] = str(tmp_path_factory.mktemp('mama_cache'))
     os.environ['MAMA_GLOBAL_COMPILER_CACHE'] = '1'
+
+
+@pytest.fixture(scope='session')
+def example_remote(tmp_path_factory):
+    """Publish the local example remote through the environment, so each test mamafile names no url of its
+    own. Built once per session. Before this, every git integration test cloned github, which cost about
+    20 seconds per run and failed whenever the network did.
+    Returns {url, old, new}. `old` is the commit without REMOTE_VERSION, `new` is the one with it."""
+    info = make_example_remote(tmp_path_factory.mktemp('example_remote'))
+    os.environ['MAMA_TEST_REMOTE_URL'] = info['url']
+    os.environ['MAMA_TEST_REMOTE_OLD'] = info['old']
+    os.environ['MAMA_TEST_REMOTE_NEW'] = info['new']
+    return info
 
 
 @pytest.fixture(autouse=True)

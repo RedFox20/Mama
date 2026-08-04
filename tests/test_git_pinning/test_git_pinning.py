@@ -3,7 +3,7 @@ from testutils import init, mama_exec, file_contains
 def remote_file_contains(dep_name, text):
     return file_contains(f'packages/{dep_name}/{dep_name}/remote.h', text)
 
-def test_git_pinning(tmp_path):
+def test_git_pinning(tmp_path, example_remote):
     init(__file__, tmp_path)
     mama_exec(['update'])   # clone the pinned deps
 

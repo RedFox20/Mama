@@ -1,15 +1,12 @@
 import os
-from testutils import init, mama_exec, file_contains, native_platform_name
+from testutils import init, mama_exec, native_platform_name
 from mama.types.git import Git
-
-REPO_URL   = 'https://github.com/BatteredBunny/MamaExampleRemote.git'
-OLD_COMMIT = '4acd9052f27a459314651dd485ae8fa79a04d49d'
-OLD_SHORT  = OLD_COMMIT[:7]
+from mama.util import write_text_to
 
 def get_git_status_path():
     return f'packages/ExampleRemote/{native_platform_name()}/git_status'
 
-def test_local_work_protection(tmp_path):
+def test_local_work_protection(tmp_path, example_remote):
     init(__file__, tmp_path)
 
     # stage 5 = branch 'master'
@@ -23,9 +20,8 @@ def test_local_work_protection(tmp_path):
         f.write('\n// local modification by developer\n')
 
     # Fake a stale commit in git_status so mama sees an upstream change.
-    status_file = get_git_status_path()
-    with open(status_file, 'w') as f:
-        f.write(Git.format_git_status(REPO_URL, '', 'master', OLD_SHORT))
+    write_text_to(get_git_status_path(),
+                  Git.format_git_status(example_remote['url'], '', 'master', example_remote['old'][:7]))
 
     result = mama_exec(['update'], exit_on_fail=False)
     assert result != 0, "mama update should fail when local modifications exist"
@@ -36,7 +32,7 @@ def test_local_work_protection(tmp_path):
         "Local modifications should be preserved after failed update"
 
 
-def test_local_work_protection_on_pin_change(tmp_path):
+def test_local_work_protection_on_pin_change(tmp_path, example_remote):
     init(__file__, tmp_path)
 
     # stage 2 = tag v1.0.0

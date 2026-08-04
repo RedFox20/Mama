@@ -1,4 +1,5 @@
 import mama
+import os
 
 class test(mama.BuildTarget):
     workspace = 'packages'
@@ -7,4 +8,4 @@ class test(mama.BuildTarget):
         self.nothing_to_build()
 
     def dependencies(self):
-        self.add_git('ExampleRemote', 'https://github.com/BatteredBunny/MamaExampleRemote.git')
+        self.add_git('ExampleRemote', os.environ['MAMA_TEST_REMOTE_URL'])

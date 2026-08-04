@@ -14,6 +14,8 @@ import pytest
 
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
+from mama.util import normalized_path, write_text_to
+from mama.utils.sub_process import execute_piped
 
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves
 def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
@@ -340,7 +342,6 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
     whose compiler it cannot stat. A language in `partial` stops at stage 1 (no ABI probe), the way
     a killed configure leaves it. Returns the dir."""
     from mama.buildsys.cmake.compiler_cache import _LANG_FILES
-    from mama.util import normalized_path
     os.makedirs(build_files_dir, exist_ok=True)
     write = lambda name, text: open(os.path.join(build_files_dir, name), 'w').write(text)
     write('CMakeSystem.cmake', f'set(CMAKE_SYSTEM_NAME "{system}")\n')
@@ -388,7 +389,19 @@ def init(caller_file: str, workdir) -> str:
     os.chdir(project)
     return project
 
-def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
+# The example remote a git integration test clones. Two commits: `old` lacks the REMOTE_VERSION line and
+# `new` has it, so a test reads remote.h to prove which one the pin resolved to.
+_REMOTE_HEADER = '#pragma once\n#include <string>\n{version}namespace example {{ void print_remote(const std::string& s); }}\n'
+_REMOTE_FILES = {
+    'CMakeLists.txt': 'cmake_minimum_required(VERSION 3.6)\nproject(example_remote)\n'
+                      'add_library(ExampleRemote STATIC remote.cpp remote.h)\n'
+                      'install(TARGETS ExampleRemote DESTINATION bin)\n',
+    'remote.cpp': '#include "remote.h"\n#include <cstdio>\n'
+                  'namespace example { void print_remote(const std::string& s) { printf("%s\\n", s.c_str()); } }\n',
+    'README.md': 'Example remote for the mama git tests.\n',
+}
+
+
 @pytest.fixture(autouse=True)
 def unmemoized_git_fingerprints():
     """Ask git every time, for a test that edits a working tree itself. mama memoizes the fingerprint per
@@ -402,6 +415,30 @@ def unmemoized_git_fingerprints():
     util.memoize_git_fingerprints = True
 
 
+def make_example_remote(work_dir) -> dict:
+    """Build the example remote as a local bare repo, so no git test reaches the network. It carries the
+    shape every pin test needs. Commit `old` lacks the REMOTE_VERSION line and commit `new` has it.
+    Each one gets a tag, v1.0.0 and v2.0.0, and a branch, `old` and `master`.
+    Returns {url, old, new}, where url is a file:// url and both values are full commit hashes."""
+    work = os.path.join(str(work_dir), 'work')
+    os.makedirs(work, exist_ok=True)
+    def git(*args) -> str:
+        return execute_piped(['git', *args], cwd=work) or ''
+    git('init', '-q', '-b', 'master')
+    git('config', 'user.email', 'test@mama'); git('config', 'user.name', 'mama test')
+    for name, text in _REMOTE_FILES.items(): write_text_to(os.path.join(work, name), text)
+    for version, tag in (('', 'v1.0.0'), ('#define REMOTE_VERSION 2\n', 'v2.0.0')):
+        write_text_to(os.path.join(work, 'remote.h'), _REMOTE_HEADER.format(version=version))
+        git('add', '-A'); git('commit', '-q', '-m', tag); git('tag', tag)
+    git('branch', 'old', 'v1.0.0')  # the branch pins need a second branch behind master
+    bare = os.path.join(str(work_dir), 'MamaExampleRemote.git')
+    execute_piped(['git', 'clone', '--bare', '-q', work, bare])
+    # file:// and not a plain path: git ignores --depth on a plain local clone, and mama clones shallow
+    return {'url': 'file:///' + normalized_path(bare).lstrip('/'),
+            'old': git('rev-parse', 'v1.0.0^{commit}'), 'new': git('rev-parse', 'v2.0.0^{commit}')}
+
+
+def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
     if echo: print(f'exec: {cmd}')
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0 and exit_on_fail:

@@ -12,7 +12,7 @@ def stage(num: int, expects: bool, assert_message: str = ""):
     else:
         assert not result, assert_message
 
-def test_git_pin_change(tmp_path):
+def test_git_pin_change(tmp_path, example_remote):
     init(__file__, tmp_path)
 
     stage(0, False, "Failed to pin to a specific commit")
