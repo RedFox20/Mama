@@ -593,9 +593,10 @@ class Git(DepSource):
             is_commit_pin = Git.is_hex_string(br_or_tag)
             checkout_branch = '' if is_commit_pin or len(br_or_tag) == 0 else f' --branch {br_or_tag}'
             depth = '' if unshallow else '--depth 1'
-            clone_args = f"--recurse-submodules {depth} {checkout_branch} {self.url}"
+            clone_args = f"{depth} {checkout_branch} {self.url}"
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
             self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
+            self.update_submodules(dep, shallow=not unshallow)
         else:
             if not dep.config.is_network_available():
                 if dep.config.print:
@@ -609,7 +610,7 @@ class Git(DepSource):
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())
             self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
-            self.run_git(dep, 'submodule update --init --recursive')
+            self.update_submodules(dep, shallow=not unshallow)
             if not self.tag: # pull if not a tag
                 if self.branch:
                     self.run_git(dep, f"fetch origin {self.branch} -q", throw=False)
@@ -618,6 +619,19 @@ class Git(DepSource):
                     self.run_git(dep, "fetch -q", throw=False)
                     self.run_git(dep, "reset --hard @{upstream} -q") # @{upstream}: see git docs on gitrevisions
             dep.config.update_stats.record_pull()
+
+
+    def update_submodules(self, dep: BuildDependency, shallow=False):
+        """Init and update the submodules of `dep`, and do nothing when it declares none.
+
+        The check is worth its line. On Windows a repository with no submodule at all still pays about
+        1 second for `git clone --recurse-submodules`, and about 0.9 seconds for a bare `submodule
+        update`. Most dependencies have none, so mama paid both for nothing, once per dependency per
+        update. `.gitmodules` is a tracked file at the repository root, so a plain clone still brings
+        it and this check reads the truth.
+        shallow: clone each submodule at depth 1, to match a shallow parent clone"""
+        if not os.path.exists(path_join(dep.src_dir, '.gitmodules')): return
+        self.run_git(dep, 'submodule update --init --recursive' + (' --depth 1' if shallow else ''))
 
 
     def unshallow(self, dep: BuildDependency):
