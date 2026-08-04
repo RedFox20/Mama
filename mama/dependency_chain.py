@@ -5,6 +5,7 @@ from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
+from .platforms.windows import msvc_toolset_version
 from .util import MAMA_SHIM_FILENAME, read_text_from, write_text_to, save_file_if_contents_changed, \
                   get_time_str, path_join, BuildError
 from . import build_names
@@ -830,8 +831,7 @@ def _toolchain_name(config) -> str:
     '' when unresolved: a banner must never fail a build."""
     try:
         if config.msvc:
-            toolset = os.path.basename(config.get_msvc_tools_path().rstrip('\\/'))  # 14.44.35207 -> 14.44
-            return 'msvc ' + '.'.join(toolset.split('.')[:2])
+            return 'msvc ' + msvc_toolset_version(config.get_msvc_tools_path())
         cc, _, ver = config.get_preferred_compiler_paths()
         cc = os.path.basename(cc)  # basename: only the compiler itself, never a 'gcc-toolchain' dir above it
         name = 'clang' if 'clang' in cc else ('gcc' if 'gcc' in cc else '')

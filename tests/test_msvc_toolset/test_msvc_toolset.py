@@ -46,6 +46,17 @@ def test_the_msvc_tools_detection_prints_once(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out.count('Detected MSVC Tools') == 1
 
 
+def test_toolset_version_keeps_the_major_and_minor_only():
+    for path in ('C:/VS/VC/Tools/MSVC/14.51.36231', 'C:/VS/VC/Tools/MSVC/14.51.36231/'):
+        assert windows.msvc_toolset_version(path) == '14.51'
+
+
+def test_the_archive_tag_carries_the_toolset_minor(monkeypatch):
+    # 'msvc14' tagged every toolset since 2015 alike, so an upgrade reused the archive of the old one
+    monkeypatch.setattr(windows.Windows, 'msvc_tools_path', lambda self: 'C:/VS/VC/Tools/MSVC/14.51.36231')
+    assert windows.Windows(Mock(verbose=False)).compiler_version_tag() == 'msvc14.51'  # same shape as gcc14.3
+
+
 def test_a_toolset_without_cl_is_rejected_not_returned(tmp_path):
     # every msvc_* path is bin/Hostx64/x64, so handing back a dir without cl.exe only moves the
     # failure somewhere more confusing - msvc_tools_path() raises 'Could not detect MSVC Tools'

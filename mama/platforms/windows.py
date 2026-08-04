@@ -84,6 +84,12 @@ def latest_msvc_toolset(tools_root: str) -> str:
     return ''
 
 
+def msvc_toolset_version(tools_path: str) -> str:
+    """Major and minor of an MSVC toolset dir, eg '14.51' for `.../MSVC/14.51.36231`. The patch field
+    changes with every Visual Studio update and does not change the ABI, so no mama name carries it."""
+    return '.'.join(os.path.basename(tools_path.rstrip('\\/')).split('.')[:2])
+
+
 class Windows(Platform):
     """MSVC on Windows. Not a cross build. The toolset and the Windows SDK pick the compiler, so
     mama names no compiler path and resolves the toolset through vswhere instead."""
@@ -108,7 +114,9 @@ class Windows(Platform):
 
 
     def compiler_version_tag(self) -> str:
-        return 'msvc' + os.path.basename(self.msvc_tools_path().rstrip('\\//')).split('.')[0]
+        """Compiler id for the artifactory archive name, eg 'msvc14.51' for toolset 14.51.36231. Same shape
+        as 'gcc14.3'. The major alone tagged every toolset since 2015 alike, so an upgrade reused its package."""
+        return 'msvc' + msvc_toolset_version(self.msvc_tools_path())
 
 
     ## --- Visual Studio and the MSVC toolset ---

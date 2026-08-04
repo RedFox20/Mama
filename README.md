@@ -511,7 +511,7 @@ self.add_build_dependency(linux='lib/libmylib.a')    # Add file dependency to co
 self.config.libname('z')           # Returns 'z.lib' on MSVC or 'libz.a' on Unix
 self.config.libext()               # Returns 'lib' on MSVC or 'a' on Unix
 self.config.get_distro_info()      # Returns (name, major, minor) e.g. ('ubuntu', 22, 4)
-self.config.compiler_version()     # Returns e.g. 'msvc14', 'gcc11.3', 'clang15.0'
+self.config.compiler_version()     # Returns e.g. 'msvc14.51', 'gcc11.3', 'clang15.0'
 ```
 
 ### Deployment
