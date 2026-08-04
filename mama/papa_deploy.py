@@ -10,7 +10,7 @@ from .types.asset import Asset
 
 from .util import normalized_join, path_join, read_lines_from, forward_slashes, file_sha1 \
                 , write_text_to, console, copy_if_needed, copy_dir, has_shim_marker
-from .utils.system import warning
+from .utils.system import warning, System
 
 import mama.package as package
 
@@ -106,6 +106,12 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
         return '.' not in name and name.lower() in stems
 
+    # Two exported dirs whose names differ only by case, such as QCoro/ next to qcoro/, follow the
+    # filesystem. Windows and macOS hold ONE dir for the pair, so the deploy merges them and records the
+    # pair once. Two records there would zip the same files twice and fail the upload. Linux keeps both
+    # dirs: QCoro includes "qcorotask.h" in one header and "qcoro/coroutine.h" in the next, and only the
+    # split resolves both forms.
+    merge_variants = System.windows or System.macos
     exported = []  # export dir names already handled, so one name never ships twice
     deploy_dirs = {}  # lowercased deploy dir name -> the deploy dir that shipped first
     for inctarget, abs_include in includes:
@@ -113,13 +119,10 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if name in exported: continue
         exported.append(name)
         src_dir, dst_dir, record = _include_deploy(target, includes_root, abs_include)
-        first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
+        first = dst_dir
+        if merge_variants: first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
         if first != dst_dir:
-            # Two dirs whose names differ only by case are ONE dir on Windows and macOS, and the merge puts
-            # a stub header beside its target. Only one spelling survives on Linux, so name the winner.
-            dst_dir = first
-            warning(f'  PAPA Deploy {target.name}: merged {record[2:]} into include/{os.path.basename(first)}.' + \
-                    ' A consumer must write the surviving spelling.')
+            dst_dir = first  # merged: the record of the dir that shipped first already names this one
         else:
             descr.append(record)
             if detail_echo: console(f'    I ({inctarget.name+")": <16}  {record[2:]}')

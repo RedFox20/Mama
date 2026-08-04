@@ -77,7 +77,7 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
             root_path, root_src, _ = target.includes_root
             shipped = [root_src if e == root_path else e for e in target.exported_includes]
             overlap = _overlapping_include(shipped, include_path)
-            if overlap:
+            if overlap and overlap != include_path:  # naming that same dir again only adds its include path
                 warning(f'export_include({include_path}) overlaps the exported {overlap}. ' + \
                         'One export covers those headers already.')
             target.exported_includes.append(include_path)

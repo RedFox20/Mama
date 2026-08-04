@@ -1,6 +1,8 @@
 """Pins how the PAPA archive treats overlapping include records and duplicated header trees."""
 import os, zipfile
 
+from mama import papa_deploy
+
 import pytest
 from testutils import archive_papa_package, deploy_and_archive, make_exporting_target, make_mock_dep, write_files
 
@@ -105,17 +107,34 @@ def test_a_stub_without_its_real_header_does_not_ship(tmp_path):
     assert names == ['include/qcoro/qcorotask.h', 'lib/libfoo.a', 'papa.txt']
 
 
-def test_a_case_variant_include_dir_merges_into_the_one_that_shipped_first(tmp_path):
-    # QCoro/ and qcoro/ are one dir on Windows, and the stub forwards to a header in its own dir
-    build, target = _built(tmp_path, {'include/qcoro6/qcoro/qcorotask.h': TASK_H,
-                                      'include/qcoro6/QCoro/QCoroTask': '#include "qcorotask.h"\n'}, [])
-    target.export_include('include/qcoro6/qcoro', build_dir=True, as_includes_root='qcoro')
-    target.export_include('include/qcoro6/QCoro', build_dir=True)
+@pytest.mark.parametrize('windows, dirs, records', [
+    (False, ['include/QCoro/QCoroTask', 'include/qcoro/coroutine.h', 'include/qcoro/qcorotask.h'],
+            ['I include', 'I include/qcoro']),
+    (True,  ['include/QCoro/QCoroTask', 'include/QCoro/coroutine.h', 'include/QCoro/qcorotask.h'],
+            ['I include']),
+])
+def test_the_qcoro_shape_takes_two_exports_on_either_filesystem(tmp_path, monkeypatch, windows, dirs, records):
+    """QCoro includes "qcorotask.h" in a stub and "qcoro/coroutine.h" in a real header. The stub dir as the
+    includes root feeds the second form, and the header dir feeds the first through its own include path."""
+    monkeypatch.setattr(papa_deploy.System, 'windows', windows)
+    monkeypatch.setattr(papa_deploy.System, 'macos', False)
+    files = {'include/qcoro6/qcoro/coroutine.h': '#pragma once\n', 'include/qcoro6/qcoro/qcorotask.h': TASK_H,
+             'include/qcoro6/QCoro/QCoroTask': '#include "qcorotask.h"\n'}
+    build, target = _built(tmp_path, files, [])
+    target.export_include('include/qcoro6/QCoro', build_dir=True, as_includes_root='QCoro')
+    target.export_include('include/qcoro6/qcoro', build_dir=True)
     archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
     names = sorted(n for n in zipfile.ZipFile(archive).namelist() if not n.endswith('/'))
-    assert names == ['include/qcoro/QCoroTask', 'include/qcoro/qcorotask.h', 'lib/libfoo.a', 'papa.txt']
+    assert names == sorted(dirs + ['lib/libfoo.a', 'papa.txt'])
     with zipfile.ZipFile(archive) as zip:
-        assert [l for l in zip.read('papa.txt').decode().splitlines() if l.startswith('I ')] == ['I include']
+        assert [l for l in zip.read('papa.txt').decode().splitlines() if l.startswith('I ')] == records
+
+
+def test_re_exporting_the_includes_root_dir_for_its_path_does_not_warn(tmp_path, capsys):
+    _, target = _built(tmp_path, {'include/qcoro6/qcoro/task.h': TASK_H}, [])
+    target.export_include('include/qcoro6/qcoro', build_dir=True, as_includes_root='qcoro')
+    target.export_include('include/qcoro6/qcoro', build_dir=True)  # adds `I include/qcoro`, ships nothing new
+    assert 'overlaps' not in capsys.readouterr().out
 
 
 def test_a_second_export_include_inside_the_first_one_warns(tmp_path, capsys):

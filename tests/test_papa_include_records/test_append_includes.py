@@ -3,6 +3,7 @@ headers land, and which export is skipped."""
 import os
 
 import pytest
+from mama import papa_deploy
 from mama.papa_deploy import _append_includes
 from testutils import make_exporting_target, make_mock_dep, write_files
 
@@ -67,12 +68,26 @@ def test_a_second_export_of_one_dir_name_is_skipped(producer):
     assert descr == ['I include/foo'] and deployed == ['include/foo/a.h']
 
 
-def test_a_case_variant_dir_merges_and_names_the_surviving_spelling(producer, capsys):
-    files = {'qcoro/qcorotask.h': '// h\n', 'QCoro/QCoroTask': '#include "qcorotask.h"\n'}
-    descr, deployed = _deploy(producer, files, ['qcoro', 'QCoro'])
+CASE_VARIANTS = {'qcoro/qcorotask.h': '// h\n', 'QCoro/QCoroTask': '#include "qcorotask.h"\n'}
+
+
+def test_a_case_sensitive_filesystem_keeps_both_spellings(producer, monkeypatch):
+    # QCoro includes "qcorotask.h" in one header and "qcoro/coroutine.h" in the next, so a merged
+    # dir on Linux resolves the first form and breaks the second
+    monkeypatch.setattr(papa_deploy.System, 'windows', False)
+    monkeypatch.setattr(papa_deploy.System, 'macos', False)
+    descr, deployed = _deploy(producer, CASE_VARIANTS, ['qcoro', 'QCoro'])
+    assert descr == ['I include/qcoro', 'I include/QCoro']
+    assert deployed == ['include/QCoro/QCoroTask', 'include/qcoro/qcorotask.h']
+
+
+@pytest.mark.parametrize('host', ['windows', 'macos'])
+def test_a_case_insensitive_filesystem_merges_the_pair_and_records_it_once(producer, monkeypatch, host):
+    # the filesystem holds one dir either way. Two records would zip those files twice.
+    monkeypatch.setattr(papa_deploy.System, host, True)
+    descr, deployed = _deploy(producer, CASE_VARIANTS, ['qcoro', 'QCoro'])
     assert descr == ['I include/qcoro']
     assert deployed == ['include/qcoro/QCoroTask', 'include/qcoro/qcorotask.h']
-    assert 'merged include/QCoro into include/qcoro' in capsys.readouterr().out
 
 
 def test_only_the_glob_filter_suffixes_are_copied(producer):
