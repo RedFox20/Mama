@@ -4,7 +4,7 @@ from ..util import git_dir_fingerprint, path_join, save_file_if_contents_changed
 
 class LocalSource(DepSource):
     """
-    For BuildDependency whose source is from a Local Source
+    For a BuildDependency whose source is a local directory
     """
     def __init__(self, name:str, rel_path:str, mamafile:str, always_build:bool, args:list):
         super(LocalSource, self).__init__(name)
@@ -17,8 +17,8 @@ class LocalSource(DepSource):
     def __str__(self):  return f'DepSource LocalSource {self.name} {self.rel_path} {self.mamafile} always_build={self.always_build}'
     def __repr__(self): return self.__str__()
 
-    # A local dep has no git_status of its own; the enclosing repo's working-tree state is what
-    # gates its cmake step. Snapshot lives beside the build, next to git's git_status.
+    # A local dep has no git_status of its own. The working-tree state of the enclosing repo gates
+    # its cmake step. The snapshot lives in the build dir, next to git's git_status.
     def src_status_file(self, dep) -> str:
         return path_join(dep.build_dir, 'src_status')
 

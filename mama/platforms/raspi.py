@@ -76,9 +76,9 @@ class Raspi(Platform):
 
 
     def _layouts(self, root: str) -> list:
-        """Where a toolchain root can keep its bin/ dir. The legacy Broadcom `tools` repo nests the 32-bit
-        toolchain under arm-bcm2708/<triple>/, while a distro cross package (gcc-aarch64-linux-gnu) and the
-        modern standalone toolchains put it straight in bin/."""
+        """Where a toolchain root can keep its bin/ dir. The legacy Broadcom `tools` repo nests the
+        32-bit toolchain under arm-bcm2708/<triple>/. A distro cross package (gcc-aarch64-linux-gnu)
+        and a modern standalone toolchain put it straight in bin/."""
         return [root, f'{root}/arm-bcm2708/{self.triple()}']
 
 
@@ -104,10 +104,10 @@ class Raspi(Platform):
     def init_toolchain(self, toolchain_dir: str = None, toolchain_file=None):
         """Point every path at `toolchain_dir`, whose bin/ must hold `<triple>-gcc`.
 
-        A standalone toolchain carries its own `<triple>/sysroot`; a distro cross package
-        (gcc-aarch64-linux-gnu) has none and its gcc already knows where the target headers live. So both
-        the sysroot and the extra include dir are set ONLY if they exist - passing a --sysroot that is not
-        there makes every compile fail on missing system headers."""
+        A standalone toolchain carries its own `<triple>/sysroot`. A distro cross package
+        (gcc-aarch64-linux-gnu) has none, and its gcc already knows where the target headers live.
+        So this method sets the sysroot and the extra include dir ONLY when they exist. A --sysroot
+        that is not there makes every compile fail on missing system headers."""
         triple = self.triple()
         self.toolchain_dir = toolchain_dir
         self.compilers = f'{toolchain_dir}/bin/'
@@ -127,8 +127,8 @@ class Raspi(Platform):
                          system_version='1', cc=f'{prefix}gcc{ext}', cxx=f'{prefix}g++{ext}',
                          include_paths=tuple(self.get_includes()),
                          # NEVER, not ONLY: a distro cross package ships no binutils of its own, so the
-                         # build system must take the compiler tools mama named. The sysroot goes out as
-                         # a compiler flag instead, because a distro package has none at all.
+                         # build system must take the compiler tools mama named. mama passes the sysroot
+                         # as a compiler flag instead, because a distro package has none at all.
                          find_root_program='NEVER')
 
 

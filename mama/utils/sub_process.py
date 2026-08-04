@@ -4,18 +4,16 @@ from . import abort
 from .system import System, console, error, report_subprocess, capture_to, capture_context
 
 
-# Linux/macOS: we allocate a PTY for the child so git etc. still see a TTY
-# (preserves progress output and isatty checks). The pty.openpty() syscall
-# does NOT fork - it just creates a master/slave fd pair - so it's safe to
-# call from a worker thread. subprocess.Popen does the actual fork via
-# posix_spawn/vfork which is multi-thread-safe, unlike the older os.forkpty
-# which Python 3.12 flags with a DeprecationWarning specifically because of
-# the threaded-deadlock risk.
+# Linux/macOS: the child gets a PTY, so git etc. still see a TTY and keep their
+# progress output and isatty checks. pty.openpty() does NOT fork, it only makes a
+# master/slave fd pair, so a worker thread can call it. subprocess.Popen forks via
+# posix_spawn/vfork, which is multi-thread safe, unlike the older os.forkpty,
+# which Python 3.12 deprecates for its deadlock risk in threaded programs.
 if not System.windows:
     import pty
 
 
-READER_IDLE_TIMEOUT = 0.1  # seconds; how long to wait before flushing a \r-progress partial
+READER_IDLE_TIMEOUT = 0.1  # seconds to wait before flushing a \r-progress partial
 READER_CHUNK = 8192
 
 
@@ -25,10 +23,10 @@ _live_procs = set()   # live SubProcess instances. terminate_all() stops every o
 
 def _kill_group(gid) -> bool:
     """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows), and report whether the
-    call went through. A group whose members already exited is empty, so the call fails and that is the
+    call succeeded. A group whose members already exited is empty, so the call fails and that is the
     intended no-op: nothing survived to kill.
-    Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs, and the abort
-    flag must not block it - it runs precisely while mama aborts."""
+    Raw subprocess.run (not SubProcess.run): the killer must not register in _live_procs. The abort
+    flag must not block it, because it runs precisely while mama aborts."""
     try:
         if System.windows:
             subprocess.run(['taskkill', '/F', '/T', '/PID', str(gid)],
@@ -44,16 +42,12 @@ class SubProcess:
     """
     Subprocess wrapper with optional line-by-line output capture.
 
-    With ``io_func`` set, child's combined stdout+stderr is fed to ``io_func``
-    one line at a time by a background reader thread. On UNIX a PTY is
-    allocated so the child sees a TTY (gets coloured/progress output).
+    With ``io_func`` set, a background reader thread feeds the child's combined
+    stdout+stderr to ``io_func`` one line at a time. On UNIX the child runs on a
+    PTY, so it sees a TTY and prints colored/progress output.
 
-    Without ``io_func``, the child inherits the parent's stdout/stderr -
-    used for things like `mama test` where output should flow directly.
-
-    Replaces the previous os.fork/os.forkpty-based implementation which
-    was unsafe in multi-threaded programs (Python 3.12 deprecation warning,
-    real deadlocks under heavy parallel load).
+    Without ``io_func``, the child inherits the parent's stdout/stderr, for
+    commands like `mama test` whose output must flow directly.
     """
     def __init__(self, cmd, cwd=None, env=None, io_func=None):
         self.io_func = io_func
@@ -61,17 +55,16 @@ class SubProcess:
         self.process = None
         self._reader_thread = None
         self._reader_exc = None        # exception raised inside io_func (re-raised in run())
-        self._master_fd = None         # UNIX PTY master fd; None on Windows or no-io_func paths
+        self._master_fd = None         # UNIX PTY master fd, None on Windows or no-io_func paths
         self._swallow_lf = False       # after \r-progress idle-flush, swallow a leading \n (or \r\n) in next chunk
-        self._last_output = time.monotonic()  # bumped on every chunk; drives the idle-timeout watchdog
+        self._last_output = time.monotonic()  # bumped on every chunk, drives the idle-timeout watchdog
         self._group = False            # True: child leads its own group/session -> kill() tears down its whole tree
-        self._killed = False           # set by kill(); close() only force-closes the pipe early when we killed
+        self._killed = False           # set by kill(). close() only force-closes the pipe early after a kill
 
         env = env if env else os.environ.copy()
         args = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
 
-        # Resolve the executable ourselves so we don't have to ask the shell
-        # (avoids shell quoting/escaping pitfalls; same logic as before).
+        # Resolve the executable here instead of asking a shell, so no shell quoting or escaping applies.
         executable = args[0]
         if os.path.isfile(executable):
             executable = os.path.abspath(executable)
@@ -90,7 +83,7 @@ class SubProcess:
             return
 
         if System.windows:
-            # No PTY on Windows; merge stderr into stdout pipe. Binary mode so the
+            # No PTY on Windows: merge stderr into the stdout pipe. Binary mode so the
             # reader can byte-level split on \r as well as \n (ninja/cmake progress).
             # CREATE_NEW_PROCESS_GROUP: the child leads its own group, so interrupt() can send it a
             # console CTRL_BREAK without a signal to mama itself. A console Ctrl+C then stops at mama
@@ -100,7 +93,7 @@ class SubProcess:
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self._group = True  # kill() uses taskkill /T to take down cmake's ninja/compiler subtree
         else:
-            # Allocate a PTY pair; child gets the slave end as its stdin/stdout/stderr.
+            # Allocate a PTY pair. The child gets the slave end as its stdin/stdout/stderr.
             self._master_fd, slave = pty.openpty()
             try:
                 # start_new_session: child leads its own session so kill() can killpg the whole tree
@@ -109,9 +102,9 @@ class SubProcess:
                                                 stderr=slave, close_fds=True, start_new_session=True)
                 self._group = True
             finally:
-                os.close(slave) # parent doesn't need the slave once Popen has it
+                os.close(slave) # the parent does not need the slave once Popen has it
 
-        # io_func runs on the reader thread; carry the caller's console-capture context onto it so its
+        # io_func runs on the reader thread. Carry the caller's console-capture context onto it so its
         # console() lines feed the owning display task instead of leaking above the live region.
         self._capture_ctx = capture_context()
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -125,15 +118,15 @@ class SubProcess:
                      (self.process.stdout.fileno() if self.process.stdout else None)
                 if fd is not None: self._read_loop_queued(fd)
         except Exception as e:
-            self._reader_exc = e  # captured so run() can surface it; don't crash the reader thread
+            self._reader_exc = e  # captured so run() can surface it, do not crash the reader thread
 
 
     def _read_loop_queued(self, fd):
         """One reader for both PTY (UNIX) and pipe (Windows): a pump thread does the blocking
-        os.read(fd) and hands chunks to a queue; this drain loop turns them into lines with the
-        \\r-progress idle-flush (queue.get timeout). Decoupling the read from io_func means a slow
-        consumer (or GIL contention from CPU sampling) never stalls os.read, so the child's PTY/pipe
-        can't fill and block the read."""
+        os.read(fd) and hands chunks to a queue, and this drain loop turns them into lines with the
+        \\r-progress idle-flush (queue.get timeout). The read is decoupled from io_func, so a slow
+        consumer (or GIL contention from CPU sampling) never stalls os.read, and the child's PTY/pipe
+        cannot fill and block the read."""
         chunks: queue.Queue = queue.Queue()
         def pump():
             while True:
@@ -198,7 +191,7 @@ class SubProcess:
             try:
                 self.io_func(self, buf.decode('utf-8', errors='replace'))
             except Exception as e:
-                # Capture so run() can surface it. Don't crash the reader thread.
+                # Capture so run() can surface it. Do not crash the reader thread.
                 self._reader_exc = e
 
 
@@ -298,7 +291,7 @@ class SubProcess:
     def _kill_tree(self, p):
         """Kill the child AND its descendants (ninja + compilers). A plain terminate()/kill() hits only
         the spawned cmake/git pid. On Windows TerminateProcess and on UNIX a single SIGKILL both leave
-        the compiler grandchildren running. Falls back to a single-process kill if the group call fails."""
+        the compiler grandchildren running. Uses a single-process kill when the group call fails."""
         if not _kill_group(self.group_id() or p.pid):
             try: p.kill()
             except Exception: pass
@@ -307,7 +300,7 @@ class SubProcess:
 
 
     def close(self):
-        self.kill()  # no-op if the child already exited; sets self._killed if it had to kill a live one
+        self.kill()  # no-op if the child already exited, sets self._killed if it had to kill a live one
         win_out = self.process.stdout if (System.windows and self.process) else None
         # Force the Windows read-end shut ONLY when we killed the child: its grandchildren (ninja/compilers)
         # may still hold the write end, so the pump would block in os.read forever. On a CLEAN exit the write
@@ -333,8 +326,8 @@ class SubProcess:
 
 
     def try_wait(self):
-        """Returns the exit status if the child has finished, else None.
-        Kept for backwards-compat with callers that used the old polling API."""
+        """Returns the exit status when the child has finished, else None.
+        Kept for backward compatibility with callers of the old polling API."""
         if self.process is None:
             return self.status
         rc = self.process.poll()
@@ -344,9 +337,9 @@ class SubProcess:
 
 
     def _wait_idle(self, timeout, idle_timeout):
-        """Wait for the child, killing it if it's silent for `idle_timeout` s (or exceeds total
-        `timeout`). The idle bound catches a git op stuck on an auth prompt / hung server without
-        aborting a slow-but-streaming clone. Raises TimeoutExpired on either bound."""
+        """Wait for the child. Kill it when it stays silent for `idle_timeout` seconds, or exceeds the
+        total `timeout`. The idle bound catches a git op stuck on an auth prompt or a hung server
+        without aborting a slow-but-streaming clone. Raises TimeoutExpired on either bound."""
         start = time.monotonic()
         while True:
             try:
@@ -366,11 +359,12 @@ class SubProcess:
         - cmd:     command string (shlex.split) or list of args.
         - cwd:     working directory for the child.
         - env:     environment dict, defaults to os.environ.
-        - io_func: callback `(SubProcess, line:str)` for each output line;
-                   if None, child inherits parent's std streams.
+        - io_func: callback `(SubProcess, line:str)` for each output line.
+                   If None, the child inherits the parent's std streams.
         - timeout: kill the child after this many seconds total (raises TimeoutExpired).
-        - idle_timeout: kill if silent this many seconds (raises TimeoutExpired). Needs io_func set.
-                   For network git ops that may hang on a prompt; a streaming clone is never killed.
+        - idle_timeout: kill the child when silent this many seconds (raises TimeoutExpired). Needs
+                   io_func set. For a network git op that can hang on a prompt. A streaming clone
+                   is never killed.
         """
         abort.check()  # fast path: do not even spawn while the build stops
         p = SubProcess(cmd, cwd=cwd, env=env, io_func=io_func)
@@ -403,7 +397,7 @@ def execute(command, echo=False, throw=True):
     Executes a command and returns the status code.
     - command: command string
     - echo: if True, prints the command to console
-    - throw: if True, throws exception on status_code != 0
+    - throw: if True, throws an exception on status_code != 0
     - returns: status code
 
     os.system, so the child gets the real terminal and a shell: this is for INTERACTIVE commands only
@@ -420,17 +414,17 @@ def execute(command, echo=False, throw=True):
 
 def execute_piped(command, cwd=None, timeout=None, throw=True):
     """
-    Executes a command and returns the piped outout string
+    Executes a command and returns the piped output string
     - command: command string
     - cwd: working dir for the subprocess
     - timeout: timeout in seconds
-    - throw: if True, throws exception on status_code != 0
-    - returns: output string or None if throw=False
+    - throw: if True, raises on a spawn error or timeout. A non-zero exit status never raises here.
+    - returns: output string, or None on failure when throw=False
 
     stderr is CAPTURED, never inherited. A child that writes straight to the terminal (ssh complaining
     about the user's ssh_config, git's `fatal: Could not read from remote repository`) bypasses every
     mama filter, and it tears the live display, which redraws by counting the lines it wrote itself. The
-    caller wants stdout; a real failure still surfaces through the clone or fetch that follows.
+    caller wants stdout. A real failure still surfaces through the clone or fetch that follows.
     """
     if not isinstance(command, list):
         command = shlex.split(command)
@@ -450,13 +444,13 @@ def execute_echo(cwd, cmd, exit_on_fail=False, env=None, quiet=False):
     - cwd: working dir for the subprocess
     - cmd: command string
     - exit_on_fail: if True, exits the application with exit_status
-    - env: overrrides the environment for the subprocess, default is os.environ
-    - quiet: if True, drop the child's output entirely (it still runs and is exit-checked)
+    - env: overrides the environment for the subprocess, default is os.environ
+    - quiet: if True, drops the child's output entirely (the child still runs and gets exit-checked)
     """
     # Inside a scheduled build phase a capture sink is active: route the child's output through console()
     # so a custom build()'s commands land in the owning display task (and the log) instead of tearing the
     # live region. Outside it (serial path, interactive run/gdb/test post-pass) keep stdio direct - the
-    # child needs the real terminal for prompts, and there's nowhere to capture to anyway.
+    # child needs the real terminal for prompts, and there is no sink to capture to anyway.
     if quiet:               io = lambda p, line: None                # caller asked for silence: drop output
     elif capture_context()[0] is not None: io = lambda p, line: console(line)
     else:                   io = None
@@ -481,8 +475,8 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None, out=None):
     - cwd: working dir for the subprocess
     - cmd: command string
     - echo: if True, also prints the output to console
-    - env: overrrides the environment for the subprocess, default is os.environ
-    - out: optional `(line) -> None` sink; when set, lines go there instead of being printed
+    - env: overrides the environment for the subprocess, default is os.environ
+    - out: optional `(line) -> None` sink. When set, lines go there instead of the console
     - returns: (exit_status, output_string)
     """
     lines = []  # list + join, NOT output += line: the latter is O(n^2) over a big build's output

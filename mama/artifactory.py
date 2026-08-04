@@ -26,25 +26,23 @@ class ArtifactoryCredentialsError(RuntimeError):
 
 def artifactory_archive_name(target:BuildTarget):
     """
-    Constructs archive name for papa deploy packages in the form of:
+    Builds the archive name for a papa deploy package:
     {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
     Example: opencv-linux-24-gcc14-x64-release-df76b66
 
-    The version field is the first of these the dep has: a `self.version` literal in its mamafile, the
-    `git_tag` the consumer pinned, or the commit hash. A `git_branch` pin labels the hash rather than
-    replacing it. See docs/roadmap-target-version.md.
+    The version field is the first of these the dep has: a `self.version` literal in the mamafile,
+    the pinned `git_tag`, or the commit hash. A `git_branch` pin labels the hash and does not
+    replace it. See docs/roadmap-target-version.md.
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
-    # if this is an ArtifactoryPkg with full name of the archive
     if p.is_pkg and p.fullname:
         return p.fullname
 
     version = ''
 
-    # if mamafile defines a specific version tag, then we will respect that
-    # regardless of dependency source type or any commit hashes
-    # explicit versioning will remove the version hash tag from the archive name
+    # A mamafile version wins over every dep source type and any commit hash.
+    # It replaces the commit hash in the archive name.
     if target.version:
         version = target.version
     else:
@@ -56,11 +54,10 @@ def artifactory_archive_name(target:BuildTarget):
             version = p.version
         elif p.is_git:
             git:Git = p
-            # A git_tag pin names the package after the tag. The consumer wrote that tag, so the download
-            # and the upload read the same value, and neither one resolves a commit hash to name
-            # anything. A tag is immutable by convention, so the tag alone identifies the source.
-            # add_git stores a git_commit pin in the tag field, and Git.is_hex_string is how the clone
-            # path tells the two apart. A commit pin takes the hash path below, which shortens it.
+            # A git_tag pin names the package after the tag. The consumer wrote the tag, so the download
+            # and the upload read the same value, with no commit hash resolution. A tag is immutable by
+            # convention, so the tag alone identifies the source. add_git stores a git_commit pin in the
+            # tag field, and Git.is_hex_string tells the two apart. A commit pin takes the hash path below.
             version = '' if Git.is_hex_string(git.tag) else build_names.sanitize_version(git.tag)
             if not version:
                 # No tag. The commit hash identifies the source, and a branch pin puts its name in front
@@ -76,13 +73,13 @@ def artifactory_archive_name(target:BuildTarget):
                 raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
 
     name = target.name
-    # triplets information to make this package platform unique
+    # the triplet that makes the package name unique per platform
     platform, os_major, _ = target.config.get_distro_info()
     compiler = target.config.compiler_version()
     arch = target.config.arch # eg 'x86', 'arm64'
     # The SAME suffix the dep's build dir carries, computed once at dep init: e.g. '-cov-asan-lgpl'.
-    # It reads from the dep, not from target.args, because the dep holds what the consumer passed before
-    # any mamafile parse, so the pre-clone shim probe and the upload compose the same name.
+    # It reads from the dep, not from target.args, because the dep holds the pre-parse consumer args.
+    # The pre-clone shim probe and the upload then compose the same name.
     build_type = ('release' if target.config.release else 'debug') + target.dep.variant_suffix
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
@@ -91,7 +88,7 @@ def artifactory_archive_name(target:BuildTarget):
 keyr = None
 def _get_keyring():
     global keyr
-    if not keyr: # lazy init keyring, because it loads certs and other slow stuff
+    if not keyr: # lazy init, because the keyring import loads certs and is slow
         import keyring
         if System.linux:
             import importlib
@@ -104,7 +101,6 @@ def _get_keyring():
 
 
 def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
-    # get the values from ENV
     username = os.getenv('MAMA_ARTIFACTORY_USER', None)
     password = os.getenv('MAMA_ARTIFACTORY_PASS', None)
     if username is not None:
@@ -199,11 +195,10 @@ def artifactory_upload(ftp:ftplib.FTP_TLS, target_name:str, file_path:str):
                 right = ' ' * int(50 - n)
                 progress(f'{indent}|{left}>{right}| {percent:>3} %')
         progress(f'{indent}|>{" ":50}| {0:>3} %')  # via progress(), so a headless run throttles it
-        # chdir into FTP_ROOT/target_name/
         try:
             ftp.cwd(target_name)
         except:
-            ftp.mkd(target_name) # create subdirectory if needed
+            ftp.mkd(target_name)
             ftp.cwd(target_name)
         ftp.storbinary(f'STOR {os.path.basename(file_path)}', f, callback=print_progress)
         progress(f'{indent}|{"="*50}>| 100 %', final=True)
@@ -216,7 +211,7 @@ def artifact_already_exists(ftp:ftplib.FTP_TLS, target:BuildTarget, file_path:st
     if target.config.verbose:
         file_list = "\n    ".join(items)
         console(f'    Checking if artifact "{target_path}" already exists on server:\n    {file_list}')
-    return len(items) > 0 # the file already exists
+    return len(items) > 0
 
 
 def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
@@ -227,7 +222,6 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
 
     with ftplib.FTP_TLS() as ftp:
         try:
-            # sanitize url for ftplib
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
             if config.if_needed and artifact_already_exists(ftp, target, file_path):
@@ -252,8 +246,8 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
 
 
 def _warn_on_compiler_mismatch(target:BuildTarget, papa:PapaFileInfo):
-    """Foreign-compiler package = libc++ archives in a libstdc++ build, dies on undefined std::__1:: symbols.
-    Compiler-scoped build dirs make this unreachable, so warn (don't fail) - a pre-C-record package has no stamp."""
+    """A foreign-compiler package mixes libc++ archives into a libstdc++ build and fails the link.
+    Compiler-scoped build dirs make this unreachable, so warn and do not fail. A pre-C-record package has no stamp."""
     if not papa.compiler: return  # pre-C-record package: unknown, allow
     try: current = target.config.compiler_version()
     except Exception: return
@@ -263,7 +257,7 @@ def _warn_on_compiler_mismatch(target:BuildTarget, papa:PapaFileInfo):
 
 def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -> Tuple[bool, list]:
     """
-    Reconfigures `target` from {deployment_path}/papa.txt.
+    Reconfigures `target` from {deploy_path}/papa.txt.
     Returns (fetched:bool, dep_sources:list)
     """
     papa_list = normalized_join(deploy_path, 'papa.txt')
@@ -284,12 +278,12 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     _warn_on_compiler_mismatch(target, papa)
 
     target.dep.from_artifactory = True
-    target.exported_includes = papa.includes # include folders to export from this target
-    target.exported_assets = papa.assets # exported asset files
+    target.exported_includes = papa.includes
+    target.exported_assets = papa.assets
     package.set_export_libs_and_products(target, papa.libs)
-    package.reload_syslibs(target, papa.syslibs) # set exported system libraries
+    package.reload_syslibs(target, papa.syslibs)
 
-    # for git repos, save the used commit hash status, so that next time the fetch is faster
+    # save the commit hash status for a git dep, so the next fetch is faster
     if target.dep.dep_source.is_git:
         git: Git = target.dep.dep_source
         git.save_status(target.dep)
@@ -316,11 +310,10 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
         if d.is_pkg:
             raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
 
-        # NB: a 404 here for a git dep is normal (no prebuilt archive uploaded
-        # for the current commit). DO NOT wipe git_status - check_status already
-        # detects url/tag/branch/commit changes from the mamafile; wiping the
-        # status causes the *next* `mama update` to falsely report 'SCM change
-        # detected' and trigger a full rebuild of an already-up-to-date dep.
+        # NB: a 404 here for a git dep is NORMAL. No prebuilt archive exists for the current
+        # commit. DO NOT wipe git_status. check_status already detects a url, tag, branch or
+        # commit change by direct comparison. A wiped status makes the next `mama update`
+        # falsely report 'SCM change detected' and forces a full rebuild of an up-to-date dep.
 
         return None
 
@@ -331,21 +324,21 @@ def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, lis
         return artifactory_load_target(target, target.dep.build_dir, num_files_copied = num_extracted)
     else:
         error(f'    Artifactory unzip failed, possibly corrupt package {local_file}')
-        os.remove(local_file) # it's probably corrupted
+        os.remove(local_file)
         return (False, None)
 
 
 def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     """
-    Try to fetch prebuilt package from artifactory
+    Tries to fetch a prebuilt package from artifactory.
     Returns (fetched:bool, dep_sources:list)
     """
     url = target.config.artifactory_ftp
     if not url:
         return (False, None)
 
-    # A pinned version names the UPLOADED archive (artifactory_archive_name drops the commit
-    # hash), so a probe without it looks for a name uploads no longer produce - and a
+    # A pinned version names the UPLOADED archive, because artifactory_archive_name drops the
+    # commit hash. A probe without the pin asks for a name uploads no longer produce. A
     # hash-named archive it finds instead can only be a stale pre-pin leftover.
     if not target.version:
         target.version = pinned_version(target.dep)
@@ -354,10 +347,10 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
     if not archive:
         return (False, None)
 
-    cache_dir = target.dep.dep_dir #target.dep.workspace
+    cache_dir = target.dep.dep_dir
     local_file = normalized_join(cache_dir, f'{archive}.zip')
 
-    # cache is normally used, however `mama update` will ignore the cache and re-downloads the latest
+    # use the cache, except when `mama update` runs on this target: then download the latest
     if os.path.exists(local_file) and not (target.config.update and target.is_current_target()):
         if (target.is_current_target() or target.config.no_specific_target()) \
             and not target.config.test:
@@ -365,7 +358,6 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         success, deps = unzip_and_load_target(target, local_file)
         if success: return (success, deps)
 
-    # use mama verbose to show the failure msgs
     url = artifactory_sanitize_url(url)
     local_file = _fetch_package(target, url, archive, cache_dir)
     if not local_file:
@@ -376,13 +368,13 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
 
 def try_load_artifactory_shim(dep) -> Tuple:
     """
-    Probe artifactory for a prebuilt package using the commit hash resolved via
-    `git ls-remote` (no clone). On hit, construct a default BuildTarget, load
-    papa.txt exports/deps into it, write the shim marker, and return the target
-    plus its child dep_sources.
+    Probes artifactory for a prebuilt package, named by the commit hash that
+    `git ls-remote` resolves without a clone. On a hit, constructs a default
+    BuildTarget and loads the papa.txt exports and deps into it. It then writes
+    the shim marker and returns the target plus its child dep_sources.
 
-    On miss (or when artifactory is not configured), returns (None, None) and
-    leaves dep state untouched so the caller can fall back to the clone path.
+    On a miss, or when artifactory is not configured, returns (None, None) and
+    leaves the dep state untouched, so the caller can use the clone path.
 
     Returns (target_or_None, dep_sources_or_None).
     """
@@ -396,7 +388,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
 
     git: Git = dep.dep_source
 
-    # Resolve commit hash without cloning. `init_commit_hash` already supports
+    # Resolve the commit hash without a clone. `init_commit_hash` supports
     # ls-remote and respects the stored git_status cache when `update` is not set.
     commit_hash = git.init_commit_hash(dep, use_cache=True, fetch_remote=True)
     if not commit_hash:
@@ -410,10 +402,10 @@ def try_load_artifactory_shim(dep) -> Tuple:
     probe_target = BuildTarget(name=dep.name, config=config, dep=dep, args=dep.target_args)
     fetched, dependencies = artifactory_fetch_and_reconfigure(probe_target)
 
-    # Fallback: dep may pin target.version (e.g. boost 1.60) in its own not-yet-cloned
-    # mamafile, so its archive name doesn't include the commit hash. Sparse-fetch only the
-    # mamafile, grep self.version, and re-probe with that version. A version-pinned first
-    # probe gets no fallback: re-probing by hash would resurrect a stale pre-pin archive.
+    # Fallback: the dep may pin target.version (e.g. boost 1.60) in its own not-yet-cloned
+    # mamafile, so its archive name holds no commit hash. Sparse-fetch only the mamafile,
+    # grep self.version, and re-probe with that version. A version-pinned first probe gets
+    # no fallback: a re-probe by hash would resurrect a stale pre-pin archive.
     if not fetched and not probe_target.version:
         version = git.fetch_self_version_from_remote(dep)
         if version:
@@ -428,7 +420,7 @@ def try_load_artifactory_shim(dep) -> Tuple:
         dep.from_artifactory = False
         return (None, None)
 
-    # Hit: persist marker and return the configured target.
+    # Hit: write the marker and return the configured target.
     archive = artifactory_archive_name(probe_target)
     dep.write_shim_marker(archive_name=archive or '', commit_hash=commit_hash)
     config.update_stats.record_shim()

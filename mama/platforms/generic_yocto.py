@@ -28,20 +28,20 @@ class GenericYocto(Platform):
 
     def __init__(self, config):
         super().__init__(config)
-        self.toolchain_file = ''  ## for a Docker based build, this is the aarch64_toolchain.cmake
-        self.toolchain_dir = ''
-        self.compilers = ''  ## dir holding g++, gcc and ld
-        self.cc_prefix = '' ## e.g. '{self.compilers}aarch64-poky-linux-'
-        self.sdk_path = ''  ## Path to SDK libs root
-        self.sysroot_path = ''  ## Path to system libs root
-        self.include_paths = []  ## Path to additional include dirs
-        self.version = '' ## GCC Version
-        self.sdk_version = (1,0,0) ## SDK version tuple, e.g. (5, 0, 4) for version 5.0.4
+        self.toolchain_file = ''  ## the resolved cmake toolchain file. init_toolchain() sets it
+        self.toolchain_dir = ''   ## the SDK root that discovery accepted
+        self.compilers = ''       ## dir holding g++, gcc and ld
+        self.cc_prefix = ''       ## eg '{compilers}aarch64-poky-linux-'
+        self.sdk_path = ''        ## sysroots/<sdk_name>, holds the cross compilers
+        self.sysroot_path = ''    ## sysroots/<sysroot_name>, holds the target libs
+        self.include_paths = []   ## extra include dirs for the target
+        self.version = ''         ## gcc version, eg '11.4.0'
+        self.sdk_version = (1,0,0)  ## SDK version tuple, eg (5, 0, 4)
 
 
     def __init_subclass__(cls, **kwargs):
-        """Derive the board's defines from its name, so a board declares the name once. YOCTO_LINUX
-        goes out for every generic Yocto board, on top of the board's own define."""
+        """Derive the board's defines from its name, so a board declares the name once. Every
+        generic Yocto board gets YOCTO_LINUX next to its own define."""
         super().__init_subclass__(**kwargs)
         if cls.name and not cls.platform_define:
             cls.platform_define = cls.name.upper()
@@ -49,8 +49,8 @@ class GenericYocto(Platform):
 
 
     def _resolved(self):
-        """Run SDK discovery if it has not run yet, then return self. Reading a path field before
-        that silently hands back ''."""
+        """Run SDK discovery if it has not run yet, then return self. A path field read before
+        discovery is silently ''."""
         if not self.compilers: self.init_default()
         return self
 
@@ -70,8 +70,8 @@ class GenericYocto(Platform):
 
 
     def distro_version(self) -> tuple:
-        """The SDK version, eg (5, 0, 4). Unlike every other platform this carries no name, and the
-        artifactory archive name has always been built from it that way."""
+        """The SDK version, eg (5, 0, 4). Unlike every other platform this carries no name. The
+        artifactory archive name expects that shape."""
         return self._resolved().sdk_version
 
 
@@ -87,8 +87,8 @@ class GenericYocto(Platform):
 
     @staticmethod
     def expand_versioned_sdks(paths: list) -> list:
-        """Expands each path with its versioned SDK installs, e.g. /opt/imx8mp-sdk/1.4.0,
-        newest first, so a versioned install wins over a flat legacy layout at the same root."""
+        """Expand each path with its versioned SDK installs, eg /opt/imx8mp-sdk/1.4.0, newest first.
+        A versioned install wins over a flat legacy layout at the same root."""
         expanded = []
         for path in paths:
             if os.path.isdir(path):
@@ -96,7 +96,7 @@ class GenericYocto(Platform):
                 for name in os.listdir(path):
                     if name and all(p.isdigit() for p in name.split('.')):
                         versions.append(name)
-                # listdir order is not guaranteed cross-platform, sort newest first
+                # listdir order is not guaranteed, so sort newest first
                 versions.sort(key=lambda n: [int(p) for p in n.split('.')], reverse=True)
                 expanded += [path_join(path, v) for v in versions]
             expanded.append(path)
@@ -111,14 +111,13 @@ class GenericYocto(Platform):
             raise RuntimeError(f'{self.name} only supported on Linux')
 
         paths = ([toolchain_dir] if toolchain_dir else []) + list(self.search_paths)
-        # fallback env for user configuration, e.g. XILINX_SDK_HOME
+        # fallback env var for user configuration, eg XILINX_SDK_HOME
         envs = list(self.search_envs) or [f'{self.platform_define}_SDK_HOME']
         for env in envs:
             self.append_env_path(paths, env)
         paths = GenericYocto.expand_versioned_sdks(paths)
 
         for path in paths:
-            # Check for Yocto structure
             yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{self.sdk_name}')
             yocto_sysroot = os.path.abspath(f'{path}/sysroots/{self.sysroot_name}')
             yocto_compiler = f'{yocto_sdkpath}/{self.compiler_name}'
@@ -129,30 +128,29 @@ class GenericYocto(Platform):
             found_compiler = os.path.exists(yocto_compiler)
             found_sysroot = os.path.exists(yocto_sysroot)
             if found_compiler and found_sysroot:
-                self.sdk_path     = yocto_sdkpath # e.g. {path}/sysroots/x86_64-pokysdk-linux
-                self.sysroot_path = yocto_sysroot # e.g. {path}/sysroots/cortexa53-crypto-poky-linux
+                self.sdk_path     = yocto_sdkpath # eg {path}/sysroots/x86_64-pokysdk-linux
+                self.sysroot_path = yocto_sysroot # eg {path}/sysroots/cortexa53-crypto-poky-linux
                 self.toolchain_dir = os.path.abspath(path)
 
-                # if original `toolchain_dir` was chosen, then prefer toolchain_file
+                # the explicit toolchain_file pairs only with the explicit toolchain_dir
                 if toolchain_file and path == toolchain_dir:
                     self._set_toolchain_file(toolchain_file)
                 else:
                     self._set_toolchain_file(f'{self.toolchain_dir}/{self.default_toolchain}')
 
-                self.compilers = os.path.dirname(yocto_compiler) + '/' # e.g. f'{self.sdk_path}/usr/bin/aarch64-poky-linux/'
-                # replace -gcc at the end with '-' to get the prefix
-                # e.g '{self.sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
+                self.compilers = os.path.dirname(yocto_compiler) + '/' # eg {sdk_path}/usr/bin/aarch64-poky-linux/
+                # eg {sdk_path}/usr/bin/aarch64-poky-linux/aarch64-poky-linux-
                 self.cc_prefix = self.compilers + os.path.basename(self.compiler_name).replace('-gcc', '-')
                 self.include_paths = [ f'{self.sysroot_path}/usr/include' ]
                 self.version = self.config.get_gcc_clang_fullversion(yocto_compiler, dumpfullversion=True)
                 break
 
-            # add some helpful debug messages on potentially broken toolchain configurations
+            # one half found usually means a broken SDK install, so report which half is missing
             if self.config.print and found_compiler != found_sysroot:
                 if found_compiler: warning(f'Found compiler at {yocto_compiler} but sysroot not found at {yocto_sysroot}')
                 else:              warning(f'Found sysroot at {yocto_sysroot} but compiler not found at {yocto_compiler}')
 
-        # fallback
+        # no SDK matched: an explicit toolchain_file may still work on its own
         if not self.toolchain_file and toolchain_file:
             if not self._set_toolchain_file(toolchain_file):
                 raise FileNotFoundError(f'Toolchain file not found: {toolchain_file}')
@@ -179,13 +177,13 @@ class GenericYocto(Platform):
 
 
     def _autodetect_version(self, toolchain_dir):
-        """Autodetect the version of the Yocto SDK from the toolchain_dir name."""
+        """The SDK version parsed from the toolchain_dir name, else (1, 0, 0)."""
         if not toolchain_dir:
             return (1, 0, 0)
         last_part = os.path.basename(toolchain_dir)
-        if last_part.count('.') == 2: # e.g. 'toolchain-1.0.0' or '5.0.4'
-            parts = re.split(r'[-_ +]', last_part) # split using separators
-            # find last part that starts with a digit and looks like a version number, e.g. '1.0' or '5.0.4'
+        if last_part.count('.') == 2: # eg 'toolchain-1.0.0' or '5.0.4'
+            parts = re.split(r'[-_ +]', last_part)
+            # take the last part that starts with a digit, eg '5.0.4'
             version = [p for p in parts if p and '.' in p and p[0].isdigit()][-1]
             return tuple(int(x) for x in version.split('.') if x.isdigit())
         return (1, 0, 0)
@@ -201,8 +199,8 @@ class GenericYocto(Platform):
 
     def _build_toolchain(self) -> Toolchain:
         prefix = self.cc_prefix  # discovery already ran: Platform.toolchain() calls init_default() first
-        # find_root_program NEVER, so the build system takes the cross binutils named here, and the
-        # target's own libs and headers instead of the host's
+        # find_root_program NEVER, so the build system takes the cross binutils named here. Setting
+        # it also resolves libs and headers in the target root, never the host's
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', version=self.version,
                          tool_prefix=prefix, sysroot=self.sysroot_path, find_root_program='NEVER',
@@ -217,7 +215,7 @@ class GenericYocto(Platform):
 
 
     def get_gnu_build_env(self, environ: dict = {}):
-        sysroot = f'--sysroot={self.sysroot()}'  # accessor: it resolves the SDK if nothing has yet
+        sysroot = f'--sysroot={self.sysroot()}'  # the accessor runs SDK discovery on first use
         environ['LDFLAGS'] = sysroot
         environ['CFLAGS'] = sysroot
         environ['CXXFLAGS'] = sysroot

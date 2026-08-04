@@ -12,33 +12,32 @@ if TYPE_CHECKING:
 ######################################################################################
 
 class BuildProduct:
-    """ Represents the build product of a project that should be deployed """
+    """ One build product of a project, and where to deploy it """
     def __init__(self, built_path:str, deploy_path:str=None, strip=None, is_dir=False):
         """
             - built_path: where the built file exists.
                           Supported project variables {{installed}}, {{source}}, {{build}}
-            - deploy_path where the file should be deployed, can be None if no deploy needed
-            - strip: whether to strip the binary when deploying
-            - is_dir: whether the built_path is a directory
+            - deploy_path: where to deploy the file, or None when no deploy is needed
+            - strip: whether to strip the binary on deploy
+            - is_dir: whether built_path is a directory
         """
         self.built_path = built_path
         self.deploy_path = deploy_path
-        # if strip option is specified, then use it,
-        # otherwise default to strip=True for files and strip=False for dirs
+        # default when strip is not given: strip files, do not strip directories
         self.strip = strip if strip != None else not is_dir
         self.is_dir = is_dir
 
 ######################################################################################
 
 class GnuProject:
-    """ 
-    Helper utility class for compiling GNU projects.
-    This will enable downloading, unzipping and building GNU projects.
+    """
+    Helper for GNU projects: download or clone, configure, make and install.
 
     Example usage:
     ```
     gmp = GnuProject(target, 'gmp', '6.2.1', 'https://gmplib.org/download/gmp/{{project}}.tar.xz', 'lib/libgmp.a')
     gmp.build()
+    ```
     """
     def __init__(self, target:BuildTarget, name:str, version:str,
                  url:str='',
@@ -47,15 +46,15 @@ class GnuProject:
                  autogen=False,
                  configure='configure'):
         """
-        - target: mama.BuildTarget building this GnuProject and collecting the build products
-        - name: name of the project, eg 'gmp'
-        - version: version of the project, eg '6.2.1'
-        - url: url to download the project, eg 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
-        - git: git to clone the project from
-        - build_products: the final products to build, eg [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
+        - target: mama.BuildTarget that builds this GnuProject and collects the build products
+        - name: name of the project, e.g. 'gmp'
+        - version: version of the project, e.g. '6.2.1'
+        - url: url to download the project, e.g. 'https://gmplib.org/download/gmp/{{project}}.tar.xz'
+        - git: git repository to clone the project from
+        - build_products: the final products, e.g. [BuildProduct('{{installed}}/lib/libgmp.a', 'mypath/libgmp.a')].
                           Supported project variables {{installed}}, {{source}}, {{build}}
-        - autogen: whether to use ./autogen.sh before running ./configure
-        - configure: the configuration command, by default 'configure' but can be 'make config' etc
+        - autogen: whether to run ./autogen.sh before ./configure
+        - configure: the configure command, 'configure' by default, but can be 'make config' etc
         """
         self.target = target
         self.name = name
@@ -75,22 +74,21 @@ class GnuProject:
         # the --host triple for a cross build, '' for a native one
         self.host = self.target.config.platform.gnu_host_triple()
 
-        # the configure command, by default it's 'configure'
-        # however using something other than 'configure' will completely override it
+        # any value other than 'configure' fully replaces the generated ./configure command line
         self.configure_command = configure
         # extra environment variables to set when running the project
         self.extra_env = {}
 
 
     def source_dir(self, subpath=''):
-        """ Where the project is extracted to, eg project/mips/gdb-13.2 """
+        """ Where the project extracts to, e.g. project/mips/gdb-13.2 """
         if subpath:
             return self.target.build_dir(self.name_with_version + '/' + subpath)
         return self.target.build_dir(self.name_with_version)
 
 
     def install_dir(self, subpath=''):
-        """ Where the project is installed to, eg project/mips/gdb-built """
+        """ Where the project installs to, e.g. project/mips/gdb-built """
         if subpath:
             return self.target.build_dir(self.name + self.install_dir_suffix + '/' + subpath)
         return self.target.build_dir(self.name + self.install_dir_suffix)
@@ -101,7 +99,7 @@ class GnuProject:
 
 
     def get_parsed_path(self, path:str):
-        """ Parses the path with the project variables: {{installed}}, {{source}}, {{build}} """
+        """ Expands the project variables {{installed}}, {{source}} and {{build}} in the path """
         if '{{installed}}' in path:
             path = path.replace('{{installed}}', self.install_dir())
         if '{{source}}' in path:
@@ -112,7 +110,7 @@ class GnuProject:
 
 
     def should_build(self):
-        """ Returns True if any deployed files or any built files are missing """
+        """ Returns True when a built product is missing, unless every deploy target already exists """
         if self.has_deployables() and not self.should_deploy():
             return False
         for p in self.build_products:
@@ -122,7 +120,7 @@ class GnuProject:
 
 
     def should_deploy(self):
-        """ Returns True if any of the deployed files are missing """
+        """ Returns True when any deploy target is missing """
         for f in self.build_products:
             if f.deploy_path and not os.path.exists(f.deploy_path):
                 return True
@@ -130,7 +128,7 @@ class GnuProject:
 
 
     def has_deployables(self):
-        """ Returns True if any of the build products have a deploy path """
+        """ Returns True when any build product has a deploy path """
         for f in self.build_products:
             if f.deploy_path:
                 return True
@@ -138,7 +136,7 @@ class GnuProject:
 
 
     def deploy_all_products(self, force=False):
-        """ Deploys all built products if needed """
+        """ Deploys every build product when a deploy target is missing, or always when force=True """
         if force or self.should_deploy():
             for p in self.build_products:
                 if p.deploy_path:
@@ -151,23 +149,22 @@ class GnuProject:
 
 
     def get_makefile(self):
-        """ Gets the Makefile, which is a build step dependency """
+        """ Gets the Makefile path, a build step dependency """
         return f'{self.source_dir()}/Makefile'
 
 
     def get_configure_file(self):
-        """ Gets the file which performs configuration, and is thus a configuration step dependency """
+        """ Gets the file that performs configuration, a configuration step dependency """
         args = shlex.split(self.configure_command)
         config_cmd = args[0].strip()
-        if config_cmd == 'make':  # if config_cmd is 'make', then look for a Makefile
+        if config_cmd == 'make':  # a 'make config' style command depends on the Makefile instead
             return self.get_makefile()
         return f'{self.source_dir()}/{config_cmd}'
 
 
     def checkout_code(self):
         """
-        Checks out the code archive, either by downloading and extracting the zip archive, 
-        or cloning the project from git repository.
+        Gets the source code: downloads and extracts the archive, or clones the git repository.
         """
         source = self.source_dir()
         configure_file = self.get_configure_file()
@@ -201,7 +198,6 @@ class GnuProject:
             else:
                 console(f'>>> ERROR: Unknown archive type: {local_file}', color=Color.RED)
 
-        # final check if the configure file exists
         if autogen_file:
             if not os.path.exists(autogen_file):
                 raise Exception(f'Checkout failed, no autogen file at: {autogen_file}')
@@ -214,7 +210,7 @@ class GnuProject:
         if self.target.yocto_linux:
             self.target.yocto_linux.get_gnu_build_env(self.extra_env)
         else:
-            # GNU projects need to be configured with the CC, CXX and AR environment variables set
+            # a GNU configure reads the cross toolchain from CC, CXX, AR and the other tool variables
             cc_prefix = self.target.get_cc_prefix()
             if cc_prefix:
                 os.environ['CC'] = cc_prefix + 'gcc'
@@ -228,9 +224,9 @@ class GnuProject:
 
 
     def run(self, command):
-        """ Runs a command in the project directory, eg 'make specialsetup' """
+        """ Runs a command in the project source directory, e.g. 'make specialsetup' """
         env = None
-        if self.extra_env: # copy env and add extra env vars
+        if self.extra_env:
             env = os.environ.copy()
             for k, v in self.extra_env.items():
                 env[k] = v
@@ -239,8 +235,10 @@ class GnuProject:
 
     def configure(self, options='', autogen_opts='', prefix=''):
         """
-        Only configures the project for building by generating the Makefile
-            - options: additional options to pass to the configure script
+        Only configures the project, which generates the Makefile
+            - options: extra options for the configure script
+            - autogen_opts: extra options for ./autogen.sh when autogen is enabled
+            - prefix: install prefix argument, defaults to '--prefix {install_dir()}'
         """
         console(f'>>> Configuring {self.name}', color=Color.GREEN)
         self.configure_env()
@@ -249,7 +247,7 @@ class GnuProject:
             self.run(f'./autogen.sh {autogen_opts}')
 
         if self.configure_command != 'configure':
-            # user overrides with custom configurator, such as `make config` etc
+            # the user gave a custom configure command, such as 'make config'
             configure = self.configure_command
         else:
             args = ''
@@ -260,7 +258,7 @@ class GnuProject:
             if not self.autogen:
                 guess_machine = f'{self.source_dir()}/config.guess'
                 if os.path.exists(guess_machine):
-                    os.chmod(guess_machine, 0o755) # make sure it's executable
+                    os.chmod(guess_machine, 0o755) # make sure it is executable
                     args += f' --build={proc.execute_piped(guess_machine)}'
             configure = f'./configure {args} {prefix}'
 
@@ -281,7 +279,7 @@ class GnuProject:
         """
         Only makes the project
             - opts: extra options for make
-            - multithreaded: if true, will use the -j option to build with multiple threads
+            - multithreaded: if True, adds the -j option to build with multiple threads
         """
         make_opts = self._get_make_opts(opts, multithreaded)
         console(f'>>> Make {self.name} {make_opts}', color=Color.GREEN)
@@ -291,7 +289,7 @@ class GnuProject:
 
 
     def install(self, no_prefix=False):
-        """ Only installs the project """
+        """ Only installs the project. no_prefix=True omits the PREFIX= make argument """
         console(f'>>> Installing {self.name}', color=Color.GREEN)
         self.configure_env()
         prefix = '' if no_prefix else f'PREFIX={self.install_dir()}'
@@ -304,9 +302,12 @@ class GnuProject:
     def build(self, options='', make_opts='', prefix='',
               multithreaded=False, install=True):
         """
-        Downloads, Unzips, Configures, Makes and Installs the project 
-            - options: additional options to pass to the configure script
-            - multithreaded: if true, will use the -j option to build with multiple threads
+        Downloads, extracts, configures, makes and installs the project
+            - options: extra options for the configure script
+            - make_opts: extra options for make
+            - prefix: install prefix argument, see configure()
+            - multithreaded: if True, adds the -j option to build with multiple threads
+            - install: if True, also runs the install step
         """
         project_dir = self.source_dir()
         autoconf_makefile = f'{project_dir}/Makefile' if self.configure_command == 'configure' else None
@@ -324,9 +325,6 @@ class GnuProject:
                 self.install()
         except:
             console(f'>>> ERROR: Failed to build {self.name}', color=Color.RED)
-            # with autoconf projects, delete the makefile so that it will be regenerated
-            #if autoconf_makefile and os.path.exists(autoconf_makefile):
-            #    os.remove(autoconf_makefile)
             raise
 
 
@@ -338,10 +336,9 @@ class GnuProject:
 
 
     def copy_file_or_link(self, src_file, dst_file):
-        """ Copies a file or symlink preserving their attributes and relative symlinks """
+        """ Copies a file, or replicates a symlink with its original link target """
         if os.path.islink(src_file):
             link = os.readlink(src_file)
-            #warning(f'link: {dst_file} -> {link}')
             os.remove(dst_file)
             os.symlink(link, dst_file)
         else:
@@ -356,10 +353,7 @@ class GnuProject:
 
 
     def deploy(self, src_path:str, dest_path=None, strip=False):
-        """ 
-        Deploys the src_path to dest_path, 
-        optionally stripping the binary in the process.
-        """
+        """ Deploys src_path to dest_path, and optionally strips the binary """
         if not src_path:
             raise RuntimeError('src_path must be specified')
 
@@ -379,7 +373,7 @@ class GnuProject:
 
 
     def deploy_dir(self, src_dir, dest_dir, strip=False):
-        """ Deploys all built products from src_dir to dest_dir and optionally strips them """
+        """ Deploys every file under src_dir into dest_dir, and optionally strips them """
         src_dir = self.get_parsed_path(src_dir)
         if not os.path.exists(src_dir):
             raise Exception(f'Failed to deploy from {src_dir}, directory does not exist')

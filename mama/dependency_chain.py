@@ -18,8 +18,8 @@ def _get_cmake_path_list(paths):
 
 
 def _get_exported_libs(target):
-    """The exported libs this platform can actually link. A versioned ELF name (libfoo.so.1.2.3) is a
-    real link target, so it passes wherever plain .so does."""
+    """The exported libs this platform can link. A versioned ELF name (libfoo.so.1.2.3) is a
+    real link target, so it passes where a plain .so does."""
     allowed = target.config.platform.lib_extensions()
     versioned = '.so' in allowed
     return [lib for lib in target.exported_libs if lib and
@@ -27,10 +27,10 @@ def _get_exported_libs(target):
 
 
 def _get_hierarchical_libs(root: BuildDependency):
-    """Exported libs of `root` and every dependency below it, in Unix link order (a lib comes after
-    everything that references it). Walks get_flat_deps - which already dedups with the [parent][child]
-    keep-last ordering - instead of a raw recursive DFS, which re-appended a shared dep's libs once per
-    path through the graph (a shared lib repeated dozens of times on one link line)."""
+    """Exported libs of `root` and every dep below it, in Unix link order: a lib comes after
+    everything that references it. Walks get_flat_deps, which dedups with the keep-last
+    [parent][child] order. A raw recursive DFS re-appended the libs of a shared dep once per
+    path through the graph, so one link line repeated a shared lib dozens of times."""
     deps = []
     syslibs = []
     for dep in get_flat_deps(root):
@@ -40,11 +40,11 @@ def _get_hierarchical_libs(root: BuildDependency):
 
 
 def _get_flattened_deps(root: BuildDependency):
-    # deps have to be sorted in [parent] [child] order for Unix linkers
+    # a Unix linker needs [parent] [child] order
     ordered = []
     def add_unique_items(deps: List[BuildDependency]):
         for child in deps:
-            if child in ordered: # already in deps list, so we need to move it lower
+            if child in ordered: # already listed: move it lower
                 ordered.remove(child)
             ordered.append(child)
             add_unique_items(child.get_children())
@@ -53,20 +53,20 @@ def _get_flattened_deps(root: BuildDependency):
 
 
 def get_flat_deps(root: BuildDependency):
-    """ Gets flat dependencies, including root """
+    """ Return the flat deps, including root. """
     return [root] + _get_flattened_deps(root)
 
 
 def get_flat_child_deps(dep: BuildDependency):
-    """ Gets flat child dependencies of dep, excluding dep itself """
+    """ Return the flat child deps of dep, without dep itself. """
     return _get_flattened_deps(dep)
 
 
 def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
-    """`build target=X` builds only X - but a dep X NEEDS with nothing on disk must build too, or X compiles
-    against an include dir that doesn't exist. Scoped to X's own subtree: marking every unbuilt dep in the
-    workspace would build unrelated targets, and a mamafile that shells out to `mama build target=Y` would
-    then re-enter itself - a fork bomb."""
+    """`build target=X` builds only X. A dep that X needs with nothing on disk must also build, or X
+    compiles against an include dir that does not exist. The scope is the subtree of X. A mark on every
+    unbuilt dep in the workspace would build unrelated targets, and a mamafile that runs
+    `mama build target=Y` would then re-enter itself - a fork bomb."""
     target = find_dependency(root, config.target)
     if target is None: return
     for dep in get_flat_child_deps(target):
@@ -81,13 +81,13 @@ _BUILD_DIR_MARKERS = ('CMakeCache.txt', 'mama-dependencies.cmake', 'mama_exporte
 
 
 def sweep_orphaned_build_dirs(root: BuildDependency, config: BuildConfig) -> int:
-    """`clean all` promises to clean EVERYTHING for this platform, but the tree walk can't reach a dep
-    whose source is gone (an earlier clean removed its shim, so it parses no mamafile and declares no
-    children) - those children's build dirs would then survive every future clean. Enumerate from disk
-    as well, deleting only dirs that carry a mama marker file. Returns how many were removed.
+    """`clean all` must clean EVERYTHING for this platform, but the tree walk cannot reach a dep whose
+    source is gone. An earlier clean removed its shim, so it parses no mamafile and declares no
+    children. The build dirs of those children would then survive every future clean. So also
+    enumerate from disk, and delete only dirs that carry a mama marker file. Return the removed count.
 
-    One dep can hold several build dirs of ONE config, because a dep the consumer added with args=[...]
-    names its own (linux, linux-lgpl). An unreachable dep's args are unknown, so list what is on disk and
+    One dep can hold several build dirs of ONE config, because a dep added with args=[...] names its
+    own (linux, linux-lgpl). The args of an unreachable dep are unknown, so list what is on disk and
     ask build_names which dirs belong to this config."""
     workspace = os.path.dirname(root.dep_dir)
     config_dir = root.build_dir_name  # the root carries no dep args, so this is the config's own dir name
@@ -110,9 +110,8 @@ def sweep_orphaned_build_dirs(root: BuildDependency, config: BuildConfig) -> int
 
 def get_deps_only_targets(root: BuildDependency, deps_only_target_name: str, config: BuildConfig):
     """
-    For `deps_only` with a specific target, returns (flat_deps, flat_deps_reverse)
-    containing only the dependencies of the named target.
-    Also marks those deps for rebuild and cleans them if needed.
+    For `deps_only` with a target name, return (flat_deps, flat_deps_reverse) with only
+    the deps of that target. Also mark those deps for rebuild, and clean them when needed.
     """
     deps_only_dep = find_dependency(root, deps_only_target_name)
     flat_deps = _get_flattened_deps(deps_only_dep)
@@ -128,15 +127,15 @@ def get_deps_only_targets(root: BuildDependency, deps_only_target_name: str, con
 
 class DepsOnlyScope:
     """`deps_only` for the unified scheduler: which deps may configure and build. Every dep still LOADs,
-    because the graph is only discovered by loading it. Without a target name the scope root is the
-    project root, so every dependency builds and the root does not. With a target name the scope root is
-    that target, so only the deps below it build. A named target also forces its deps to rebuild, and a
+    because only a load discovers the graph. Without a target name the scope root is the project root,
+    so every dependency builds and the root does not. With a target name the scope root is that
+    target, so only the deps below it build. A named target also forces its deps to rebuild, and a
     `rebuild` cleans them first. This matches get_deps_only_targets on the classic path."""
 
     def __init__(self, config: BuildConfig, target_name: str = None):
         self.config = config
         self.target_name = target_name.lower() if target_name else None
-        self.found = target_name is None  # a named target must turn up somewhere in the tree
+        self.found = target_name is None  # a named target must appear somewhere in the tree
         self._under = {}  # dep -> True when the dep is the scope root or below it
 
     def _is_scope_root(self, dep: BuildDependency) -> bool:
@@ -157,9 +156,9 @@ class DepsOnlyScope:
         return self.is_inside(dep) and not self._is_scope_root(dep)
 
     def promote(self, dep: BuildDependency) -> List[BuildDependency]:
-        """A dep first discovered outside the scope, now reached through it - a shared dep of both the
-        named target and an unrelated branch. Mark it and everything already discovered below it, and
-        return the deps that gained build work."""
+        """A dep that the walk first found outside the scope and now reaches through it - a shared dep
+        of both the named target and an unrelated branch. Mark it and everything already found below
+        it, and return the deps that gained build work."""
         if self.is_inside(dep): return []
         self._under[dep] = True
         gained = [dep]
@@ -184,8 +183,8 @@ class DepsOnlyScope:
 
 
 def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency, deps = []) -> List[BuildDependency]:
+    """ Return all dependencies that depend on the target. """
     discovered_new = False
-    """ Gets all dependencies that depend on the target """
     def depth_first_search_for_target(dep: BuildDependency):
         nonlocal discovered_new, target, deps
         depends = False
@@ -203,8 +202,7 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
         deps.append(root)
         discovered_new = True
 
-    # now that we have the initial deps,
-    # we need to further expand it to include second level dependencies
+    # expand the initial deps to include second-level dependencies
     while discovered_new:
         discovered_new = False
         for d in deps:
@@ -221,16 +219,14 @@ def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
 
 
 def _mama_cmake_path(root: BuildDependency):
-    if not root.src_dir: # for artifactory pkgs, there is no src_dir
+    if not root.src_dir: # an artifactory pkg has no src_dir
         return f'{root.build_dir}/mama.cmake'
     return f'{root.src_dir}/mama.cmake'
 
 
 def _save_mama_cmake_and_dependencies_cmake(root: BuildDependency):
-    # save the {build}/mama-dependencies.cmake
     _save_dependencies_cmake(root)
-    # the following is the proxy `mysource/mama.cmake` file
-    # which will reference each mama-dependencies.cmake depending on platform
+    # the proxy `mysource/mama.cmake` references each mama-dependencies.cmake per platform
     _save_mama_cmake(root)
 
 
@@ -243,15 +239,14 @@ def _get_compile_commands_path(dep: BuildDependency):
 
     # choose the latest one
     if src_exists and bin_exists and os.path.getmtime(src_build_cmds) > os.path.getmtime(bin_build_cmds):
-        # for src_dir paths we use `${workspaceFolder}` macro:
+        # a src_dir path uses the `${workspaceFolder}` macro
         return '${workspaceFolder}/build/compile_commands.json'
     if bin_exists:
-        # for build dir paths, check if build dir is relative to src dir
         if dep.build_dir.startswith(dep.src_dir):
-            # if so, we chop off the src dir and use `${workspaceFolder}/`
+            # remove the src dir prefix and use `${workspaceFolder}/`
             rel_build_dir = f'${{workspaceFolder}}{dep.build_dir[len(dep.src_dir):]}/compile_commands.json'
             return rel_build_dir
-        return bin_build_cmds # absolute path for build dir paths
+        return bin_build_cmds # absolute path for a build dir outside src
     return None
 
 
@@ -268,11 +263,11 @@ def _find_matching_platform_config(dep: BuildDependency, configurations):
         return not any(tag in name and tag != compiler for tag in _COMPILER_TAGS)
 
     def match_text(conf):
-        """intelliSenseMode ('linux-gcc-x64') is structured and carries the arch; name is free text."""
+        """intelliSenseMode ('linux-gcc-x64') is structured and carries the arch. name is free text."""
         return f'{conf.get("intelliSenseMode", "")} {conf["name"]}'.lower()
 
-    # most specific first: platform+arch+compiler, then platform+compiler,
-    # then the old platform+arch / platform passes, skipping foreign-compiler configs
+    # most specific first: platform+arch+compiler, then platform+compiler, then
+    # platform+arch, then platform alone. Skip foreign-compiler configs.
     for require_compiler, require_arch in ((True, True), (True, False), (False, True), (False, False)):
         for conf in configurations:
             name = match_text(conf)
@@ -291,8 +286,8 @@ def _save_vscode_compile_commands(dep: BuildDependency):
         return
     if not dep.is_root:
         return
-    # ASAN/TSAN/coverage are temporary diagnostic builds living in a suffixed build dir
-    # (eg linux-asan). Don't repoint the IDE away from the canonical build on every such run.
+    # ASAN/TSAN/coverage are temporary diagnostic builds that live in a suffixed build dir
+    # (eg linux-asan). Do not repoint the IDE away from the canonical build on every such run.
     if dep.config.sanitize or dep.config.coverage:
         return
 
@@ -304,7 +299,7 @@ def _save_vscode_compile_commands(dep: BuildDependency):
     if not commands_path:
         return
 
-    # we have a valid path for compile_commands.json, now link it into c_cpp_properties.json
+    # link the compile_commands.json path into c_cpp_properties.json
     cpp_props_text = read_text_from(cpp_props_path)
     import json
     props = json.loads(cpp_props_text)
@@ -312,13 +307,11 @@ def _save_vscode_compile_commands(dep: BuildDependency):
 
     platform_config = _find_matching_platform_config(dep, configurations)
 
-    # make a copy of the first config and rename it to the platform name
     if not platform_config and len(configurations) > 0:
         platform_config = configurations[0].copy()
         platform_config['name'] = f'{dep.config.name()} {dep.config.arch}'
         configurations.append(platform_config)
 
-    # set the compile commands for this platform
     if platform_config:
         platform_config["compileCommands"] = commands_path
 
@@ -372,7 +365,6 @@ def _save_dependencies_cmake(root: BuildDependency):
         includes_defs.append(includes_def)
         text += package_text
 
-    # and finally, set the MAMA_INCLUDES and MAMA_LIBS
     includes = ' '.join(includes_defs)
     libs = f'${{{root.name}_LIBS}}' # use the root package to get the full flat list of deps
     text += \
@@ -385,12 +377,12 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 
 
 def _save_mama_cmake(root: BuildDependency):
-    """The `mysource/mama.cmake` proxy. Generated from the platform registry, so it can no longer
-    drift from the build dir names BuildConfig itself uses."""
+    """The `mysource/mama.cmake` proxy. Generated from the platform registry, so it cannot
+    drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
 
     def build_dir_defines(build_dir):
-        # verbose include directives, because CLion has a hard time detecting macro paths
+        # verbose include directives, because CLion often fails to detect macro paths
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         include = _get_mama_dependencies_cmake(root, build_dir)
         return f'set(MAMA_BUILD "{build_dir}")' + (f'\n        {include}' if include else '')
@@ -400,27 +392,19 @@ def _save_mama_cmake(root: BuildDependency):
 
 def load_dependency_chain(root: BuildDependency):
     """
-    This is main entrypoint for building the dependency chain.
-    All dependencies must be resolved at this stage.
+    Main entry point: load the whole dependency chain, so every dep resolves.
+    Parallel load is the default, and `serial` opts out. load() and add_child are thread-safe.
 
-    With parallel_load=True, parents submit child loads to this executor and
-    then block on their futures while still holding a worker slot. The default
-    ThreadPoolExecutor() is bounded (~min(32, cpu_count+4)) so a moderately
-    deep dep tree can starve waiting for slots. We pick a max_workers high
-    enough that this doesn't happen for any realistic project.
+    Under parallel_load, parents submit child loads to this executor and then
+    block on the futures while they still hold a worker slot. The default
+    ThreadPoolExecutor() is bounded (~min(32, cpu_count+4)), so a moderately
+    deep dep tree can starve on slots. The max_workers here is high enough
+    for any realistic project.
 
-    For `update` runs we auto-enable parallel_load so concurrent git fetches
-    share an SSH multiplexed master. The actual fetch concurrency is capped
-    at `parallel_max` (default 20) by a semaphore inside Git.run_git.
-
-    NOTE on parallel_load: existing helpers like BuildDependency.add_child
-    and BuildDependency.load are not strictly thread-safe (the existing
-    `currently_loading` busy-wait has a TOCTOU window). For most projects
-    this is benign because concurrent loads of the SAME dep are rare. Pass
-    `serial` on the command line to disable parallel loading if you hit
-    issues.
+    Concurrent git fetches share an SSH multiplexed master. A semaphore
+    inside Git.run_git caps the fetch concurrency at 8, whatever
+    `parallel_max` asks for (see ssh_multiplex.init_fetch_semaphore).
     """
-    # Parallel by default (`serial` opts out): load() + add_child are now thread-safe.
     if not root.config.serial_load:
         root.config.parallel_load = True
 
@@ -429,7 +413,7 @@ def load_dependency_chain(root: BuildDependency):
     root.config.update_stats.start()
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency):
-            abort.check()  # a queued load must not start cloning while the build is stopping
+            abort.check()  # a queued load must not start a clone during a build abort
             if dep.already_loaded:
                 return dep.should_rebuild
 
@@ -483,17 +467,17 @@ def print_dependencies(root: BuildDependency):
 def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
     for dep in flat_deps_reverse:
         if not os.path.exists(_mama_cmake_path(dep)):
-            _save_mama_cmake_and_dependencies_cmake(dep) # save a dummy mama.cmake before build
+            _save_mama_cmake_and_dependencies_cmake(dep) # save a dummy mama.cmake before the build
 
         if dep.config.verbose:
             console(f'  - Execute Tasks: {dep.name}', color=Color.BLUE)
 
-        # validate we're not building twice
+        # a dep must not execute twice
         if dep.already_executed:
             error(f"Critical Error: '{dep.name}' executed by child project")
             raise RuntimeError(f"Cyclical Dependency detected for '{dep.name}'")
 
-        # go through all child deps and make sure they executed
+        # every child dep must have executed first
         for c in dep.get_children():
             if not c.already_executed:
                 error(f"Critical Error: child '{c.name}' has not been executed before executing target '{dep.name}'")
@@ -502,7 +486,7 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
         _save_mama_cmake_and_dependencies_cmake(dep)
         dep.target._execute_tasks()
 
-        # saves a helper autocomplete includes txt file to make adding .vscode include paths easier
+        # link compile_commands.json into .vscode/c_cpp_properties.json
         _save_vscode_compile_commands(dep)
 
         if dep.config.verbose and not dep.config.test:
@@ -527,15 +511,15 @@ def _make_display(config):
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
 def _phase_label(dep, kind) -> str:
-    # 'load' opens optimistically (clone if no tree yet, else check) then _run_phase relabels it to
-    # what load() actually did (dep.load_action: check/clone/pulling); others show verbatim.
+    # 'load' opens optimistically: clone when no tree exists yet, else check. _run_phase then
+    # relabels it to what load() did (dep.load_action: check/clone/pulling). Others show verbatim.
     if kind == 'load': return 'clone' if not dep.is_real_clone() else 'check'
     return kind
 
 
 def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
-    """Run one scheduler phase for `dep` on its single dep-level display task (keyed by name so all
-    phases share one line): route this thread's console output + subprocess CPU + build barrier into
+    """Run one scheduler phase for `dep` on its single display task, keyed by name so all phases
+    share one line. Route the console output, subprocess CPU and build barrier of this thread into
     it, run `body(sink)`, then end the phase. `final=True` (the build) commits the merged summary."""
     # Gate EVERY transition (load -> configure -> build) before the display task opens. A stopping
     # build then starts no new phase, and marks no phase that never ran as a failed one.
@@ -568,9 +552,9 @@ def _build_body(dep, sink):
 
 
 def _stable_cpu_sampler(measure, clock, window=0.5):
-    """Gate `measure()` (CPU% since its last call) to >=`window`-second re-samples, caching between.
-    The scheduler polls at irregular sub-100ms-to-1s gaps; over a tiny window cpu_percent(interval=None)
-    reads a meaningless spiky 0% or 100%, so only re-measure once a real window has elapsed."""
+    """Gate `measure()` (CPU% since its last call) to re-samples at least `window` seconds apart,
+    and cache between. The scheduler polls at irregular sub-second gaps. Over a tiny window
+    cpu_percent(interval=None) reads a meaningless 0% or 100%, so re-measure only after a full window."""
     state = {'t': clock(), 'val': 0.0}
     def sample():
         now = clock()
@@ -580,16 +564,16 @@ def _stable_cpu_sampler(measure, clock, window=0.5):
     return sample
 
 
-# Build-job overprovisioning (max reserved cores = core_budget * this). MSVC/MSBuild tolerates 2x; on Linux
-# the build is memory-bound (below) - GCC/make already saturates the cores - so overprovisioning beyond the
-# RAM-capped budget only risks OOM. _GB_PER_COMPILE is a heavy-C++ TU's peak RSS; total RAM / it caps how
-# many parallel compiles we allow so a swarm can't take down a memory-limited box (a WSL-killer).
+# Build-job overprovisioning: max reserved cores = core_budget * this. MSVC/MSBuild tolerates 2x. On
+# Linux GCC/make already saturates the cores, so overprovisioning past the RAM-capped budget only risks
+# OOM. _GB_PER_COMPILE is the peak RSS of a heavy C++ TU. Total RAM divided by it caps the parallel
+# compile count, so a compile swarm cannot crash a memory-limited box (for example WSL).
 _OVERPROVISION_WIN, _OVERPROVISION_UNIX = 2.0, 1.0
 _GB_PER_COMPILE = 1.5
 
 
 def _mem_capped_budget(jobs: int) -> int:
-    """Cap the core budget by RAM so parallel heavy C++ compiles can't OOM. Never below 1 or above `jobs`."""
+    """Cap the core budget by RAM so parallel heavy C++ compiles cannot OOM. Never below 1 or above `jobs`."""
     import psutil
     gb = psutil.virtual_memory().total / (1024 ** 3)
     return max(1, min(jobs, int(gb / _GB_PER_COMPILE)))
@@ -602,7 +586,7 @@ def _make_scheduler(config, **extra):
     cpu = psutil.cpu_count() or 4
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
     win = system.System.windows
-    budget = config.jobs if win else _mem_capped_budget(config.jobs)  # Linux: don't OOM on parallel C++ compiles
+    budget = config.jobs if win else _mem_capped_budget(config.jobs)  # Linux: avoid OOM on parallel C++ compiles
     extra.setdefault('overprovision', _OVERPROVISION_WIN if win else _OVERPROVISION_UNIX)
     return Scheduler(max_configure=min(cpu * 2, 32), core_budget=budget, abort_hook=SubProcess.terminate_all,
                      cpu_sampler=_stable_cpu_sampler(lambda: psutil.cpu_percent(interval=None), time.monotonic),
@@ -611,8 +595,8 @@ def _make_scheduler(config, **extra):
 
 def _handle_failure(display, failed):
     """First failed job -> replay its captured output (TTY) + the reason, then RETURN so the caller can
-    still print the aggregate diagnostics summary before exiting nonzero. A Ctrl+C abort prints a terse
-    interrupted line (no replay/summary) and exits immediately."""
+    still print the aggregate diagnostics summary before the nonzero exit. A Ctrl+C abort prints a terse
+    interrupted line (no replay/summary) and exits at once."""
     if isinstance(failed.error, KeyboardInterrupt):
         console('  [BUILD INTERRUPTED]  stopped by Ctrl+C', color=Color.RED)
         exit(-1)
@@ -623,9 +607,9 @@ def _handle_failure(display, failed):
 
 
 def _report_error(err: BaseException, verbose: bool):
-    """A BuildError is the user's build or url breaking, not a mama bug: the cmake/compiler/git report
-    already explains it, so print that alone. A traceback here would bury it under mama's own call
-    stack. Anything else IS unexpected - keep the traceback (and keep it for BuildError under verbose)."""
+    """A BuildError means the build or url of the user broke, not mama. The cmake/compiler/git report
+    explains it, so print that alone. A traceback here would bury it under mama's own call stack.
+    Anything else IS unexpected: keep the traceback (and keep it for BuildError under verbose)."""
     import traceback
     if isinstance(err, abort.BuildAborted):
         error(f'  {err}'); return  # a stopped job, not a failure: the FIRST failure printed the reason
@@ -636,7 +620,7 @@ def _report_error(err: BaseException, verbose: bool):
 
 
 def _deploy_run_postpass(deps, config):
-    """Deploy/run/test post-pass: target-specific, cheap, kept serial and children-first."""
+    """Deploy/run/test post-pass: target-specific, cheap, and it stays serial and children-first."""
     for dep in deps:
         dep.target._execute_deploy_tasks()
         dep.target._execute_run_tasks()
@@ -707,7 +691,7 @@ def print_sched_debug(root: BuildDependency):
         try: tu, via = t._count_tu()
         except Exception as e: tu, via = -1, f'ERR:{type(e).__name__}'
         probe = t._probe_build_jobs()
-        reserve = t._reserved_cores()  # canonical reserve (== actual -j); was a stale jobs//2 formula
+        reserve = t._reserved_cores()  # canonical reserve (== actual -j)
         flags = []
         if t._has_custom_build(): flags.append('custom-build')   # -> configure skips probe -> -j=config.jobs
         if d.nothing_to_build: flags.append('nothing_to_build')
@@ -725,10 +709,10 @@ _DIAG_LIMIT = 8  # compiler warnings/errors surfaced per target in the post-buil
 
 
 def _print_diagnostics(display, deps, failed_name=None):
-    """Post-build: surface the compiler warnings/errors the live display swallowed on a successful
-    build (parallel builds only replay output on failure). Up to _DIAG_LIMIT per target, errors first.
-    `failed_name` (the target that broke the build) is listed FIRST, so the reason to fix is the last
-    thing on screen instead of being buried under unrelated siblings' warnings."""
+    """Post-build: show the compiler warnings/errors the live display hid on a successful build
+    (a parallel build only replays output on failure). Up to _DIAG_LIMIT per target, errors first.
+    `failed_name` (the target that broke the build) sorts FIRST, so the warnings of unrelated
+    siblings do not bury it."""
     ordered = sorted(deps, key=lambda d: d.name != failed_name) if failed_name else deps
     printed = False
     for dep in ordered:
@@ -743,11 +727,11 @@ def _print_diagnostics(display, deps, failed_name=None):
 
 
 # buildstats (stage 1): a normalized horizontal bar per package, segmented load/configure/build.
-_BAR_FILL = 40  # the slowest package fills this width; the rest scale down proportionally
-_BUILDSTATS_FLOOR = 0.33  # omit packages faster than this - they're noise on the chart
+_BAR_FILL = 40  # the slowest package fills this width, the rest scale proportionally
+_BUILDSTATS_FLOOR = 0.33  # omit packages faster than this - they are noise on the chart
 _BAR = (('load', Color.BLUE), ('configure', Color.MAGENTA), ('build', Color.GREEN))
 _GLYPHS_SHADE = ('░', '▒', '▓')  # light/medium/dark blocks (UTF-8 terminals)
-_GLYPHS_ASCII = ('-', '=', '#')  # legacy code-page fallback (Windows cp1252 can't encode the blocks)
+_GLYPHS_ASCII = ('-', '=', '#')  # legacy code-page fallback (Windows cp1252 cannot encode the blocks)
 _glyphs_cache = None
 
 
@@ -757,8 +741,8 @@ def _can_encode_blocks(encoding) -> bool:
 
 
 def _bar_glyphs():
-    """Block shades on a UTF-8 terminal, ASCII on a legacy code page. Decided ONCE - the output
-    encoding is constant per process, so there's no point re-testing it per report or per row."""
+    """Block shades on a UTF-8 terminal, ASCII on a legacy code page. Decided ONCE: the output
+    encoding is constant per process, so a re-test per report or per row is waste."""
     global _glyphs_cache
     if _glyphs_cache is None:
         _glyphs_cache = _GLYPHS_SHADE if _can_encode_blocks(getattr(sys.stdout, 'encoding', None) or 'ascii') \
@@ -767,8 +751,8 @@ def _bar_glyphs():
 
 
 def _buildstats_bar(times: dict, total: float, max_total: float, glyphs) -> str:
-    """Bar whose length scales with total/max_total; inside, load/configure/build take shares of that
-    length (shaded, coloured). Right-padded to full width so the trailing total aligns across rows."""
+    """A bar whose length scales with total/max_total. Inside it, load/configure/build take shares of
+    that length (shaded, colored). Right-padded to full width so the trailing total aligns across rows."""
     bar_len = max(1, round(total / max_total * _BAR_FILL)) if max_total > 0 else 0
     out, used, last = [], 0, len(_BAR) - 1
     for i, ((kind, color), ch) in enumerate(zip(_BAR, glyphs)):
@@ -780,7 +764,7 @@ def _buildstats_bar(times: dict, total: float, max_total: float, glyphs) -> str:
 
 def print_buildstats(deps):
     """`buildstats`: one normalized bar per package (load / configure / build), slowest first, with its
-    total wall time. Packages faster than _BUILDSTATS_FLOOR seconds are omitted so the chart stays relevant."""
+    total wall time. The chart omits packages faster than _BUILDSTATS_FLOOR seconds, so it stays relevant."""
     label = 'Build times'
     rows = []
     for d in deps:
@@ -858,7 +842,7 @@ def _print_clang_insights(config, deps, label, dep):
         warning('buildstats: deep per-file insights need Clang -ftime-trace; build with `clang` for the breakdown')
         return
     start = config._buildstats_start
-    scoped = [dep] if dep else deps  # a <target> -> just its build dir; else every package's
+    scoped = [dep] if dep else deps  # a <target>: only its build dir, else every package's
     paths = []
     for d in scoped:
         bd = d.build_dir
@@ -877,9 +861,9 @@ def _command_verb(config) -> str:
 
 
 def _toolchain_name(config) -> str:
-    """'clang 18.1 libstdc++' / 'gcc 14.3' / 'msvc 14.44' - what this run actually builds with. Named
-    from the RESOLVED compiler, not config.clang/gcc: those describe the host, so a cross build read
-    'gcc 21.0' for the android NDK's clang. '' when unresolvable - a banner must never fail a build."""
+    """'clang 18.1 libstdc++' / 'gcc 14.3' / 'msvc 14.44' - what this run builds with. Named from the
+    RESOLVED compiler, not config.clang/gcc. Those describe the host, so a cross build would read
+    'gcc 21.0' for the clang of the android NDK. '' when unresolved: a banner must never fail a build."""
     try:
         if config.msvc:
             toolset = os.path.basename(config.get_msvc_tools_path().rstrip('\\/'))  # 14.44.35207 -> 14.44
@@ -906,8 +890,8 @@ def _platform_name(config) -> str:
 
 def print_build_banner(config, count=None):
     """One-line preview above the first task line: version, command, target count, platform, toolchain.
-    `count` is None on the unified path - its graph grows as deps load, so the total isn't known until
-    it's over."""
+    `count` is None on the unified path. Its graph grows as deps load, so the total is unknown until
+    the run ends."""
     targets = f' {count} target(s)' if count is not None else ''
     platform = _platform_name(config)
     toolchain = _toolchain_name(config)
@@ -917,18 +901,18 @@ def print_build_banner(config, count=None):
 
 
 def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
-    """Dynamic DAG scheduler interleaving cloning with configure+build: each dep is a LOAD job whose
-    completion GROWS the graph with its children's LOAD/CONFIGURE/BUILD jobs; a dep's CONFIGURE waits
-    on its own LOAD + its children's BUILDs. So leaf nodes build while deeper deps still clone. Used
-    for a plain full build (main() falls back to the old path otherwise); deploy/run/test stay serial.
-    The ROOT is loaded up front, before the display: everything below it needs what its settings() picks.
-    A `deps_only` run passes a DepsOnlyScope: every dep still loads, but only the deps the scope includes
-    get a CONFIGURE and a BUILD job."""
+    """Dynamic DAG scheduler that interleaves clones with configure and build. Each dep is a LOAD job
+    whose completion GROWS the graph with the LOAD/CONFIGURE/BUILD jobs of its children. The CONFIGURE
+    of a dep waits on its own LOAD and on the BUILDs of its children, so leaf nodes build while deeper
+    deps still clone. A plain full build uses this path, and main() falls back to the old path
+    otherwise. Deploy/run/test stay serial. The ROOT loads up front, before the display: everything
+    below it needs what its settings() picks. A `deps_only` run passes a DepsOnlyScope. Every dep
+    still loads, but only the deps the scope includes get a CONFIGURE and a BUILD job."""
     import time
     from .build_scheduler import Job, LOAD, CONFIGURE, BUILD, assign_priorities
     config = root.config
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
-    # Outside the display on purpose: root settings() output has to land on the terminal, not in a
+    # Outside the display on purpose: root settings() output must land on the terminal, not in a
     # captured task line, or a mis-picked toolchain/artifactory server is invisible to debug.
     root.load()
     print_build_banner(config)  # root settings() has now locked compiler + stdlib
@@ -945,8 +929,8 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         return [L] + (make_build_jobs(dep) if builds(dep) else [])
 
     def make_build_jobs(dep):
-        """The dep's CONFIGURE + BUILD pair: configure waits on its own load and on the builds of every
-        child known so far, and _do_load's grow() adds the rest as the graph discovers them."""
+        """The CONFIGURE + BUILD pair of the dep: configure waits on its own load and on the builds of
+        every child known so far, and grow() in _do_load adds the rest as the graph discovers them."""
         C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep,
                 deps={load_jobs[dep], *(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)})
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
@@ -969,8 +953,8 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
                 return new
             sched.grow(grow)
-        # the root's load is already done: a no-op replay. A dep the scope excludes never gets another
-        # phase, so its load is the final one and has to commit the summary line.
+        # the load of the root is already done: a no-op replay. A dep the scope excludes never gets
+        # another phase, so its load is the final one and must commit the summary line.
         _run_phase(display, dep, 'load', body, sched.build_slot, final=not builds(dep))
 
     def _do_configure(d):
@@ -1004,14 +988,14 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
     _print_build_summary(built, time.monotonic() - start)
     _print_diagnostics(display, built)
     if config.buildstats:
-        print_buildstats(flat)  # every dep loaded, so the load bars are worth showing even for excluded deps
+        print_buildstats(flat)  # every dep loaded, so show the load bars even for excluded deps
         _print_build_insights(config, built)
     if scope is not None: scope.widen_for_deploy()
     _deploy_run_postpass(reversed(built), config)
 
 
 def find_dependency(root: BuildDependency, name: str) -> BuildDependency:
-    """ This is mainly used for finding root target or specific command line target """
+    """ Find the root target or a specific command line target by name. """
     if root.name.lower() == name.lower():
         return root
     for dep in root.get_children():

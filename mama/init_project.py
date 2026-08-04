@@ -87,7 +87,7 @@ def patch_existing_cmakelists(project_name, cmakefile):
 
     found_project = False
     for i in range(len(lines)):
-        if bool(re.match('project\\s?\\(', lines[i], re.I)): # Match "project(" or "PROJECT (" 
+        if bool(re.match('project\\s?\\(', lines[i], re.I)): # match "project(" or "PROJECT ("
             at = i+1
             lines[at:at] = [
                 '\n',
@@ -114,7 +114,7 @@ def patch_existing_cmakelists(project_name, cmakefile):
 
             idx = line.find(')')
             if idx == -1:
-                lines.insert(i+1, '    ${MAMA_LIBS}\n') # multiline target_line_libraries
+                lines.insert(i+1, '    ${MAMA_LIBS}\n') # multiline target_link_libraries
                 console(f'  Inserted ${{MAMA_LIBS}} at line {i+2}')
             else:
                 lines[i] = line[:idx] + ' ${MAMA_LIBS}' + line[idx:] # add just before closing )
@@ -130,7 +130,7 @@ def patch_existing_cmakelists(project_name, cmakefile):
 
 
 def find_cpp_main(src_dir):
-    # use top-level glob in src/ to match anything with "main" in the name and .cpp extension
+    # match any top-level src/ file with "main" in the name and a .cpp extension
     for entry in os.listdir(src_dir):
         if entry.endswith('.cpp') and 'main' in entry.lower():
             return path_join(src_dir, entry)

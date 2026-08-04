@@ -28,22 +28,21 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
             rerun = True
             delete_cmakecache = True
         elif System.windows:
-            # this happens every time MSVC compiler is updated. simple fix is to rerun cmake
+            # an MSVC compiler update triggers this every time, and a cmake rerun fixes it
             rerun |= line.startswith('  is not a full path to an existing compiler tool.')
         elif line.startswith('CMake Error: Error: generator :') or \
              line.startswith('CMake Error: The source'):
             rerun = True
             delete_cmakecache = True
 
-    # run CMake configure and handle output
     exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
 
     if rerun and allow_rerun:
         if target.config.print: console('Rerunning CMake configure')
         return _rerunnable_cmake_conf(cmd, cwd, False, target, delete_cmakecache=delete_cmakecache, env=env, out=out)
     if exit_status != 0:
-        # BuildError, not Exception: the cmake output above already says what's wrong, so this is
-        # reported as a clean one-liner instead of a traceback through mama's internals.
+        # BuildError, not Exception: the cmake output above already names the failure, so mama
+        # reports a clean one-liner instead of a traceback through its internals.
         raise util.BuildError(f'CMake configure failed for {target.name} (exit code {exit_status})')
     target.dep.save_enabled_sanitizers()
     target.dep.save_enabled_coverage()
@@ -51,10 +50,10 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
 
 def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     """
-    Configures compilers for CMake, this needs to be done every time to prevent Ninja
-    or other backends incorrectly picking wrong compilers. CC/CXX are stripped from the
-    subprocess env by `compute_env` (not the global os.environ), so this is thread-safe.
-    A toolchain file picks the compiler itself, so mama must not name one too - see use_toolchain_file.
+    Name the compilers for cmake on every configure, so Ninja and other backends never pick the
+    wrong ones. `compute_env` strips CC/CXX from the subprocess env (not the global os.environ),
+    so this is thread-safe. A toolchain file picks the compiler itself, so mama must not name
+    one too - see use_toolchain_file.
     """
     if target.config.cmake_toolchain_file: return
     cc, cxx, ver = target.config.get_preferred_compiler_paths()
@@ -84,7 +83,7 @@ _BACKSLASH_PATH = re.compile(r'(?:\\[\w.\-+~$()]+)+')
 
 def _opts_to_defines(opts:list[str]) -> str:
     """`-D` flags for the cmake command line. Backslash PATHS become forward slashes because SubProcess
-    shlex-splits the command and would eat them: a mamafile passing a raw Windows path via
+    shlex-splits the command, which strips them: a raw Windows path a mamafile passes via
     add_cmake_options() silently arrives as C:ProjectsfoobinX.exe. cmake takes / on every platform."""
     opts_defines = ''
     for opt in opts:
@@ -125,21 +124,21 @@ _TOOLCHAIN_KEYS = ('CMAKE_TOOLCHAIN_FILE', 'CMAKE_SYSTEM_NAME', 'CMAKE_SYSTEM_PR
 
 
 def _toolchain_inputs(target:BuildTarget) -> dict:
-    """Cross-compile inputs that change compiler detection but aren't caught by cc/cxx stat. Keyed off the
-    whole platform opt set (an SDK move changes CMAKE_SYSROOT, not the 7 obvious keys). Empty dict for a
-    native build."""
+    """Cross-compile inputs that change compiler detection but the cc/cxx stat does not catch. Built from
+    the whole platform opt set, because an SDK move changes CMAKE_SYSROOT, not the 7 obvious keys. Empty
+    dict for a native build."""
     pairs = [o.partition('=') for o in _platform_opts(target)]  # one split per option, not two
     out = {k: v for k, _, v in pairs}
     out.update({k: v for k, _, v in (o.partition('=') for o in target.cmake_opts) if k in _TOOLCHAIN_KEYS})
-    # _platform_opts recorded the effective toolchain file; stat it so an edit in place invalidates too
+    # _platform_opts recorded the effective toolchain file. Stat it so an in-place edit also invalidates.
     tc = target.config.cmake_toolchain_file
     if tc: out['CMAKE_TOOLCHAIN_FILE'] = seedcache.compiler_stat(tc)
     return out
 
 
 def _seed_probe(target:BuildTarget) -> str:
-    """The compiler binary whose disappearance means the seed is stale (an upgraded/removed toolset).
-    For MSVC that's the toolset's cl.exe - which `get_preferred_compiler_paths` leaves empty - so resolve
+    """The compiler binary whose disappearance means the seed is stale (an upgraded or removed toolset).
+    For MSVC that is the toolset's cl.exe, which `get_preferred_compiler_paths` leaves empty, so resolve
     it explicitly. seedcache records it and GC checks it cheaply with os.path.exists."""
     config = target.config
     if config.msvc:
@@ -151,10 +150,10 @@ def _seed_probe(target:BuildTarget) -> str:
 
 def _seed_id(target:BuildTarget) -> str:
     """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. The hash alone already covers platform
-    and arch, but a HOST seed reaching a cross build dir is catastrophic and silent - cmake sees
+    and arch, but a HOST seed reaching a cross build dir is catastrophic and silent. cmake sees
     CMAKE_PLATFORM_INFO_INITIALIZED, skips system determination, never runs the toolchain file, and the
-    project compiles with host flags. The directory name carries the platform so that mistake cannot
-    happen by hash collision and is obvious on disk."""
+    project compiles with host flags. The directory name carries the platform so a hash collision cannot
+    cause that mistake, and the platform is obvious on disk."""
     config = target.config
     fp = seedcache.compute_fingerprint(_seed_inputs(target))
     # Config-only, NOT dep.build_dir_name: this names a COMPILER seed, and a dep's args do not
@@ -186,13 +185,13 @@ def _seed_inputs(target:BuildTarget) -> dict:
 
 
 def _abi_stdlib(config) -> str:
-    """The -stdlib that reaches the CXX ABI probe, '' where it isn't a choice (only linux clang picks)."""
+    """The -stdlib that reaches the CXX ABI probe. '' where there is no choice (only linux clang picks one)."""
     return config.clang_stdlib if (config.linux and config.clang) else ''
 
 
 def _abi_flags(config) -> tuple:
-    """(C, CXX) flags that change what the ABI probe records as implicit link libs, so the seed must be
-    detected with them. A sanitizer pulls its runtime into both; -stdlib is C++-only (clang warns on C)."""
+    """(C, CXX) flags that change what the ABI probe records as implicit link libs, so the probe must
+    detect with them. A sanitizer pulls its runtime into both. -stdlib is C++-only (clang warns on C)."""
     san = [f'-fsanitize={config.sanitize}'] if (config.sanitize and not config.msvc) else []
     stdlib = [f'-stdlib={_abi_stdlib(config)}'] if _abi_stdlib(config) else []
     return ' '.join(san), ' '.join(san + stdlib)
@@ -204,8 +203,8 @@ _SEED_PROJECT = 'cmake_minimum_required(VERSION 3.15)\nproject(mama_seed C CXX)\
 @contextlib.contextmanager
 def _probe_toolchain(target:BuildTarget):
     """Detect the toolchain in a throwaway C+CXX project, not in whichever real target configures first (a
-    C-only one would seed no CXX). Yields (build_dir, build_files_dir), or None if it didn't cover both.
-    Context manager: the temp tree lives exactly until publish has copied it; mkdtemp avoids collisions."""
+    C-only one would seed no CXX). Yields (build_dir, build_files_dir), or None when the probe missed a language.
+    Context manager: the temp tree lives exactly until publish has copied it."""
     config = target.config
     c_abi, cxx_abi = _abi_flags(config)  # same ABI inputs as the real targets, per language
     flags = (f' -DCMAKE_C_FLAGS="{c_abi}"' if c_abi else '') + (f' -DCMAKE_CXX_FLAGS="{cxx_abi}"' if cxx_abi else '')
@@ -262,7 +261,7 @@ def _wipe_build_dir(target:BuildTarget):
 
 def _cache_entry(cache_text:str, key:str) -> str:
     """Value of a `KEY:TYPE=value` line in a CMakeCache ('' if absent). Anchored to the exact key with an
-    optional `:TYPE`, so CMAKE_GENERATOR won't pick up its CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE siblings."""
+    optional `:TYPE`, so CMAKE_GENERATOR skips its CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE siblings."""
     m = re.search(rf'^{re.escape(key)}(?::[^=\n]*)?=(.*)$', cache_text, re.MULTILINE)
     return m.group(1).strip() if m else ''
 
@@ -273,7 +272,7 @@ def cache_generator(cache_text:str) -> str:
 
 
 def generator_build_file_exists(build_dir:str, generator:str) -> bool:
-    """Does the build file THIS generator emits exist? Deliberately generator-specific: targets pick
+    """True when the build file THIS generator emits exists. Deliberately generator-specific: targets pick
     their own build system, so a leftover Makefile from an earlier Unix-Makefiles configure must NOT
     make a Ninja-configured dir look complete - `cmake --build` would then die on a missing build.ninja.
     An unrecognized generator is trusted (let cmake decide) rather than wrongly wiped."""
@@ -287,13 +286,13 @@ def generator_build_file_exists(build_dir:str, generator:str) -> bool:
 
 
 def is_cmake_cache_valid(build_dir:str) -> bool:
-    """True only if `build_dir` holds the artifacts of a configure that ran to COMPLETION - a plain existence
+    """True only when `build_dir` holds the artifacts of a configure that ran to COMPLETION. A plain existence
     check misses three poisoned shapes: truncated cache (no CMAKE_GENERATOR), no generated build file, and
     the other generator's stale leftover file. All three -> reconfigure."""
     cache = util.path_join(build_dir, 'CMakeCache.txt')
     if not os.path.exists(cache): return False
     try: generator = cache_generator(util.read_text_from(cache))
-    except OSError: return False  # unreadable cache is as good as missing -> reconfigure
+    except OSError: return False  # an unreadable cache counts as missing -> reconfigure
     if not generator: return False
     return generator_build_file_exists(build_dir, generator)
 
@@ -307,30 +306,30 @@ _TOOLCHAIN_FINGERPRINT_FILE = 'mama_toolchain.fingerprint'
 
 def _toolchain_fingerprint(target:BuildTarget) -> str:
     """Hash of THIS target's toolchain identity - compiler, generator, arch, platform, SDK, cross toolchain
-    (the same inputs the seed cache fingerprints). Recorded in the build dir by every completed configure, so
-    the NEXT configure can tell the dir was built against a toolchain that has since moved."""
+    (the same inputs the seed cache fingerprints). Every completed configure records it in the build dir,
+    so the NEXT configure can tell that the toolchain moved since the dir was built."""
     return seedcache.compute_fingerprint(_seed_inputs(target))
 
 
 def _read_toolchain_fingerprint(build_dir:str) -> str:
-    """Fingerprint the last completed configure of `build_dir` recorded; '' if none (never configured, or a
-    dir from before fingerprints were written)."""
+    """Fingerprint the last completed configure of `build_dir` recorded. '' if none (never configured, or a
+    dir from before mama wrote fingerprints)."""
     try: return util.read_text_from(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE)).strip()
     except OSError: return ''
 
 
 def _record_toolchain_fingerprint(build_dir:str, fingerprint:str):
-    """Persist the toolchain fingerprint next to the cache. Best-effort - a write failure just makes the next
+    """Persist the toolchain fingerprint next to the cache. Best-effort: a write failure makes the next
     run treat the dir as unfingerprinted (adopt), never an exception mid-configure."""
     try: util.write_text_to(util.path_join(build_dir, _TOOLCHAIN_FINGERPRINT_FILE), fingerprint)
     except OSError: pass
 
 
 def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
-    """One-time heal for a dir configured before fingerprints were recorded: True only when the compiler the
-    cache was built with is DEFINITELY not the current one - the recorded path differs from the preferred
-    compiler, or no longer exists on disk. No explicit compiler (MSVC) or no cached compiler -> False: never
-    wipe on missing evidence, so shipping this can't mass-invalidate warm dirs whose toolchain is unchanged."""
+    """One-time heal for a dir that predates recorded fingerprints. True only when the compiler in the
+    cache is DEFINITELY not the current one: the recorded path differs from the preferred compiler, or
+    no longer exists on disk. No explicit compiler (MSVC) or no cached compiler -> False. Never wipe on
+    missing evidence, so this cannot mass-invalidate warm dirs whose toolchain is unchanged."""
     if target.config.cmake_toolchain_file:
         return False  # the cache holds the toolchain's own choice, which never equals ours
     cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
@@ -342,7 +341,7 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
         if not cached or not want: continue
         if util.normalized_path(cached) != util.normalized_path(want): return True  # compiler path moved
         return not os.path.exists(cached)  # same path but the binary is gone (e.g. store GC'd) -> moved
-    return False  # no compiler recorded in the cache -> nothing to compare, don't wipe
+    return False  # no compiler recorded in the cache -> nothing to compare, do not wipe
 
 
 def run_config(target:BuildTarget, out=None, _seed=True):
@@ -355,11 +354,11 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         if current_sanitizers != previous_sanitizers:
             must_configure = True
 
-    # A build dir configured against a toolchain that has since MOVED - compiler/NDK/SDK path changed (e.g. a
-    # nix store rev bump relocates the Android NDK) - must be wiped, never soft-reconfigured: cmake keeps stale
-    # cache vars like CMAKE_SYSTEM_PROCESSOR, which then mis-drive the project's own CMakeLists. A recorded
-    # fingerprint that differs proves the move; a dir predating fingerprints falls back to its cached compiler
-    # path. An unfingerprinted dir with a matching/unknown toolchain is left alone, so this never mass-wipes.
+    # Wipe, never soft-reconfigure, a build dir whose toolchain has since MOVED - a changed compiler,
+    # NDK or SDK path (e.g. a nix store rev bump relocates the Android NDK). cmake keeps stale cache
+    # vars like CMAKE_SYSTEM_PROCESSOR, which then mis-drive the project's own CMakeLists. A recorded
+    # fingerprint that differs proves the move. A dir that predates fingerprints falls back to its cached
+    # compiler path. An unfingerprinted dir with a matching or unknown toolchain stays, so this never mass-wipes.
     toolchain_fingerprint = _toolchain_fingerprint(target)
     if os.path.exists(target.build_dir('CMakeCache.txt')):
         recorded = _read_toolchain_fingerprint(target.build_dir())
@@ -369,9 +368,9 @@ def run_config(target:BuildTarget, out=None, _seed=True):
             _note(target, out, 'toolchain changed since last configure - wiping build dir')
             _wipe_build_dir(target)
 
-    # A cache or a compiler detection left half-written by a killed configure poisons this run; drop both
-    # so it reconfigures clean instead of trusting what merely EXISTS. Detection is checked even with no
-    # cache at all: a kill mid-detection often saves none, and a `use` seed would re-add the marker.
+    # A half-written cache or compiler detection from a killed configure poisons this run. Drop both
+    # so it reconfigures clean instead of trusting what merely EXISTS. The detection check runs even
+    # with no cache at all: a kill mid-detection often saves none, and a `use` seed would re-add the marker.
     if seedcache.detection_is_partial(_build_files_dir(target)) \
        or (os.path.exists(target.build_dir('CMakeCache.txt')) and not is_cmake_cache_valid(target.build_dir())):
         _note(target, out, 'incomplete build dir (interrupted configure) - rebuilding it')
@@ -387,11 +386,11 @@ def run_config(target:BuildTarget, out=None, _seed=True):
     cmake_defines = _opts_to_defines(options)
     generator = _generator(target)
     src_dir = _seed_src_dir(target)
-    # Last, so cmake_opts can never override it by accident; set target.cmake_install_prefix instead.
+    # Last, so cmake_opts can never override it by accident. Set target.cmake_install_prefix instead.
     install_prefix = f'-DCMAKE_INSTALL_PREFIX="{target.cmake_install_prefix}"'
 
-    # Reuse cached compiler detection on a fresh build dir: prepare() injects a CMakeFiles seed +
-    # a PLATFORM_INFO_INITIALIZED CMakeCache so cmake skips ALL detection (~5s) (validated correct).
+    # Reuse cached compiler detection on a fresh build dir: prepare() injects a CMakeFiles seed and
+    # a PLATFORM_INFO_INITIALIZED CMakeCache, so cmake skips ALL detection (about 5s).
     cache_exists = os.path.exists(target.build_dir('CMakeCache.txt'))
     coord = _seed_coordinator(target)
     role = coord.prepare(target) if (_seed and not cache_exists) else 'none'
@@ -410,9 +409,8 @@ def run_config(target:BuildTarget, out=None, _seed=True):
             _wipe_build_dir(target)
             return run_config(target, out=out, _seed=False)
         raise
-    # Record the toolchain identity only after a configure that ran to completion, so the next run's move
-    # check compares against a dir that is actually consistent with this fingerprint (a failed configure
-    # leaves the previous/absent fingerprint, never a false baseline).
+    # Record the toolchain identity only after a completed configure, so the next run's move check
+    # never compares against a false baseline. A failed configure leaves the previous or absent fingerprint.
     _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)
 
 
@@ -424,8 +422,7 @@ _RERUNNABLE_ERRORS = (
 
 
 def is_rerunnable_error(output:str):
-    """ Checks output string if a rerunnable error occurred.
-        These are non-fatal errors that disappear with a simple cmake configure. """
+    """True when the output names a non-fatal error that a cmake configure rerun fixes."""
     return any(s in output for s in _RERUNNABLE_ERRORS)
 
 
@@ -471,9 +468,9 @@ def _generator(target:BuildTarget):
 
 
 def _make_program(target:BuildTarget) -> str:
-    """The build tool cmake drives. Ninja when the target enabled it, else whatever the platform
-    provides (only the Android NDK ships one). Asked from ONE place: appending the platform's make
-    here AND inside the platform's own option list passed CMAKE_MAKE_PROGRAM twice."""
+    """The build tool cmake drives. Ninja when the target enabled it, else what the platform
+    provides (only the Android NDK ships one). ONE call site only: naming the platform's make
+    here AND inside the platform's own option list passes CMAKE_MAKE_PROGRAM twice."""
     config:BuildConfig = target.config
     if target.enable_ninja_build: return config.ninja_path
     return config.platform.make_program(target)
@@ -486,10 +483,10 @@ def _default_options(target:BuildTarget):
     exceptions = target.enable_exceptions
 
     def add_flag(flag:str, value=''):
-        if not flag in cxxflags:  # add flag if not already set
+        if not flag in cxxflags:
             cxxflags[flag] = value
     def add_ldflag(flag:str, value=''):
-        if not flag in ldflags:  # add flag if not already set
+        if not flag in ldflags:
             ldflags[flag] = value
     def get_flags_string(flags:dict):
         res = ''
@@ -506,7 +503,7 @@ def _default_options(target:BuildTarget):
     if config.msvc:
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
-        add_flag('-DWIN32', '1') # so yeah, only _WIN32 is defined by default, but opencv wants to see WIN32
+        add_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
         add_flag('/MP') # multi-process build
     else:
         if target.gcc_clang_visibility_hidden:
@@ -536,7 +533,7 @@ def _default_options(target:BuildTarget):
             console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_flag('-fsanitize', config.sanitize)
-            add_flag('-fno-sanitize-recover', config.sanitize) # fail the build on the first sanitizer error (UBSan recovers by default)
+            add_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
             add_flag('-fno-omit-frame-pointer')
             add_flag('-fPIE')
             add_ldflag('-pie') # -pie is a linker flag
@@ -586,9 +583,8 @@ def _default_options(target:BuildTarget):
             f'CMAKE_EXE_LINKER_FLAGS="{exe_ldflags}"',
             f'CMAKE_MODULE_LINKER_FLAGS="{exe_ldflags}"',
             f'CMAKE_SHARED_LINKER_FLAGS="{exe_ldflags}"',
-            # NOTE: CMAKE_STATIC_LINKER_FLAGS is intentionally omitted because
-            # it is passed to the archiver (ar), not the linker (ld),
-            # and ar does not understand linker flags like -Wl,--as-needed
+            # CMAKE_STATIC_LINKER_FLAGS is omitted on purpose: cmake passes it to the archiver (ar),
+            # not the linker (ld), and ar does not understand linker flags like -Wl,--as-needed
         ]
 
     make = _make_program(target)
@@ -637,7 +633,7 @@ def _buildsys_flags(target:BuildTarget):
     if config.msvc:
         flags = f'/v:m {mpf} /nologo'
     elif config.platform.build_system == 'xcode' and not (target.enable_unix_make or config.verbose):
-        flags = f'-quiet {mpf}'  # xcodebuild is extremely chatty unless it is told not to be
+        flags = f'-quiet {mpf}'  # xcodebuild floods the output unless -quiet is set
     else:
         flags = mpf
     return f'-- {flags}' if flags else ''

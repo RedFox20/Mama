@@ -3,10 +3,10 @@ import os
 class Asset:
     def __init__(self, relpath, fullpath, category):
         """
-        Creates an asset. If category is set, then relpath is ignored during deploy
-            relpath  -- Relative path to source
-            fullpath -- Single full path
-            category -- Deployment category
+        Creates an asset. If category is set, it replaces the relative directory in the deploy path.
+            relpath  -- Relative path to the source file
+            fullpath -- Single full path to the source file
+            category -- Deployment category, used as the deploy path prefix
         """
         reldir = os.path.dirname(relpath)
         self.name     = os.path.basename(fullpath)
@@ -15,7 +15,6 @@ class Asset:
 
         if category: self.outpath = f'{category}/{self.outpath}'
         else:        self.outpath = f'{reldir}/{self.outpath}'
-        #console(f'asset {self.outpath}')
 
     def __str__(self):  return self.outpath
     def __repr__(self): return self.outpath

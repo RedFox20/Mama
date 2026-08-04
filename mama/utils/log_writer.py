@@ -1,17 +1,16 @@
-"""Async build log: a daemon thread drains a queue to packages/mamabuild.log so write() never blocks
-a build thread. ANSI is stripped for a clean, greppable file. Best-effort - a bad path or IO error
-never breaks a build."""
+"""Async build log: a daemon thread drains a queue to packages/mamabuild.log, so write() never blocks a
+build thread. The writer strips ANSI codes, and a bad path or IO error never breaks a build."""
 import os, re, threading, queue
 
-_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colours + cursor moves, stripped for the log file
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves, stripped for the log file
 
 
 class AsyncLogWriter:
     def __init__(self, stream, flush_interval=1.0):
-        """`stream`: an open, writable text stream this writer owns (open_build_log wraps the
-        packages/mamabuild.log case; tests pass a capture stream). `flush_interval`: writes go to the
-        buffered stream as they arrive (cheap) but are fsync-flushed only on an idle lull, so bursts are
-        amortized yet confirmed output still lands on disk promptly (tail-able mid-build)."""
+        """`stream`: an open, writable text stream this writer owns. open_build_log wraps the
+        packages/mamabuild.log case, and tests pass a capture stream. `flush_interval`: writes go to
+        the buffered stream as they arrive, but the loop flushes only on an idle lull, so bursts
+        amortize and the log still stays tail-able mid-build."""
         self._stream = stream
         self._flush_interval = flush_interval
         self._q: queue.Queue = queue.Queue()
@@ -46,7 +45,7 @@ class AsyncLogWriter:
 
 
 def open_build_log(path: str):
-    """Open `path` (truncating) as an AsyncLogWriter, or None if it can't be created - the log must
+    """Open `path` (truncating) as an AsyncLogWriter, or None when it cannot be created: the log must
     never break a build."""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)

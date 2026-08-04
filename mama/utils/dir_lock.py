@@ -1,7 +1,5 @@
-"""Cross-process advisory lock on a directory, via an flock/msvcrt lock on a sidecar `.mama.lock` file. The
-kernel releases the lock when the fd closes or the process dies, so - unlike an O_CREAT|O_EXCL lockfile - a
-crash can NEVER leave it stuck. Non-blocking with a bounded poll timeout: a live-but-hung holder delays a
-waiter at most `timeout` seconds, after which it proceeds unlocked (risking the original race, never a hang)."""
+"""Cross-process advisory lock on a directory, held as an flock/msvcrt lock on a sidecar `.mama.lock` file.
+The kernel releases the lock when the fd closes or the process dies, so a crash can never leave it stuck."""
 import contextlib, os, time
 from .system import System, warning
 
@@ -29,12 +27,12 @@ else:
 
 @contextlib.contextmanager
 def interprocess_dir_lock(lock_dir: str, timeout: float, poll: float = 0.1):
-    """Hold an exclusive cross-process lock for `lock_dir` for the duration of the `with` block. Yields True if
-    the lock was acquired, False if the acquire timed out (the caller still runs - best-effort). Always releases
-    on exit. Different `lock_dir`s never contend, so parallel loads of DIFFERENT deps run fully concurrently."""
-    # The sidecar lives BESIDE lock_dir, never inside it: a reclone-wipe rmtree's the whole lock_dir, and a lock
-    # file deleted while held unlinks its inode - the next opener would make a fresh inode and exclusion silently
-    # breaks. Keeping it in the parent means it survives a wipe of the very dir it guards.
+    """Hold an exclusive cross-process lock on `lock_dir` for the `with` block. Yields True on acquire, or
+    False when the acquire timed out after `timeout` seconds. A timed-out caller still runs, unlocked.
+    Always releases on exit. Different `lock_dir`s never contend, so loads of different deps stay parallel."""
+    # The sidecar lives beside lock_dir, never inside it: a reclone wipe removes the whole lock_dir, and a lock
+    # file deleted while held unlinks its inode, so the next opener makes a fresh inode and exclusion silently
+    # breaks. The parent location survives a wipe of the directory it guards.
     lock_dir = os.path.normpath(lock_dir)
     parent = os.path.dirname(lock_dir) or '.'
     os.makedirs(parent, exist_ok=True)

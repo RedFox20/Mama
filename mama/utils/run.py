@@ -14,7 +14,6 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     shell_args = shlex.split(command)
     program = shell_args[0]
     args = ' '.join(shell_args[1:]) if shell_args else ''
-    #print(f'get_cwd_exe_args: program={program} args={args} cwd={cwd} root_dir={root_dir}')
 
     # Add or strip the executable suffix. Gated on the HOST as well as the target: a mamafile runs
     # HOST tools during a cross build, so a Windows host must not have `protoc.exe` stripped just
@@ -24,51 +23,46 @@ def get_cwd_exe_args(target: BuildTarget, command: str, cwd='', root_dir='') -> 
     elif not System.windows and not suffix and program.endswith('.exe'): program = program[:-4]
 
     if root_dir:
-        # if root_dir is set, then command will be run relative to it
+        # the command runs relative to root_dir:
         # program: bin/app.exe
         # cwd: /path/to/root_dir/bin
         # exe: /path/to/root_dir/bin/app.exe
         cwd = normalized_join(root_dir, os.path.dirname(program))
         if program.startswith('/'):
-            exe = program # already absolute
+            exe = program
         elif program.startswith('./'):
-            exe = normalized_join(root_dir, program[2:]) # turn relative to absolute
+            exe = normalized_join(root_dir, program[2:])
         else:
-            exe = shutil.which(program) # is it a common executable?
+            exe = shutil.which(program) # a program on PATH wins over a root_dir-relative one
             if not exe:
-                exe = normalized_join(root_dir, program) # turn relative to absolute
-        #print(f'ROOT cwd={cwd} exe={exe} args={args}')
+                exe = normalized_join(root_dir, program)
     elif cwd:
-        # if CWD is set, then command will be run in this dir
+        # the command runs in cwd:
         # program: bin/app.exe
         # cwd: /path/to/project
         # exe: /path/to/project/bin/app.exe
         if program.startswith('/'):
-            exe = program # already absolute
+            exe = program
         elif program.startswith('./'):
-            exe = normalized_join(cwd, program[2:]) # turn relative to absolute
+            exe = normalized_join(cwd, program[2:])
         else:
-            exe = shutil.which(program) # is it a common executable?
+            exe = shutil.which(program) # a program on PATH wins over a cwd-relative one
             if not exe:
-                exe = normalized_join(cwd, program) # turn relative to absolute
-        #print(f'CWD cwd={cwd} exe={exe} args={args}')
+                exe = normalized_join(cwd, program)
     else:
-        # otherwise the command will be run at the same dir as the executable
+        # the command runs in the directory of the executable:
         # program: bin/app.exe
         # cwd: /path/to/bin
         # exe: /path/to/bin/app.exe
         cwd = os.path.dirname(os.path.abspath(program))
-        # is it a common executable?
-        exe = shutil.which(program)
+        exe = shutil.which(program) # a program on PATH wins over a local one
         if not exe:
             exe = f'{cwd}/{os.path.basename(program)}'
-        #print(f'DEFAULT cwd={cwd} exe={exe} args={args}')
 
     cwd = normalized_path(cwd)
     exe = normalized_path(exe)
     if ' ' in exe:
         exe = '"' + exe + '"'
-    #print(f'CWD={cwd} EXE={exe} ARGS={args}')
     return cwd, exe, args
 
 

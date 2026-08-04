@@ -20,15 +20,7 @@ class System:
     x86_64  = is_x86_64
     x86     = is_x86
 
-# Available text colors:
-#     black, red, green, yellow, blue, magenta, cyan, white,
-#     light_grey, dark_grey, light_red, light_green, light_yellow, light_blue,
-#     light_magenta, light_cyan.
-
-# Available text highlights:
-#     on_black, on_red, on_green, on_yellow, on_blue, on_magenta, on_cyan, on_white,
-#     on_light_grey, on_dark_grey, on_light_red, on_light_green, on_light_yellow,
-#     on_light_blue, on_light_magenta, on_light_cyan.
+# Values are termcolor color names. Extend from the termcolor palette when a new color is needed.
 class Color:
     DEFAULT = None
     RED = "red"
@@ -38,7 +30,7 @@ class Color:
     MAGENTA = "magenta"
 
 
-# on windows use colorama to enable ANSI color escape sequences
+# on Windows, colorama enables ANSI color escape sequences
 if System.windows:
     from colorama import just_fix_windows_console
     just_fix_windows_console()
@@ -49,11 +41,11 @@ def get_colored_text(text:str, color):
 
 
 # Serialize writes and finalize any pending progress line before a normal
-# status print, so parallel redraws don't get glued to status lines.
+# status print, so parallel redraws do not get glued to status lines.
 _console_lock = threading.Lock()
 _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
-_active_display = None  # duck-typed BuildDisplay; routes normal lines above its live region
+_active_display = None  # duck-typed BuildDisplay, routes normal lines above its live region
 _capture = threading.local()  # per-thread sink: a running job's console() lines go to its display task
 
 # Set by GitHub Actions and GitLab CI (CI), Azure Pipelines, Jenkins and TeamCity.
@@ -75,10 +67,10 @@ def is_headless() -> bool:
 
 def _redraw_due() -> bool:
     """True when a progress redraw may print. Without a terminal a redraw appends a line instead of
-    overwriting one, so a CI log collects one flood of bars per download. Throttle those to one line
-    per _HEADLESS_PROGRESS_INTERVAL per thread, and let the first call only start the timer, so a
-    transfer that finishes inside one interval prints its final line and nothing else. A captured
-    redraw is exempt: it feeds the live display, which already decides what reaches the screen."""
+    overwriting one, so a CI log collects one flood of bars per download. Those throttle to one line
+    per _HEADLESS_PROGRESS_INTERVAL per thread. The first call only starts the timer, so a transfer
+    that finishes inside one interval prints its final line and nothing else. A captured redraw is
+    exempt: it feeds the live display, which already decides what reaches the screen."""
     if not is_headless() or getattr(_capture, 'sink', None) is not None: return True
     now = time.monotonic()
     last = getattr(_progress_at, 'at', None)
@@ -96,9 +88,9 @@ def set_active_display(display):
 
 def capture_context():
     """Snapshot this thread's console-capture state as a (sink, display, tid, build_slot) tuple. A
-    helper thread that runs io_func - SubProcess's reader thread - re-establishes it via
-    capture_to(*ctx); without that, io_func's console() lines have no sink and leak above the live
-    region instead of feeding the owning display task."""
+    helper thread that runs io_func - SubProcess's reader thread - restores it with capture_to(*ctx).
+    Without that, io_func's console() lines have no sink and leak above the live region instead of
+    feeding the owning display task."""
     return (getattr(_capture, 'sink', None), getattr(_capture, 'display', None),
             getattr(_capture, 'tid', None), getattr(_capture, 'build_slot', None))
 
@@ -106,8 +98,8 @@ def capture_context():
 @contextlib.contextmanager
 def capture_to(sink, display=None, tid=None, build_slot=None):
     """Route THIS thread's console() lines to `sink` (a display task feed) so a job's banners land
-    in its display line instead of tearing the live region; restores the previous sink on exit.
-    `display`/`tid` let SubProcess report child pids for CPU sampling; `build_slot` is the
+    in its display line instead of tearing the live region. Restores the previous sink on exit.
+    `display`/`tid` let SubProcess report child pids for CPU sampling. `build_slot` is the
     scheduler barrier so a custom build()'s cmake_build() can self-gate."""
     prev = capture_context()
     _capture.sink, _capture.display, _capture.tid, _capture.build_slot = sink, display, tid, build_slot
@@ -141,25 +133,25 @@ def report_subprocess(pid: int, started: bool):
 def console(text:str, color=None, end="\n"):
     """ Always flush to support most build environments """
     global _progress_active
-    is_redraw = text.startswith('\r')        # redraws start with \r (cursor reset); see progress()
+    is_redraw = text.startswith('\r')        # redraws start with \r (cursor reset), see progress()
     clean = text[1:] if is_redraw else text  # \r stripped: line-based sinks/region want a clean line
     # While a display owns the screen, route EVERYTHING through it - any direct stdout write (even a
     # \r-redraw or a partial) desyncs the region's cursor math and walks it down the screen. Owned
-    # output feeds the job's task preview; an ownerless full line goes above the region; an ownerless
-    # mid-progress redraw is dropped (can't place it in the line-based region without corrupting it).
+    # output feeds the job's task preview. An ownerless full line goes above the region. An ownerless
+    # mid-progress redraw is dropped: the line-based region cannot place it without corruption.
     sink = getattr(_capture, 'sink', None)
     if sink is not None or _active_display is not None:
         # Split an embedded-newline message into SEPARATE lines: the display is line-based, and a
         # multi-line string smuggled through as one 'line' shifts the terminal cursor, desyncing the
         # live region's cursor-up math and stranding running task lines in the scrollback.
         for part in (clean.split('\n') if '\n' in clean else (clean,)):
-            line = get_colored_text(part, color)  # not `colored`: that's termcolor's, imported above
+            line = get_colored_text(part, color)  # not `colored`: that name is termcolor's, imported above
             if sink is not None: sink(line)
             elif end == '\n': _active_display.print_above(line)
         return
     text = get_colored_text(text, color)
     with _console_lock:
-        # a status line right after an in-flight \r-progress needs a leading \n so it isn't overwritten
+        # a status line right after an in-flight \r-progress needs a leading \n so the redraw does not overwrite it
         if _progress_active and not is_redraw:
             print()
         if is_redraw: text += _ERASE_EOL  # erase-to-EOL so a shorter redraw clears the longer prev line
@@ -168,20 +160,20 @@ def console(text:str, color=None, end="\n"):
 
 
 def progress(text:str, color=None, final=False):
-    """Redraw an in-place progress line, always cleared to end-of-line. `final=True`
-    commits it with a newline; otherwise the cursor stays put for the next redraw. A final line always
-    prints; see _redraw_due() for why the rest throttle without a terminal."""
+    """Redraw an in-place progress line, always cleared to end-of-line. `final=True` commits it with a
+    newline. Otherwise the cursor stays on the line for the next redraw. A final line always prints.
+    See _redraw_due() for why the rest throttle without a terminal."""
     if not final and not _redraw_due(): return
     console('\r' + text, color=color, end='\n' if final else '')
 
 
 def error(text:str):
-    """ Prints a message as an error, usually colored red """
+    """ Prints an error message, colored red """
     console(text, color=Color.RED)
 
 
 def warning(text:str):
-    """ Prints a message as a warning, colored yellow """
+    """ Prints a warning message, colored yellow """
     console(text, color=Color.YELLOW)
 
 

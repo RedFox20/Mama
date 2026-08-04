@@ -1,10 +1,5 @@
-"""Cooperative shutdown for a build that must stop: a first failure, or Ctrl+C.
-
-Two stages. `request()` only sets a flag, so nothing NEW starts - no job launch, no phase transition,
-no subprocess spawn. Then mama asks every running child to stop and waits out the grace period. Mama
-kills only a child that ignores the request. A hard kill of git, cmake or ninja mid-write leaves a
-broken cmake cache, a half-written object file or a stale .git/index.lock. The next build then fails
-on that leftover state, not on the real error."""
+"""Cooperative shutdown for a build that must stop: a first failure, or Ctrl+C. `request()` only sets a flag,
+so nothing new starts. Mama then asks each running child to stop and kills only one that ignores the grace period."""
 
 import threading
 

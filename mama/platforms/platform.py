@@ -8,8 +8,8 @@ if TYPE_CHECKING:
 
 
 # The canonical processor name per mama arch. This names what the TARGET runs on, never the host.
-# A project that branches on it (googletest adds -march=x86-64-v3 the moment it reads x86_64)
-# compiles host instructions into a cross build if the host value leaks in.
+# If the host value leaks in, a project that branches on it compiles host instructions into a
+# cross build. googletest adds -march=x86-64-v3 as soon as it reads x86_64.
 SYSTEM_PROCESSORS = {
     'arm64': 'aarch64', 'arm': 'armv7-a', 'x64': 'x86_64', 'x86': 'i686',
     'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el',
@@ -36,8 +36,8 @@ class Platform:
     """One target platform: what to build FOR, and how to find the tools that build it.
 
     Every platform mama supports is a subclass. Exactly one instance lives at `config.platform`.
-    A subclass overrides only what differs from the defaults below. `Linux` overrides three
-    members. `Android` overrides nine.
+    A subclass overrides only what differs from the defaults below. `Linux` overrides a few
+    members. `Android` overrides the most.
 
     A platform describes facts. It never formats a build-system option. `mama/buildsys/` renders
     `toolchain()` into whatever the active build system needs, so a second build system costs no
@@ -62,8 +62,8 @@ class Platform:
     cxx20_flag = 'c++20'       ## `c++2a` where the toolchain predates the final C++20 name
     ## clang dropped -dumpfullversion, so only ask a gcc-based toolchain for the full x.y.z version
     compiler_dumpfullversion = True
-    ## A system library is named differently per platform: Apple links '-framework Foundation', Linux
-    ## has a real file to find under /usr/lib, and everything else leaves it to the system linker.
+    ## A system library differs per platform. Apple links '-framework Foundation'. Linux has a real
+    ## file to find under /usr/lib. Every other platform leaves it to the system linker.
     syslib_is_framework = False
     syslib_is_searchable = False
     ## The IDE project extensions this platform's own generator emits, newest format first, and the
@@ -153,14 +153,14 @@ class Platform:
 
 
     def banner_name(self) -> str:
-        """What the build banner calls this target. The toolchain alone is ambiguous - 'clang 21.0' is
-        both a host clang and the android NDK's - so the banner names the platform to prove which ran."""
+        """What the build banner calls this target. 'clang 21.0' names both a host clang and the
+        android NDK's, so the banner adds the platform to prove which ran."""
         return ' '.join(p for p in (self.name, self.config.arch) if p)
 
 
     def compiler_version_tag(self) -> str:
         """Compiler id for the artifactory archive name, eg 'gcc14.3'. Named from the RESOLVED
-        compiler, never from config.gcc/clang: those describe the host, so a cross build reported
+        compiler, never from config.gcc/clang. Those describe the host, so a cross build reported
         the host compiler's version for the NDK's clang."""
         cc, _, version = self.config.get_preferred_compiler_paths()
         major, minor = version.split('.')[:2]

@@ -7,8 +7,8 @@ class Toolchain:
     """What a platform knows about its own compilers, in build-system-neutral terms.
 
     A build system renders this. `mama/buildsys/cmake/options.py` turns it into `-D` options.
-    No field uses CMake vocabulary except `extra_opts`, which is the escape hatch for options
-    that only one build system and one platform understand (the Android NDK variables).
+    No field uses CMake vocabulary except `extra_opts`. That field is the escape hatch for
+    options that only one build system and one platform understand, such as the NDK variables.
 
     A platform builds this ONCE, after toolchain discovery, and caches it. See `Platform.toolchain()`.
     """

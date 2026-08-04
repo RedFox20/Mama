@@ -4,8 +4,8 @@ from mama.platforms.registry import PLATFORMS
 
 
 # The CMake condition that identifies each platform, in the order mama.cmake tests them. The order is
-# the registry's, and it matters: android is also UNIX and iOS is also APPLE, so the specific guard has
-# to come first. A platform missing from here cannot be detected by a consumer's CMakeLists.
+# the registry's, and it matters: android is also UNIX and iOS is also APPLE, so the specific guard
+# must come first. A consumer's CMakeLists cannot detect a platform missing from here.
 _GUARDS = {
     'android': 'ANDROID OR ANDROID_NDK',
     'windows': 'WIN32',
@@ -22,9 +22,9 @@ _GUARDS = {
 # Variables a consumer's CMakeLists has always been able to test, beyond the platform's own define.
 _EXTRA_VARS = {'ios': ('IOS',), 'macos': ('MACOS',), 'linux': ('LINUX',)}
 
-# How MAMA_CMAKE_ARCH is matched, and the variable each arch sets. Tested in THIS order, so x64 wins
-# before x86 (which also matches x86_64) and mips64el before mips. The patterns are a union of what
-# CMAKE_GENERATOR_PLATFORM, ANDROID_ARCH and CMAKE_SYSTEM_PROCESSOR each report for that arch.
+# The MAMA_CMAKE_ARCH pattern and the variable each arch sets. mama.cmake tests them in THIS order, so
+# x64 wins before x86 (which also matches x86_64) and mips64el before mips. Each pattern is a union of
+# what CMAKE_GENERATOR_PLATFORM, ANDROID_ARCH and CMAKE_SYSTEM_PROCESSOR report for that arch.
 _ARCH_MATCH = (
     ('x64',      'MAMA_ARCH_X64',   '(amd64)|(AMD64)|(IA64)|(x64)|(X64)|(x86_64)|(X86_64)'),
     ('x86',      'MAMA_ARCH_X86',   '(X86)|(x86)|(i386)|(i686)'),

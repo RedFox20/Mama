@@ -1,7 +1,5 @@
-"""C++ Build Insights (Stage 2 of `buildstats`): wrap an MSVC build in a vcperf /timetrace session, then
-parse the Chrome-trace JSON to show where compile time goes - frontend parse vs backend codegen, slowest
-TUs, costliest headers. vcperf is a pure observer of whatever the build command compiled, so `build
-buildstats` profiles the iterative build and `rebuild buildstats` the full one. Non-MSVC builds skip this."""
+"""C++ Build Insights (Stage 2 of `buildstats`): wraps an MSVC build in a vcperf /timetrace session, then
+parses the Chrome-trace JSON to show where compile time goes. Non-MSVC builds skip this stage."""
 import os, json, tempfile
 import mama.util as util
 from .util import get_time_str, normalized_join
@@ -9,10 +7,10 @@ from .utils.system import System, console, warning, Color, get_colored_text
 from .utils.sub_process import SubProcess
 
 _SESSION = 'mama_buildstats'  # one global ETW session name around the whole parallel build
-_TIMEOUT = 600  # vcperf /stop relogs the whole trace; give it room on large builds
+_TIMEOUT = 600  # vcperf /stop relogs the whole trace, so give it room on large builds
 _VS_VCPERF_SUBPATH = 'Common7/IDE/CommonExtensions/Platform/CppBuildInsights/vcperf.exe'  # bundled standalone
-# /noadmin: capture without elevation (one-time `vcperf /grantusercontrol` from an elevated prompt is the
-# prerequisite); /nocpusampling: skip the admin-only kernel sampling trace - timetrace needs only MSVC events.
+# /noadmin captures without elevation, after a one-time `vcperf /grantusercontrol` from an elevated prompt.
+# /nocpusampling skips the admin-only kernel sampling trace. Timetrace needs only the MSVC events.
 _START = ('/start', '/noadmin', '/nocpusampling')
 # Structural activity names (passes/threads/codegen wrappers) that carry no path/symbol of interest.
 _STRUCTURAL = ('thread', 'pass', 'frontend', 'backend', 'code generation', 'codegeneration',
@@ -41,7 +39,7 @@ def timetrace_path(build_dir: str) -> str:
 
 
 def _start_reason(output: str) -> str:
-    """One concise, actionable line from vcperf's verbose /start failure blurb."""
+    """One concise, actionable line from the verbose vcperf /start failure output."""
     low = output.lower()
     if 'grantusercontrol' in low:
         return 'vcperf needs one-time setup - run `vcperf /grantusercontrol` from an elevated prompt'
@@ -51,10 +49,10 @@ def _start_reason(output: str) -> str:
 
 
 class VcPerfSession:
-    """Context manager: `/start /noadmin /nocpusampling` on enter, `/stop /timetrace <json>` on exit (always,
-    so an ETW session is never left open even if the build raised). Success is judged by whether the JSON was
-    written, not vcperf's exit code (which is unreliable - it errors on an event-less session yet still writes
-    a valid empty trace). A failed start degrades to a no-op with a one-line hint."""
+    """Context manager: `/start /noadmin /nocpusampling` on enter, `/stop /timetrace <json>` on exit. The
+    exit always runs, so a raised build never leaves an ETW session open. The written JSON defines success,
+    not the vcperf exit code. vcperf errors on an event-less session yet still writes a valid empty trace.
+    A failed start degrades to a no-op with a one-line hint."""
     def __init__(self, vcperf: str, json_out: str, level='/level3'):
         self.vcperf = vcperf; self.json_out = json_out; self.level = level; self.ok = False
 
@@ -67,8 +65,8 @@ class VcPerfSession:
         return st, '\n'.join(out)
 
     def _clear_stale(self):
-        """Best-effort discard of a session left open by a crashed run, so /start can succeed. /stopnoanalyze
-        needs an output path; we write a throwaway ETL and delete it."""
+        """Discards a session that a crashed run left open, so /start can succeed. /stopnoanalyze
+        needs an output path, so write a throwaway ETL and delete it."""
         etl = normalized_join(tempfile.gettempdir(), 'mama_stale.etl')
         self._run([self.vcperf, '/stopnoanalyze', _SESSION, etl])
         try: os.remove(etl)
@@ -78,8 +76,8 @@ class VcPerfSession:
         return self._run([self.vcperf, *_START, self.level, _SESSION])
 
     def _grant_user_control(self) -> bool:
-        """One-time elevated `vcperf /grantusercontrol` (one UAC prompt) so /noadmin needs no elevation on
-        any later run. Windows-only; returns True if the elevated command completed."""
+        """One-time elevated `vcperf /grantusercontrol` (one UAC prompt), so /noadmin needs no elevation on
+        any later run. Windows only. Returns True when the elevated command completed."""
         if not System.windows: return False
         console('buildstats: granting vcperf user-mode trace control (one-time; accept the elevation prompt)')
         cmd = ['powershell', '-NoProfile', '-Command',
@@ -100,8 +98,8 @@ class VcPerfSession:
 
     def __exit__(self, *exc):
         if self.ok:
-            os.makedirs(os.path.dirname(self.json_out) or '.', exist_ok=True)  # vcperf won't create the dir
-            try: os.remove(self.json_out)  # so a leftover trace can't masquerade as this run's
+            os.makedirs(os.path.dirname(self.json_out) or '.', exist_ok=True)  # vcperf does not create the dir
+            try: os.remove(self.json_out)  # so a leftover trace cannot pass as this run's trace
             except OSError: pass
             self._run([self.vcperf, '/stop', _SESSION, '/timetrace', self.json_out])
             self.ok = os.path.exists(self.json_out)  # trust the file, not vcperf's exit code
@@ -110,11 +108,11 @@ class VcPerfSession:
 
 
 # --- timetrace JSON parsing ---------------------------------------------------------------------------
-# Format (vcperf TimeTraceGenerator): {"traceEvents":[...]} where ts/dur are microseconds. Childless
-# entries are complete events (ph "X", carry dur); entries with children are begin/end pairs (ph "B"/"E").
-# Names: "CL Invocation N" / "Link Invocation N" (top-level, with File Input/Output args); a FrontEndFile
-# carries its path as the name; a Function/template carries its symbol. So a path-separator in the name
-# distinguishes a parsed file from a codegen symbol - no dependence on internal pass names.
+# Format (vcperf TimeTraceGenerator): {"traceEvents":[...]} where ts/dur are microseconds. A childless
+# entry is a complete event (ph "X", carries dur). An entry with children is a begin/end pair (ph "B"/"E").
+# Names: "CL Invocation N" / "Link Invocation N" at top level, with File Input/Output args. A FrontEndFile
+# carries its path as the name. A Function/template carries its symbol. So a path separator in the name
+# distinguishes a parsed file from a codegen symbol, with no dependence on internal pass names.
 
 class _Node:
     __slots__ = ('name', 'args', 'start', 'dur', 'children')
@@ -153,10 +151,10 @@ def _arg_values(args, key: str) -> list:
 _FRONTEND_PASS, _BACKEND_PASS = 'FrontEndPass', 'BackEndPass'
 
 def _find_passes(node, fe: list, be: list):
-    """Collect the per-TU FrontEndPass/BackEndPass activities under a CL invocation (descending through
-    any wrapper nodes). With /MP one invocation runs MANY of each in parallel; summing their durations
-    gives aggregate CPU - which is what makes frontend/backend comparable (the invocation's own dur is
-    wall time, so aggregate parse could exceed it and clamp backend to zero - the bug this fixes)."""
+    """Collects the per-TU FrontEndPass/BackEndPass activities under a CL invocation, descending through
+    any wrapper nodes. With /MP one invocation runs MANY of each in parallel. The sum of their durations
+    gives aggregate CPU, which makes frontend and backend comparable. The invocation's own dur is wall
+    time, so aggregate parse could exceed it and clamp backend to zero."""
     for ch in node.children:
         if ch.name == _FRONTEND_PASS: fe.append(ch)
         elif ch.name == _BACKEND_PASS: be.append(ch)
@@ -164,9 +162,9 @@ def _find_passes(node, fe: list, be: list):
 
 
 def _collect(node, depth: int, files: dict, symbols: dict, in_backend: bool) -> str:
-    """DFS of one compiler pass: aggregate each INCLUDED header (a FrontEndFile at depth>0) into `files`
+    """DFS of one compiler pass: aggregates each INCLUDED header (a FrontEndFile at depth>0) into `files`
     and, under a backend pass, each codegen leaf into `symbols`. Returns the outermost source path (the
-    TU's own .cpp at depth 0) for labeling - it's not a header, so it never feeds `files`."""
+    TU's own .cpp at depth 0) for labeling. The source is not a header, so it never feeds `files`."""
     src = None
     for ch in node.children:
         if _is_path(ch.name):
@@ -188,7 +186,7 @@ def _norm(p: str) -> str:
 
 
 class TraceStats:
-    """Aggregated build-insights numbers, all durations in seconds. Lists are sorted slowest-first."""
+    """Aggregated build-insights numbers, all durations in seconds. Lists rank slowest-first."""
     def __init__(self, compile_s, link_s, frontend_s, backend_s, wall_s, n_tu, tus, files, symbols):
         self.compile_s = compile_s; self.link_s = link_s
         self.frontend_s = frontend_s; self.backend_s = backend_s
@@ -246,19 +244,19 @@ def _build_stats(frontend_us, backend_us, link_us, wall_us, n_tu, tus, files, sy
 
 # --- Clang -ftime-trace (Linux/Clang deep dive) -------------------------------------------------------
 # One flat-event JSON per TU (events ph:"X", each with args.detail). Frontend/Backend are the phase
-# totals; Source events carry a parsed file path; Instantiate*/OptFunction carry an ALREADY-demangled
-# symbol. Linking isn't traced (link stays 0), and per-TU timelines are independent, so wall comes from
-# the build clock, not the JSONs.
+# totals. A Source event carries a parsed file path. Instantiate*/OptFunction carry an ALREADY-demangled
+# symbol. Clang does not trace linking (link stays 0), and per-TU timelines are independent, so wall
+# comes from the build clock, not the JSONs.
 _CLANG_CODEGEN = ('InstantiateClass', 'InstantiateFunction', 'OptFunction')
 _SRC_EXTS = ('.c', '.cc', '.cpp', '.cxx', '.c++', '.m', '.mm')
 
 def _is_header(path: str) -> bool:
-    return not _base(path).lower().endswith(_SRC_EXTS)  # the TU's own .cpp isn't a header; STL headers have no ext
+    return not _base(path).lower().endswith(_SRC_EXTS)  # the TU's own .cpp is not a header. STL headers have no ext
 
 
 def parse_clang_traces(paths, wall_s=0.0) -> TraceStats:
-    """Aggregate Clang -ftime-trace JSONs (one per TU) into the same TraceStats vcperf produces, so the
-    Linux deep report renders identically. `wall_s` is the measured build wall time (the JSONs can't give it)."""
+    """Aggregates Clang -ftime-trace JSONs (one per TU) into the same TraceStats vcperf produces, so the
+    Linux deep report renders identically. `wall_s` is the measured build wall time (the JSONs cannot give it)."""
     frontend_us = backend_us = 0.0
     n_tu = 0
     tus, files, symbols = [], {}, {}
@@ -286,9 +284,9 @@ def parse_clang_traces(paths, wall_s=0.0) -> TraceStats:
 
 
 def collect_clang_traces(build_dir: str, since: float = 0.0) -> list:
-    """The `*.json` time-traces clang wrote into `build_dir`, modified at/after `since` (wall seconds) so
-    only THIS build's TUs are analyzed. Content-filtering (skip compile_commands.json etc) is left to the
-    parser. Sorted newest-first is irrelevant; the parser aggregates all."""
+    """The `*.json` time-traces clang wrote into `build_dir`, modified at or after `since` (wall seconds),
+    so the report covers only THIS build's TUs. The parser does the content filtering (it skips
+    compile_commands.json etc) and aggregates every file, so the order does not matter."""
     import glob
     out = []
     for p in glob.glob(util.path_join(build_dir, '**', '*.json'), recursive=True):
@@ -303,7 +301,7 @@ def collect_clang_traces(build_dir: str, since: float = 0.0) -> list:
 _TOP = 8           # rows per ranked section
 _SYM_WIDTH = 100   # truncate a demangled symbol so a codegen row stays one line
 _UNDNAME_NAME_ONLY = 0x1000  # dbghelp flag: drop return type / calling convention / params -> scope::name<...>
-_undname = None    # memoized (ctypes, UnDecorateSymbolName) or False; resolved once (the API is process-constant)
+_undname = None    # memoized (ctypes, UnDecorateSymbolName) or False, resolved once. The API is process-constant
 
 
 def _demangle(name: str) -> str:

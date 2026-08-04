@@ -20,7 +20,7 @@ def is_file_modified(src: str, dst: str):
 
 
 def find_executable_from_system(name: str, follow_symlinks=False) -> str:
-    """ Returns the absolute path to an executable if found, otherwise returns empty string """
+    """Returns the absolute path to an executable, or an empty string when not found."""
     if not name: return ''
     output = shutil.which(name)
     if not output: return ''
@@ -80,7 +80,7 @@ def path_join(first: str, *parts) -> str:
     """Join with forward/ slashes and keep the path exactly where it points.
 
     The relative sibling of normalized_join(). abspath() turns a relative path into a machine-specific
-    absolute one, and on Windows it prepends the current drive, so `/tmp/x` becomes `C:/tmp/x`. Use this
+    absolute one. On Windows it prepends the current drive, so `/tmp/x` becomes `C:/tmp/x`. Use this
     for a path mama only prints, records, or hands to another tool. Use normalized_join() for a path
     mama opens on this machine."""
     result = first.rstrip('/\\')
@@ -92,7 +92,7 @@ def path_join(first: str, *parts) -> str:
 
 
 def forward_slashes(pathstring: str) -> str:
-    """ Replace all back\\ slashes with forward/ slashes"""
+    """Replaces all back\\ slashes with forward/ slashes."""
     return pathstring.replace('\\', '/')
 
 
@@ -111,18 +111,18 @@ def short_path(path) -> str:
 
 
 def back_slashes(pathstring: str) -> str:
-    """ Replace all forward/ slashes with back\\ slashes"""
+    """Replaces all forward/ slashes with back\\ slashes."""
     return pathstring.replace('/', '\\')
 
 
 def normalized_path(pathstring: str) -> str:
-    """ Normalizes a path to ABSOLUTE path and all forward/ slashes """
+    """Normalizes a path to an ABSOLUTE path with all forward/ slashes."""
     pathstring = os.path.abspath(pathstring)
     return pathstring.replace('\\', '/').rstrip()
 
 
 def normalized_join(path1: str, *pathsN) -> str:
-    """ Joins N paths and the calls normalized_path() """
+    """Joins N paths and then calls normalized_path()."""
     return normalized_path(os.path.join(path1, *pathsN))
 
 
@@ -139,8 +139,7 @@ def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List
 
 
 def strstr_multi(s: str, substrings: List[str]) -> bool:
-    #console(f'file: {s} matches: {substrings}')
-    if not substrings: # if no substrings, then match everything
+    if not substrings: # no substrings matches everything
         return True
     for substr in substrings:
         if substr in s:
@@ -181,8 +180,8 @@ def remove_tree(dir: str):
 
 
 # Subdirs that prove a checkout is already here, even with no file at the top level. `.git` is the
-# strongest of them: a working tree whose root holds only directories used to read as empty, so mama
-# cloned over a perfectly good clone and git failed with 'already exists and is not an empty directory'.
+# strongest of them: a working tree whose root holds only directories used to read as empty. Mama then
+# cloned over a good clone, and git failed with 'already exists and is not an empty directory'.
 _OCCUPIED_SUBDIRS = {'.git', 'include', 'src', 'lib', 'bin'}
 
 
@@ -199,7 +198,7 @@ _NON_SOURCE_ENTRIES = {'mama.cmake', '.git'}
 
 
 def has_source_content(dir: str) -> bool:
-    """True if `dir` holds anything mama didn't put there - source a wipe would destroy. Counts subdirs
+    """True if `dir` holds anything mama did not put there - source a wipe would destroy. Counts subdirs
     (unlike is_dir_empty) and biases to 'source': worst case keeps a stale dir, never loses local work."""
     if not os.path.exists(dir): return False
     return any(entry not in _NON_SOURCE_ENTRIES for entry in os.listdir(dir))
@@ -240,11 +239,10 @@ def git_dir_fingerprint(src_dir: str) -> str:
     a missing dir. Lets `mama build` catch in-place source edits - of a git dep clone, or of a
     local dep tracked by an enclosing repo - without a full status check or reconfigure.
 
-    Uses subprocess.run with stderr=DEVNULL (not SubProcess.run / execute_piped): a local
-    source dir may not be under git at all, and we must swallow git's `fatal: not a git
-    repository` rather than surface it on every build. Scoping with `-- .` keeps a subfolder of
-    a larger repo from fingerprinting the parent's unrelated changes. Two git calls; near-free
-    on a clean tree."""
+    Uses subprocess.run with stderr=DEVNULL, not SubProcess.run / execute_piped: a local
+    source dir may not be under git at all, and the `fatal: not a git repository` noise must
+    not reach the user. Scoping with `-- .` keeps a subfolder of a larger repo from
+    fingerprinting the parent's unrelated changes. Two git calls, near-free on a clean tree."""
     if not src_dir or not os.path.exists(src_dir):
         return ''
     def git(args) -> bytes:
@@ -268,9 +266,7 @@ def git_dir_fingerprint(src_dir: str) -> str:
 
 
 def get_file_size_str(size):
-    """
-    Returns file size as a human readable string, eg 96.5KB, or 100.1MB
-    """
+    """Returns the file size as a human readable string, eg 96.5KB or 100.1MB."""
     if size < 128: return f'{size}B' # only show bytes for really small < 0.1 KB sizes
     if size < (1024*1024): return f'{size/1024:.1f}KB'
     if size < (1024*1024*1024): return f'{size/(1024*1024):.1f}MB'
@@ -278,7 +274,7 @@ def get_file_size_str(size):
 
 
 def get_time_str(seconds: float):
-    if seconds < 0.1: return f'{int(seconds*1000)}ms'  # ms only below 0.1s, else 0.0s; 0.2s beats 200ms
+    if seconds < 0.1: return f'{int(seconds*1000)}ms'  # ms only below 0.1s, because 0.2s reads better than 200ms
     if seconds < 60: return f'{seconds:.1f}s'
     if seconds < 60*60: return f'{int(seconds/60)}m {int(seconds%60)}s'
     if seconds < 24*60*60: return f'{int(seconds/(60*60))}h {int(seconds/60)%60}m {int(seconds)%60}s'
@@ -312,7 +308,7 @@ class ProgressBar:
         progress(f'{self.indent}{bar}{self._tail()}', final=final)
 
     def step(self, amount: int, label: str = ''):
-        """Advance by `amount` bytes; `label` names the item in flight, shown on the next redraw."""
+        """Advances by `amount` bytes. `label` names the item in flight, shown on the next redraw."""
         self.done += amount
         self.label = label
         if self.interval >= 100: return
@@ -324,17 +320,16 @@ class ProgressBar:
     def finish(self):
         """Commit the bar on its own line. Always drawn, even when redraws were throttled off, and
         reports the real percent so a truncated transfer is visible rather than claiming 100%."""
-        self.label = ''  # at 100% there is no item in flight; keep the committed line clean
+        self.label = ''  # at 100% there is no item in flight, so keep the committed line clean
         self._draw(self._percent(), final=True)
 
 
 def download_file(remote_url:str, local_dir:str, force=False, message=None, name:str=None):
     """Downloads remote_url into local_dir.
     - force=False: use any existing local file without contacting the server.
-    - force=True:  open the connection and compare Content-Length; skip the
-      body transfer when sizes match (used for artifactory fetches so we don't
-      re-download archives already on disk).
-    - name: optional target name for prefixing log lines under parallel updates."""
+    - force=True:  open the connection and compare Content-Length. Skip the body transfer when the
+      sizes match, so an artifactory fetch does not re-download an archive already on disk.
+    - name: optional target name that prefixes the log lines under parallel updates."""
     local_file = normalized_join(local_dir, os.path.basename(remote_url))
     indent = f'  - {name: <16} ' if name else '    '
     if not force and os.path.exists(local_file):
@@ -356,8 +351,8 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
         size = int(size.strip()) if size else None
 
         # Size-match cache: skip the body transfer entirely when the local
-        # file matches the remote Content-Length. Costs one HTTP round-trip
-        # (already paid by opening the connection); saves the whole body.
+        # file matches the remote Content-Length. Costs one HTTP round-trip,
+        # already paid by opening the connection, and saves the whole body.
         if size is not None and os.path.exists(local_file) \
                 and os.path.getsize(local_file) == size:
             console(f'{indent}Artifactory CACHE (size-match) '
@@ -373,7 +368,7 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
         transferred = 0
         with open(local_file, 'wb') as output:
             while transferred < size:
-                data = urlfile.read(32*1024) # large chunks plz
+                data = urlfile.read(32*1024)
                 if not data: break
                 output.write(data)
                 transferred += len(data)
@@ -385,11 +380,11 @@ def download_file(remote_url:str, local_dir:str, force=False, message=None, name
 
 def unzip(local_zip: str, extract_dir: str, pwd: str = None):
     """
-    Attempts to unzip an archive, throws on failure.
-    Only extracts the files if their current size or modified time mismatches.
-    Always sets modified time from the zipfile info.
-    Preserves symlinks. And sets the correct file permission attributes.
-    Returns # of files actually extracted.
+    Unzips an archive into extract_dir, throws on failure.
+    Extracts a file only when its current size or modified time mismatches.
+    Always sets the modified time from the zipfile info.
+    Preserves symlinks and sets the correct file permission attributes.
+    Returns the number of files actually extracted.
     """
     def get_zipinfo_datetime(zipmember: zipfile.ZipInfo) -> datetime:
         zt = zipmember.date_time # tuple: year, month, day, hour, min, sec
@@ -413,7 +408,7 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
     # creates a symlink only if necessary
     def make_symlink(zipmember: zipfile.ZipInfo, symlink_location, is_directory):
         target = zip.read(zipmember, pwd=pwd).decode('utf-8')
-        # link does not exist, recreate it
+        # link does not exist, create it
         if not os.path.islink(symlink_location):
             if os.path.exists(symlink_location):
                 os.remove(symlink_location)
@@ -434,7 +429,7 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
             mode = zipmember.external_attr >> 16
             is_symlink = stat.S_ISLNK(mode)
             did_extract = False
-            if zipmember.is_dir():  # make dirs if needed
+            if zipmember.is_dir():
                 if is_symlink:
                     did_extract = make_symlink(zipmember, dst_path, is_directory=True)
                 elif not os.path.isdir(dst_path):
@@ -451,14 +446,12 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
                         shutil.copyfileobj(src, dst)
                         did_extract = True
                 if did_extract:
-                    # set the correct permissions for files and folders
                     if not is_symlink:
                         perm = stat.S_IMODE(zipmember.external_attr >> 16)
                         os.chmod(dst_path, perm)
-                    # always set the modification date from the zipmember timestamp,
-                    # this way we can avoid unnecessarily modifying files and causing full rebuilds
+                    # Always set the modification date from the zipmember timestamp.
+                    # This avoids needless file changes and full rebuilds.
                     time = get_zipinfo_datetime(zipmember)
-                    #print(f'    | {dst_path} {time}')
                     mtime = time.timestamp()
                     if System.windows:
                         os.utime(dst_path, times=(mtime, mtime))
@@ -472,9 +465,8 @@ def unzip(local_zip: str, extract_dir: str, pwd: str = None):
 
 def try_unzip(local_file:str, extract_dir:str) -> bool:
     """
-    Attempts to unzip an archive, returns a tuple (success: bool, num_extracted: int)
-    If (success: True, num_extracted: 0) is returned, it means none of the destination files
-    were different from the zip contents, and zero extractions were performed
+    Attempts to unzip an archive. Returns a tuple (success: bool, num_extracted: int).
+    (True, 0) means every destination file already matched the zip contents.
     """
     try:
         files_extracted = unzip(local_file, extract_dir)
@@ -508,15 +500,12 @@ def _should_copy(src: str, dst: str):
     try:
         dst_stat = os.stat(dst)
     except (OSError, ValueError):
-        return True # dst doesn't exist, definitely need to copy it
+        return True # dst does not exist, so copy
 
     if src_stat.st_size != dst_stat.st_size:
-        #console(f'_should_copy true src.size != dst.size\n┌──{src}\n└─>{dst}')
         return True
     if src_stat.st_mtime != dst_stat.st_mtime:
-        #console(f'_should_copy true src.mtime != dst.mtime\n┌<──{src}\n└──> {dst}')
         return True
-    #console(f'skip {dst}')
     return False
 
 
@@ -529,15 +518,13 @@ def _passes_filter(src_file: str, filter) -> bool:
 
 def copy_file(src: str, dst: str, filter=None) -> bool:
     """
-        Copies a single file if it passes the filter and
-        if it has changed, returns TRUE if copied.
-        The filter is a string suffix, a list of suffixes, or a function of the file path.
+    Copies a single file when it passes the filter and has changed. Returns True if copied.
+    The filter is a string suffix, a list of suffixes, or a function of the file path.
     """
     if _passes_filter(src, filter):
         if os.path.isdir(dst):
             dst = path_join(dst, os.path.basename(src))
         if _should_copy(src, dst):
-            #console(f'copy {src}\n --> {dst}')
             shutil.copyfile(src, dst, follow_symlinks=True)
             shutil.copystat(src, dst, follow_symlinks=True)
             return True
@@ -546,14 +533,13 @@ def copy_file(src: str, dst: str, filter=None) -> bool:
 
 def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) -> bool:
     """
-        Copies an entire dir if it passes the filter and
-        if the individual files have changed.
-        Returns TRUE if any files were copied.
-        The filter is a string suffix, a list of suffixes, or a function of the file path.
-        If remap_root_dirname is True, then src_dir contents are mapped directly
-        into out_dir, effectively renaming the source directory to out_dir's basename.
-        Example: copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True)
-                 copies src/* -> include/mylib/* instead of src/* -> include/mylib/src/*
+    Copies an entire dir. Copies each file only when it passes the filter and has changed.
+    Returns True if any file was copied.
+    The filter is a string suffix, a list of suffixes, or a function of the file path.
+    If remap_root_dirname is True, src_dir contents map directly into out_dir, which
+    renames the source directory to out_dir's basename.
+    Example: copy_dir('proj/src', 'deploy/include/mylib', remap_root_dirname=True)
+             copies src/* -> include/mylib/* instead of src/* -> include/mylib/src/*
     """
     if not os.path.exists(src_dir):
         raise RuntimeError(f'copy_dir: {src_dir} does not exist!')
@@ -581,10 +567,9 @@ def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) 
 
 def copy_if_needed(src: str, dst: str, filter=None) -> bool:
     """
-        Copies src -> dst  dir/file  if needed and returns TRUE if anything was copied.
-        The filter is a string suffix, a list of suffixes, or a function of the file path.
+    Copies src -> dst dir or file when needed. Returns True if anything was copied.
+    The filter is a string suffix, a list of suffixes, or a function of the file path.
     """
-    #console(f'COPY {src} --> {dst}')
     if os.path.isdir(src):
         return copy_dir(src, dst, filter)
     else:
@@ -644,7 +629,7 @@ def is_network_error(e: Exception) -> bool:
 
 
 # git transfer progress ('Receiving objects: 42% (...)') classification - shared so every place that
-# captures git output collapses the per-percent flood identically (one source of truth).
+# captures git output collapses the per-percent flood identically.
 _GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
                  ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
                  ('Updating files:', 'updating files     '))
@@ -665,14 +650,14 @@ _PERCENT_RE = re.compile(r'\b\d{1,3}%')  # a NN% completion token: git 'Receivin
 
 def is_progress_line(line: str) -> bool:
     """True for any transfer/download progress update - a line carrying a NN% completion token.
-    Consecutive such lines collapse to just the latest so a progress bar (git, artifactory download,
-    a custom build's own downloader) can't flood a captured buffer with hundreds of per-percent updates."""
+    Consecutive such lines collapse to just the latest, so a progress bar (git, artifactory download,
+    a custom build's own downloader) cannot flood a captured buffer with hundreds of per-percent updates."""
     return _PERCENT_RE.search(line) is not None
 
 
 def parse_version(version: str) -> tuple:
     """'0.13.01' -> (0, 13, 1). Segments parse as ints so zero-padding is irrelevant and 0.13 ranks
-    ABOVE 0.9 (a plain string compare gets that backwards). Non-numeric junk in a segment is dropped."""
+    ABOVE 0.9 (a plain string compare gets that backwards). The parse drops non-numeric junk in a segment."""
     parts = []
     for segment in str(version).split('.'):
         digits = ''.join(c for c in segment if c.isdigit())

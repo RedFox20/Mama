@@ -28,7 +28,7 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
     platform = target.config.platform
     if not platform.is_host_runnable:
         console(f'Cannot run tests for a {platform.name} build: this machine cannot execute them.')
-        return # nothing to run
+        return
 
     root_dir = target.source_dir() if src_dir else target.build_dir()
     if target.msvc and not src_dir:
@@ -44,7 +44,7 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
         # b: batch, q: quiet, -o r: run, -k bt: on crash backtrace, -k q: on crash quit
         debugger = f'lldb -b -o r -k bt -k q  -- {exe} {args}'
     elif tool == 'gdb':
-        # r: run;  bt: give backtrace;  q: quit when done;
+        # r: run, bt: print backtrace, q: quit when done
         debugger = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args {exe} {args}'
     else:
         debugger = f'{exe} {args}'

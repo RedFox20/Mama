@@ -1,9 +1,5 @@
-"""Parallel DAG scheduler for configure/build jobs: runs a graph of `Job`s honoring dep edges.
-Governors: CONFIGURE jobs (cheap probes) are count-bounded; BUILD jobs (each spawns `cmake
---build -jN`) are gated by a core budget + CPU-load sample. Fail-fast: the first error stops new
-launches AND fires the abort hook to stop the in-flight children (so the build exits fast, not after
-draining every sibling), then returns the failed job. Generic over `Job.run` (the cmake wiring
-lives in the caller), so it unit-tests with fake jobs."""
+"""Parallel DAG scheduler for load/configure/build jobs: runs a graph of `Job`s and honors the dep edges.
+A count cap governs CONFIGURE jobs, a core budget plus a CPU sample gates BUILD jobs, and the first error aborts the build."""
 
 from __future__ import annotations
 import time, threading, concurrent.futures, contextlib
@@ -40,7 +36,7 @@ class Job:
 
 
 def _make_abort_job() -> Job:
-    """Synthetic job run() returns on Ctrl+C so the caller reports an interrupted (failed) build."""
+    """Synthetic failed job that run() returns after Ctrl+C, so the caller reports an interrupted build."""
     job = Job(('<interrupted>',), BUILD, run=(lambda: None), node=SimpleNamespace(name='<interrupted>'))
     job.error = KeyboardInterrupt('build interrupted by Ctrl+C')
     job.done = True
@@ -48,7 +44,7 @@ def _make_abort_job() -> Job:
 
 
 def _check_acyclic(jobs: List[Job]):
-    """DFS cycle check; raises RuntimeError naming a node in the cycle."""
+    """DFS cycle check. Raises RuntimeError and names a node in the cycle."""
     WHITE, GREY, BLACK = 0, 1, 2
     color = {j: WHITE for j in jobs}
     def visit(j: Job):
@@ -63,10 +59,10 @@ def _check_acyclic(jobs: List[Job]):
 
 
 def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=None) -> List[Job]:
-    """Wire a configure + build job per dep: a dep's configure waits on every in-set child's build
-    (its dependencies.cmake embeds child outputs), its build on its own configure. `weight_fn(dep)`
-    gives the build's core weight, resolved lazily at launch. `children_fn` defaults to get_children.
-    Sets critical-path priorities so trunk deps launch first."""
+    """Wires a configure + build job per dep. A dep's configure waits on every in-set child's build,
+    because its dependencies.cmake embeds the child outputs. Its build waits on its own configure.
+    `weight_fn(dep)` gives the build's core weight, resolved lazily at launch. `children_fn` defaults
+    to get_children. Sets critical-path priorities, so trunk deps launch first."""
     children_fn = children_fn or (lambda d: d.get_children())
     weight_fn = weight_fn or (lambda d: 1)
     dep_set = set(deps)
@@ -83,7 +79,7 @@ def build_dep_jobs(deps, configure_fn, build_fn, weight_fn=None, children_fn=Non
 
 
 def assign_priorities(jobs):
-    """Set job.priority to its critical-path DEPTH: the number of BUILD jobs on the longest chain of jobs
+    """Sets job.priority to its critical-path DEPTH: the number of BUILD jobs on the longest chain of jobs
     that depend on it (configure jobs are free). So a dep deep in the trunk - feeding the root through the
     longest dependency chain - launches first. Purely structural: no (unreliable) build-time estimates."""
     jobs = list(jobs)
@@ -130,9 +126,9 @@ class Scheduler:
         self._error: Optional[Job] = None  # first failed job
 
     def grow(self, build_fn: Callable[[], List[Job]]):
-        """Atomically extend the graph at runtime: `build_fn()` runs under the scheduler lock (so it
-        can safely mutate caller registries + add edges) and returns new jobs. Used by a LOAD job
-        that discovered children; the add happens before LOAD is marked done, so a parent's
+        """Atomically extends the graph at runtime: `build_fn()` runs under the scheduler lock, so it
+        can safely mutate caller registries and add edges, and returns the new jobs. A LOAD job that
+        discovered children uses this. The add happens before the LOAD job reports done, so a parent's
         CONFIGURE never launches before its children's edges exist."""
         with self._cond:
             self._pending.extend(build_fn())
@@ -140,8 +136,8 @@ class Scheduler:
             self._cond.notify_all()
 
     def run(self, jobs: List[Job]) -> Optional[Job]:
-        """Execute all jobs honoring deps + governors; returns the failed job or None. The graph may
-        grow via grow(); the loop ends only when nothing is pending AND nothing runs."""
+        """Executes all jobs and honors deps + governors. Returns the failed job or None. The graph may
+        grow via grow(). The loop ends only when nothing is pending AND nothing runs."""
         _check_acyclic(list(jobs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as ex:
             try:
@@ -177,11 +173,11 @@ class Scheduler:
                     self._cond.release()
                     try: self._pending_log(hint)
                     finally: self._cond.acquire()
-                    if self._gen != gen: continue  # state moved while we drew: re-evaluate, don't sleep on it
+                    if self._gen != gen: continue  # state moved while we drew: re-evaluate, do not sleep on it
                 if not progressed:
                     if self._n_running == 0 and self._pending and not self._error:
                         # nothing running and nothing launchable: the remaining jobs have unmet
-                        # deps that no running job can satisfy -> a dependency cycle. Don't hang.
+                        # deps that no running job can satisfy -> a dependency cycle. Do not hang.
                         self._error = self._pending[0]
                         self._error.error = RuntimeError(f'Cyclical dependency at {self._error}')
                         break
@@ -219,10 +215,10 @@ class Scheduler:
         return self._build_admits(self._resolve_weight(job))  # BUILD
 
     def _build_admits(self, weight: int) -> bool:
-        """Budget gate shared by BUILD launch + build_slot() barriers: admit freely while reserved
-        cores stay within budget REGARDLESS of momentary CPU (one compile saturates the sampler;
-        gating on that stalled every build). CPU only gates over-provisioning
-        beyond budget. reserved==0 always admits, so one build always proceeds and no barrier deadlocks."""
+        """Budget gate shared by the BUILD launch and the build_slot() barriers. Admit freely while the
+        reserved cores stay within budget, REGARDLESS of momentary CPU, because one compile already
+        saturates the sampler. CPU only gates over-provisioning beyond the budget. reserved==0 always
+        admits, so one build always proceeds and no barrier deadlocks."""
         if self._reserved == 0:
             return True
         need = self._reserved + weight
@@ -234,13 +230,13 @@ class Scheduler:
 
     @contextlib.contextmanager
     def build_slot(self, weight: int):
-        """Acquire `weight` budget cores for a compile running INSIDE a job (a custom build()'s
-        cmake_build(), reached via system.build_barrier()): the worker thread suspends until the
-        budget admits, reserves, runs, then releases on exit. always-admit-when-idle = no deadlock."""
+        """Acquires `weight` budget cores for a compile that runs INSIDE a job, such as a custom
+        build()'s cmake_build() reached via system.build_barrier(). The worker thread suspends until
+        the budget admits, reserves, runs, then releases on exit. Always-admit-when-idle means no deadlock."""
         weight = max(0, int(weight))
         with self._cond:
             while True:
-                if self._error is not None: raise BuildInterrupted()  # build failing/aborting: don't start a new compile
+                if self._error is not None: raise BuildInterrupted()  # build failing/aborting: do not start a new compile
                 if self._build_admits(weight): break
                 self._cond.wait(timeout=self._poll_interval)
             self._reserved += weight
@@ -262,7 +258,7 @@ class Scheduler:
     def _pending_hint(self, blocked: List[Job]):
         """The single next task waiting to launch + why, for the live display: a governor-held job
         (deps ready, gated by CPU/budget/slots) if any, else a job still waiting on its deps (up to
-        3 named + a (+N) overflow). None if nothing's waiting (the scheduler is keeping up)."""
+        3 named + a (+N) overflow). None when nothing waits (the scheduler keeps up)."""
         if blocked:
             return (self._name(blocked[0]), self._block_reason(blocked[0]))
         for job in self._pending:
@@ -305,7 +301,7 @@ class Scheduler:
             self._gen += 1
             first_failure = job.error is not None and self._error is None
             if first_failure:
-                self._error = job  # first failure wins; stops further launches
+                self._error = job  # the first failure wins and stops further launches
             self._cond.notify_all()
         if first_failure and self._abort_hook:
             # Fail fast: stop the running child processes, so the build exits now. Otherwise it drains

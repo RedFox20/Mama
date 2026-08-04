@@ -70,10 +70,10 @@ def find_visualstudio(verbose=False) -> str:
 
 
 def latest_msvc_toolset(tools_root: str) -> str:
-    """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
-    version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
-    (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none:
-    every msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
+    """Newest MSVC toolset dir that still has the x64 cl.exe, or '' when none does. An upgrade can
+    leave the old version's dir behind without binaries, and os.listdir order is unspecified. So
+    sort by version, numerically because 14.51 > 14.9, and skip a toolset whose cl.exe is gone.
+    Every msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
     try:
         dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
     except OSError:
@@ -82,11 +82,11 @@ def latest_msvc_toolset(tools_root: str) -> str:
     for d in dirs:
         if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
             return path_join(tools_root, d)
-    return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
+    return ''
 
 
 class Windows(Platform):
-    """MSVC on Windows. Not a cross build: the toolset and the Windows SDK pick the compiler, so
+    """MSVC on Windows. Not a cross build. The toolset and the Windows SDK pick the compiler, so
     mama names no compiler path and resolves the toolset through vswhere instead."""
     name = 'windows'
     cli_aliases = ('msvc',)
@@ -94,7 +94,7 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
-    ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx, an older toolset writes .sln
+    ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx. An older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False
 
@@ -121,7 +121,7 @@ class Windows(Platform):
 
 
     def generator_name(self) -> str:
-        """The Visual Studio generation, eg 'Visual Studio 17 2022'. Both cmake and mama name it this."""
+        """The cmake generator name, eg 'Visual Studio 17 2022', matched from the install path."""
         vspath = self.visualstudio_path()
         return next((g for tag, g in _VS_GENERATORS.items() if tag in vspath), _VS_GENERATOR_FALLBACK)
 
@@ -161,4 +161,4 @@ class Windows(Platform):
 
 
     def debugger(self) -> str:
-        return ''  # the test exe runs directly, there is no batch-mode debugger to wrap it
+        return ''  # no batch-mode debugger exists here, so the test exe runs directly

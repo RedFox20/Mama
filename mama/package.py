@@ -32,16 +32,16 @@ def target_root_path(target: BuildTarget, path: str, build_dir: bool):
 
 
 def get_lib_basename(lib: str|tuple):
-    """The name a lib is identified by, for dedup and for the papa manifest. A tuple is
-    (path, alias). An Apple framework has no file of its own, so it IS its own name."""
+    """The name that identifies a lib, for dedup and for the papa manifest. A tuple is
+    (path, alias). An Apple framework has no file of its own, so the string itself is the name."""
     if isinstance(lib, tuple): return os.path.basename(lib[0])
     if lib.startswith('-framework '): return lib
     return os.path.basename(lib)
 
 
 def get_unique_libnames(items: list):
-    added = set() # to track already added items
-    unique = list() # it must be a list to preserve order of items
+    added = set()
+    unique = list() # a list, to preserve the item order
     for item in items:
         basename = get_lib_basename(item)
         if not basename in added:
@@ -64,11 +64,11 @@ def export_include(target: BuildTarget, include_path: str, build_dir: bool,
     include_path = target_root_path(target, include_path, build_dir=build_dir)
     if os.path.exists(include_path):
         if as_includes_root:
-            # add parent of this include as the exported include, 
-            # so we can #include <mylib/file.h> instead of <src/mylib/file.h>
+            # Export the parent of this include, so a consumer writes
+            # #include <mylib/file.h> and not <src/mylib/file.h>.
             includes_root = include_path
             if type(as_includes_root) == str:
-                alias_name = str(as_includes_root) # assume user passed in 'mylib'
+                alias_name = str(as_includes_root) # the user passed the alias, e.g. 'mylib'
             else:
                 alias_name = os.path.basename(include_path) # take '{src}/include/mylib' -> 'mylib'
             include_path = normalized_path(include_path + '/../')
@@ -111,10 +111,7 @@ def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):
 
 
 def set_export_libs_and_products(target: BuildTarget, libs_and_deps: List[str]):
-    """
-    Sets target's exported_libs and build_products from previously serialized
-    list of libraries and dependencies
-    """
+    """Sets the target's exported_libs and build_products from a serialized list of libs and deps."""
     libs_and_deps = cleanup_libs_list(libs_and_deps)
     only_libs = []
     for lib in libs_and_deps:
@@ -125,7 +122,7 @@ def set_export_libs_and_products(target: BuildTarget, libs_and_deps: List[str]):
 
 
 def cleanup_libs_list(libs: List[str]):
-    """Cleans up libs list by removing invalid entries"""
+    """Strips whitespace and drops `.lib.recipe` entries."""
     cleaned = []
     for lib in libs:
         lib = lib.strip()
@@ -134,9 +131,7 @@ def cleanup_libs_list(libs: List[str]):
     return cleaned
 
 
-# NOTE: clean_intermediate_files is a suggestion !
 def clean_intermediate_files(target: BuildTarget):
-    # never clean root or always_build targets
     if target.dep.always_build or target.dep.is_root:
         return
 
@@ -146,11 +141,10 @@ def clean_intermediate_files(target: BuildTarget):
     if target.clean_intermediate_files:
         if config.verbose: warning('  clean_intermediate [target.clean_intermediate_files]')
         should_clean = True
-    # always clean the intermediate files if we just did an upload operation
     elif config.upload:
         if config.verbose: warning('  clean_intermediate [config.upload]')
         should_clean = True
-    # do automatic cleaning if we did not do a targeted build -- this was an automatic build from source
+    # no targeted build: this was an automatic dependency build from source
     elif (config.build or config.rebuild or config.update) and config.no_specific_target():
         if config.verbose: warning('  clean_intermediate [dependency build cleanup]')
         should_clean = True
@@ -172,19 +166,18 @@ def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_
     libs = glob_with_name_match(root_path, pattern_substrings)
     libs = cleanup_libs_list(libs)
 
-    # ignore root_path/deploy
     root_deploy = root_path + '/deploy/'
     libs = [l for l in libs if not l.startswith(root_deploy)]
 
     target.exported_libs += libs
     target.exported_libs = get_unique_libnames(target.exported_libs)
 
-    # ordering needs to be applied for ALL exported libs, incase they were added in multiple steps
+    # apply the order to ALL exported libs, because earlier export steps added libs too
     if order:
         def lib_index(lib):
             for i in range(len(order)):
                 if order[i] in lib: return i
-            return len(order)  # if this lib name does not match, put it at the end of the list
+            return len(order)  # an unmatched lib sorts last
         def sort_key(lib):
             return lib_index(lib)
         target.exported_libs.sort(key=sort_key)
@@ -221,7 +214,6 @@ def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
     elif platform.syslib_is_searchable:
         roots = [ "/usr/lib" ]
 
-        # They may be located in different places
         if 'LD_LIBRARY_PATH' in os.environ:
             roots += os.environ['LD_LIBRARY_PATH'].split(':')
 
@@ -236,31 +228,30 @@ def find_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
                 lambda: f'{root}/lib{name}.so.2',
                 lambda: f'{root}/lib{name}.a' ]:
                 if os.path.exists(candidate()):
-                    return name # example: we found `libdl.so`, so just return `dl` for the linker
+                    return name # found e.g. `libdl.so`, so return `dl` for the linker
         if not required: return None
         if apt: raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try `sudo apt install {apt}`')
         raise IOError(f'Error {target.name} failed to find REQUIRED SysLib: {name}  Try installing it with apt.')
     else:
-        return name # just export it. expect system linker to find it.
+        return name # export as-is and expect the system linker to find it
 
 
 def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
     """
-    - target: The build target where to add the export syslib
+    - target: The build target that exports the syslib
     - name: Name of the system library, eg: lzma
-    - apt: if true, then apt suggestion is given
-    - required: if true, then an exception is thrown if syslib is not found
+    - apt: Name of the apt package to suggest when the search fails
+    - required: If true, a missing syslib raises an exception
     """
     try:
         lib = find_syslib(target, name, apt, required)
         if lib:
-            # console(f'Exporting syslib: {name}:{lib}')
             target.exported_syslibs.append(lib)
             target.exported_syslibs = get_unique_libnames(target.exported_syslibs)
             return True
     except IOError:
         if target.config.clean:
-            # just export it. expect system linker to find it.
+            # export as-is and expect the system linker to find it
             target.exported_syslibs.append(name)
             target.exported_syslibs = get_unique_libnames(target.exported_syslibs)
             return True
@@ -271,7 +262,7 @@ def export_syslib(target: BuildTarget, name: str, apt: bool, required: bool):
 
 
 def _reset_syslib_name(syslib: str):
-    """ Resets the syslib name from `/usr/lib/x86_64-linux-gnu/liblzma.so` to `lzma` """
+    """Resets a syslib name from `/usr/lib/x86_64-linux-gnu/liblzma.so` to `lzma`."""
     fname = os.path.basename(syslib)
     if fname.startswith('lib'):
         if fname.endswith('.so'):
@@ -289,6 +280,6 @@ def reload_syslibs(target: BuildTarget, syslibs: List[str]):
         else:
             libname = _reset_syslib_name(syslib)
             lib = find_syslib(target, libname, apt=None, required=False)
-            if not lib: lib = syslib # not found, fall back to original syslib
+            if not lib: lib = syslib # not found, keep the original syslib
             reloaded.append(lib)
     target.exported_syslibs = reloaded
