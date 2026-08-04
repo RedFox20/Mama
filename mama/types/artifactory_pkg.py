@@ -1,9 +1,7 @@
 from .dep_source import DepSource
 
 class ArtifactoryPkg(DepSource):
-    """
-    For BuildDependency whose source is from an Artifactory Package
-    """
+    """For a BuildDependency whose source is an artifactory package."""
     def __init__(self, name:str, version:str, fullname:str):
         super(ArtifactoryPkg, self).__init__(name)
         self.is_pkg = True

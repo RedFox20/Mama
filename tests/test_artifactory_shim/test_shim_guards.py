@@ -49,8 +49,7 @@ def _dep_with_changed_child(tmp_path, shim: bool):
 
 
 def test_after_load_never_marks_a_shim_for_rebuild(tmp_path):
-    # should_rebuild on a shim builds nothing. It does make _run_packaging drop the exports the
-    # fetched papa.txt carries, and re-derive them from the unzipped tree.
+    # should_rebuild on a shim builds nothing, but makes _run_packaging drop papa.txt's exports and re-derive them from the tree.
     dep = _dep_with_changed_child(tmp_path, shim=True)
     dep.after_load()
     assert dep.should_rebuild is False
@@ -72,7 +71,7 @@ def test_dirty_removes_shim_marker(tmp_path):
 
 
 def test_papa_deploy_to_refuses_with_shim_marker_in_destination(tmp_path):
-    # If deployed into the shim's build_dir, we'd corrupt the artifactory snapshot.
+    # A deploy into the shim's build_dir would corrupt the artifactory snapshot.
     dep = make_mock_shim_dep(tmp_path, build=True)
     target = Mock()
     target.config.print = False
@@ -104,8 +103,7 @@ def test_shim_marker_kept_when_no_clone_exists(tmp_path):
 
 
 def test_git_checkout_if_needed_short_circuits_for_shim(tmp_path):
-    # Without this guard, a shim with a missing src_dir falls through to
-    # dependency_checkout, which walks up the parent dir and queries the wrong remote.
+    # Without the guard, a shim with a missing src_dir falls through to dependency_checkout and queries the wrong remote.
     dep = make_mock_shim_dep(tmp_path, build=True)
     called = []
     with patch.object(Git, 'dependency_checkout', side_effect=lambda d: called.append(d) or True):
@@ -121,13 +119,13 @@ def test_run_git_raises_on_shim(tmp_path):
 
 
 def test_run_git_returns_nonzero_when_not_throwing_on_shim(tmp_path):
-    # _has_local_modifications calls run_git(throw=False); must see a non-zero rc, not silent success.
+    # _has_local_modifications calls run_git(throw=False). It must see a non-zero rc, not silent success.
     dep = make_mock_shim_dep(tmp_path, build=True)
     assert dep.dep_source.run_git(dep, 'diff --quiet HEAD', throw=False) != 0
 
 
 def test_is_artifactory_shim_caches_filesystem_stat(tmp_path):
-    # Called per-progress-tick and per-git-op; must not stat on every call.
+    # Called per-progress-tick and per-git-op. It must not stat on every call.
     dep = make_mock_shim_dep(tmp_path, build=True)
     assert dep.is_artifactory_shim() is True
     with patch('os.path.exists', side_effect=AssertionError('stat called')):

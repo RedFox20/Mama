@@ -7,7 +7,7 @@ from mama.utils import system
 def test_default_jobs_leaves_one_core_free_on_linux(monkeypatch):
     monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
     monkeypatch.setattr(system.System, 'linux', True)
-    assert BuildConfig._default_build_jobs() == 31   # N-1: don't saturate the box into an OOM/freeze
+    assert BuildConfig._default_build_jobs() == 31   # N-1: do not saturate the box into an OOM/freeze
     monkeypatch.setattr(system.System, 'linux', False)
     assert BuildConfig._default_build_jobs() == 32   # Windows/macOS use all cores
 
@@ -19,7 +19,7 @@ def test_default_jobs_never_below_one(monkeypatch):
 
 
 def _bare_cfg(**attrs):
-    c = object.__new__(BuildConfig)  # skip the heavy __init__; set only what prefer_gcc touches
+    c = object.__new__(BuildConfig)  # skip the heavy __init__, set only what prefer_gcc touches
     c.linux = True; c.raspi = False; c.gcc = False; c.clang = True
     c.compiler_cmd = True; c.print = True; c.compiler_conflict_warned = False
     for k, v in attrs.items(): setattr(c, k, v)
@@ -50,8 +50,7 @@ def test_the_retired_buildtimes_flag_is_no_longer_recognized():
 
 
 def test_announce_once_prints_a_key_only_the_first_time(monkeypatch):
-    # platform option builders run per fingerprint computation, not per configure - a plain console()
-    # repeats 'Toolchain: ...' several times per target with nothing new to say
+    # platform option builders run per fingerprint computation, so a plain console() repeats 'Toolchain: ...' per target
     printed = []
     monkeypatch.setattr('mama.build_config.console', lambda t, **k: printed.append(t))
     c = object.__new__(BuildConfig)

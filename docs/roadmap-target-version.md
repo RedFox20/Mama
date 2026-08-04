@@ -1,14 +1,14 @@
 # The version field: how it works now, and what is left to build
 
-**Status:** P1 and P2 have landed (§3), on branch `feature/improved-version-parsing`. §6 is the only
-unbuilt item, and §5.3 parks it deliberately.
+**Status:** P1 and P2 are merged to `master` (PR #33, section 3). Section 6, `def version(self)`, is the
+only unbuilt item. Section 5.3 parks it as potentially unnecessary.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Origin:** a mamafile moved `self.version` into `settings()` and asked whether the artifactory fetch
-still sees it. It does. The investigation found a worse problem, in §2, and P1 and P2 fixed it.
+still sees it. It does. The investigation found a worse problem, in section 2, and P1 and P2 fixed it.
 
-**This document records its own corrections.** Three claims in earlier drafts turned out to be wrong.
-Each one is kept next to the thing it was wrong about: the papa.txt blocker (§4), the network saving
-(§3.2) and the shared-archive gain (§3.2). Leaving them in is the point. A reader who wonders whether
+**This document records its own corrections.** Three claims in earlier drafts were wrong.
+Each one is kept next to the thing it was wrong about: the papa.txt blocker (section 4), the network saving
+(section 3.2) and the shared-archive gain (section 3.2). Leaving them in is the point. A reader who wonders whether
 anyone checked gets an answer instead of repeating the work.
 
 Line numbers drift. Grep for the quoted code, never trust the number.
@@ -17,10 +17,10 @@ Line numbers drift. Grep for the quoted code, never trust the number.
 
 ## 0. How to use this document
 
-§1 and §2 are reference: what the version field is, and why it has the shape it has. Read them before
+Sections 1 and 2 are reference: what the version field is, and why it has the shape it has. Read them before
 you change anything, because most of the rules exist to stop one specific failure.
 
-§4 onward is planning. **Each item lands alone and leaves the tree stable.** Do not batch them.
+Section 4 onward is planning. **Each item lands alone and leaves the tree stable.** Do not batch them.
 
 Evidence tags:
 
@@ -60,7 +60,7 @@ The download side cannot run anything, because naming a package before the clone
 the artifactory shim. Every rule below follows from that one constraint.
 
 `self.version` covers a third-party dep too, because `add_git(mamafile='mamadeps/x.py')` points at a
-file in the CONSUMER's repo, which the reader can open before any clone. See §5.1.
+file in the CONSUMER's repo, which the reader can open before any clone. See section 5.1.
 
 ### 1.1 The rules, and the constraint each one serves
 
@@ -106,9 +106,8 @@ consumer **downloaded** `...-8.0.1`. The result was a permanent cache miss. Ever
 rebuilt, with no warning, and nobody ever used the uploaded artifact. A computed version failed the same
 way, because the reader returned nothing and the download fell back to the commit hash.
 
-Keep this in mind when you extend the model. **Any version input that one side can see and the other
-cannot recreates this defect.** That single test rejects most tempting designs, including every one in
-§7.
+**Any version input that one side can see and the other cannot recreates this defect.** That single
+test rejects most tempting designs, including every one in section 7.
 
 ---
 
@@ -127,7 +126,7 @@ cannot recreates this defect.** That single test rejects most tempting designs, 
 
 The first cut of P1 scanned line by line, and that was wrong twice over.
 
-An anchored regex misses `if lgpl: self.version = '8.0.1-lgpl'`, which is the exact shape §2 is about.
+An anchored regex misses `if lgpl: self.version = '8.0.1-lgpl'`, which is the exact shape section 2 is about.
 Dropping the anchor fixed that, and introduced a worse bug: a line scan counts anything that MENTIONS
 the field. A mamafile documenting its own version lost its pin.
 
@@ -152,7 +151,7 @@ branch runs depends on runtime state that no reader has before the clone.
 #### Why `mamafile_version.py` and not `types/git.py`  [V]
 
 The scan landed in `Git` because the old one-line regex lived there. Almost none of it is git work:
-parsing Python, judging a declaration and warning about it hold no git concept at all. Only
+parsing Python, judging a declaration and warning about it hold no git concept. Only
 `Git.fetch_self_version_from_remote` is genuinely git. It fetches the text for a dep that has no clone
 yet, and then asks `mamafile_version` what the text means.
 
@@ -161,7 +160,7 @@ guard) and `tests/test_self_version_probe/` (the git-side fetch and the shim fal
 
 ### 3.2 P2 - a git pin names the package  [IMPLEMENTED]
 
-The precedence table in §1. A tag names the package alone, a branch labels the commit, and a commit pin
+The precedence table in section 1. A tag names the package alone, a branch labels the commit, and a commit pin
 shortens to the hash. `build_names.sanitize_version` makes any of them a legal file name.
 
 Tests: `tests/test_version_from_pin/`.
@@ -177,10 +176,10 @@ Tests: `tests/test_version_from_pin/`.
 | nothing pinned | `a1b2c3d` | `a1b2c3d` | no |
 
 `branch` and `tag` are never reassigned after `Git.__init__` [V], so the download side and the upload
-side always read the same declared value. The rename cannot drift into the §2 defect.
+side always read the same declared value. The rename cannot drift into the section 2 defect.
 
 **Migration:** every tag-pinned and every branch-pinned dep gets a new archive name once, and the first
-build after it rebuilds and republishes them. How wide that wave is depends entirely on how a project
+build after it rebuilds and republishes them. How wide that wave is depends on how a project
 declares its deps. A tree of unpinned deps renames nothing.
 
 #### Two claims an earlier draft got wrong  [V]
@@ -199,7 +198,7 @@ declares its deps. A tree of unpinned deps renames nothing.
 - A readable, shareable name. `qcoro-...-release-v0.13.0` says what it is, and a human scanning the
   server can tell a branch build from a release without resolving anything.
 - It removes the reason to write `self.version = '0.13.0'` next to `git_tag='v0.13.0'`. That
-  duplication is exactly where the §2 bug class lives.
+  duplication is exactly where the section 2 bug class lives.
 
 **Decision on the branch label:** keep it. `main-a1b2c3d` is not needed for correctness, because the
 hash alone identifies the source. It is worth its one-time rename for the operational readability of an
@@ -230,9 +229,9 @@ qcoro,https://x/qcoro.git,,v0.13.0,mamadeps/qcoro.py,version_from=commit,LGPL
 
 So the mechanism exists, and no cached package would need a rewrite.
 
-**Mama is not going to use it.** §5 shows that every case a mode would serve already has an answer. An
-unused mode is one more naming input a future reader must understand. Keep this section as the record of
-how a keyed field would work, in case a real case appears.
+**Mama will not use it.** Section 5 shows that every case a mode would serve already has an answer.
+An unused mode is one more naming input a future reader must understand. Keep this section as the
+record of how a keyed field would work, in case a real case appears.
 
 ## 5. Why no consumer-side version argument is needed  [V]
 
@@ -257,7 +256,7 @@ class ffmpeg(mama.BuildTarget):
 `fetch_self_version_from_remote` returns None when `dep.mamafile` is set. The local override was already
 read, and the remote repo's own mamafile is not the one mama runs.
 
-`self.version` beats the tag in the §1 table, so the package is named `8.1.0`. No new argument, no
+`self.version` beats the tag in the section 1 table, so the package is named `8.1.0`. No new argument, no
 papa.txt field, and the rule a reader has to learn is one they already know.
 
 Pinned by `test_a_consumer_owned_override_mamafile_names_the_package`.
@@ -271,16 +270,15 @@ naming by identity asks for one thing and means another.
 ### 5.3 What genuinely remains: a dep that computes its own version  [?]
 
 Reading a `VERSION` file, or deriving a version inside the dep's own mamafile, still needs code. That is
-§6. P1, P2 and 5.1 shrank its value. The literal covers a fixed version, the pin covers a released one,
+section 6. P1, P2 and 5.1 shrank its value. The literal covers a fixed version, the pin covers a released one,
 and an override mamafile covers a transformed one. What remains is a dep whose version lives in a file
 that only that dep knows about, and whose mamafile the consumer does not own.
 
-**Recommendation:** leave §6 unbuilt until such a dep actually appears. Every case seen so far is
-already covered.
+**Recommendation:** leave section 6 unbuilt until such a dep appears.
 
 ## 6. `def version(self)`, executed in a probe context  [?]
 
-Kept for the case §5.3 describes. Read §5 first: this is the last resort, not the next step.
+Kept for the case section 5.3 describes. Read section 5 first: this is the last resort, not the next step.
 
 ### 6.1 The Python mechanic that decides the shape  [V]
 
@@ -346,8 +344,8 @@ those stay unchanged.
 - **Do not make the version depend on the platform, the arch, the compiler, coverage or sanitizers.**
   Those are separate fields in the archive name already.
 - **Do not add a naming input that only a mamafile attribute can set.** No reader can see a mamafile
-  attribute before the clone, which is §2 again. A consumer-side `add_git` argument is always safe.
-- **Do not add a `version_from` mode.** Every case it would serve has an answer in §5. An unused naming
+  attribute before the clone, which is section 2 again. A consumer-side `add_git` argument is always safe.
+- **Do not add a `version_from` mode.** Every case it would serve has an answer in section 5. An unused naming
   input is one more rule a reader must learn before they can predict an archive name.
 - **Do not require a papa.txt rewrite.** Many packages are already cached with today's records. A change
   that invalidates them is not worth any naming improvement.
@@ -362,13 +360,13 @@ those stay unchanged.
 |---|---|
 | P1, the scan reports and the upload refuses | **done**. Two mamafiles that would once diverge now agree or warn, and no upload can publish a name the download cannot construct |
 | P1a, the scan parses instead of grepping | **done**. A documented mamafile keeps its pin, and a module constant resolves |
-| P2, a git pin names the package | **done**. Tag, branch and commit each name their archive, and the rename table in §3.2 says what moved |
+| P2, a git pin names the package | **done**. Tag, branch and commit each name their archive, and the rename table in section 3.2 says what moved |
 | 5.1, "the upstream tag is not the name I want" | **no code needed**. The override mamafile already answers it |
 | 5.2, "this tag moves, name it by commit" | **no code needed**. Pin the commit |
-| §4, a consumer-side `version_from` | **rejected**. The mechanism works, and §5 shows nothing needs it |
-| §6, `def version(self)` | **parked**. Build it when a dep appears that §5 cannot serve |
+| section 4, a consumer-side `version_from` | **rejected**. The mechanism works, and section 5 shows nothing needs it |
+| section 6, `def version(self)` | **parked**. Build it when a dep appears that section 5 cannot serve |
 
 Open work outside this document:
 
-- Merge `feature/improved-version-parsing`, then expect one rebuild wave for the deps §3.2 renamed.
-- Nothing else. Every case that has come up so far is covered.
+- None. `feature/improved-version-parsing` is merged to `master` (PR #33). The first build after
+  the merge rebuilds the deps section 3.2 renamed.

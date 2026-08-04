@@ -24,8 +24,7 @@ def test_diamond_dependency_contributes_its_libs_once():
 
 
 def test_shared_leaf_is_not_repeated_once_per_path():
-    # a dep reachable through many parents: a raw per-path DFS emitted it once
-    # per path - 85 copies on one real link line.
+    # a dep reachable through many parents: a raw per-path DFS emits one copy per path on the link line
     leaf = _dep('ReCpp', libs=['libReCpp.a'])
     mids = [_dep(f'M{i}', libs=[f'libM{i}.a'], children=[leaf]) for i in range(5)]
     root = _dep('root', libs=['libroot.a'], children=mids)
@@ -57,9 +56,7 @@ def test_non_library_exports_are_still_filtered_out():
 
 
 def test_dep_shared_by_exe_and_a_lib_lands_after_both():
-    # The classic Unix trap: exe -> {libz, lib1} and lib1 -> libz. Emitting libz where it was FIRST
-    # seen gives 'libz lib1'; ld then drops libz members lib1 needs -> undefined references. Keep-last
-    # ordering emits 'lib1 libz', resolving exe's AND lib1's libz symbols with ONE copy of libz.
+    # The Unix trap: exe -> {libz, lib1} and lib1 -> libz. First-seen order 'libz lib1' makes ld drop libz members lib1 needs.
     libz = _dep('libz', libs=['libz.a'])
     lib1 = _dep('lib1', libs=['lib1.a'], children=[libz])
     exe = _dep('exe', libs=['exe.a'], children=[libz, lib1])   # libz declared FIRST: the risky order
@@ -74,8 +71,7 @@ def test_link_order_is_independent_of_declaration_order():
 
 
 # -- real-toolchain validation ------------------------------------------------
-# The unit tests above assert an ORDER; these prove that order is the one GNU ld actually needs, by
-# building real static archives and linking them.
+# The unit tests above assert an ORDER. These build and link real static archives to prove GNU ld needs that order.
 import shutil, subprocess  # noqa: E402
 import pytest  # noqa: E402
 
@@ -83,9 +79,7 @@ _CC = shutil.which('cc') or shutil.which('gcc')
 _needs_toolchain = pytest.mark.skipif(not (_CC and shutil.which('ar')),
                                       reason='needs a C toolchain (cc/gcc + ar) to build real archives')
 
-# z_func and z_shared MUST be separate translation units: an archive member is pulled only when it
-# resolves a currently-undefined symbol, and that granularity is the whole point of the ordering rule.
-# Both splits return 0 from main(), so a successful link is also semantically verifiable by running it.
+# Separate TUs on purpose: ld pulls an archive member only to resolve an undefined symbol. main() returns 0 on the right defs.
 _SYMBOL_SPLITS = [('z_shared', 'z_func'),   # main pulls z_shared, lib1 pulls z_func
                   ('z_func', 'z_shared')]   # crossed: swapping WHICH symbol each consumer uses
 
@@ -128,9 +122,7 @@ def test_real_link_fails_with_the_naive_first_seen_order(tmp_path, main_calls, l
     _build_archives(tmp_path, main_calls, lib1_calls)
     r = _link(tmp_path, ['libz.a', 'lib1.a'])   # libz emitted where it was FIRST seen
     assert r.returncode != 0
-    # ld had already passed libz.a when lib1 introduced its need, so the unresolved symbol is always
-    # whatever LIB1 wanted - main's own need was satisfied by that early scan. Which symbol that is
-    # doesn't change the outcome: the rule is about dependency direction, not symbol distribution.
+    # ld had already passed libz.a when lib1 introduced its need, so the unresolved symbol is always the one lib1 wanted
     assert lib1_calls in r.stderr
 
 

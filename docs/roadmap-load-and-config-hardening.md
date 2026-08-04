@@ -1,6 +1,6 @@
 # Roadmap: load-phase and config hardening (and possible scoped discovery)
 
-**Status:** planning only. No code in this roadmap has been written. Items 1+ are proposals.
+**Status:** Item 0 has landed (section 2). Items 1+ are unbuilt proposals.
 **Audience:** an engineer or model picking this up cold. This document is self-contained.
 **Repo:** `RedFox20/Mama` (`mama/` package).
 **Consumer that triggered the work:** a downstream ground-control project, generalized here as `GCS`.
@@ -9,9 +9,8 @@
 
 ## 0. How to use this document
 
-Each roadmap item below is designed to be **landed alone** and leave the tree stable. Do not
-batch them. Every item states its own goal, evidence, risks, test plan, done-criteria and
-rollback.
+Each roadmap item below **lands alone** and leaves the tree stable. Do not batch them. Every
+item states its own goal, evidence, risks, test plan, done-criteria and rollback.
 
 Evidence is tagged so you know how much to trust it:
 
@@ -19,9 +18,9 @@ Evidence is tagged so you know how much to trust it:
 - **[R]** - reported by a sub-audit with a file:line citation, but not independently re-read.
   **Re-verify before acting on it.**
 
-`file.py:NN` line numbers were accurate at commit `3b0c654`. `mama/build_dependency.py` is
-under active concurrent development (see §2), so **line numbers drift - always grep for the
-quoted code, never trust the number alone.**
+The commit hashes quoted below predate a squash of the branch history, so they no longer
+resolve on `master`. Verify a claim by the quoted code and the named test suite, never by the
+hash. **Line numbers drift too - grep for the quoted code, never trust the number alone.**
 
 ---
 
@@ -35,15 +34,15 @@ dependency that was supposedly present. Diagnosis chain:
    at **configure** time, so the path must exist before configure completes.
 2. The bootstrap for that is a nested `mama <host> build target=protobuf` child process.
 3. A **targeted** build takes the classic path and calls `load_dependency_chain(root)`, which
-   loads/clones the **entire** graph - so the nested Linux child was re-cloning shared deps into
-   the *same* source trees the outer Android build was compiling from.
+   loads/clones the **entire** graph. The nested Linux child therefore re-cloned shared deps
+   into the *same* source trees the outer Android build was compiling from.
 4. Two mama **processes** writing the same git working trees corrupted them. The in-process
    `threading.Lock` at `BuildDependency._load_lock` does not span processes. **[V]**
 
-That corruption is fixed (§2). What remains is the *waste*: the nested child still loads the
-whole graph to build one leaf. "Scoped discovery" (Item 4) is the proposal to fix the waste -
-and it is now an **optimization, not a correctness fix**. Items 1-3 are hardening that stands
-on its own merit regardless of whether Item 4 ever happens.
+That corruption is fixed (section 2). What remains is the *waste*: the nested child still loads
+the whole graph to build one leaf. "Scoped discovery" (Item 4) fixes the waste, and it is now an
+**optimization, not a correctness fix**. Items 1-3 are hardening that stands on its own, with or
+without Item 4.
 
 ---
 
@@ -51,13 +50,13 @@ on its own merit regardless of whether Item 4 ever happens.
 
 ### Landed on `master`
 
-| Commit | What |
+| Change | Verify by |
 |---|---|
-| `9b31fac` | `fix:` wipe build dirs whose toolchain moved instead of soft-reconfiguring. Records a toolchain fingerprint per build dir; wipes on mismatch. Fixed Android `-march=x86-64-v3` leaking into arm64 after a nix NDK path change. |
-| `0a3f149` | `feature:` `build_host_binary()` - `config.host_platform_name()`, `BuildTarget.host_build_dir()`, `BuildTarget.build_host_binary(relpath, auto_build=True)`, `config.root_source_dir`. Cheap-checks the host build dir, else bootstraps `mama <host> build target=<name>`. |
-| `3b0c654` | `fix:` cross-process dep lock. `mama/utils/dir_lock.py` (`flock`/`msvcrt`, sidecar kept **outside** `dep_dir` so a reclone-wipe cannot unlink a held lock; OS-released so it cannot hang). Wraps shim+checkout in `_load`. |
+| `fix:` wipe build dirs whose toolchain moved instead of soft-reconfiguring. Records a toolchain fingerprint per build dir, wipes on mismatch. Fixed Android `-march=x86-64-v3` leaking into arm64 after a nix NDK path change. | `tests/test_toolchain_change_wipe/` |
+| `feature:` `build_host_binary()` - `config.host_platform_name()`, `BuildTarget.host_build_dir()`, `BuildTarget.build_host_binary(relpath, auto_build=True)`, `config.root_source_dir`. Cheap-checks the host build dir, else bootstraps `mama <host> build target=<name>`. | `tests/test_host_binary/` |
+| `fix:` cross-process dep lock. `mama/utils/dir_lock.py` (`flock`/`msvcrt`, sidecar kept **outside** `dep_dir` so a reclone-wipe cannot unlink a held lock, OS-released so it cannot hang). Wraps shim+checkout in `_load`. | `tests/test_dep_dir_lock/` |
 
-`2d8f54b` (`guard package() on having artifacts...`) landed from another source between two of
+A `guard package() on having artifacts` change landed from another source between two of
 these. **Expect more concurrent commits in `build_dependency.py`.**
 
 ### Not landed - consumer-side rewire (uncommitted, deliberate)
@@ -70,36 +69,18 @@ That rewire requires mama >= `0a3f149`, but the consumer still pins an older rev
 consumer-side commit must wait for the pin bump or its CI breaks.
 `requires_version('0.13.01')` accepts newer, so a `0.13.02` release satisfies it.
 
-### Inbound from another model - **Item 0**
+### Landed - **Item 0**: `settings()` under the parallel loader
 
-A patch is being written for: *`settings()` is not loaded correctly under the parallel loader.*
+`execute_unified` loads the ROOT up front, before the display and before any parallel job
+starts **[V]** (`mama/dependency_chain.py`, `root.load()` before `_make_scheduler`). Root
+`settings()` therefore picks the compiler and the toolchain first. Right after root `settings()`,
+`_load` runs `lock_compiler()` and `init_platform_toolchain()`, so a root `set_*_toolchain()`
+beats the default SDK probe **[V]**. `tests/test_root_settings_order/` pins the order on both
+execution paths.
 
-Relevant code, unchanged as of `3b0c654` **[V]**:
-
-```python
-# mama/build_dependency.py  (in _load)
-target.settings() ## customization point for project settings
-if self.is_root:
-    conf.lock_compiler()  # root settings() is the last prefer_clang/gcc; lock before any dep loads
-    self._update_dep_name_and_dirs(self.name)  # build_dir was computed pre-flip, re-resolve it
-target.dependencies() ## customization point for additional dependencies
-```
-
-```python
-# mama/dependency_chain.py  (in load_dependency_chain)
-changed = dep.load()
-if dep.config.parallel_load:
-    futures = []
-    for child in dep.get_children():
-        futures.append(e.submit(load_dependency, child))
-```
-
-Sibling `settings()` therefore run **concurrently on different threads**, so any global
-`config` mutation from a non-root `settings()` is a data race with nondeterministic ordering. **[V]**
-
-**This is the same surface as Item 2.** Whoever lands Item 2 must rebase onto the settings()
-patch and re-check that the two do not double-guard or contradict each other. Item 2 may
-shrink to a subset once the settings() patch lands - that is a good outcome, not a conflict.
+Sibling non-root `settings()` still run **concurrently on different threads**, so any global
+`config` mutation from a non-root `settings()` is still a data race **[V]**. The landed fix
+serializes only the root load and guards no setter, so Item 2 keeps its full scope.
 
 ---
 
@@ -109,18 +90,20 @@ Facts an auditor needs before touching anything.
 
 ### 3.1 Two execution paths
 
-`_can_unify(config)` **[R]** (`mama/main.py:191-197`) picks the engine:
+`_can_unify(config)` **[V]** (`mama/main.py`) picks the engine:
 
 ```python
 return (not config.serial_load and (config.build or config.update)
-        and config.no_specific_target() and not config.list and not config.deps_only
+        and (config.no_specific_target() or config.deps_only) and not config.list
         and not config.dirty and not config.mama_init)
 ```
 
-`no_specific_target()` = no target or `target=all`. **Therefore any `target=X` always takes the
-classic `load_dependency_chain(root)` path.** Scoped discovery only ever concerns that branch.
+`no_specific_target()` = no target or `target=all`. A `deps_only` run also unifies: the
+scheduler still loads every dep, and a `DepsOnlyScope` narrows CONFIGURE and BUILD jobs to the
+named target's dependencies. **Any other `target=X` run takes the classic
+`load_dependency_chain(root)` path.** Scoped discovery only ever concerns that branch.
 
-`execute_unified` - used only for *non*-targeted builds - is **already an incremental loader** **[V]**
+`execute_unified` is **already an incremental loader** **[V]**
 (`mama/dependency_chain.py:983-994`): `_do_load` loads one dep, then `grow()` adds jobs for its
 newly discovered children under the scheduler lock. It never stops early. This is the machinery
 Item 4 should extend rather than replace.
@@ -147,7 +130,7 @@ You **cannot** suppress a single child. So a skipped dep is a *zombie*: present 
 
 Worse, `is_pkg` and `is_src` sources call `create_build_target()` **eagerly in `__init__`** **[V]** -
 so a skipped local-source sibling has a **non-None target with empty
-`exported_libs`/`exported_includes`**. It will not crash; it will silently emit empty
+`exported_libs`/`exported_includes`**. It will not crash. It will silently emit empty
 link/include variables. Silent-wrong beats loud-crash for damage.
 
 Only one place currently handles the zombie state, and it was added after a real crash **[R]**
@@ -161,10 +144,10 @@ if self.target is None: return self.has_build_files()  # load failed/never ran: 
 
 A child inherits the parent's workspace **[V]** (`BuildDependency(self, self.config, self.workspace, ...)`),
 and `_update_dep_name_and_dirs` derives `dep_dir = workspaces_root/workspace/name`. So a dep's
-location is known **before** its mamefile is parsed. This is what makes a pre-clone probe
-structurally possible.
+location is known **before** its mamafile is parsed. This makes a pre-clone probe structurally
+possible.
 
-### 3.4 A mamefile is readable without cloning *only sometimes*
+### 3.4 A mamafile is readable without cloning *only sometimes*
 
 `mamafile_path()` **[V]**:
 
@@ -180,9 +163,9 @@ So **free** expansion = `add_local` deps and `add_git(..., mamafile="...")` over
 ### 3.5 An artifactory shim probe is NOT cheap - kills the obvious design
 
 Only the commit-hash step is cheap (`git ls-remote`, 5s timeout). The **dependency list lives
-in `papa.txt` inside the archive**, so obtaining it requires downloading the complete
-`{archive}.zip` over HTTP and unzipping it into `build_dir` **[R]**
-(`artifactory.py:283-290` → `:311-314` → `:252-280`). There is no range fetch, no `papa.txt`
+in `papa.txt` inside the archive**, so to read it mama must download the complete
+`{archive}.zip` over HTTP and unzip it into `build_dir` **[R]**
+(`artifactory.py:283-290` -> `:311-314` -> `:252-280`). There is no range fetch, no `papa.txt`
 endpoint, no manifest sidecar.
 
 **Consequence:** "expand the frontier with shims until the target is found" - an intuitive and
@@ -206,39 +189,39 @@ second, independent guard on the same hazard. Both must survive every future cha
 
 ### 3.7 Name-only dedup, first declaration wins, silently
 
-`loaded_dependencies` is keyed on **name alone**; a second parent declaring the same name with a
+`loaded_dependencies` is keyed on **name alone**. A second parent declaring the same name with a
 different url/branch/tag has those fields **discarded with no warning** - only `args` merge **[R]**
 (`build_dependency.py`, `update_existing_dependency`). The first `add_child` also fixes `parent`,
 hence `mamafile` and `src_dir` resolution.
 
 Under full load, "who is first" is a stable-ish whole-graph traversal. Under **scoped** load a
-different parent can win → different clone → different commit hash → **different archive name and
+different parent can win -> different clone -> different commit hash -> **different archive name and
 different `papa.txt` `D` records**. This is the strongest argument for never letting a scoped
 build *upload*.
 
-### 3.8 Global config is writable from any mamefile's `settings()`
+### 3.8 Global config is writable from any mamafile's `settings()`
 
-`self.config` is public on `BuildTarget` and the README documents mamefiles writing it. Reported
+`self.config` is public on `BuildTarget` and the README documents mamafiles writing it. Reported
 unguarded, root-relevant setters **[R]**:
 
 | Setter | Global effect | Guarded? |
 |---|---|---|
 | `BuildConfig.set_artifactory_ftp()` | artifactory URL/auth | **No** - bypasses the root guard that exists on the `BuildTarget` wrapper |
-| `config.use_gcc_stdlib_for_clang()` | `clang_stdlib` | **No**, and **not part of the build-dir suffix** → silent libc++/libstdc++ flip into the *same* dir |
+| `config.use_gcc_stdlib_for_clang()` | `clang_stdlib` | **No**, and **not part of the build-dir suffix** -> silent libc++/libstdc++ flip into the *same* dir |
 | `config.enable_fortran()` | `config.fortran` | **No** |
-| `set_arch` / `set_platform` / sanitizer / coverage | `platform_build_dir_name()` → every dep's `build_dir` | **No** |
-| `macos_version` / `ios_version` / `android_api` / `cc_path` | feed `get_distro_info()`/`compiler_version()` → **archive name** | **No** |
+| `set_arch` / `set_platform` / sanitizer / coverage | `platform_build_dir_name()` -> every dep's `build_dir` | **No** |
+| `macos_version` / `ios_version` / `android_api` / `cc_path` | feed `get_distro_info()`/`compiler_version()` -> **archive name** | **No** |
 | `prefer_gcc` / `prefer_clang` | compiler | **effectively yes** - `lock_compiler()` runs right after *root's* settings, before any child exists, so sibling calls are already inert **[R]** |
 
 The existing good pattern to copy **[R]** (`build_target.py:232-234`): `if not self.dep.is_root: return`.
 
-Combined with §2's race, non-root `settings()` today are both **concurrent** and **unguarded**.
+Combined with section 2's race, non-root `settings()` today are both **concurrent** and **unguarded**.
 
 ### 3.9 What must never be scoped
 
 - **`dirty X`** - `get_deps_that_depend_on_target` **[R]** (`dependency_chain.py:138-166`) is a
   *reverse*-dependency walk over the whole graph, i.e. exactly the sibling information scoping
-  discards. Scoped, it under-marks silently → stale siblings link against a rebuilt X.
+  discards. Scoped, it under-marks silently -> stale siblings link against a rebuilt X.
 - **`clean all`**, bare `list`, bare `deps_only`, `sched_debug`, `target=all` - whole-graph by
   definition.
 - **`serial`** - `execute_task_chain` **[R]** (`dependency_chain.py:552-556`) hard-raises
@@ -247,37 +230,33 @@ Combined with §2's race, non-root `settings()` today are both **concurrent** an
 
 ### 3.10 Things that are already fine (do not "fix")
 
-- `config.loaded_dependencies` is **never iterated** - only a name→instance map inside
+- `config.loaded_dependencies` is **never iterated** - only a name->instance map inside
   `add_child` **[R]**. Not a whole-graph registry.
 - `sweep_orphaned_build_dirs` **[R]** enumerates the workspace **from disk**, not from the graph.
   Scoped loading does not make it delete more. **But** it is gated on `clean_only() &&
-  targets_all()` - treat that as an invariant; if a refactor changes how `target=all` is
+  targets_all()` - treat that as an invariant. If a refactor changes how `target=all` is
   represented, this either stops firing (orphans accumulate) or fires on `clean X` and rmtree's
   every package build dir for the platform.
 - `mark_unbuilt_target_deps` is already subtree-scoped and already `target is None`-safe.
 - **No whole-graph validator exists** (no version-conflict, duplicate-name or url reconciliation
-  pass) **[R]** - so scoping loses no validation. It also means §3.7's silent overwrite is
+  pass) **[R]** - so scoping loses no validation. It also means section 3.7's silent overwrite is
   undetected today.
 
 ---
 
 ## 4. Roadmap
 
-### Item 0 - `settings()` under the parallel loader *(external, inbound)*
+### Item 0 - `settings()` under the parallel loader *(landed)*
 
-Owned by another model. Not specified here. **Land first.** Items 2 and 4 touch the same code and
-must rebase onto it.
-
-Ask the author to record: does the fix serialize `settings()`, reorder it, or make specific
-setters safe? Item 2's scope depends on the answer.
+Landed, see section 2. It guards no setter, so Item 2 keeps its full scope.
 
 ---
 
 ### Item 1 - Zombie hardening: guard `dep.target is None` in graph walks
 
-**Standalone value:** yes, independent of scoped discovery. A dep can already have `target is
-None` today from an interrupted clone or a mamefile that failed to parse - that is exactly why the
-guard at `build_dependency.py:212` was added. Every *other* walk lacks it.
+**Standalone value:** yes, independent of scoped discovery. An interrupted clone or a failed
+mamafile parse already leaves `target is None` today - that is why the guard at
+`build_dependency.py:212` exists. Every *other* walk lacks it.
 
 **Reported unguarded dereferences [R]** - re-verify each:
 `dependency_chain.py:53-55` (`_get_exported_libs`), `:286-291`
@@ -287,50 +266,50 @@ guard at `build_dependency.py:212` was added. Every *other* walk lacks it.
 `papa_deploy.py:41,60` (`_gather`), `main.py:210-215` (`print_package_exports`).
 
 **Change sketch:** one predicate (e.g. `dep.is_loaded()` or reuse the existing `target is None`
-test) applied consistently; decide per-site whether to **skip** the dep or **fail loudly**. Prefer
+test) applied consistently. Decide per-site whether to **skip** the dep or **fail loudly**. Prefer
 skip in reporting paths, loud in paths that generate build inputs - a silently truncated
 `mama-dependencies.cmake` is worse than a crash.
 
 **Risk:** low. Adding guards cannot break a graph where every target is loaded.
-**Watch for:** masking a real bug. If a target is None during a *full* load, that is a defect;
-consider a `verbose` warning so it stays visible.
+**Watch for:** masking a real bug. If a target is None during a *full* load, that is a defect.
+Consider a `verbose` warning so it stays visible.
 
-**Tests:** a dep with `target=None` in the tree survives each walk; `_reserve_weight`/
-`_build_detail` do not raise; a truncated-but-valid graph still produces correct cmake for the
+**Tests:** a dep with `target=None` in the tree survives each walk. `_reserve_weight`/
+`_build_detail` do not raise. A truncated-but-valid graph still produces correct cmake for the
 loaded set. Existing `tests/test_target_scoped_build/...:185` is the precedent to mirror.
 
-**Done:** full suite green; a synthetic zombie in the tree cannot crash any listed walk.
-**Rollback:** revert; guards are additive.
+**Done:** full suite green. A synthetic zombie in the tree cannot crash any listed walk.
+**Rollback:** revert. Guards are additive.
 
 ---
 
 ### Item 2 - Root-only guards on global setters + `add_child` collision diagnostic
 
-**Standalone value:** yes. Catches real config bugs today, and §2's race makes non-root
+**Standalone value:** yes. Catches real config bugs today, and section 2's race makes non-root
 `settings()` mutation actively dangerous *now*.
 
 **Change sketch (two independent halves - consider two commits):**
 
 - **2a.** Apply the existing `if not self.dep.is_root: return` pattern (plus a `warning()`) to the
-  setters in §3.8 that are documented as root-only but unenforced - priority order:
+  setters in section 3.8 that are documented as root-only but unenforced - priority order:
   `use_gcc_stdlib_for_clang`, `BuildConfig.set_artifactory_ftp`, `enable_fortran`,
-  `set_arch`/`set_platform`. **Rebase onto Item 0 first**; it may already cover some of these.
-- **2b.** In `add_child`, when a name is re-declared with a **different** url/branch/tag/mamefile,
+  `set_arch`/`set_platform`. **Rebase onto Item 0 first**. It may already cover some of these.
+- **2b.** In `add_child`, when a name is re-declared with a **different** url/branch/tag/mamafile,
   emit a `warning()` naming both declarations. Do **not** raise - that would break existing
   projects that rely on first-wins.
 
 **Risk:** **medium - this is behavior-changing.** A project today may *depend* on a non-root
-mamefile setting one of these (e.g. a dep setting the artifactory URL). Turning that into a no-op
+mamafile setting one of these (e.g. a dep setting the artifactory URL). Turning that into a no-op
 silently changes their build.
 
 **Mitigation:** land 2a as **warn-only first** (log "ignored, root-only" *without* changing
 behavior), ship a release, then enforce in a later release. Two-stage. Do not skip this.
 
-**Tests:** non-root setter is ignored + warns; root setter still applies; collision warning fires
-on differing url and stays silent on identical redeclaration; existing suites green.
+**Tests:** non-root setter is ignored + warns. Root setter still applies. Collision warning fires
+on differing url and stays silent on identical redeclaration. Existing suites green.
 
 **Done:** warn-only release out, no user reports of intentional non-root use.
-**Rollback:** revert; guards are additive and warn-only in stage 1.
+**Rollback:** revert. Guards are additive and warn-only in stage 1.
 
 ---
 
@@ -348,8 +327,8 @@ targeted = ((config.build or config.upload or config.deploy)
 
 So `update X`, `test X`, `start=`, `open`, `wipe`, `unshallow`, bare `coverage-report X` execute
 the chain over the **whole graph**. Under a full load that is merely wasteful. Under a *scoped*
-load it becomes **catastrophic and silent**: `_configure_body` → `_save_mama_cmake_and_dependencies_cmake(root)`
-→ `_save_dependencies_cmake` **[R]** (`dependency_chain.py:309-336`) rewrites root's
+load it becomes **catastrophic and silent**: `_configure_body` -> `_save_mama_cmake_and_dependencies_cmake(root)`
+-> `_save_dependencies_cmake` **[R]** (`dependency_chain.py:309-336`) rewrites root's
 `mama-dependencies.cmake` from a truncated `_get_flattened_deps(root)` and saves it. The next full
 root build then silently loses includes and link libs.
 
@@ -357,36 +336,36 @@ root build then silently loses includes and link libs.
 inherently single-target, keeping `dirty`/`list`/`clean all`/bare `deps_only` on the full chain.
 
 **Risk:** **medium-high - user-visible behavior change.** `mama test X` currently walks (and
-packages) the whole tree; narrowing changes what gets built as a side effect. Some users may
+packages) the whole tree. Narrowing changes what gets built as a side effect. Some users may
 depend on that accidentally.
 
-**Tests:** for each command × `target=X`, assert the executed chain equals `get_flat_deps(X)`;
-assert root's `mama-dependencies.cmake` is **not** rewritten by a targeted run; `dirty`/`list`/
+**Tests:** for each command x `target=X`, assert the executed chain equals `get_flat_deps(X)`.
+Assert root's `mama-dependencies.cmake` is **not** rewritten by a targeted run. `dirty`/`list`/
 `clean all` still see the full chain.
 
-**Done:** full suite green; `test_target_scoped_build`, `test_deps_only`, `test_clean_only`,
+**Done:** full suite green. `test_target_scoped_build`, `test_deps_only`, `test_clean_only`,
 `test_main_dispatch` unchanged or consciously updated.
 **Rollback:** revert the predicate.
 
 ---
 
-### Item 4 - Free-tier scoped discovery *(the actual optimization; do last, or never)*
+### Item 4 - Free-tier scoped discovery *(the actual optimization - do last, or never)*
 
 **Only start this if cold-build timings prove the nested bootstrap is expensive enough to
 justify loader risk.** The correctness problem it was originally meant to solve is already fixed
 by `3b0c654`.
 
-**Design, corrected by §3.5:** two tiers only.
+**Design, corrected by section 3.5:** two tiers only.
 
-- **Free** - mamefile already on disk: `add_local`, `add_git(mamafile=...)` overrides, already-cloned
+- **Free** - mamafile already on disk: `add_local`, `add_git(mamafile=...)` overrides, already-cloned
   trees.
-- **Expensive** - clone *or* shim. **Do not build a shim tier** (§3.5).
+- **Expensive** - clone *or* shim. **Do not build a shim tier** (section 3.5).
 
-Algorithm: BFS from root expanding **only** free children, stopping the moment X is located; then
-fully load X's subtree. **If free expansion is exhausted without finding X, fall back to today's
+Algorithm: BFS from root expanding **only** free children, stopping the moment X is located, then
+fully loading X's subtree. **If free expansion is exhausted without finding X, fall back to today's
 full `load_dependency_chain`.**
 
-That fallback is what dissolves the chicken-and-egg problem (§3.9 / `find_dependency` needs
+That fallback dissolves the chicken-and-egg problem (section 3.9 / `find_dependency` needs
 `get_children()`, which is empty for an unloaded dep): on fallback, target resolution and the
 `"Available targets: ..."` typo message are byte-identical to today.
 
@@ -395,7 +374,7 @@ That fallback is what dissolves the chicken-and-egg problem (§3.9 / `find_depen
 hop free, zero clones needed for discovery.
 
 **Gating - deliberately narrow:**
-- `build target=X` **only**. **Not `upload`/`deploy`** - §3.7 means a scoped build can pick a
+- `build target=X` **only**. **Not `upload`/`deploy`** - section 3.7 means a scoped build can pick a
   different declaration winner and therefore publish a package with a different identity and
   different `D` records. Never let that reach a shared artifactory.
 - Excluded: `dirty`, `list`, `clean all`, bare `deps_only`, `sched_debug`, `serial`, `target=all`.
@@ -403,13 +382,13 @@ hop free, zero clones needed for discovery.
 
 **Depends on:** Items 1, 2, 3 all landed.
 
-**Tests:** free-tier BFS finds a local/override target without cloning; unreachable target falls
-back to full load and produces the identical error message; a scoped build of X loads exactly the
-full-build subtree of X; ancestors are never revived (fork-bomb invariant); `serial` refuses or is
+**Tests:** free-tier BFS finds a local/override target without cloning. Unreachable target falls
+back to full load and produces the identical error message. A scoped build of X loads exactly the
+full-build subtree of X. Ancestors are never revived (fork-bomb invariant). `serial` refuses or is
 excluded.
 
-**Done:** opt-in flag green in CI on a real project; measured saving recorded.
-**Rollback:** flag defaults off; revert is a one-line gate.
+**Done:** opt-in flag green in CI on a real project. Measured saving recorded.
+**Rollback:** flag defaults off. Revert is a one-line gate.
 
 ---
 
@@ -417,7 +396,7 @@ excluded.
 
 Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 `BuildTarget.build_host_binary`. Keep the `host == host_platform_name()` early-return untouched
-(§3.6).
+(section 3.6).
 
 ---
 
@@ -425,23 +404,23 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 
 | Rejected | Why |
 |---|---|
-| **Shim-expansion tier in discovery** | A shim probe downloads and unzips the entire package to read `papa.txt` (§3.5). Most expensive option, not cheapest. |
-| **`O_CREAT\|O_EXCL` lockfile** | Leaves a stale lock on crash → hangs a build forever. The landed `flock`/`msvcrt` design is released by the OS on fd close or process death. |
-| **Lock file *inside* `dep_dir`** | `reclone_wipe` rmtree's the whole `dep_dir`; deleting a held lock unlinks its inode and exclusion silently breaks. Sidecar lives in the parent dir. |
+| **Shim-expansion tier in discovery** | A shim probe downloads and unzips the entire package to read `papa.txt` (section 3.5). Most expensive option, not cheapest. |
+| **`O_CREAT\|O_EXCL` lockfile** | Leaves a stale lock on crash -> hangs a build forever. The landed `flock`/`msvcrt` design is released by the OS on fd close or process death. |
+| **Lock file *inside* `dep_dir`** | `reclone_wipe` rmtree's the whole `dep_dir`. Deleting a held lock unlinks its inode and exclusion silently breaks. Sidecar lives in the parent dir. |
 | **Bundling a host binary into the Android artifactory package** | The archive name has no host-OS component, so a Linux-published and a Windows-published package collide, and a cross-host consumer gets an unrunnable binary. |
 | **In-process cross-platform artifactory fetch (`host_platform=True` flag)** | `artifactory_archive_name` derives every token from the single global config, including an **exact** `compiler` token. Reconstructing a foreign platform's identity in-process means hand-building a second config, and the exact-match key would mostly miss anyway. The subprocess child computes its own correct name. |
-| **Suppressing `add_child` for out-of-scope deps** | Would fabricate `'<sibling> was removed'` rebuild triggers via `find_missing_dependency` **[R]**. Zombies must exist; they must be *guarded* (Item 1). |
+| **Suppressing `add_child` for out-of-scope deps** | Would fabricate `'<sibling> was removed'` rebuild triggers via `find_missing_dependency` **[R]**. Zombies must exist. They must be *guarded* (Item 1). |
 
 ---
 
 ## 6. Invariants - assert these in tests, forever
 
-1. **Never revive ancestors of the target** (§3.6, fork bomb). Guarded twice: in
+1. **Never revive ancestors of the target** (section 3.6, fork bomb). Guarded twice: in
    `mark_unbuilt_target_deps` and by `build_host_binary`'s host early-return.
-2. `clean_only() && targets_all()` still triggers `sweep_orphaned_build_dirs` (§3.10).
+2. `clean_only() && targets_all()` still triggers `sweep_orphaned_build_dirs` (section 3.10).
 3. A targeted run never rewrites **root's** `mama-dependencies.cmake` (Item 3).
 4. A scoped build of X loads exactly the same dep *set* as a full build restricted to X's subtree.
-5. Scoped loading never feeds `upload`/`deploy` (§3.7).
+5. Scoped loading never feeds `upload`/`deploy` (section 3.7).
 6. The cross-process dep lock's sidecar stays **outside** the dir it guards.
 
 **Regression suites that must stay green:** `test_target_scoped_build` (15),
@@ -453,17 +432,17 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 
 ## 7. Open questions for the auditing model
 
-1. **Re-verify every [R] claim**, especially §3.5 (shim cost) and §3.8 (setter list) - the whole
+1. **Re-verify every [R] claim**, especially section 3.5 (shim cost) and section 3.8 (setter list) - the whole
    plan pivots on those two.
-2. Does the Item 0 `settings()` patch make Item 2a redundant, partly or wholly?
+2. Answered: the landed Item 0 fix guards no setter, so Item 2a keeps its full scope.
 3. Item 3 is behavior-changing. Is narrowing `mama test X` to X's subtree *desirable*, or do users
    rely on it building the tree? Needs a product decision, not just a code one.
 4. Is Item 4 worth the loader risk at all? Measure first: time a cold
    `mama linux build target=protobuf` and count the downloads/clones it performs. If the saving is
    small, stop after Item 3.
-5. Should `add_child`'s silent first-wins overwrite (§3.7) become an **error** in a future major
+5. Should `add_child`'s silent first-wins overwrite (section 3.7) become an **error** in a future major
    version? It is a genuine latent bug independent of everything here.
-6. `execute_unified` already grows lazily (§3.1). Is extending it with a stop condition a better
+6. `execute_unified` already grows lazily (section 3.1). Is extending it with a stop condition a better
    Item 4 than a separate scoped loader, given `_can_unify` currently excludes targeted builds
    precisely because the classic path "resolves the whole tree up front for target lookup"?
 
@@ -472,12 +451,12 @@ Trivial once Item 4 is proven: pass the flag in the child argv constructed in
 ## 8. Sequencing summary
 
 ```
-Item 0 (external: settings() parallel fix)     <- land first
-   └─ Item 1 (zombie guards)                   <- standalone, low risk, do next
-        └─ Item 2 (setter guards, warn-first)  <- standalone, 2-stage release
-             └─ Item 3 (scope executed chain)  <- behavior change, needs decision
-                  └─ Item 4 (free-tier discovery, opt-in, build-only)   <- optional
-                       └─ Item 5 (enable for bootstrap child)
+Item 0 (settings() parallel fix)               <- landed
+   \_ Item 1 (zombie guards)                   <- standalone, low risk, do next
+        \_ Item 2 (setter guards, warn-first)  <- standalone, 2-stage release
+             \_ Item 3 (scope executed chain)  <- behavior change, needs decision
+                  \_ Item 4 (free-tier discovery, opt-in, build-only)   <- optional
+                       \_ Item 5 (enable for bootstrap child)
 ```
 
 Stop at any point. Every prefix of this list leaves the tree stable and better than it started.

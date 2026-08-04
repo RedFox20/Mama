@@ -50,12 +50,10 @@ class TestGcovrCommandShape:
     def test_permissive_parse_error_flags(self, capture_gcovr):
         mama_main.run_coverage_report(_make_target())
         cmd = capture_gcovr['calls'][0]['cmd']
-        # Both flags are needed: parse-errors covers UnknownLineType,
-        # ignore-errors covers gcov-invocation failures.
+        # Both flags are needed: parse-errors covers UnknownLineType, ignore-errors covers gcov-invocation failures.
         assert '--gcov-ignore-parse-errors all' in cmd
         assert '--gcov-ignore-errors all' in cmd
-        # Regression guard: the old value silently let UnknownLineType escape
-        # the parser as a non-zero exit. It must not come back.
+        # negative_hits.warn alone lets UnknownLineType escape the parser as a non-zero exit, so it must not return
         assert 'negative_hits.warn' not in cmd
 
     def test_root_is_source_dir_and_build_dir_is_passed(self, capture_gcovr):
@@ -64,12 +62,11 @@ class TestGcovrCommandShape:
         call = capture_gcovr['calls'][0]
         assert '--root "/proj/src"' in call['cmd']
         assert '"/proj/build"' in call['cmd']
-        # gcovr is invoked from the source dir so relative paths in the
-        # report resolve consistently.
+        # gcovr runs from the source dir so relative paths in the report resolve consistently
         assert call['cwd'] == '/proj/src'
 
     def test_gcov_executable_derived_for_gcc_when_present(self, capture_gcovr, tmp_path):
-        # cc_path = /tmp/.../gcc-14 → derived gcov path = /tmp/.../gcov-14
+        # cc_path = /tmp/.../gcc-14 -> derived gcov path = /tmp/.../gcov-14
         gcov_path = tmp_path / 'gcov-14'
         gcov_path.write_text('')  # only existence is checked
         gcc_path = tmp_path / 'gcc-14'
@@ -79,16 +76,14 @@ class TestGcovrCommandShape:
         assert f'--gcov-executable "{gcov_path}"' in cmd
 
     def test_no_gcov_executable_when_clang(self, capture_gcovr, tmp_path):
-        # Even if a matching gcov-N existed, clang must not pick it up - the
-        # gcov-14 derived from gcc-14 would be wrong for llvm-cov anyway.
+        # a gcov-N derived from gcc-N is wrong for llvm-cov, so clang never uses it even when present
         (tmp_path / 'gcov-14').write_text('')
         target = _make_target(gcc=False, cc_path=str(tmp_path / 'gcc-14'))
         mama_main.run_coverage_report(target)
         assert '--gcov-executable' not in capture_gcovr['calls'][0]['cmd']
 
     def test_no_gcov_executable_when_derived_path_missing(self, capture_gcovr, tmp_path):
-        # gcc points somewhere but the gcov-N sibling doesn't exist - we
-        # must not pass a bogus --gcov-executable.
+        # gcc points somewhere but the gcov-N sibling does not exist: never pass a bogus --gcov-executable
         target = _make_target(gcc=True, cc_path=str(tmp_path / 'gcc-14'))
         mama_main.run_coverage_report(target)
         assert '--gcov-executable' not in capture_gcovr['calls'][0]['cmd']
@@ -101,8 +96,7 @@ class TestGcovrCommandShape:
 
 class TestFailureNeverPropagates:
     def test_nonzero_exit_is_a_warning_not_a_raise(self, capture_gcovr, capsys):
-        capture_gcovr['status'] = 120  # what triggered this whole work
-        # Must return normally - no exception escapes.
+        capture_gcovr['status'] = 120
         mama_main.run_coverage_report(_make_target())
         out = capsys.readouterr().out
         assert 'WARNING' in out
@@ -118,7 +112,6 @@ class TestFailureNeverPropagates:
         def boom(**_kw):
             raise RuntimeError('subprocess blew up')
         monkeypatch.setattr(mama_main, 'execute_piped_echo', boom)
-        # Even an unexpected RuntimeError from the runner must not propagate.
         mama_main.run_coverage_report(_make_target())
         out = capsys.readouterr().out
         assert 'ERROR' in out

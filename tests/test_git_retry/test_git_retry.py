@@ -11,7 +11,7 @@ from testutils import make_git_and_mock_dep as _git_and_dep
 
 @pytest.fixture(autouse=True)
 def unpaced(monkeypatch):
-    """The pacer is process-global state and sleeps for real; keep it off unless a test asks for it."""
+    """The pacer is process-global state and sleeps for real. Keep it off unless a test asks for it."""
     monkeypatch.setattr(sm, '_connect_interval', 0.0)
     monkeypatch.setattr(sm, '_last_connect', 0.0)
     monkeypatch.setattr('mama.types.git.time.sleep', lambda s: None)
@@ -61,7 +61,7 @@ def test_the_partial_tree_is_removed_before_a_retry(monkeypatch):
     attempts = iter([(128, 'Connection reset by peer'), (0, '')])
     monkeypatch.setattr(Git, '_run_git_with_filtered_progress', lambda *a, **k: (*next(attempts), '1.0s'))
     git.clone_with_filtered_progress(dep, '--depth 1 url', '/tmp/target')
-    assert removed == ['/tmp/target']  # a second clone into a non-empty dir fails on the dir, hiding the real error
+    assert removed == ['/tmp/target']  # a second clone into a non-empty dir fails on the dir and hides the real error
 
 
 def test_a_retry_turns_the_connection_pacer_on(monkeypatch):

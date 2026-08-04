@@ -10,9 +10,7 @@ def _b(name, ts, args=None): return {'ph': 'B', 'name': name, 'ts': ts, **({'arg
 def _e(ts): return {'ph': 'E', 'ts': ts}
 def _x(name, ts, dur): return {'ph': 'X', 'name': name, 'ts': ts, 'dur': dur}
 
-# Real vcperf shape: CL Invocation -> FrontEndPass -> C1DLL -> <source> (+ nested includes); BackEndPass ->
-# C2DLL -> codegen leaves. CL0 (a.cpp -> C:\proj): frontend 100us (incl big.h 60us), backend 60us (someFunc).
-# CL1 (b.cpp -> C:\other): frontend 60us, re-includes big.h 20us, no backend. Link 0 -> C:\proj, 50us.
+# Real vcperf nesting: CL Invocation -> FrontEndPass -> C1DLL -> <source> (+ nested includes), BackEndPass -> C2DLL -> leaves.
 def _fe(src, ts, dur, inc=None):  # one FrontEndPass: C1DLL -> source, optional nested include (name, ts, dur)
     body = [_b('C1DLL', ts), _b(src, ts)] + ([_x(inc[0], inc[1], inc[2])] if inc else []) + [_e(ts + dur), _e(ts + dur)]
     return [_b('FrontEndPass', ts), *body, _e(ts + dur)]
@@ -132,7 +130,7 @@ def test_parse_clang_traces_aggregates_across_tus(tmp_path):
     assert st.frontend_s == pytest.approx(1.4) and st.backend_s == pytest.approx(0.3)
     assert [t[0] for t in st.tus] == ['a.cpp', 'b.cpp']            # slowest first, .json + source basename stripped
     files = dict((b, (s, n)) for b, s, n in st.files)
-    assert files['vector'] == (pytest.approx(0.9), 2) and 'a.cpp' not in files  # header summed; the .cpp isn't a header
+    assert files['vector'] == (pytest.approx(0.9), 2) and 'a.cpp' not in files  # header summed, the .cpp is not a header
     assert dict(st.symbols)['std::vector<Foo>'] == pytest.approx(0.15)          # clang details already readable
 
 

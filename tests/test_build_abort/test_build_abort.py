@@ -40,7 +40,7 @@ def test_a_flagged_build_spawns_nothing():
     abort.request('geo failed')
     with patch('mama.utils.sub_process.subprocess.Popen') as popen, pytest.raises(BuildAborted):
         SubProcess.run([PY, '-c', 'pass'])
-    popen.assert_not_called()  # the point of the flag: no new child, not a child killed after spawning
+    popen.assert_not_called()  # the flag's purpose: no new child, not a child killed after spawn
 
 
 def _phase_display():
@@ -56,7 +56,7 @@ def test_no_phase_transitions_while_stopping(kind):
     with pytest.raises(BuildAborted):
         dc._run_phase(display, dep, kind, body, build_slot=None)
     body.assert_not_called()
-    display.start_task.assert_not_called()  # a phase that never ran must not show up as a failed one
+    display.start_task.assert_not_called()  # a phase that never ran must not appear as a failed one
 
 
 def test_a_queued_load_does_not_clone_while_stopping():
@@ -97,8 +97,7 @@ def _run_child(*args):
     that lands during interpreter startup kills the child before it installs its own handler."""
     lines = []
     def run():
-        # A killed child can raise out of run() (the reader hits a closed PTY). Unhandled in a thread,
-        # pytest reports that against whichever test is running, as a teardown error.
+        # A killed child can raise out of run() (reader hits a closed PTY). Unhandled in a thread, pytest logs a teardown error.
         try: SubProcess.run([PY, *args], io_func=lambda p, l: lines.append(l))
         except BaseException: pass
     threading.Thread(target=run, daemon=True).start()
@@ -120,8 +119,7 @@ _STUBBORN = ('import signal, time\n'
              'print("ready", flush=True)\n'
              'time.sleep(30)\n')
 
-# argv: the file the kid touches once it ignores SIGINT, then the file this parent writes the kid pid
-# to. The parent itself stops on the request, so only the group sweep can stop the kid.
+# argv: the kid's SIGINT-ignored marker file, then the kid pid file. The parent stops, so only the group sweep stops the kid.
 _PARENT_OF_A_STUBBORN_KID = '''
 import os, subprocess, sys, time
 ready, pidfile = sys.argv[1], sys.argv[2]
@@ -172,8 +170,8 @@ def test_a_grandchild_that_missed_the_request_still_dies(tmp_path):
 
 
 def test_a_failed_load_stops_the_clones_already_running():
-    """The property the whole two-stage stop exists for: one failed load does not leave the user
-    waiting out every clone the thread pool already started."""
+    """The property the two-stage stop exists for: one failed load does not make the user wait for
+    every clone the thread pool already started."""
     def clone(): SubProcess.run([PY, '-c', 'import time; time.sleep(10)'], io_func=lambda p, l: None)
     def fail():
         end = time.monotonic() + 10  # fail only once the sibling clones really run, else this proves nothing
@@ -188,8 +186,7 @@ def test_a_failed_load_stops_the_clones_already_running():
     start = time.monotonic()
     with pytest.raises(SystemExit):
         dc.load_dependency_chain(root)
-    # The clones stop on the request, so the grace never runs out. Without the stop this waits the
-    # full 10s: the pool's shutdown drains every clone it started.
+    # The clones stop on the request, so the grace never runs out. Without the stop, the pool shutdown drains the full 10s clones.
     assert time.monotonic() - start < 3.0
 
 

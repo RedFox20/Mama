@@ -33,7 +33,7 @@ class TestExitStatus:
         assert status == 7
 
     def test_run_without_io_func_inherits_stdio(self, capfd):
-        # No io_func means child writes go straight to parent stdio; capfd hooks at OS level.
+        # no io_func means child writes go straight to parent stdio, and capfd hooks at the OS level
         status = SubProcess.run([PY, '-c', 'print("hello-no-iofunc")'])
         assert status == 0
         assert 'hello-no-iofunc' in capfd.readouterr().out
@@ -50,8 +50,7 @@ class TestIoFunc:
         assert 'out' in lines and 'err' in lines
 
     def test_all_output_drained_on_nonzero_exit(self):
-        # Regression: close() must drain the reader BEFORE shutting the pipe, or a burst of lines flushed
-        # right before a failing exit (e.g. the compiler error that failed the build) is lost.
+        # close() must drain the reader BEFORE shutting the pipe, or a burst flushed right before a failing exit is lost
         status, lines = _py_run('import sys\nfor i in range(300): print("line%d" % i)\nsys.exit(1)')
         assert status == 1
         assert [l for l in lines if l.startswith('line')][-1] == 'line299'   # the tail is never dropped
@@ -62,7 +61,7 @@ class TestIoFunc:
         assert not any(line.endswith('\r') or line.endswith('\n') for line in lines)
 
     def test_io_func_exception_is_re_raised_by_run(self):
-        # Reader-thread exceptions must surface; otherwise debugging is impossible.
+        # a reader-thread exception swallowed on its own thread is undebuggable
         def broken(p, line): raise RuntimeError(f'callback boom on line={line!r}')
         with pytest.raises(RuntimeError, match='callback boom'):
             SubProcess.run([PY, '-c', 'print("hi")'], io_func=broken)
@@ -70,8 +69,7 @@ class TestIoFunc:
 
 class TestCaptureContextPropagation:
     def test_io_func_console_routes_to_callers_capture_sink(self):
-        # io_func fires on the reader thread; without the capture context carried over, its console()
-        # would miss the caller's sink and leak above the live region (the parallel-build checkout leak).
+        # io_func fires on the reader thread: without the carried capture context, console() leaks above the live region
         sink = []
         def echo(p, line): system.console(f'got:{line}')  # mirrors run_git's prefixed() callback
         with system.capture_to(sink.append):
@@ -144,7 +142,7 @@ class TestStdinWrite:
         assert 'READY' in lines and 'got:the-secret' in lines
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason='PTY behaviour is UNIX-only')
+@pytest.mark.skipif(sys.platform == 'win32', reason='PTY behavior is UNIX-only')
 class TestPtyOnUnix:
     def test_child_sees_a_tty_when_io_func_is_set(self):
         # Why pty.openpty(): git inspects isatty(stderr) to decide whether to emit progress.
@@ -152,7 +150,7 @@ class TestPtyOnUnix:
         assert lines == ['True']
 
     def test_child_does_not_see_a_tty_without_io_func(self, capfd):
-        # No PTY allocated when capture isn't requested; child runs cleanly through to exit.
+        # no PTY is allocated when capture is not requested, and the child still runs to exit
         assert SubProcess.run([PY, '-c', 'import sys; sys.exit(0)']) == 0
 
 
@@ -179,8 +177,7 @@ class TestCarriageReturnProgress:
         assert lines == ['[1/3] foo', '[2/3] bar', '[3/3] baz']
 
     def test_cr_at_chunk_end_flushes_on_idle(self):
-        # The slow-step write isolates a \r in its own chunk; without idle-flush
-        # the line would only appear when the next chunk arrives seconds later.
+        # A \r isolated at a chunk end must idle-flush, or the line only appears when the next chunk arrives seconds later.
         _, lines = _py_run(
             r'import sys, time; '
             r'sys.stdout.write("[1/2] slow_step\r"); sys.stdout.flush(); '
@@ -189,8 +186,7 @@ class TestCarriageReturnProgress:
         assert lines == ['[1/2] slow_step', '[2/2] done']
 
     def test_lone_lf_after_cr_idle_flush_does_not_emit_empty_line(self):
-        # After idle-flushing on \r, a delayed \n (or PTY-ONLCR \r\n) is part
-        # of the same logical line and must be swallowed, not emit "".
+        # After idle-flushing on \r, a delayed \n (or PTY-ONLCR \r\n) is the same logical line: swallow it, do not emit "".
         _, lines = _py_run(
             r'import sys, time; '
             r'sys.stdout.write("partial\r"); sys.stdout.flush(); '
@@ -263,8 +259,7 @@ class TestDrainBuffer:
         assert d.feed(b'xyz\n') == ['prog', 'xyz']
 
     def test_crlf_split_across_chunks_is_not_progress(self):
-        # \r held at a non-idle boundary must pair with the next chunk's \n
-        # as one CRLF line, never flush as progress then swallow.
+        # A \r held at a non-idle boundary must pair with the next chunk's \n as one CRLF line, never flush as progress.
         d = _Drainer()
         assert d.feed(b'abc\r') == [] and d.buf == b'abc\r'
         assert d.feed(b'\ndef\n') == ['abc', 'def']
@@ -327,8 +322,7 @@ class TestCtrlCTermination:
         assert result.get('s', 0) != 0  # nonzero status from the kill
 
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
-        # The point of tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not
-        # just the spawned pid. Stand-in: a child that spawns a long-sleeping grandchild.
+        # Tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not just the spawned pid.
         import threading, time
         from mama.utils import sub_process
         psutil = pytest.importorskip('psutil')
@@ -346,14 +340,13 @@ class TestCtrlCTermination:
         while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
         alive = psutil.pid_exists(gc_pid)
         if alive:
-            try: psutil.Process(gc_pid).kill()  # don't leak a 60s sleeper if the assert fails
+            try: psutil.Process(gc_pid).kill()  # do not leak a 60s sleeper if the assert fails
             except Exception: pass
         assert not alive  # grandchild died with the tree
 
 
 class TestNoForkptyDeprecationWarning:
-    # The whole point of the Popen+pty.openpty rewrite was to kill this warning
-    # (Python 3.12 flags forkpty() in MT programs - real deadlock risk).
+    # The Popen+pty.openpty rewrite removes this warning. Python 3.12 flags forkpty() in MT programs, a real deadlock risk.
     def test_run_does_not_emit_forkpty_warning(self):
         import warnings
         with warnings.catch_warnings(record=True) as caught:
@@ -364,8 +357,7 @@ class TestNoForkptyDeprecationWarning:
 
 
 class TestExecuteEchoCapture:
-    # A custom build()'s self.run() -> execute_echo must feed the active display sink (not the raw
-    # terminal) while a build phase captures, but stay stdio-direct for interactive post-pass commands.
+    # execute_echo must feed the active display sink while a build phase captures, but stay stdio-direct for interactive commands
     def test_captures_into_active_sink(self):
         from mama.utils.sub_process import execute_echo
         captured = []

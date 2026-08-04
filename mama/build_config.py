@@ -73,15 +73,12 @@ class UpdateStats:
 
 
 class BuildConfig:
-    """
-    Mama Build Configuration is created only once in the root project working directory.
-    This configuration is then passed down to dependencies.
-    """
+    """The one build configuration, created in the root project working directory.
+    Every dependency shares it."""
     @staticmethod
     def _default_build_jobs() -> int:
-        """Default parallel build jobs. Linux leaves ONE core free so a perfectly-parallel build can't
-        saturate the desktop into an OOM/freeze; Windows/macOS use all cores. An explicit `jobs=N`
-        on the command line overrides this."""
+        """Default parallel build jobs: Linux keeps ONE core free, so a full build cannot freeze the
+        desktop or trip the OOM killer. Windows and macOS use all cores. `jobs=N` overrides this."""
         cpu = psutil.cpu_count() or 4
         return max(1, cpu - 1) if System.linux else cpu
 
@@ -93,38 +90,36 @@ class BuildConfig:
         self.rebuild = False
         self.update  = False
         self.deploy  = False
-        # if root mamafile has defined an artifacts URL
-        # this will upload deploy archive through SFTP
+        # upload the deploy archive over SFTP, if the root mamafile defines an artifactory URL
         self.upload  = False
-        # currently for uploads only, uploads only if package already not uploaded
+        # for uploads only: upload only when the package is not on the server yet
         self.if_needed = False
-        # if `art` is specified, then artifactory download is mandatory, no source builds are done
+        # `art`: artifactory download is mandatory, no source builds
         self.force_artifactory = False
-        # if `noart` is specified, then artifactory is temporarily ignored
+        # `noart`: ignore artifactory for this run
         self.disable_artifactory = False
         self.reclone   = False
-        self.dirty     = False # marks a target for rebuild on next build even if it's up to date
+        self.dirty     = False # mark a target for rebuild on the next build even if it is up to date
         self.deps_only = False # only execute build/rebuild/clean on dependencies, not the main target
         self.sched_debug = False # TEMP: print each target's build-weight calc, then exit without building
         self.buildstats = False # after the build, print a per-package load/configure/build time breakdown
-        self.unshallow = False  # by default, git clones are shallow, this allows unshallowing
+        self.unshallow = False  # git clones are shallow by default, this flag unshallows them
         self.git_url_override = None  # 'https' or 'ssh': rewrite add_git() urls at build time
-        self.run_cmake_configure = False # if True, forces running CMake configure step even if target doesn't need rebuild
+        self.run_cmake_configure = False # force the CMake configure step even when the target needs no rebuild
         self.mama_init = False
         self.print     = True
         self.verbose   = False
         self.test      = ''
         self.start     = ''
         self.with_tests = False # forces -DENABLE_TESTS=ON
-        self.test_until_failure = 0 # if > 0, runs test executable in a loop until it fails, useful for catching flaky tests
+        self.test_until_failure = 0 # if > 0, run the test executable in a loop until it fails, to catch a flaky test
         self.sanitize  = None # gcc/clang: -fsanitize=[thread|leak|address|undefined]
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
         self.update_stats = UpdateStats() # clone/pull/shim counters for the load phase summary
         self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
-        # The ONE active platform. set_platform() installs it and derives the mamafile-facing
-        # flags below from it, so nothing else stores platform state.
+        # the ONE active platform: set_platform() derives the mamafile flags below from it, and nothing else stores platform state
         self.platform : Platform = None
         self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
@@ -144,20 +139,19 @@ class BuildConfig:
         self.gcc   = False
         self.clang_path = ''
         self.gcc_path = ''
-        # can be used to overide C and C++ compiler paths
+        # override the C and C++ compiler paths
         self.cc_path = ''
         self.cxx_path = ''
         self.cxx_version = '' # c++ compiler version, eg '8.3.0' for gcc 8.3.0
-        # If compiler specificed from command line
-        # using `mama build gcc` or `mama build clang`
+        # True when the command line named a compiler, eg `mama build gcc` or `mama build clang`
         self.compiler_cmd = False
         self.compiler_conflict_warned = False  # the "target prefers X but compiler locked to Y" note fires once, not per dep
-        self.clang_stdlib = 'libc++'  # linux clang C++ stdlib; see use_gcc_stdlib_for_clang()
+        self.clang_stdlib = 'libc++'  # linux clang C++ stdlib, see use_gcc_stdlib_for_clang()
         self.fortran = ''
         # build optimization
         self.release = True
         self.debug   = False
-        # valid architectures: x86, x64, arm, arm64
+        # target architecture, see set_arch() for the valid names
         self.arch    = None
         self.distro  = None  # distro information (name, major, minor)
         self.jobs    = BuildConfig._default_build_jobs()
@@ -177,17 +171,17 @@ class BuildConfig:
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
-        self.parallel_load = False  ## Whether to load dependencies in parallel?
-        self.serial_load   = False  ## If True, override the auto-parallel-on-update behaviour
-        self.parallel_max  = 20     ## Cap concurrent git fetches (avoids hammering the SSH master)
+        self.parallel_load = False  ## Load dependencies in parallel
+        self.serial_load   = False  ## If True, override the auto-parallel-on-update behavior
+        self.parallel_max  = 20     ## Cap concurrent git fetches, so the SSH master does not overload
         # The toolchain file a platform picked, '' for a native build. cmake_configure records it and
         # reads it back: a toolchain file owns compiler selection, so mama must not name a compiler too.
         self.cmake_toolchain_file = ''
         self.git_timeout   = 30     ## Kill a git clone/fetch with no progress for this many seconds
         self.no_compiler_cache = False  ## Disable cross-build-dir reuse of cmake compiler detection
         self.global_workspace = False
-        # The root project dir (mamabuild sets it from source_dir); cwd for a `mama <host> build` bootstrap
-        # child so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
+        # The root project dir, set by mamabuild from source_dir. A `mama <host> build` bootstrap child
+        # uses it as cwd, so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
         self.root_source_dir = None
         if System.windows:
             self.workspaces_root = util.normalized_path(os.getenv('HOMEPATH'))
@@ -198,8 +192,8 @@ class BuildConfig:
         self._announce_lock = threading.Lock()
         self._cmake_ver_num = None   # cached `cmake --version`, also the CMakeFiles/<ver> dir name
         self._seed_coord = None      # compiler-seed Coordinator, built on first configure
-        self._buildstats_start = None  # buildstats wall start; set only on a non-MSVC insights run
-        self._timetrace_json = None    # vcperf trace path; set only on an MSVC insights run
+        self._buildstats_start = None  # buildstats wall start, set only on a non-MSVC insights run
+        self._timetrace_json = None    # vcperf trace path, set only on an MSVC insights run
         self.unused_args = []
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
@@ -221,7 +215,7 @@ class BuildConfig:
             elif arg == 'if_needed': self.if_needed = True
             elif arg == 'art':       self.force_artifactory = True
             elif arg == 'noart':     self.disable_artifactory = True
-            # Updates, Builds and Deploys the project as a package
+            # update, rebuild, deploy and upload the project as a package
             elif arg == 'serve':
                 self.rebuild = True
                 self.update = True
@@ -292,30 +286,19 @@ class BuildConfig:
             elif arg == 'release': self.set_build_config(release=True)
             elif arg == 'debug':   self.set_build_config(debug=True)
             elif arg == 'open':    self.open = 'root'
-            # Open a specific target source dir for editing with VSCode or Visual Studio
-            # Ex old: mama open=ReCpp
-            # Ex new: mama open ReCpp
+            # open a target source dir in the editor: `mama open ReCpp`, or the old form `open=ReCpp`
             elif arg.startswith('open='):   self.open = arg[5:]
             elif arg.startswith('jobs='):   self.jobs = int(arg[5:])
-            # Sets the target to build/update/clean
-            # This is superceded by automatic target lookup
-            # Ex old: mama build target=opencv
-            # Ex new: mama build opencv
+            # old target form `target=opencv`: the automatic lookup (`mama build opencv`) supersedes it
             elif arg.startswith('target='): self.target = arg[7:]
-            # Adding arguments for tests runner
-            # Ex: mama build test="nogdb threadpool"
-            # Ex: mama build test=nogdb test=threadpool
-            # Ex: mama build test=nogdb,threadpool
+            # test runner args: test="a b", repeated test=a test=b, or the comma form test=a,b
             elif arg.startswith('test='):   self.test = self.join_args(self.test, arg[5:])
-            # Adding arguments for test runner to run tests in a loop until failure, useful for catching flaky tests
-            # Ex: mama build test="my_flaky_test" test_until_failure=100
+            # run the tests in a loop until failure, to catch a flaky test
             elif arg == 'test_until_failure': self.test_until_failure = 100 # arbitrary default
-            elif arg.startswith('test_until_failure='): self.test_until_failure = int(arg[19:]) # set number of iterations to run tests until failure
-            # Calls target.start with the specified arguments
-            # Ex: mama build start=verify
+            elif arg.startswith('test_until_failure='): self.test_until_failure = int(arg[19:]) # max loop iterations
+            # call target.start with the given arguments, eg start=verify
             elif arg.startswith('start='):  self.start = self.join_args(self.start, arg[6:])
             elif arg.startswith('arch='):   self.set_arch(arg[5:])
-            # Add additional compiler flags
             elif arg.startswith('flags='):  self.flags = self.join_args(self.flags, arg[6:])
             # Ex: mama build android-24
             elif arg.startswith('android-'):
@@ -335,7 +318,7 @@ class BuildConfig:
             continue
 
 
-    # modifies existing `args` by parsing and appending `arg` contents
+    # parse `arg` and append its contents to `args`
     def join_args(self, args, arg):
         if arg[0] == '"' and arg[-1] == '"':
             arg = arg[1:-1]
@@ -346,9 +329,8 @@ class BuildConfig:
         return args + ' ' + arg
 
 
-    ## set_platform() flag to platform class name, in resolution order. Only the FIRST enabled flag
-    ## wins, exactly as the old if/elif chain did. Looked up through this module's globals, so a test
-    ## can swap a platform out with monkeypatch.setattr('mama.build_config.Imx8mp', Fake).
+    ## set_platform() flag to platform class name, in resolution order: the FIRST enabled flag wins.
+    ## The lookup goes through this module's globals, so a test can monkeypatch a platform class.
     _PLATFORM_FLAGS = (('msvc','Windows'), ('linux','Linux'), ('macos','Macos'), ('ios','Ios'),
                        ('android','Android'), ('raspi','Raspi'), ('oclea','Oclea'), ('mips','Mips'),
                        ('xilinx','Xilinx'), ('imx8mp','Imx8mp'))
@@ -372,17 +354,16 @@ class BuildConfig:
 
 
     def set_platform_class(self, cls):
-        """Install `cls` as the one active platform. Selecting the SAME platform twice keeps the
-        existing instance, so `mama build android-31 ndk-28` does not throw away the api level."""
+        """Install `cls` as the one active platform. The SAME class twice keeps the existing
+        instance, so `mama build android-31 ndk-28` does not discard the api level."""
         if cls is None:                     self.platform = None
         elif type(self.platform) is not cls: self.platform = cls(self)
         self._update_platform_flags()
 
 
     def _update_platform_flags(self):
-        """Refresh the per-platform mamafile properties from `self.platform`. `msvc`, `linux` and
-        `macos` stay bools. The rest hand back the platform object, because a mamafile reads
-        `config.android.android_api` off them. Both forms are documented API - see README."""
+        """Refresh the mamafile-facing platform properties. `msvc`, `linux` and `macos` stay bools. The
+        rest return the platform object, because a mamafile reads fields like `config.android.android_api`."""
         p = self.platform
         def obj(cls): return p if isinstance(p, cls) else None
         self.msvc  = isinstance(p, Windows)
@@ -395,7 +376,7 @@ class BuildConfig:
         self.mips    = obj(Mips)
         self.xilinx  = obj(Xilinx)
         self.imx8mp  = obj(Imx8mp)
-        # convenience alias for detecting embedded Yocto Linux platforms (e.g. Oclea, Xilinx, IMX8MP)
+        # convenience alias that matches any embedded Yocto Linux platform (Oclea, Xilinx, IMX8MP)
         self.yocto_linux = obj(GenericYocto)
 
 
@@ -405,7 +386,7 @@ class BuildConfig:
 
     def check_platform(self):
         if not self.is_platform_set():
-            # choose MSVC if user did not specify `mama build gcc` on windows system
+            # choose MSVC on Windows, unless the user named gcc or clang on the command line
             msvc = System.windows and not (self.gcc or self.clang)
             self.set_platform(msvc=msvc, linux=System.linux, macos=System.macos)
             if not self.is_platform_set():
@@ -417,7 +398,6 @@ class BuildConfig:
         self.platform.validate_arch(self.arch) # set_arch() only checks the arch name itself
 
         if self.enable_clang_tidy:
-            # resolve clang-tidy path based on platform
             self.set_clang_tidy_path(self.clang_tidy_path)
 
 
@@ -443,10 +423,9 @@ class BuildConfig:
 
 
     def host_platform_name(self):
-        """Build-dir / CLI platform name of the HOST mama runs on ('windows'|'linux'|'macos'), independent of
-        the (possibly cross-compiled) target platform. The single source of truth for locating host build dirs
-        and forming a `mama <host> build` bootstrap; mirrors name() for the host. Host arch is left out (as the
-        `windows`/`linux` build-dir names are for x64), which matches every non-arm64-host build."""
+        """Build-dir / CLI name of the HOST mama runs on ('windows'|'linux'|'macos'), independent of the
+        cross-compile target. The single source of truth for host build dirs and a `mama <host> build`
+        bootstrap. The host arch stays out, because the `windows` and `linux` build-dir names mean x64."""
         if System.windows: return 'windows'
         if System.macos:   return 'macos'
         return 'linux'
@@ -465,8 +444,8 @@ class BuildConfig:
 
 
     def announce_once(self, key: str, text: str):
-        """Print `text` only the first time `key` comes up. Option builders run per fingerprint
-        computation, not per configure, so a plain console() repeats the same line with no new news."""
+        """Print `text` only on the first call with `key`. Option builders run per fingerprint
+        computation, not per configure, so a plain console() repeats the same line."""
         if not self.print: return
         with self._announce_lock:
             if key in self._announced: return
@@ -480,14 +459,14 @@ class BuildConfig:
 
 
     def lock_compiler(self):
-        """Freeze the compiler after the ROOT mamafile's settings(). build_dir depends on it, so a dep
-        flipping it mid-load would scatter the tree across linux/ and linux-clang/. Later prefer_*() just notes."""
+        """Freeze the compiler after the ROOT mamafile's settings(). build_dir depends on it, so a dep that
+        flips it mid-load would scatter the tree across linux/ and linux-clang/. A later prefer_*() only prints a note."""
         self.compiler_cmd = True
 
 
     def _warn_compiler_conflict(self, target_name, requested, locked):
-        """The 'target prefers X but the compiler is already locked to Y' note - emitted ONCE per run
-        (every dep re-requests its preference, so this used to flood the output one line per target)."""
+        """Print the 'target requested X but compiler already set to Y' note ONCE per run. Every dep
+        re-requests its preference, so a per-call print repeats the same line for each target."""
         if self.print and not self.compiler_conflict_warned:
             self.compiler_conflict_warned = True
             console(f'Target {target_name} requested {requested} but compiler already set to {locked}.')
@@ -523,20 +502,16 @@ class BuildConfig:
         self.clang_stdlib = 'libstdc++'
 
 
-    ##
-    # Enables fortran compiler
-    # @path Optional custom path or command for the Fortran compiler
-    #
     def enable_fortran(self, path=''):
+        """Enable the Fortran compiler.
+        path: custom path or command for the Fortran compiler, default '' searches the system"""
         if self.fortran: return
         self.fortran = path if path else self.find_default_fortran_compiler()
 
 
     def find_compiler_root(self, suggested_path, compiler, suffixes, dumpfullversion) -> tuple[str, str, str]:
-        """
-        root path where the compilers exist and the discovered suffix
-            returns (root_path, suffix, version)
-        """
+        """Find the root path that holds the compiler and the discovered name suffix.
+        Returns (root_path, suffix, version)."""
         def resolve_compiler(cxx_path, suffix) -> tuple[str, str, str]:
             cxx_path = os.path.realpath(cxx_path) # resolve symlinks
             if not os.path.exists(cxx_path):
@@ -544,9 +519,7 @@ class BuildConfig:
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
             return os.path.dirname(cxx_path) + '/', suffix, version
 
-        # stop search early if we meet an already pre-configure /etc/alternatives/clang++ path on linux
-        # since this is likely what the user has configured as their default compiler
-        # if user has ~/.local/bin/clang or ~/.local/bin/gcc try to resolve that
+        # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install
         priority_choices = [ suggested_path, os.getenv('CXX'),
                             f'{os.getenv("HOME")}/.local/bin/{compiler}',
                             '/etc/alternatives/' + compiler ]
@@ -558,12 +531,12 @@ class BuildConfig:
                         console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)} via {priority_cxx}')
                     return path, '', ver
 
-        # perform exhaustive search through all candidate directories for any suitable compilers
+        # search every candidate directory for a suitable compiler
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
 
-        # Look in PATH in addition to hardcoded paths
+        # also search PATH, not only the hardcoded paths
         pathDirs = os.getenv('PATH').split(":")
         pathDirs = list(map(lambda p: p if p.endswith("/") else p + "/", pathDirs)) # Add slash at end if missing
         roots += pathDirs
@@ -575,7 +548,7 @@ class BuildConfig:
                 cxx_path = root + compiler + suffix # compiler=clang++
                 if os.path.exists(cxx_path):
                     path, _, ver = resolve_compiler(cxx_path, suffix)
-                    if ver and not path in already_added: # if version is valid and path not already added
+                    if ver and not path in already_added:
                         already_added.add(path)
                         candidates.append((path, suffix, ver))
         if not candidates:
@@ -593,7 +566,7 @@ class BuildConfig:
         # sort by version, descending eg 10.3, 9.4, 8.3
         candidates.sort(key=lambda x: version_to_int(x[2]), reverse=True)
 
-        # print this out for debugging on CI machines if they select verbose
+        # with verbose, print every candidate to debug a CI machine
         if self.verbose:
             for root, suffix, version in candidates:
                 console(f'Compiler {compiler+suffix} ({version}) at {root+compiler+suffix}')
@@ -612,8 +585,7 @@ class BuildConfig:
         if self.msvc:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
-        # a cross platform always names its own compilers: falling back to the host compiler
-        # search would silently build x86 binaries for an arm64 board
+        # a cross platform names its own compilers: a host-compiler fallback would silently build for the wrong arch
         cc, cxx, ver = self.platform.compiler_paths()
         if cc:
             self.cc_path, self.cxx_path, self.cxx_version = cc, cxx, ver
@@ -641,7 +613,7 @@ class BuildConfig:
             version = execute_piped([cc_path, '-dumpfullversion']).strip() # eg 9.4.0
             if version.count('.') >= 1:
                 return version
-        # clang++ doesn't support -dumpfullversion in latest releases -_-
+        # recent clang++ releases do not support -dumpfullversion
         return execute_piped([cc_path, '-dumpversion']).strip()
 
 
@@ -686,7 +658,7 @@ class BuildConfig:
             else:
                 warning(f'{CLANG_TIDY_ENV} environment variable is set to \'{clang_tidy_env}\' but it is not a valid file!')
 
-        # if android root has been configured, check if clang-tidy exists in the android toolchain bin dir
+        # when the android platform is set, check the NDK toolchain bin dir for clang-tidy
         if self.android:
             ndk_bin = self.android.bin()
             clang_tidy_exe = f'{ndk_bin}/clang-tidy.exe' if System.windows else f'{ndk_bin}/clang-tidy'
@@ -695,7 +667,7 @@ class BuildConfig:
                 if self.print: console(f'Found clang-tidy in Android NDK bin dir: {clang_tidy_exe}', color=Color.GREEN)
                 return
 
-        # display the full path of clang-tidy by resolving symlinks (/etc/alternatives/clang-tidy -> /usr/bin/clang-tidy-18)
+        # resolve symlinks to show the full clang-tidy path (/etc/alternatives/clang-tidy -> /usr/bin/clang-tidy-18)
         clang_tidy_exe = util.find_executable_from_system('clang-tidy', follow_symlinks=True)
         if clang_tidy_exe:
             self.clang_tidy_path = clang_tidy_exe
@@ -724,14 +696,10 @@ class BuildConfig:
 
 
     def set_toolchain(self, toolchain_dir=None, toolchain_file=None):
-        """Point the active platform at an explicit toolchain, from the ROOT mamafile settings().
-
-        `toolchain_dir` is the SDK root holding the cross compilers and the sysroot. `toolchain_file`
-        is the CMake toolchain file the SDK ships. A platform uses whichever of the two it needs.
-        ```
-            def settings(self):
-                self.config.set_toolchain('/opt/my-imx8mp-sdk')
-        ```
+        """Point the active platform at an explicit toolchain, from the ROOT mamafile settings(), eg
+        self.config.set_toolchain('/opt/my-imx8mp-sdk'). A platform uses whichever argument it needs.
+        toolchain_dir: the SDK root that holds the cross compilers and the sysroot
+        toolchain_file: the CMake toolchain file the SDK ships
         """
         self.platform.init_toolchain(toolchain_dir, toolchain_file)
 
@@ -763,9 +731,8 @@ class BuildConfig:
 
 
     def init_platform_toolchain(self):
-        """Resolve the cross-compile toolchain (NDK/sysroot paths) from the default search paths.
-        MUST run after the ROOT mamafile's settings(), so an explicit set_toolchain() there wins:
-        this is a no-op once settings() already picked a toolchain dir."""
+        """Resolve the cross-compile toolchain from the default search paths. MUST run after the ROOT
+        mamafile's settings(), so an explicit set_toolchain() there wins. A no-op once a toolchain is set."""
         self.platform.init_default()
 
 
@@ -797,7 +764,7 @@ class BuildConfig:
 
 
     def install_clang(self, clang_major):
-        if type(clang_major) != int: clang_major = int(clang_major) # convert to int
+        if type(clang_major) != int: clang_major = int(clang_major)
         if System.windows: raise OSError('Install Visual Studio 2026 with Clang support')
         if System.macos:   raise OSError('Install Xcode to get Clang on macOS')
         id, major, minor = self.get_distro_info()
@@ -806,8 +773,7 @@ class BuildConfig:
         execute('sudo apt-get update')
         execute(f'sudo apt-get install clang-{clang_major} clang-tidy-{clang_major} '+\
                 f'libc++-{clang_major}-dev libc++abi-{clang_major}-dev -y')
-        # configure current clang version as default clang via update-alternatives
-        # this way mama and cmake tools can find it without additional configuration
+        # make this clang the default via update-alternatives, so mama and the cmake tools find it
         console(f'Configuring clang-{clang_major} as default clang via update-alternatives', color=Color.MAGENTA)
         execute(f'sudo update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-{clang_major}   100')
         execute(f'sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-{clang_major} 100')
@@ -820,7 +786,7 @@ class BuildConfig:
 
 
     def install_gcc(self, gcc_major):
-        if type(gcc_major) != int: gcc_major = int(gcc_major) # convert to int
+        if type(gcc_major) != int: gcc_major = int(gcc_major)
         if System.windows: raise OSError('Install MinGW to get GCC on Windows')
         if System.macos:   raise OSError('install-gcc not implemented for macOS')
         id, major, minor = self.get_distro_info()
@@ -828,8 +794,7 @@ class BuildConfig:
         console(f'Installing gcc-{gcc_major} and g++-{gcc_major} from apt repositories', color=Color.MAGENTA)
         execute('sudo apt-get update')
         execute(f'sudo apt-get install gcc-{gcc_major} g++-{gcc_major} -y')
-        # configure current gcc version as default gcc via update-alternatives
-        # this way mama and cmake tools can find it without additional configuration
+        # make this gcc the default via update-alternatives, so mama and the cmake tools find it
         console(f'Configuring gcc-{gcc_major} as default gcc via update-alternatives', color=Color.MAGENTA)
         execute(f'sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{gcc_major} 100')
         execute(f'sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{gcc_major} 100')
@@ -913,8 +878,8 @@ class BuildConfig:
 
 
     def install_raspi(self, arch: str):
-        """Install the Raspberry Pi cross toolchain from apt. The packages land in /usr/bin/<triple>-gcc,
-        which Raspi.init_default() already searches, so a build works straight afterwards with no env var."""
+        """Install the Raspberry Pi cross toolchain from apt. The packages install to /usr/bin/<triple>-gcc,
+        which Raspi.init_default() already searches, so a build works immediately with no env var."""
         if System.windows: raise OSError('install-raspi is linux only. On Windows install SysGCC/raspberry')
         if System.macos:   raise OSError('install-raspi not implemented for macOS')
         id, _, _ = self.get_distro_info()
@@ -952,26 +917,26 @@ class BuildConfig:
 
 
     def has_target(self) -> bool:
-        """ A target was specified from cmdline, eg 'all' or 'mypackage' """
+        """ True when the cmdline named a target, eg 'all' or 'mypackage' """
         return self.target is not None and len(self.target) > 0
 
     def no_target(self) -> bool:
-        """ No target specified from cmdline """
+        """ True when the cmdline named no target """
         return self.target is None or len(self.target) == 0
 
     def targets_all(self) -> bool:
-        """ Target specified from cmdline was 'all' """
+        """ True when the cmdline target is 'all' """
         return self.target == 'all'
 
 
     def target_matches(self, target_name: str) -> bool:
-        """ True if target_name matches the target specified from cmdline """
+        """ True when `target_name` matches the cmdline target """
         return self.targets_all() \
             or (self.target and self.target.lower() == target_name.lower())
 
 
     def no_specific_target(self) -> bool:
-        """ True if no target or 'all' was specified from cmdline """
+        """ True when the cmdline named no target, or named 'all' """
         return self.no_target() or self.targets_all()
 
     def is_network_available(self) -> bool:

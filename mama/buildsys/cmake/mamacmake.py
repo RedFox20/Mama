@@ -3,9 +3,8 @@ from __future__ import annotations
 from mama.platforms.registry import PLATFORMS
 
 
-# The CMake condition that identifies each platform, in the order mama.cmake tests them. The order is
-# the registry's, and it matters: android is also UNIX and iOS is also APPLE, so the specific guard has
-# to come first. A platform missing from here cannot be detected by a consumer's CMakeLists.
+# The CMake condition per platform, tested in registry order: android is also UNIX and iOS is also
+# APPLE, so the specific guard comes first. A consumer cannot detect a platform missing from here.
 _GUARDS = {
     'android': 'ANDROID OR ANDROID_NDK',
     'windows': 'WIN32',
@@ -22,9 +21,9 @@ _GUARDS = {
 # Variables a consumer's CMakeLists has always been able to test, beyond the platform's own define.
 _EXTRA_VARS = {'ios': ('IOS',), 'macos': ('MACOS',), 'linux': ('LINUX',)}
 
-# How MAMA_CMAKE_ARCH is matched, and the variable each arch sets. Tested in THIS order, so x64 wins
-# before x86 (which also matches x86_64) and mips64el before mips. The patterns are a union of what
-# CMAKE_GENERATOR_PLATFORM, ANDROID_ARCH and CMAKE_SYSTEM_PROCESSOR each report for that arch.
+# The MAMA_CMAKE_ARCH pattern and the variable each arch sets, tested in THIS order: x64 before x86,
+# which also matches x86_64, and mips64el before mips. Each pattern is a union of what
+# CMAKE_GENERATOR_PLATFORM, ANDROID_ARCH and CMAKE_SYSTEM_PROCESSOR report for that arch.
 _ARCH_MATCH = (
     ('x64',      'MAMA_ARCH_X64',   '(amd64)|(AMD64)|(IA64)|(x64)|(X64)|(x86_64)|(X86_64)'),
     ('x86',      'MAMA_ARCH_X86',   '(X86)|(x86)|(i386)|(i686)'),
@@ -46,10 +45,8 @@ def _platform_header(platform) -> str:
 
 
 def _arch_branches(platform, build_dir_defines) -> str:
-    """The per-arch body: set the arch variable and point MAMA_BUILD at that arch's build dir.
-
-    A platform with one arch needs no branch at all. With several, an unmatched arch is a FATAL_ERROR:
-    picking a build dir on a guess silently links the wrong architecture's libraries."""
+    """The per-arch body: set the arch variable and point MAMA_BUILD at that arch's build dir. An
+    unmatched arch is a FATAL_ERROR: a guessed build dir silently links the wrong architecture's libraries."""
     arches = [a for a in _ARCH_MATCH if a[0] in platform.supported_arches]
     if len(arches) == 1:
         arch, var, _ = arches[0]
@@ -69,10 +66,10 @@ def _arch_branches(platform, build_dir_defines) -> str:
 
 
 def platform_chain(build_dir_defines) -> str:
-    """The whole if/elseif chain over every platform mama supports, generated from the registry.
-
-    `build_dir_defines(build_dir)` returns the MAMA_BUILD lines for one build dir. Generated, so the
-    chain and BuildConfig can no longer drift apart: they read the same build_dirs table."""
+    """The whole if/elseif chain over every platform, generated from the registry, so the chain and
+    BuildConfig read the same build_dirs table and cannot drift apart.
+    build_dir_defines: callable that returns the MAMA_BUILD lines for one build dir
+    """
     chain = ''
     for i, platform in enumerate(PLATFORMS):
         test = 'if' if i == 0 else 'elseif'

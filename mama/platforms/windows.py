@@ -8,8 +8,7 @@ from mama.utils.system import System, console
 from mama.utils.sub_process import execute_piped
 
 
-# Where Visual Studio installs itself, newest first. vswhere.exe answers this properly, so these are
-# only the fallback for a machine where the installer is missing.
+# Visual Studio install roots, newest first. Only the fallback for a machine with no vswhere.exe.
 VS_VARIANTS = ('Enterprise', 'Professional', 'Community')
 VS_ROOTS = [f'C:\\Program Files\\Microsoft Visual Studio\\{v}' for v in ('18', '2022')] + \
             [f'C:\\Program Files (x86)\\Microsoft Visual Studio\\{v}' for v in ('2019', '2017')]
@@ -52,8 +51,7 @@ def vswhere_property(name: str) -> str:
 def find_visualstudio(verbose=False) -> str:
     """The Visual Studio install root. Raises when there is none: every MSVC path derives from it."""
     def find():
-        # inside the memo, so mama reports the detection once. A print per caller wrote the same line
-        # 8 times into one verbose build log.
+        # inside the memo, so the detection prints once, not once per caller
         vspath = vswhere_property('installationPath')
         if not vspath or not os.path.exists(vspath):
             variants = [f'{root}\\{v}' for root in VS_ROOTS for v in VS_VARIANTS]
@@ -70,10 +68,11 @@ def find_visualstudio(verbose=False) -> str:
 
 
 def latest_msvc_toolset(tools_root: str) -> str:
-    """Newest MSVC toolset (highest version) that still has the x64 cl.exe. An upgrade can leave the old
-    version's dir behind without binaries, and os.listdir order is unspecified - so sort by version
-    (numerically, not lexically: 14.51 > 14.9) and skip toolsets whose cl.exe is gone. '' if none:
-    every msvc_* path is bin/Hostx64/x64, so a toolset without it only defers the failure."""
+    """Newest MSVC toolset dir that still has the x64 cl.exe, or '' when none does. An upgrade can
+    leave a version dir behind without binaries, so sort by version, numerically because 14.51 > 14.9,
+    and skip a toolset whose cl.exe is gone. Every msvc_* path assumes bin/Hostx64/x64.
+    tools_root: the `VC\\Tools\\MSVC` dir that holds the versioned toolsets
+    """
     try:
         dirs = [d for d in os.listdir(tools_root) if os.path.isdir(os.path.join(tools_root, d))]
     except OSError:
@@ -82,11 +81,11 @@ def latest_msvc_toolset(tools_root: str) -> str:
     for d in dirs:
         if os.path.isfile(os.path.join(tools_root, d, 'bin', 'Hostx64', 'x64', 'cl.exe')):
             return path_join(tools_root, d)
-    return ''  # a dir without cl.exe can't build; '' lets the caller say so up front
+    return ''
 
 
 class Windows(Platform):
-    """MSVC on Windows. Not a cross build: the toolset and the Windows SDK pick the compiler, so
+    """MSVC on Windows. Not a cross build. The toolset and the Windows SDK pick the compiler, so
     mama names no compiler path and resolves the toolset through vswhere instead."""
     name = 'windows'
     cli_aliases = ('msvc',)
@@ -94,13 +93,12 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
-    ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx, an older toolset writes .sln
+    ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx. An older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False
 
     def _build_toolchain(self) -> Toolchain:
-        # An x86 target needs the 32-bit host toolset. Everything else about the compiler comes from
-        # the toolset and the Windows SDK, so mama names no compiler path here.
+        # An x86 target needs the 32-bit host toolset. The toolset and the SDK pick the compiler, so mama names none.
         return Toolchain(system_name=self.system_name, host_toolset='x86' if self.arch() == 'x86' else '')
 
 
@@ -121,7 +119,7 @@ class Windows(Platform):
 
 
     def generator_name(self) -> str:
-        """The Visual Studio generation, eg 'Visual Studio 17 2022'. Both cmake and mama name it this."""
+        """The cmake generator name, eg 'Visual Studio 17 2022', matched from the install path."""
         vspath = self.visualstudio_path()
         return next((g for tag, g in _VS_GENERATORS.items() if tag in vspath), _VS_GENERATOR_FALLBACK)
 
@@ -161,4 +159,4 @@ class Windows(Platform):
 
 
     def debugger(self) -> str:
-        return ''  # the test exe runs directly, there is no batch-mode debugger to wrap it
+        return ''  # no batch-mode debugger exists here, so the test exe runs directly

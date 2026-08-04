@@ -92,7 +92,7 @@ def test_is_progress_line_matches_git_and_download_bars():
 
 
 def test_run_git_collapses_progress_flood_but_keeps_real_lines(tmp_path):
-    # The regression: run_git printed every per-percent progress line raw; now it collapses them.
+    # run_git must collapse the per-percent progress lines instead of printing every one raw
     dep = make_mock_dep(tmp_path, print=True)
     flood = [f'Receiving objects: {p}% ({p}/100)' for p in range(101)]
     real = ['From https://github.com/RedFox20/ReCpp', ' * [new branch] main -> origin/main']

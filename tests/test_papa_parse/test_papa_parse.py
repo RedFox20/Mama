@@ -1,7 +1,8 @@
+"""Pins PapaFileInfo: parsing every record kind of papa.txt, including the optional compiler record."""
 from testutils import init
 from mama.papa_deploy import PapaFileInfo
 
-# Test papa file format parsing
+
 def test_papa_parse(tmp_path):
     init(__file__, tmp_path)
 
@@ -36,7 +37,7 @@ def test_compiler_record_round_trips(tmp_path):
 
 
 def test_a_package_without_a_compiler_record_still_loads(tmp_path):
-    # pre-change packages have no C record: unknown must not read as mismatch
+    # older packages have no C record: unknown must not read as mismatch
     papa = tmp_path / 'papa.txt'
     papa.write_text('P Example\nI include\n')
     info = PapaFileInfo(str(papa))

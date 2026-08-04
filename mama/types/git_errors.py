@@ -1,8 +1,5 @@
 """Name the cause of a failed git command and render it as a report the user can act on.
-
-One table drives both the retry decision and the report, so a new pattern is one line in one place.
-Without this, a git failure reaches the user as a Python traceback. Mama's own call stack then buries
-the line that matters, for example `error: RPC failed; curl 35 Recv failure`."""
+One table drives both the retry decision and the report, so a new pattern is one line in one place."""
 
 from typing import NamedTuple
 
@@ -23,9 +20,8 @@ _KEY_HINT = 'Check the ssh key of this machine, or the access token of the repos
 _WIPE_HINT = 'Run `mama wipe <target>` to clone the target again.'
 _UNKNOWN_HINT = 'Run mama with `verbose` to see the full git output.'
 
-# (needles, transient, reason, hint). The scan returns the FIRST match, so the order matters twice.
-# A rate limit answers 403, which alone reads as access denied. A 404 over https also prints
-# 'unable to access'. Each specific cause comes before the general one.
+# (needles, transient, reason, hint). The scan returns the FIRST match, so each specific cause comes
+# before the general one: a rate limit answers 403, and a 404 over https also prints 'unable to access'.
 _CAUSES = (
     (('too many requests', 'rate limit', 'error: 429', 'try again later', 'temporarily unavailable'), True,
      'the server throttled mama (rate limit)', _WAIT_HINT),
@@ -56,8 +52,7 @@ _CAUSES = (
      'mama cannot reach the git server', _RETRY_HINT),
 )
 
-# Substrings that mark a line as the one that names the failure. The rest of a clone's output is
-# progress and transfer text.
+# Substrings that mark the line naming the failure. The rest of the output is progress and transfer text.
 _ERROR_NEEDLES = ('fatal:', 'error:', 'denied', 'ssh:', 'warning:', '[mama]')
 _MAX_GIT_LINES = 6  # enough for the git error and the two lines after it, short enough to read
 _TAIL_LINES = 3     # fallback when no line matches: each git version words an error differently

@@ -7,7 +7,7 @@ from mama.util import has_source_content, is_dir_empty
 
 
 def _seed(dep, *names):
-    """Materialise src_dir with the given entries; '.git' is created as a directory."""
+    """Materialize src_dir with the given entries. '.git' becomes a directory."""
     os.makedirs(dep.src_dir, exist_ok=True)
     for n in names:
         if n == '.git': os.makedirs(f'{dep.src_dir}/.git', exist_ok=True)
@@ -16,7 +16,7 @@ def _seed(dep, *names):
 
 @contextlib.contextmanager
 def _stubbed(dep, broken):
-    """dependency_checkout with the git side stubbed; yields the (wipe, clone) mocks."""
+    """dependency_checkout with the git side stubbed. Yields the (wipe, clone) mocks."""
     git = dep.dep_source
     with patch.object(git, '_is_repo_broken', return_value=broken), patch.object(git, '_sync_remote_url'), \
          patch.object(git, 'reclone_wipe') as wipe, patch.object(git, 'clone_or_pull') as clone:
@@ -32,11 +32,11 @@ def _checkout(dep, broken=False):
 
 def test_has_source_content_ignores_what_mama_generated(tmp_path):
     d = tmp_path / 'dep'
-    assert not has_source_content(str(d))             # doesn't exist
+    assert not has_source_content(str(d))             # does not exist
     d.mkdir()
     assert not has_source_content(str(d))
     (d / 'mama.cmake').write_text('')
-    assert not has_source_content(str(d))             # the exact shape of the reported broken ffmpeg dir
+    assert not has_source_content(str(d))             # mama's own proxy file is not source
     (d / '.git').mkdir()
     assert not has_source_content(str(d))             # a half-finished clone has no working tree to lose
     (d / 'ffmpeg.c').write_text('')
@@ -44,8 +44,7 @@ def test_has_source_content_ignores_what_mama_generated(tmp_path):
 
 
 def test_has_source_content_sees_source_hidden_in_subdirs(tmp_path):
-    # is_dir_empty only names the subdirs that prove a checkout; an rsync'd tree of project-specific
-    # dirs still reads as 'empty' to it, so the wipe guard must not inherit that blind spot
+    # is_dir_empty only names the subdirs that prove a checkout, so the wipe guard must not inherit that gap.
     d = tmp_path / 'dep'
     (d / 'libavcodec').mkdir(parents=True)
     assert is_dir_empty(str(d)) and has_source_content(str(d))
@@ -68,7 +67,7 @@ def test_a_dir_with_nothing_in_it_is_still_empty(tmp_path):
 
 
 def test_a_dir_holding_only_mama_generated_files_heals(tmp_path):
-    # the reported case: ffmpeg/ held nothing but the mama.cmake proxy mama wrote there itself
+    # a dep dir can hold nothing but the mama.cmake proxy mama wrote there itself
     dep = make_mock_dep(tmp_path)
     _seed(dep, 'mama.cmake')
     assert _checkout(dep) == (True, True, True)
@@ -81,8 +80,7 @@ def test_a_broken_git_with_nothing_checked_out_heals(tmp_path):
 
 
 def test_an_rsynced_sandbox_copy_without_git_is_never_clobbered(tmp_path):
-    # sandbox builds rsync a dep's source (often excluding .git) and may edit it; re-cloning over
-    # that destroys the sandbox, which is the whole point of modular local development
+    # Sandbox builds rsync a dep's source without .git and may edit it. A re-clone over that destroys the sandbox.
     dep = make_mock_dep(tmp_path)
     _seed(dep, 'mama.cmake', 'ffmpeg.c')
     assert _checkout(dep) == (False, False, False)
@@ -103,7 +101,7 @@ def test_wiping_the_target_still_forces_the_reclone(tmp_path):
 
 
 def test_wiping_a_different_target_does_not_clobber_this_one(tmp_path):
-    dep = make_mock_dep(tmp_path, reclone=True)  # `mama wipe other` must not take out a sandboxed dep
+    dep = make_mock_dep(tmp_path, reclone=True)  # `mama wipe other` must not delete a sandboxed dep
     _seed(dep, 'ffmpeg.c')
     assert _checkout(dep) == (False, False, False)
 
@@ -115,15 +113,14 @@ def test_checkout_leaves_a_healthy_clone_alone(tmp_path):
 
 
 def _wipe_call(dep, broken=False):
-    """The reclone_wipe(...) call dependency_checkout makes; None if it never wiped."""
+    """The reclone_wipe(...) call dependency_checkout makes. None if it never wiped."""
     with _stubbed(dep, broken) as (wipe, _):
         dep.dep_source.dependency_checkout(dep)
     return wipe.call_args
 
 
 def test_an_automatic_heal_wipes_only_the_source(tmp_path):
-    # dep_dir is shared by every platform: a tree broken for THIS one must not delete a sibling's
-    # artifactory package/shim/build output - a concurrent `mama <host> build` may be reading it
+    # Every platform shares dep_dir: a concurrent `mama <host> build` may be reading a sibling's package/shim/build output.
     dep = make_mock_dep(tmp_path)
     _seed(dep, '.git')
     assert _wipe_call(dep, broken=True).kwargs == {'source_only': True}

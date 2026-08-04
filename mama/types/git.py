@@ -32,10 +32,8 @@ _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to
               'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
               'There is no tracking information for the current branch')
 
-# An ssh client built without GSSAPI warns about the `GSSAPIAuthentication` line Debian and Ubuntu ship
-# in /etc/ssh/ssh_config, once per fetch. Auth still works and mama never sets that option, so the line
-# says nothing about the build. Which ssh build sits in PATH differs per machine image, which is why the
-# warning comes and goes between CI runners.
+# An ssh client built without GSSAPI warns once per fetch about the `GSSAPIAuthentication` line many
+# distros ship in /etc/ssh/ssh_config. Auth still works, so the line says nothing about the build.
 _SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
 
 def _is_git_status_noise(line: str) -> bool:
@@ -53,14 +51,13 @@ _ERROR_TAIL = 40  # git lines kept for the failure report. A fetch's output is o
 
 
 def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
-    """True if `line` is git transfer progress (the caller drops it) - collapsing the per-percent flood
-    the PTY makes git emit into one throttled redraw. EVERY git runner routes output through this single
-    chokepoint. `state` carries the throttle across calls; `label` prefixes (e.g. CLONE)."""
+    """True when `line` is git transfer progress, which the caller drops. Collapses the per-percent
+    flood into one throttled redraw. EVERY git runner routes output through this single chokepoint."""
     st = git_progress_status(line)
     if st is None: return False
     if dep.config.print:
         now = time.monotonic()
-        if 'at' not in state: state['at'] = now  # seed on first sight; don't emit until the throttle elapses
+        if 'at' not in state: state['at'] = now  # seed on the first line. No emit until the throttle elapses.
         if st != state.get('last') and (st[1] >= 100 or now - state['at'] >= _FILTERED_GIT_PROGRESS_REPORT_INTERVAL):
             state['last'] = st; state['at'] = now
             tag = f'{label} ' if label else ''
@@ -106,9 +103,7 @@ def _canonical_remote(url: str) -> str:
 
 
 class Git(DepSource):
-    """
-    For BuildDependency whose source is from a Git repository
-    """
+    """For a BuildDependency whose source is a git repository."""
     def __init__(self, name:str, url:str, branch:str, tag:str, mamafile:str, shallow:bool, args:list):
         super(Git, self).__init__(name)
         if not url: raise RuntimeError("Git url must not be empty!")
@@ -120,7 +115,7 @@ class Git(DepSource):
         self.shallow = shallow
         self.args = args
 
-        self.from_source = False  # if True, this must be built from source, not from artifactory
+        self.from_source = False  # True forces a source build instead of an artifactory package
         self.commit_hash = None  # the git commit hash of this DepSource
         self.url_overridden = False  # True once apply_url_override rewrote self.url
 
@@ -133,7 +128,7 @@ class Git(DepSource):
 
     def apply_url_override(self, config: BuildConfig):
         """Rewrite self.url between ssh<->https per config.git_url_override (the
-        `https-override` / `ssh-override` build args). Idempotent; no-op for local
+        `https-override` / `ssh-override` build args). Idempotent. No-op for local
         paths or urls already in the target protocol."""
         if not config.git_url_override: return
         new_url = convert_git_url(self.url, config.git_url_override)
@@ -183,7 +178,7 @@ class Git(DepSource):
 
 
     def run_git(self, dep: BuildDependency, git_command, throw=True):
-        # Shim has no .git; `cd src_dir && git ...` would walk up and hit the wrong repo.
+        # A shim has no .git, so git run in src_dir would walk up and hit the wrong repo.
         if dep.is_artifactory_shim():
             msg = f'Target {dep.name} is an artifactory shim; cannot run `git {git_command}`'
             if dep.config.verbose: error(f'  {dep.name: <16} {msg}')
@@ -193,8 +188,7 @@ class Git(DepSource):
         if dep.config.verbose:
             warning(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
-        # Capture and prefix each line so parallel updates don't tear and the
-        # user can see which target said what (e.g. 'remote: Enumerating ...').
+        # capture and prefix each line, so parallel updates do not tear and each line names its target
         prog: dict = {}
         tail = deque(maxlen=_ERROR_TAIL)  # the last real lines, which the failure report shows
         def prefixed(p:SubProcess, line:str):
@@ -222,27 +216,26 @@ class Git(DepSource):
 
 
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
-        """Check if the working tree has uncommitted modifications to tracked files"""
+        """True when the working tree has uncommitted modifications to tracked files"""
         return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
 
 
     def _ensure_no_local_modifications(self, dep: BuildDependency):
-        """Raise (with an actionable message + `git status`) when the working tree has uncommitted
-        changes an update's reset --hard would overwrite. Called at the TOP of the update path so a
-        dirty dep fails loudly (marked `x`), even when upstream is unchanged - otherwise the pull below
-        fails, gets swallowed by its fetch fallback, and the dep silently reports success un-updated."""
+        """Raise when the working tree has uncommitted changes that an update's reset --hard would
+        overwrite. The update path calls this at its TOP, so a dirty dep fails loudly even when
+        upstream is unchanged. Otherwise the later pull fails, its fetch fallback swallows the
+        error, and the dep silently reports success un-updated."""
         if not self._has_local_modifications(dep): return
         name = dep.name
         error(f"  Target {name} has local modifications that would be overwritten by update.\n"
               f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
-        self.run_git(dep, "status --porcelain") # show the user what files are modified
+        self.run_git(dep, "status --porcelain") # show the modified files
         raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
 
 
     def working_tree_fingerprint(self, dep: BuildDependency) -> str:
         """'' for a clean tree, else a content-aware hash of uncommitted source. See
-        util.git_dir_fingerprint. Guarded on is_real_clone so a shim (no working tree on
-        disk) is treated as clean rather than probing an absent directory."""
+        util.git_dir_fingerprint. A shim has no working tree on disk, so it counts as clean."""
         return git_dir_fingerprint(dep.src_dir) if dep.is_real_clone() else ''
 
 
@@ -260,7 +253,7 @@ class Git(DepSource):
 
     @staticmethod
     def get_current_repository_commit(dep: BuildDependency):
-        """ Assuming {src_dir}/.git exists, this will get the repository commit short hash """
+        """The short commit hash of the repository at src_dir. The caller makes sure {src_dir}/.git exists."""
         result = execute_piped(['git', 'show', '--format=%h', '-s'], cwd=dep.src_dir)
         if dep.config.verbose:
             console(f'  {dep.name: <16} git show --format=%h -s:   {result}')
@@ -272,16 +265,13 @@ class Git(DepSource):
 
 
     def fetch_self_version_from_remote(self, dep: BuildDependency):
-        """Fetches just the dep's mamafile to read `self.version` without pulling the
-        full repo. Used by the shim probe for version-pinned deps (e.g. boost 1.60)
-        where the archive name doesn't track the commit hash. The clone goes through
-        SubProcess.run (live progress UI); the one-shot `git show` uses subprocess.run
-        with stderr=DEVNULL + timeout to drop the lazy-fetch's `remote: ...` chatter
-        and to bound a stuck fetch. Returns the version string or None on any failure."""
+        """Fetch only the dep's mamafile, to read `self.version` without the full repo. The shim
+        probe uses this for version-pinned deps whose archive name does not track the commit hash.
+        The one-shot `git show` uses subprocess.run with stderr=DEVNULL and a timeout, to drop the
+        lazy-fetch's `remote: ...` chatter and to bound a stuck fetch. Returns the version or None."""
         if dep.mamafile:
-            # Parent-repo mamafile override: the remote repo's mamafile is not the one mama
-            # runs, and `git show HEAD:<local path>` can never resolve. The local file was
-            # already checked for a pin before this fallback (mamafile_version.pinned_version).
+            # A parent-repo mamafile override never resolves through `git show HEAD:<path>` on the
+            # remote. mamafile_version.pinned_version already checked the local file for a pin.
             return None
         if not dep.config.is_network_available():
             return None
@@ -289,10 +279,8 @@ class Git(DepSource):
         branch = self.branch or self.tag or ''
         branch_arg = f' --branch {branch}' if branch and not Git.is_hex_string(branch) else ''
         try:
-            # ignore_cleanup_errors: on Windows git sets read-only on .git/objects/*,
-            # which trips shutil.rmtree. normalized_path: project convention is
-            # forward slashes; raw tempdir paths on Windows use backslashes that
-            # would be eaten by shlex.split inside SubProcess.
+            # ignore_cleanup_errors: on Windows git sets read-only on .git/objects/*, which trips
+            # shutil.rmtree. normalized_path: shlex.split inside SubProcess eats raw backslash paths.
             with tempfile.TemporaryDirectory(prefix='mama_probe_', ignore_cleanup_errors=True) as tmp:
                 tmp = normalized_path(tmp)
                 clone_cmd = f'git clone --depth=1 --filter=blob:none --no-checkout{branch_arg} {self.url} {tmp}'
@@ -302,10 +290,9 @@ class Git(DepSource):
                         progress(f'  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}',
                                  color=Color.RED, final=True)
                     return None
-                # subprocess.run, not SubProcess.run: see docstring above.
-                # stderr=DEVNULL drops the lazy-fetch's `remote: ...` noise.
+                # subprocess.run, not SubProcess.run: see the docstring above
                 try:
-                    # 10s is plenty: the clone is already done, this is a <1KB blob fetch via the same connection.
+                    # 10s is enough: the clone already finished, and this fetches a <1KB blob over the same connection.
                     cp = subprocess.run(['git', '-C', tmp, 'show', f'HEAD:{mamafile_name}'],
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
                 except subprocess.TimeoutExpired:
@@ -329,13 +316,11 @@ class Git(DepSource):
             return None
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
-        """
-        Gets the latest commit hash, based on git source tag and branch options.
-        """
+        """The latest commit hash, based on the git tag and branch options."""
         if not dep.dep_source.is_git:
             return None
 
-        # update is not specified? then we can try to skip the check
+        # no update requested: the stored commit hash is enough
         if use_cache and not dep.config.update and os.path.exists(self.git_status_file(dep)):
             status = self.read_stored_status(dep)
             result = status[3].split(' ')[0]
@@ -343,20 +328,20 @@ class Git(DepSource):
                 console(f'    {self.name}  using stored commit hash: {result}')
             return result
 
-        # is the tag actually a commit hash?
+        # a hex tag is already a commit pin
         if Git.is_hex_string(self.tag):
             if dep.config.verbose:
                 console(f'    {self.name}  using tag as the commit hash: {self.tag}')
             return self.tag
 
-        # is this a git repository? we can get the current commit from that
+        # an existing repository answers with its current commit
         if os.path.exists(f'{dep.src_dir}/.git'):
             result = Git.get_current_repository_commit(dep)
             if not result:
                 error(f'    {self.name}  invalid git repository at {dep.src_dir}')
             return result
 
-        # can we fetch the latest commit from remote instead?
+        # last resort: ask the remote for the latest commit
         if fetch_remote:
             if not dep.config.is_network_available():
                 return None
@@ -381,14 +366,10 @@ class Git(DepSource):
 
 
     def _is_repo_broken(self, dep: BuildDependency) -> bool:
-        """`.git` present but this dir is not a usable repo OF ITS OWN. -q keeps git silent on failure.
-
-        --show-toplevel is what makes it safe. A corrupt `.git` does not stop git's discovery walk, it
-        resumes UPWARD - and a local workspace lives inside the project's own repo, so `rev-parse HEAD`
-        then answers with the PARENT. The dep read as healthy and the pull path ran `reset --hard`
-        against the user's project checkout. Anything we cannot prove is this dir's own repo counts as
-        broken, which is the safe bias: a wrong 'broken' only reaches _refuse_destructive_clone, which
-        keeps real source and builds it as-is."""
+        """`.git` present but this dir is not a usable repo OF ITS OWN. A corrupt `.git` resumes
+        git's discovery walk UPWARD, so `rev-parse HEAD` can answer with a PARENT repo, and the pull
+        path would then `reset --hard` the user's own checkout. --show-toplevel proves the repo is
+        this dir's own. A wrong 'broken' only reaches _refuse_destructive_clone, which keeps real source."""
         out = execute_piped(['git', 'rev-parse', '--show-toplevel', '--verify', '-q', 'HEAD'],
                             cwd=dep.src_dir, throw=False)
         lines = out.splitlines() if out else []
@@ -397,8 +378,8 @@ class Git(DepSource):
 
 
     def _refuse_destructive_clone(self, dep: BuildDependency) -> bool:
-        """True when src_dir has real source but no usable .git (rsync'd sandbox copy, local dev work):
-        cloning over it destroys uncommitted changes, so build as-is. Only `mama wipe` may discard it."""
+        """True when src_dir has real source but no usable .git (rsync'd sandbox copy, local dev work).
+        A clone over it destroys uncommitted changes, so build as-is. Only `mama wipe` may discard it."""
         if not has_source_content(dep.src_dir): return False
         if dep.is_current_target() and dep.config.reclone: return False
         if dep.config.print:
@@ -408,13 +389,13 @@ class Git(DepSource):
 
 
     def _is_detached_head(self, dep: BuildDependency) -> bool:
-        """Check if the repository is in detached HEAD state"""
+        """True when the repository is in a detached HEAD state"""
         result = execute_piped(['git', 'symbolic-ref', '-q', 'HEAD'], cwd=dep.src_dir, throw=False)
         return not result
 
 
     def _is_rebase_in_progress(self, dep: BuildDependency) -> bool:
-        """Check if the repository currently has an active rebase"""
+        """True when the repository has an active rebase"""
         return os.path.exists(f'{dep.src_dir}/.git/rebase-merge') or \
                os.path.exists(f'{dep.src_dir}/.git/rebase-apply')
 
@@ -422,13 +403,13 @@ class Git(DepSource):
     def fetch_origin(self, dep: BuildDependency):
         branch = self.branch_or_tag()
         if Git.is_hex_string(branch):
-            return # no need to fetch if we're pinned to a specific commit hash
+            return # a commit-hash pin needs no fetch
         if not dep.config.is_network_available():
             return
         if self.tag:
             self.run_git(dep, f"fetch origin tag {branch} -q")
         else:
-            # only safe to pull when staying on the same branch and not in detached HEAD
+            # a pull is only safe on the same branch and outside a detached HEAD
             can_pull = not (self.tag_changed or self.branch_changed or self._is_detached_head(dep))
             origin_br = f'origin {branch}' if branch else 'origin'
             result = -1
@@ -466,7 +447,7 @@ class Git(DepSource):
 
 
     def reset_status(self, dep: BuildDependency):
-        """ Clears the status file """
+        """Clear the status file."""
         self.missing_status = True
         status_file = self.git_status_file(dep)
         if os.path.exists(status_file):
@@ -478,20 +459,18 @@ class Git(DepSource):
         if not status:
             self.missing_status = True
             if not self.url: return False
-            #console(f'check_status {self.url}: NO STATUS AT {dep.build_dir}/git_status')
             self.url_changed = True
             self.tag_changed = True
             self.branch_changed = True
             self.commit_changed = True
             return True
-        # update basic flags before fetching origin, so we can detect tag/branch pin changes
+        # set the flags before fetch_origin, which reads tag_changed and branch_changed for its pull decision
         self.url_changed = not same_git_remote(self.url, status[0])
         self.tag_changed = self.tag != status[1]
         self.branch_changed = self.branch != status[2]
-        # fetch origin and then check the commit hash to detect upstream changes
+        # then compare the commit hash to detect upstream changes
         self.fetch_origin(dep)
         self.commit_changed = self.get_commit_hash(dep, use_cache=False) != status[3]
-        #console(f'check_status {self.url} {self.branch_or_tag()}: urlc={self.url_changed} tagc={self.tag_changed} brnc={self.branch_changed} cmtc={self.commit_changed}')
         return self.url_changed or self.tag_changed or self.branch_changed or self.commit_changed
 
 
@@ -512,7 +491,7 @@ class Git(DepSource):
                 self.run_git(dep, f"fetch --depth 1 origin {branch}")
                 self.run_git(dep, f"checkout {branch}")
             elif self.branch:
-                # hacky fix
+                # fetch the branch ref explicitly, so checkout -B always has origin/<branch>
                 self.run_git(dep, f"fetch origin +refs/heads/{branch}:refs/remotes/origin/{branch}", throw=False)
                 self.run_git(dep, f"checkout -B {branch} origin/{branch}")
             else: # tag
@@ -523,13 +502,10 @@ class Git(DepSource):
 
     def reclone_wipe(self, dep: BuildDependency, source_only: bool = False):
         """Drop this dep's tree so it can be cloned fresh.
-
-        `source_only` removes ONLY src_dir, and is what every AUTOMATIC recovery must use. dep_dir is shared
-        by every platform: its `<dep_dir>/<platform>/` siblings hold OTHER platforms' artifactory packages,
-        shim markers and build output, plus the cached package zip. A git tree that's broken for THIS platform
-        is no reason to destroy those - and with a nested `mama <host> build` (build_host_binary) running
-        concurrently, that sibling dir may be the include tree another build is compiling against right now.
-        The whole dep_dir goes only on an explicit `mama wipe`, where discarding everything is the intent."""
+        source_only: remove ONLY src_dir. Every AUTOMATIC recovery must use it: the `<dep_dir>/<platform>/`
+        siblings hold OTHER platforms' packages, shim markers and build output. A concurrent nested
+        build may compile against them right now. The whole dep_dir goes only on an explicit `mama wipe`.
+        """
         target = dep.src_dir if source_only else dep.dep_dir
         if dep.config.print:
             console(f'  - Target {dep.name: <16} RECLONE WIPE{" (source)" if source_only else ""}')
@@ -537,10 +513,9 @@ class Git(DepSource):
 
 
     def _run_git_with_filtered_progress(self, dep: BuildDependency, cmd: str, label: str):
-        """Run a git command with progress filtered into one redrawn status line.
-        Returns (exit_code, captured_output, elapsed_str). Does not raise.
-        Used by full clone and by the sparse mamafile probe so both share the
-        same nice UI instead of spewing git's raw remote: output."""
+        """Run a git command with progress filtered into one redrawn status line. Returns
+        (exit_code, captured_output, elapsed_str). Does not raise. The full clone and the
+        mamafile probe share this one progress UI."""
         output = []  # list + join, not output += line (O(n^2) over a big checkout's file list)
         start = time.monotonic()
         prog: dict = {}
@@ -549,10 +524,9 @@ class Git(DepSource):
             if 'Cloning into ' in line:
                 return
             elif 'Are you sure you want to continue connecting' in line:
-                # TODO: maybe auto-add the key before running clone?
-                # if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
+                # TODO: maybe auto-add the host key with ssh-keyscan before the clone?
                 console(line)
-                p.write('yes\n') # get us unstuck
+                p.write('yes\n') # answer the host-key prompt so the clone continues
             elif line:
                 output.append(line)
                 if dep.config.verbose:
@@ -564,7 +538,7 @@ class Git(DepSource):
         with ssh_multiplex.fetch_slot():
             ssh_multiplex.pace_new_connection()  # no-op unless a host already pushed back this run
             # idle_timeout: kill a clone stuck on a passphrase prompt so a parallel wave never
-            # freezes; a real download streams progress and is never wrongly aborted.
+            # freezes. A real download streams progress, so the timeout never aborts it.
             try:
                 result = SubProcess.run(cmd, io_func=print_output, idle_timeout=dep.config.git_timeout)
             except subprocess.TimeoutExpired:
@@ -594,8 +568,8 @@ class Git(DepSource):
 
 
     def _backoff_before_reclone(self, dep: BuildDependency, clone_to_dir: str, attempt: int, elapsed: str):
-        """Wait out a throttle, then clear the partial tree git left behind - a second `git clone` into a
-        non-empty directory fails on the directory and hides the error that actually needs fixing."""
+        """Sleep through the throttle window, then remove the partial tree git left behind. A second
+        `git clone` into a non-empty directory fails on the directory and hides the real error."""
         ssh_multiplex.note_connection_throttled()  # the host pushed back: stagger every later connection
         delay = _CLONE_RETRY_BASE * (2 ** (attempt - 1)) * random.uniform(0.5, 1.5)
         if dep.config.print:
@@ -606,7 +580,7 @@ class Git(DepSource):
 
 
     def clone_or_pull(self, dep: BuildDependency, wiped=False):
-        # by default we create a shallow clone, unless unshallow is specified in config or this dep
+        # shallow clone by default, unless the config or this dep asks for unshallow
         unshallow = dep.config.unshallow or (not self.shallow)
         if is_dir_empty(dep.src_dir):
             if not dep.config.is_network_available():
@@ -630,7 +604,6 @@ class Git(DepSource):
             dep.load_action = 'pulling'  # actual git pull/fetch (display label)
             if dep.config.print:
                 console(f"  - Pulling {dep.name: <16}  SCM change detected", color=Color.BLUE)
-            # check for local modifications before potentially destructive operations
             self._ensure_no_local_modifications(dep)
             if unshallow:
                 self.unshallow(dep)
@@ -643,14 +616,13 @@ class Git(DepSource):
                     self.run_git(dep, f"reset --hard origin/{self.branch} -q")
                 else:
                     self.run_git(dep, "fetch -q", throw=False)
-                    self.run_git(dep, "reset --hard @{upstream} -q") # https://git-scm.com/docs/gitrevisions#Documentation/gitrevisions.txt-branchnameupstreamegmasterupstreamu
+                    self.run_git(dep, "reset --hard @{upstream} -q") # @{upstream}: see git docs on gitrevisions
             dep.config.update_stats.record_pull()
 
 
     def unshallow(self, dep: BuildDependency):
-        # Detecting shallowness can be quite tricky, since the repository can be in multiple different states
-        # Detecting the easy cases first:
-        #   git rev-parse --is-shallow-repository --> .git/shallow exists
+        # Shallowness detection is unreliable, because the repository can be in several states.
+        # .git/shallow is the easy case (what `git rev-parse --is-shallow-repository` checks).
         is_shallow = os.path.exists(f'{dep.src_dir}/.git/shallow')
         if not is_shallow:
             _, output = execute_piped_echo(dep.src_dir, 'git config remote.origin.fetch', echo=False)
@@ -664,24 +636,19 @@ class Git(DepSource):
                 warning(f'  - Unshallowing {dep.name}')
             self.run_git(dep, 'config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"')
             self.run_git(dep, 'remote update')
-            # this last step is allowed to fail, just in case it was
-            # semi-shallow (history was complete, but remote refs were shallow)
+            # this last step may fail for a semi-shallow repo (complete history, shallow remote refs)
             self.run_git(dep, 'fetch --unshallow', throw=False)
 
 
     def dependency_checkout(self, dep: BuildDependency):
-        """
-        Do a git repository checkout. Can be an expensive operation.
-        If an existing artifactory package exists, then this step is skipped
-        """
-        # No valid working tree: nothing on disk, a limbo dir (dropped shim / half-finished clone)
-        # with files but no .git, or a .git that's present but corrupt (HEAD unresolvable). None can
-        # be pulled - wipe leftovers, then clone fresh. Unless real source sits there (sandbox rsync,
-        # local dev): that must never be clobbered, so build it as-is.
+        """Do a git repository checkout, which can be expensive. An existing artifactory package skips this step."""
+        # No valid working tree: nothing on disk, files without .git, or a corrupt .git. None of these
+        # can pull, so wipe the leftovers and clone fresh. Real source (sandbox rsync, local dev work)
+        # is never destroyed: build it as-is.
         if not dep.is_real_clone() or self._is_repo_broken(dep):
             if self._refuse_destructive_clone(dep): return False
             # source_only: a broken tree here says nothing about the sibling platforms sharing this dep_dir.
-            # An explicit `mama wipe` still means everything - that's the one case the user asked for it.
+            # An explicit `mama wipe` still means everything, because the user asked for it.
             if dep.source_dir_exists():
                 self.reclone_wipe(dep, source_only=not (dep.is_current_target() and dep.config.reclone))
             self.clone_or_pull(dep)
@@ -693,8 +660,7 @@ class Git(DepSource):
         changed = False
 
         if config.update and is_target:
-            # Fail loudly on a dirty tree BEFORE the pull below - which would otherwise fail, get
-            # swallowed by its fetch fallback, and leave the dep un-updated but reporting success.
+            # fail loudly on a dirty tree BEFORE the pull below - see _ensure_no_local_modifications
             self._ensure_no_local_modifications(dep)
             changed = self.check_status(dep)
 
@@ -705,13 +671,11 @@ class Git(DepSource):
             # a url change re-clones the source, but the sibling platform dirs are not ours to delete
             self.reclone_wipe(dep, source_only=not explicit_wipe)
             wiped = True
-        elif dep.config.unshallow and is_target: # unshallow was specified, we should at least pull
-            pass # fallthrough to clone_or_pull
+        elif dep.config.unshallow and is_target:
+            pass # unshallow requested: fall through to clone_or_pull
         else:
-            # don't pull if no changes to git status
-            # or if we're current target of a non-update build
-            # mama update target=ReCpp  -- this should git pull
-            # mama build target=ReCpp   -- should NOT pull
+            # no pull when the git status shows no change, or for the current target of a non-update
+            # build: `mama update target=ReCpp` pulls, `mama build target=ReCpp` does not
             non_update_target = is_target and not config.update
             if non_update_target or not changed:
                 if config.verbose:

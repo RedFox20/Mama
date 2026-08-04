@@ -1,4 +1,4 @@
-"""Pins that sanitized/coverage builds don't repoint c_cpp_properties.json compileCommands."""
+"""Pins that sanitized/coverage builds do not repoint c_cpp_properties.json compileCommands."""
 import json, os
 from pathlib import Path
 from types import SimpleNamespace

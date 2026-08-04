@@ -56,7 +56,7 @@ def test_custom_build_collapses_into_build_phase(tmp_path):
     es.enter_context(patch.object(t, 'build', side_effect=lambda: ev.append('user_build')))
     with es:
         t.configure_phase()
-        assert ev == []  # custom build owns its own configure; configure_phase is a no-op
+        assert ev == []  # custom build owns its own configure, configure_phase is a no-op
         t.build_phase()
     assert ev == ['user_build', 'successful_build', 'clean', 'package']
     assert 'run_config' not in ev and 'run_build' not in ev
@@ -74,8 +74,7 @@ def test_configure_runs_once_across_phases(tmp_path):
 
 
 def test_custom_build_configures_exactly_once_in_build_phase(tmp_path):
-    # Custom build(): configure_phase is a no-op, so the once-guard must let build_phase's
-    # _run_configure_once() call configure() exactly once (and block any later call).
+    # Custom build(): configure_phase is a no-op, so the once-guard must let build_phase configure exactly once.
     t, dep = _target(tmp_path)
     es, _ = _wire(t, dep)
     es.enter_context(patch.object(t, '_has_custom_build', return_value=True))
@@ -108,8 +107,7 @@ def test_per_target_jobs_flow_into_j_flag_without_touching_config(tmp_path):
 
 
 def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
-    # Regression: configure_phase must set _build_jobs from the TU probe; left None every build
-    # would reserve the whole budget and run one-at-a-time.
+    # A _build_jobs left None makes every build reserve the whole budget and run one-at-a-time.
     t, dep = _target(tmp_path)  # config.jobs = 8
     with open(t.build_dir('compile_commands.json'), 'w') as f:
         f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
@@ -157,9 +155,7 @@ def test_reserved_cores_is_full_build_jobs_capped_at_total(tmp_path):
 
 
 def test_toolchain_inputs_cover_the_cross_setup_but_never_project_flags(tmp_path, monkeypatch):
-    # The fingerprint must invalidate on a toolchain/sysroot change (an SDK move keeps the compiler path
-    # but changes CMAKE_SYSROOT) yet NOT on project flags - else a flag tweak redoes detection, or a
-    # sysroot swap reuses a seed detected against the old one.
+    # The fingerprint must invalidate on a toolchain/sysroot change but not on project flags, which would redo detection.
     tc = tmp_path / 'arm.toolchain.cmake'; tc.write_bytes(b'set(SYSROOT /opt/arm)\n')
     platform = [f'CMAKE_TOOLCHAIN_FILE="{tc}"', 'CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk/sysroot',
                 'CMAKE_AR=/opt/sdk/bin/aarch64-ar']
@@ -200,8 +196,7 @@ def test_probe_counts_real_visualstudio_tus(tmp_path):
 
 
 def test_cmake_defines_survive_a_windows_path(tmp_path):
-    # SubProcess shlex-splits the command, which eats backslashes: a mamafile passing a raw Windows
-    # path through add_cmake_options() used to arrive as C:ProjectsGCSpackagesprotobufwindowsbinprotoc.exe
+    # SubProcess shlex-splits the command, which strips backslashes: a raw Windows path arrives with its separators eaten
     import shlex
     opt = r'PROTOC_EXECUTABLE=C:/proj/packages/protobuf\windows\bin\protoc.exe'
     defines = cc._opts_to_defines([opt])

@@ -31,8 +31,8 @@ def test_use_toolchain_file_records_and_formats(tmp_path):
 
 def test_a_toolchain_file_build_does_not_name_the_compiler(tmp_path):
     """The NDK toolchain rewrites our `bin/aarch64-linux-android29-clang` to `bin/clang`. On a build dir
-    that already holds a cache our -D then reads as a changed variable, so cmake DELETES the cache and
-    re-runs - losing the seeded platform info and re-detecting as the host."""
+    that already holds a cache our -D then reads as a changed variable. cmake DELETES the cache and
+    re-runs, loses the seeded platform info, and re-detects as the host."""
     t, dep = make_configured_target(tmp_path, cmake_toolchain_file='/ndk/android.toolchain.cmake')
     cmd = run_config_capturing(t, dep)[0]
     assert '-DCMAKE_C_COMPILER=' not in cmd and '-DCMAKE_CXX_COMPILER=' not in cmd

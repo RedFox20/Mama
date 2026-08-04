@@ -45,7 +45,7 @@ def test_publish_then_inject_reproduces_warm_state(tmp_path):
 
 
 def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
-    # Regression: injected cache is toolchain markers only (no ABI facts captured here), no project flags.
+    # the injected cache is toolchain markers only (no ABI facts captured here), never project flags
     bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     seed = str(tmp_path / 'seed'); cc.publish(seed, bf)
     build = str(tmp_path / 'B'); bfd = os.path.join(build, 'CMakeFiles', '4.2.3')
@@ -79,8 +79,7 @@ def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
 
 
 def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path):
-    # A toolchain file names the compiler, so cmake caches none. Without the replay, a CMakeLists that
-    # runs `set(CMAKE_CXX_COMPILER $ENV{CXX})` with CXX unset leaves every ninja rule compiling with "".
+    # A toolchain file names the compiler, so cmake caches none. Without the replay, ninja rules can end up compiling with "".
     build = str(tmp_path / 'A')
     bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
     _write_cache(build, 'CMAKE_TOOLCHAIN_FILE:FILEPATH=/opt/sdk/tc.cmake\n')
@@ -118,8 +117,7 @@ def _break_compiler_module(build_files_dir, lang, line):
 
 @pytest.mark.parametrize('line', ['set(CMAKE_CXX_COMPILER "")', '', 'set(CMAKE_CXX_COMPILER "/gone/g++")'])
 def test_publish_refuses_a_seed_whose_compiler_is_not_usable(tmp_path, line):
-    # The seed costs one slow probe and every later build dir reuses it. A seed naming a compiler
-    # this machine cannot run therefore breaks every build, so detect again instead.
+    # Every later build dir reuses the seed, so a seed naming a compiler this machine cannot run breaks every build.
     bf = make_cmake_detection(str(tmp_path / 'A' / '4.2.3'))
     _break_compiler_module(bf, 'CXX', line)
     seed = str(tmp_path / 'seed')
@@ -167,8 +165,7 @@ def test_publish_refuses_a_half_detected_toolchain(tmp_path):
 
 
 def test_publish_refuses_a_seed_missing_a_core_language(tmp_path):
-    # backstop for the seeding invariant: a seed missing a core language would let a project that
-    # enables it skip detection and die on 'CMAKE_<lang>_COMPILER not set, after EnableLanguage'.
+    # a seed missing a core language lets a project that enables it skip detection and die at EnableLanguage
     for langs in (('C',), ('CXX',), ('C', 'RC')):
         bf = make_cmake_detection(str(tmp_path / '_'.join(langs) / '4.2.3'), langs=langs)
         seed = str(tmp_path / ('seed_' + '_'.join(langs)))
@@ -195,12 +192,11 @@ def test_is_valid_rejects_a_single_language_seed(tmp_path):
     assert not cc.is_valid({**fp, 'langs': ['CXX']}, 'FP')
     assert not cc.is_valid({**fp, 'langs': []}, 'FP')
     assert cc.is_valid({**fp, 'langs': ['C', 'CXX']}, 'FP')
-    assert not cc.is_valid(fp, 'FP')  # no langs record -> can't prove it covers C+CXX
+    assert not cc.is_valid(fp, 'FP')  # no langs record -> cannot prove it covers C+CXX
 
 
 def test_inject_writes_no_marker_when_seed_has_no_files(tmp_path):
-    # A vanished/empty seed must NOT leave a PLATFORM_INFO marker with zero compiler files - cmake
-    # would then trust detection that isn't there. inject bails (False); the caller redetects.
+    # An empty seed must not leave a PLATFORM_INFO marker with zero compiler files: cmake would trust absent detection.
     seed = str(tmp_path / 'seed'); os.makedirs(seed)
     open(os.path.join(seed, cc._MANIFEST), 'w').write('{"files": [], "langs": []}')
     build = str(tmp_path / 'B')
@@ -318,7 +314,7 @@ def test_probe_seeds_the_first_caller_and_every_later_one(tmp_path):
 
 
 def test_a_cxx_only_project_is_served_by_the_probe(tmp_path):
-    # the bug this design fixes: a C-only or CXX-only project used to decide the seed's languages
+    # a single-language project must never decide the seed's languages: the probe serves C+CXX
     co = _coord(tmp_path)
     assert co.prepare(_T(str(tmp_path / 'cxx_only'))) == 'use'
     assert cc.load(co.seed_dir(_T(str(tmp_path / 'x'))))['langs'] == ['C', 'CXX']
@@ -424,8 +420,7 @@ def test_disabled_is_noop(tmp_path):
 
 
 def test_reprobes_when_seed_files_vanished(tmp_path):
-    # A concurrent heal can remove the toolchain files while the manifest lingers; prepare must never
-    # return a doomed 'use' - with a probe it just rebuilds the seed.
+    # A concurrent heal can remove the seed files while the manifest lingers: prepare must rebuild, not return a doomed 'use'.
     calls = []
     co = _coord(tmp_path, seed_fn=_probe(tmp_path, calls=calls))
     a = _T(str(tmp_path / 'A'))
@@ -437,21 +432,18 @@ def test_reprobes_when_seed_files_vanished(tmp_path):
 
 
 def test_abi_flags_reach_the_probe_and_the_fingerprint():
-    # the probe must detect with the same ABI inputs the real targets use, or its implicit link libs
-    # (libc++ vs libstdc++, a sanitizer runtime) describe a toolchain nobody is actually building with
+    # the probe must detect with the ABI inputs the real targets use, or its implicit link libs describe the wrong toolchain
     from mama.buildsys.cmake.configure import _abi_flags
     cfg = SimpleNamespace(linux=True, clang=True, msvc=False, clang_stdlib='libstdc++', sanitize=None)
     assert _abi_flags(cfg) == ('', '-stdlib=libstdc++')        # -stdlib is C++-only: clang warns on C
     cfg.sanitize = 'address'
     assert _abi_flags(cfg) == ('-fsanitize=address', '-fsanitize=address -stdlib=libstdc++')
     assert _abi_flags(SimpleNamespace(linux=True, clang=False, msvc=False, clang_stdlib='libc++',
-                                      sanitize=None)) == ('', '')   # gcc: stdlib isn't a choice
+                                      sanitize=None)) == ('', '')   # gcc: the stdlib is not a choice
 
 
 def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
-    # Yocto/raspi inject the sysroot + cross binutils via the platform opts, NOT via the obvious
-    # CMAKE_*_COMPILER keys. A probe without them detects the HOST toolchain and publishes it for a
-    # cross fingerprint - every seeded cross target then links against host libs.
+    # Yocto/raspi inject sysroot + cross binutils via platform opts, not CMAKE_*_COMPILER: a probe without them detects the HOST.
     from mama.buildsys.cmake import configure as cfg
     platform = ['CMAKE_SYSROOT=/opt/sdk/sysroot', 'CMAKE_SYSTEM_NAME=Linux', 'CMAKE_AR=/opt/sdk/bin/aarch64-ar']
     monkeypatch.setattr(cfg, '_platform_opts', lambda t: list(platform))
@@ -471,8 +463,7 @@ def test_probe_cmd_carries_the_cross_toolchain(tmp_path, monkeypatch):
 
 
 def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
-    # Yocto SDKs keep the compiler path stable across upgrades but move the sysroot; if that doesn't
-    # reach the fingerprint, a cross build reuses a seed detected against the previous sysroot.
+    # Yocto SDK upgrades keep the compiler path but move the sysroot, so the sysroot must reach the fingerprint.
     from mama.buildsys.cmake import configure as cfg
     opts = ['CMAKE_SYSTEM_NAME=Linux', 'CMAKE_SYSROOT=/opt/sdk-1.0/sysroot']
     monkeypatch.setattr(cfg, '_platform_opts', lambda t: list(opts))
@@ -483,9 +474,7 @@ def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
 
 
 def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache(tmp_path):
-    # mama passes -DCMAKE_C/CXX_COMPILER on every configure. An injected cache without them makes cmake
-    # say "you have changed variables that require your cache to be deleted", wipe the cache MID-configure
-    # and re-run WITHOUT the toolchain file - so an android build silently re-detected as host x86_64.
+    # Without the -DCMAKE_C/CXX_COMPILER lines, cmake wipes the cache mid-configure and re-runs WITHOUT the toolchain file.
     build = str(tmp_path / 'A')
     bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
     _write_cache(build,
@@ -504,8 +493,7 @@ def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache
 
 
 def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
-    # the older shape has the SAME fingerprint but replays too few cache lines, so reusing it would
-    # reintroduce the cache reset. It must be re-probed instead.
+    # the older shape has the SAME fingerprint but replays too few cache lines, so it must be re-probed, not reused
     old = _live_manifest(tmp_path); old.pop('format')           # no 'format' key
     assert not cc.is_valid(old, 'FP')
     assert cc.is_valid({**old, 'format': cc._SEED_FORMAT}, 'FP')

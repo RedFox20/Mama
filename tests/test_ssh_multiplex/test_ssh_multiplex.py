@@ -18,7 +18,6 @@ class TestParseSshEndpoint:
         assert sm.parse_ssh_endpoint('alice@host.example:proj.git') == ('alice', 'host.example', None)
 
     def test_scp_form_no_user(self):
-        # Falls back to default 'git' user.
         assert sm.parse_ssh_endpoint('host.example:proj.git') == ('git', 'host.example', None)
 
     def test_ssh_url_with_port(self):
@@ -48,16 +47,15 @@ class TestParseSshEndpoint:
         assert sm.parse_ssh_endpoint(None) is None
 
     def test_windows_path_rejected(self):
-        # Windows drive paths must NOT be treated as scp-form.
+        # a drive letter also reads as an scp-form host
         assert sm.parse_ssh_endpoint('C:/foo/bar') is None
         assert sm.parse_ssh_endpoint('D:\\repos\\proj') is None
 
     def test_host_with_no_path_rejected(self):
-        # `host:` with nothing after isn't a real git URL.
         assert sm.parse_ssh_endpoint('git@host:') is None
 
     def test_bracketed_ipv6_rejected(self):
-        # git itself doesn't treat scp-form bracketed IPv6 as a URL.
+        # git itself does not treat scp-form bracketed IPv6 as a URL
         assert sm.parse_ssh_endpoint('git@[::1]:repo.git') is None
 
 
@@ -79,7 +77,7 @@ class TestIsMultiplexConfigured:
         assert not sm.is_multiplex_configured({'controlmaster': 'no', 'controlpath': '/tmp/sock'})
 
     def test_empty_probe(self):
-        # When ssh -G fails the probe is empty; treat as "not configured".
+        # when ssh -G fails, the probe is empty and must read as "not configured"
         assert not sm.is_multiplex_configured({})
 
 
@@ -96,9 +94,9 @@ class TestOptionsToAdd:
         assert we_own is False
 
     def test_user_has_nothing(self, tmp_path, monkeypatch):
-        # Pin the multiplex-enabled path; native-Windows skip has its own tests.
+        # pin the multiplex-enabled path. The native-Windows skip has its own tests.
         monkeypatch.setattr(sm.System, 'windows', False)
-        # Avoid mkdir on the user's actual ~/.ssh/cm.
+        # avoid mkdir on the user's actual ~/.ssh/cm
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none'}
@@ -120,7 +118,7 @@ class TestOptionsToAdd:
         }
         opts, we_own = sm.options_to_add(probe)
         assert we_own is True
-        # We add multiplex but NOT keepalives (user has them already).
+        # multiplex added, keepalives not: the user already has them
         assert any(o.startswith('-oControlMaster=') for o in opts)
         assert not any(o.startswith('-oServerAliveInterval=') for o in opts)
         assert not any(o.startswith('-oServerAliveCountMax=') for o in opts)
@@ -132,14 +130,12 @@ class TestOptionsToAdd:
         }
         opts, we_own = sm.options_to_add(probe)
         assert we_own is False
-        # No control* options; only keepalives.
         assert not any(o.startswith('-oControlMaster=') for o in opts)
         assert not any(o.startswith('-oControlPath=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
     def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
-        # Native Windows: Microsoft OpenSSH ControlMaster is unreliable in
-        # practice, so we skip multiplex entirely. Keepalives still help.
+        # Microsoft OpenSSH ControlMaster is unreliable, so native Windows skips multiplex entirely. Keepalives still help.
         monkeypatch.setattr(sm.System, 'windows', True)
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
@@ -154,9 +150,7 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
 
     def test_windows_user_configured_multiplex_respected(self, monkeypatch):
-        # If the user has multiplex explicitly configured (e.g. via
-        # ~/.ssh/config pointing at Cygwin ssh) we respect their config and
-        # don't add anything - even on Windows.
+        # a user who configured multiplex (for example via Cygwin ssh) keeps their config untouched, even on Windows
         monkeypatch.setattr(sm.System, 'windows', True)
         probe = {
             'controlmaster': 'auto', 'controlpath': '~/.ssh/sockets/%C',
@@ -168,8 +162,8 @@ class TestOptionsToAdd:
 
 
 class TestMultiplexKnownBroken:
-    """Multiplex is disabled on native Windows; everywhere else it's fine.
-    WSL/Cygwin/Git-Bash run as Linux from Python's POV (System.windows=False)."""
+    """WSL, Cygwin and Git-Bash run as Linux from Python (System.windows is False), so only
+    native Windows disables multiplex."""
 
     def test_non_windows_not_broken(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)
@@ -223,7 +217,7 @@ class TestEnsureMasterIdempotent:
             return {'controlmaster': 'auto', 'controlpath': '/tmp/x'}
         monkeypatch.setattr(sm, 'probe_ssh_config', fake_probe)
 
-        # User already has multiplex => we DON'T start a master, just remember.
+        # the user already has multiplex, so no master is started, only remembered
         url = 'git@github.com:foo/bar.git'
         sm.ensure_master_for_url(url)
         sm.ensure_master_for_url(url)
@@ -253,10 +247,7 @@ class TestEnsureMasterIdempotent:
         assert sm._warmed[('git', 'example.com', None)]['we_own_master'] is True
 
     def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
-        # When _open_master fails, we MUST clear ControlMaster/Path/Persist
-        # from opts. Otherwise N parallel fetches would race to be the master
-        # and trigger N concurrent auths - the exact thing this is meant to
-        # prevent.
+        # When _open_master fails, Control* must leave opts, or N parallel fetches race to be the master and auth N times.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
         monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
@@ -277,8 +268,6 @@ class TestEnsureMasterIdempotent:
         assert any(o.startswith('-oServerAliveInterval=') for o in info['opts'])
 
     def test_concurrent_ensure_probes_once(self, monkeypatch, tmp_path):
-        """50 threads racing on the same host must result in exactly one probe
-        and at most one master start."""
         import threading
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -307,10 +296,8 @@ class TestEnsureMasterIdempotent:
 
 
 class TestWrapperPathSafety:
-    """Regression: running mama_ssh.py as a script must not shadow stdlib
-    modules. Earlier versions inserted `<...>/mama` onto sys.path, which made
-    `mama/types/` shadow Python's stdlib `types` module - breaking `contextlib`
-    on uv-installed Pythons that hadn't pre-imported it."""
+    """Running mama_ssh.py as a script must not put the mama dir on sys.path.
+    There `mama/types/` shadows the stdlib `types` module and breaks `contextlib`."""
 
     def test_invocation_does_not_put_mama_dir_on_syspath(self, tmp_path):
         import json
@@ -319,9 +306,7 @@ class TestWrapperPathSafety:
         wrapper = os.path.abspath(os.path.join(
             os.path.dirname(__file__), '..', '..', 'mama', 'utils', 'mama_ssh.py'))
         mama_dir = os.path.dirname(os.path.dirname(wrapper))
-        # Subprocess so we get a fresh interpreter (no pre-cached `types` etc).
-        # Monkey-patch os.execvp to a no-op BEFORE running the wrapper, so it
-        # can't replace the process before we read sys.path back.
+        # A fresh interpreter has no pre-cached `types`. A no-op os.execvp lets the probe read sys.path back after the wrapper.
         probe = tmp_path / 'probe.py'
         probe.write_text(textwrap.dedent(f"""
             import json, os, sys
@@ -347,12 +332,9 @@ class TestWrapperPathSafety:
 
 
 class TestWrapperMain:
-    """The wrapper passes options + destination unchanged to ssh -G, then
-    exec's ssh with whatever extra -o flags are needed."""
-
     def test_passthrough_when_user_has_full_config(self, monkeypatch):
         from mama.utils import mama_ssh
-        # Simulate ssh -G saying user has multiplex + keepalives configured.
+        # ssh -G reports that the user has multiplex and keepalives configured
         full = (
             "controlmaster auto\ncontrolpath /tmp/x\n"
             "serveraliveinterval 30\nserveralivecountmax 3\n"
@@ -368,7 +350,7 @@ class TestWrapperMain:
                        'git@github.com', "git-upload-pack 'foo/bar.git'"])
         prog, argv = execed
         assert prog == 'ssh'
-        # Only the always-on safety opts are added; user already has multiplex + keepalives.
+        # only the always-on safety opts are added: the user has the rest
         assert argv == ['ssh', *sm._SAFETY_OPTS, '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
                         "git-upload-pack 'foo/bar.git'"]
 
@@ -388,7 +370,6 @@ class TestWrapperMain:
         mama_ssh.main(['mama_ssh.py', 'git@example.com', 'git-upload-pack'])
         prog, argv = execed
         assert prog == 'ssh'
-        # Multiplex + keepalives are inserted before the original args.
         assert any(a.startswith('-oControlMaster=') for a in argv)
         assert any(a.startswith('-oControlPath=') for a in argv)
         assert any(a.startswith('-oServerAliveInterval=') for a in argv)
@@ -485,7 +466,7 @@ class TestControlDir:
         assert sm._control_dir_candidates()[0] == f'/run/user/1000/{sm._CONTROL_SUBDIR}'
 
     def test_a_long_temp_dir_falls_back_to_a_short_one(self, monkeypatch):
-        # macOS $TMPDIR is /var/folders/<2>/<27>/T/, long enough to blow the socket budget with %C
+        # macOS $TMPDIR is /var/folders/<2>/<27>/T/, long enough to exceed the socket budget with %C
         monkeypatch.delenv('XDG_RUNTIME_DIR', raising=False)
         monkeypatch.setattr(sm.tempfile, 'gettempdir', lambda: '/var/folders/ab/' + 'x' * 80 + '/T')
         assert sm._control_dir_candidates()[0].startswith('/tmp/')

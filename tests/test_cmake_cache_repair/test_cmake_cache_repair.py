@@ -30,8 +30,7 @@ def test_cache_generator_reads_the_exact_key():
 
 
 def test_a_stale_other_build_system_file_does_not_count(tmp_path):
-    # Targets pick their own build system: a leftover Makefile must NOT make a Ninja-configured dir
-    # look complete, or `cmake --build` dies on the missing build.ninja every time.
+    # A leftover Makefile must not make a Ninja-configured dir look complete: `cmake --build` dies on the missing build.ninja.
     d = str(tmp_path / 'b')
     write_cmake_cache(d, NINJA); write_build_file(d, 'Makefile')
     assert not cc.is_cmake_cache_valid(d)
@@ -49,7 +48,7 @@ def test_a_visual_studio_dir_is_valid_with_either_solution_format(tmp_path):
 
 
 def test_a_visual_studio_slnx_dir_skips_the_reconfigure(tmp_path):
-    # the .slnx read as a killed configure, so every `mama build` wiped the dir and paid a full rebuild
+    # a .slnx that reads as a killed configure makes every `mama build` wipe the dir and pay a full rebuild
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), VS); write_build_file(t.build_dir(), 'Foo.slnx')
     assert _run_config_recording(t, dep) == []
@@ -59,12 +58,11 @@ def test_a_visual_studio_slnx_dir_skips_the_reconfigure(tmp_path):
 def test_unknown_generator_is_trusted_not_wiped(tmp_path):
     d = str(tmp_path / 'b')
     write_cmake_cache(d, 'CMAKE_GENERATOR:INTERNAL=Green Hills MULTI\n')
-    assert cc.is_cmake_cache_valid(d)  # we don't know its build file - let cmake decide, don't wipe blindly
+    assert cc.is_cmake_cache_valid(d)  # unknown build file name - let cmake decide, do not wipe blindly
 
 
 def test_cache_without_generated_build_file_is_repaired(tmp_path):
-    # A find_package failure leaves a COMPLETE cache but no build.ninja; skipping the reconfigure then
-    # dies with "ninja: error: loading 'build.ninja'" on every later build until it's wiped.
+    # A find_package failure leaves a COMPLETE cache but no build.ninja. A skipped reconfigure then dies on every later build.
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), COMPLETE)
     assert _run_config_recording(t, dep) == ['conf']
@@ -99,7 +97,7 @@ def test_complete_configure_still_skips_the_reconfigure(tmp_path):
 
 
 def _write_compiler_module(build_dir, ver='4.3.1', abi_done=True):
-    """CMakeFiles/<ver>/CMakeCXXCompiler.cmake; without the ABI line it's the stage-1 module a
+    """CMakeFiles/<ver>/CMakeCXXCompiler.cmake. Without the ABI line it is the stage-1 module that a
     configure killed mid-detection leaves behind."""
     d = os.path.join(build_dir, 'CMakeFiles', ver); os.makedirs(d, exist_ok=True)
     text = 'set(CMAKE_CXX_COMPILER "/usr/bin/g++")\n' + ('set(CMAKE_CXX_ABI_COMPILED TRUE)\n' if abi_done else '')
@@ -113,7 +111,7 @@ def test_killed_detection_is_wiped_and_reconfigured(tmp_path, with_cache):
     if with_cache: write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir(), 'build.ninja')
     _write_compiler_module(t.build_dir(), abi_done=False)
     with patch('mama.buildsys.cmake.configure._cmake_version_number', return_value='4.3.1'):  # no `cmake --version` shell-out
-        assert _run_config_recording(t, dep) == ['conf']  # the dir looks complete but cmake would trust
+        assert _run_config_recording(t, dep) == ['conf']  # the dir looks complete, but cmake would trust the stale module
     assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeFiles'))  # the stage-1 module: wipe, redetect
 
 

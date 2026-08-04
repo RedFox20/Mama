@@ -1,13 +1,5 @@
-"""What version a mamafile declares, read WITHOUT running the file.
-
-Mama names an artifactory package before it clones anything, so the download side cannot execute a
-mamafile to learn its `self.version`. It reads the declaration instead. The upload side does run the
-file, so the two sides agree only while the declaration is a shape a reader can resolve. This module
-owns that judgement: it reports what a mamafile says, decides whether to trust it, and says so once when
-it refuses.
-
-None of this is git-specific. `Git.fetch_self_version_from_remote` fetches the text for a dep that has
-no clone yet, and then asks this module what the text means. See docs/roadmap-target-version.md."""
+"""What version a mamafile declares, read WITHOUT running the file, so the download side can name an
+artifactory package before the clone. See docs/roadmap-target-version.md."""
 
 from __future__ import annotations
 import ast, os, re
@@ -32,10 +24,9 @@ def scan_mamafile(mamafile_text: str) -> VersionScan:
     return a name the UPLOAD side never publishes. So it reports what it saw, and `trusted_version`
     refuses.
 
-    Parses the file rather than grepping it. `ast.parse` costs about 0.14ms on a real mamafile, on a path
-    that already spends 100ms or more on the network. It is also EXACT. A line scan counts a docstring
-    that documents `self.version` as an assignment, then refuses the real pin next to it. The line scan
-    stays as the fallback for a mamafile this Python cannot parse."""
+    Parses with ast, which is cheap and EXACT. A line scan counts a docstring that documents
+    `self.version` as an assignment, then refuses the real pin next to it. The line scan stays as the
+    fallback for a mamafile this Python cannot parse."""
     try:
         return _scan_ast(ast.parse(mamafile_text))
     except (SyntaxError, ValueError):
@@ -126,8 +117,8 @@ def _scan_lines(mamafile_text: str) -> VersionScan:
 
 
 def _warn_unusable(dep, source: str, reason: str):
-    """One warning per dep per run. Both readers reach the same mamafile, and a warning repeated per
-    probe teaches the reader to skip it."""
+    """One warning per dep per run. Both scans reach the same mamafile, and a warning repeated per
+    probe teaches the user to skip it."""
     if getattr(dep, 'warned_bad_version', False) or not dep.config.print: return
     dep.warned_bad_version = True
     warning(f'  - Target {dep.name: <16} {os.path.basename(source)} {reason}, so mama cannot read it ' +

@@ -10,7 +10,7 @@ from mama.build_target import BuildTarget
 
 
 def _target(tmp_path, built=False, **dep_over):
-    """A BuildTarget whose package() records whether it ran; `built` fakes real build work."""
+    """A BuildTarget whose package() records whether it ran. `built` fakes real build work."""
     dep = make_mock_dep(tmp_path)
     dep.nothing_to_build = False
     dep.from_artifactory = False
@@ -23,8 +23,7 @@ def _target(tmp_path, built=False, **dep_over):
 
 
 def test_packaging_is_skipped_when_nothing_was_built_and_nothing_is_on_disk(tmp_path):
-    # `mama wipe all` deletes every build product, then walks the task chain without building; the
-    # user's package() then asserted on libs that no longer exist
+    # `mama wipe all` walks the task chain without building: package() would assert on libs that no longer exist
     target = _target(tmp_path)
     target._run_packaging()
     target.package.assert_not_called()
@@ -52,8 +51,7 @@ def test_packaging_runs_for_a_header_only_target(tmp_path):
 
 
 def test_an_artifactory_package_is_not_repackaged(tmp_path):
-    # pre-existing behaviour the new guard must leave alone: a fetched package already has its
-    # papa.txt exports, so package() is skipped unless a local rebuild was asked for
+    # a fetched package already has its papa.txt exports, so package() is skipped unless the user asked for a local rebuild
     target = _target(tmp_path, from_artifactory=True)
     target._run_packaging()
     target.package.assert_not_called()
@@ -84,8 +82,7 @@ def _declared(dep, *names):
 
 
 def test_reloading_an_artifactory_package_does_not_re_add_its_children(tmp_path):
-    # first-time `mama clean all`: the shim probe adds papa.txt's deps, then the post-clean re-extract
-    # reports the same list - add_child's duplicate raise used to kill the whole run
+    # the shim probe adds papa.txt's deps, then the post-clean re-extract reports the same list: no duplicate raise
     dep = make_mock_dep(tmp_path)
     sources = _declared(dep, 'ReCpp', 'zlib')
     dep.add_children(sources)  # shim probe

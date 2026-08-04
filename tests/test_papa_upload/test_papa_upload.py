@@ -1,3 +1,5 @@
+"""Pins papa_upload_to: the archive keeps every declared path, and validate_archive rejects
+missing or unexpected content."""
 import os
 import zipfile
 from pathlib import Path

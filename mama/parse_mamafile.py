@@ -4,14 +4,12 @@ from .utils.system import console
 from .util import path_join, read_text_from, write_text_to, file_sha1
 
 def parse_mamafile(config, target_class, mamafile):
+    """Run `mamafile` and return (name, class) of its first `target_class` subclass."""
     if not mamafile or not os.path.exists(mamafile):
         return None, None
-    #console(f'loaded_mamafile: {mamafile}')
-
     loaded_globals = runpy.run_path(mamafile)
     for key, value in loaded_globals.items():
         if inspect.isclass(value) and issubclass(value, target_class):
-            # print(f'found {key}(BuildTarget): {value}')
             return key, value
     raise RuntimeError(f'No BuildTarget class found in mamafile: {mamafile}')
 
@@ -28,11 +26,11 @@ def _write_tag(tagfile, mtime, content_hash):
 
 
 def update_modification_tag(config, file, tagfile):
-    """True when `file` changed since its tag was written, and refreshes the tag.
+    """True when `file` changed since the last tag write. Refreshes the tag.
 
     Two layers. The mtime answers first and costs one stat, so an unchanged file opens nothing. Only a
     moved mtime reads the file, and the sha1 then decides. git rewrites a checked-out file with the same
-    bytes, and the mtime alone rebuilt every dep that read it."""
+    bytes, so the mtime alone would rebuild every dep that read the file."""
     if not os.path.exists(file):
         return False
 
@@ -52,12 +50,12 @@ def update_modification_tag(config, file, tagfile):
     if config.verbose: console(f'Update tagfile: {tagfile}')
     return True
 
-## Return: TRUE if mamafile.py was modified
 def update_mamafile_tag(config, mamafile, build_dir):
+    """True when mamafile.py changed since the last run."""
     mamafiletag = path_join(build_dir, 'mamafile_tag')
     return update_modification_tag(config, mamafile, mamafiletag)
 
-## Return: TRUE if CMakeLists.txt was modified
 def update_cmakelists_tag(config, cmakelists, build_dir):
+    """True when CMakeLists.txt changed since the last run."""
     cmakeliststag = path_join(build_dir, 'cmakelists_tag')
     return update_modification_tag(config, cmakelists, cmakeliststag)

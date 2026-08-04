@@ -16,8 +16,8 @@ _CHUNK_SIZE = 1024*1024  # big enough to keep DEFLATE fed, small enough that the
 
 
 def _archive_entries(rel_path:str, full_path:str):
-    """(src, rel, size) for one papa record; a dir flattens into its tree, dir entries included so the
-    zip keeps its structure. size is None for a dir, else stat'd once here and reused as the bar weight."""
+    """(src, rel, size) for one papa record. A dir flattens into its tree, with dir entries kept so the
+    zip keeps its structure. size is None for a dir, else read once here and reused as the bar weight."""
     if not os.path.isdir(full_path):
         return [(full_path, rel_path, os.path.getsize(full_path))]
     entries = []
@@ -59,13 +59,13 @@ def _archive_groups(papa:PapaFileInfo, package_full_path:str):
 
 
 def _archive_total_size(groups:list) -> int:
-    """Uncompressed bytes the zip will hold; drives both the bar and the compression level."""
+    """Uncompressed bytes the zip will hold. Drives both the bar and the compression level."""
     return sum(size or 0 for _, entries in groups for _, _, size in entries)
 
 
 def _compress_level(total:int) -> int:
-    """Level 8 buys a couple percent of size for minutes of CPU once a package passes 100MB, and PAPA
-    packages are dominated by a few bloated static libs. Stay at 8 while it is cheap, drop to 6 above."""
+    """Level 8 buys a couple percent of size for minutes of CPU once a package passes 100MB, because a
+    few bloated static libs dominate a PAPA package. Stay at 8 while it is cheap and drop to 6 above."""
     return 6 if total > 100*1024*1024 else 8
 
 
@@ -82,8 +82,8 @@ def _write_file(zip:zipfile.ZipFile, src:str, rel:str, bar:ProgressBar):
 
 
 def _write_archive(zip:zipfile.ZipFile, groups:list, config, indent:str, total:int):
-    """Writes every entry into the zip. Verbose keeps its per-record lines; regular verbosity gets a
-    progress bar, since a big package (protobuf ships ~100 libs) otherwise looks frozen for minutes."""
+    """Writes every entry into the zip. Verbose keeps its per-record lines. Regular verbosity gets a
+    progress bar, because a big package (protobuf ships ~100 libs) otherwise looks frozen for minutes."""
     show_bar = config.print and not config.verbose
     bar = ProgressBar(total, indent) if show_bar else None
     for label, entries in groups:
@@ -157,12 +157,9 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
 
 def _download_can_find_this_version(target:BuildTarget) -> bool:
     """True when the version this upload names is the one a DOWNLOAD would look for.
-
-    The two sides read the version differently. An upload runs the mamafile and uses the value in
-    memory. A download reads the file as text, because it must name the package before it clones
-    anything. A mamafile that computes the version, or assigns it twice, makes the two disagree. Mama
-    would then publish an archive no consumer can ever ask for, and every build would miss the cache
-    with no error to explain it. Refuse the upload instead."""
+    An upload runs the mamafile and uses the value in memory. A download reads the file as text, because
+    it must name the package before the clone. A computed or twice-assigned version makes the two disagree,
+    and mama would publish an archive no consumer can ever ask for. Refuse the upload instead."""
     executed = target.version or ''
     readable = pinned_version(target.dep)
     if executed == readable: return True
@@ -173,9 +170,9 @@ def _download_can_find_this_version(target:BuildTarget) -> bool:
 
 
 def papa_upload_to(target:BuildTarget, package_full_path:str):
-    """
-    - target: Target which was configured and packaged
-    - package_full_path: Full path to deployed PAPA package
+    """Archives the deployed PAPA package, validates it, and uploads it to the artifactory server.
+    - target: the configured and packaged target
+    - package_full_path: full path to the deployed PAPA package
     """
     if not _download_can_find_this_version(target):
         return
@@ -195,9 +192,8 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     if config.verbose:
         console(f'    archiving {papa_file}\n {"":10}-> {archive_path}')
 
-    # archive needs to be created manually to only include the files in papa.txt
+    # build the archive by hand, so it holds only the files papa.txt names
     papa = PapaFileInfo(papa_file)
-    # create a zip archive with papa.includes, papa.libs and papa.assets
     temp_archive = archive_path + '.tmp'
     groups = _archive_groups(papa, package_full_path)
     total = _archive_total_size(groups)
@@ -206,7 +202,6 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
         if config.verbose: console(f'      root {package_full_path} ({get_file_size_str(total)}, deflate {level})')
         _write_archive(zip, groups, config, f'  - {target.name: <16} ', total)
 
-    # move the intermediate archive to the final location
     if os.path.exists(archive_path):
         os.remove(archive_path)
     shutil.move(temp_archive, archive_path)

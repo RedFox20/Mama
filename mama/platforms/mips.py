@@ -18,7 +18,7 @@ class Mips(Platform):
     default_arch = 'mipsel'
     supported_arches = ('mips', 'mipsel', 'mips64', 'mips64el')
     # mipsel keeps the bare `mips` dir, because it is the default and every existing package uses it.
-    # The other three used to share it, so a big-endian build overwrote a little-endian one in place.
+    # Every other arch gets its own dir, so two endian variants never overwrite each other in place.
     build_dirs = {'mipsel': 'mips', 'mips': 'mipsbe', 'mips64': 'mips64', 'mips64el': 'mips64el'}
     platform_define = 'MIPS'
     compile_defines = {'MIPS': '1'}
@@ -35,7 +35,7 @@ class Mips(Platform):
 
 
     def compiler_prefix(self) -> str:
-        """`<bin>/<arch>-linux-gnu-`, eg `/opt/mipsel-openwrt-linux/bin/mipsel-openwrt-linux-`."""
+        """`<bin>/<arch>-linux-gnu-`, eg `/usr/bin/mipsel-linux-gnu-`."""
         if not self.gcc_prefix: self.init_default()
         return self.gcc_prefix
 
@@ -67,7 +67,7 @@ class Mips(Platform):
         if self.gcc_prefix and self.toolchain_file == toolchain_file and self.toolchain_dir == toolchain_dir:
             return
 
-        self.toolchain_file = toolchain_file # additional toolchain to specify sysroot details
+        self.toolchain_file = toolchain_file # an optional toolchain file that adds sysroot details
 
         # a toolchain dir should have a bin/ subdir with the compiler
         if toolchain_dir:
@@ -75,13 +75,13 @@ class Mips(Platform):
             if os.path.exists(f'{toolchain_dir}/bin/{arch}-linux-gnu-gcc'):
                 self._set_toolchain_dir(f'{toolchain_dir}/bin/{arch}-linux-gnu-',
                                        f'{toolchain_dir}/lib', f'{toolchain_dir}/include')
-                return # success
+                return
 
-        # check for a system installed one as fallback. It may also be at `/usr/mipsel-linux-gnu`
+        # then try a system installed toolchain. Its libs may live at /usr/mipsel-linux-gnu
         if os.path.exists(f'/usr/bin/{arch}-linux-gnu-gcc'):
             self._set_toolchain_dir(f'/usr/bin/{arch}-linux-gnu-',
                                    f'/usr/{arch}-linux-gnu/lib', f'/usr/{arch}-linux-gnu/include')
-            return # success
+            return
 
         raise EnvironmentError('No MIPS toolchain compilers detected, '+
                                f'try "sudo apt-get install g++-{arch}-linux-gnu"')
@@ -117,8 +117,7 @@ class Mips(Platform):
         prefix = self.compiler_prefix()
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc', cxx=f'{prefix}g++', tool_prefix=prefix,
-                         # ONLY, not NEVER: a MIPS toolchain ships its own binutils and cmake must find
-                         # them in the toolchain, never the host's
+                         # ONLY, not NEVER: the toolchain ships its own binutils, never use the host's
                          find_root_program='ONLY',
                          toolchain_file=self.toolchain_file or '', toolchain_file_is_complete=True)
 

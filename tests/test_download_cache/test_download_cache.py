@@ -90,19 +90,14 @@ class TestTargetPrefix:
         with patch('mama.util.request.urlopen', return_value=opened):
             download_file('http://x/a.zip', local_dir, force=True, name='libfoo')
         out = capsys.readouterr().out
-        # The redrawn progress line must carry the target name, otherwise a
-        # parallel run's status lines have no way to indicate which target
-        # they belong to.
+        # The redrawn progress line must carry the target name, or a parallel run's status lines name no target.
         assert 'libfoo' in out
-        # And the existing bar format is preserved.
-        assert '|' in out and '%' in out
+        assert '|' in out and '%' in out  # the bar format itself is unchanged
 
     def test_no_name_keeps_unprefixed_format(self, tmp_path, capsys):
         local_dir = str(tmp_path)
         (tmp_path / 'a.zip').write_bytes(b'x')
         download_file('http://x/a.zip', local_dir, force=False)
         out = capsys.readouterr().out
-        # When no name is given, the line uses plain 4-space indent (no '- ').
         assert 'Using locally cached' in out
-        # Must not produce a "- " bullet prefix when there's no target context.
-        assert '  - ' not in out
+        assert '  - ' not in out  # no target context -> plain 4-space indent, no '- ' bullet

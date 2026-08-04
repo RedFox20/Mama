@@ -1,26 +1,5 @@
-"""
-SSH connection multiplexing for git operations.
-
-When mama runs `update` against many private git repositories on the same SSH
-host (e.g. github.com), each `git fetch` opens a fresh SSH connection and pays
-the full auth cost. Multiplexing lets a single auth'd master socket carry many
-parallel git ops.
-
-Design rules:
-* Probe via `ssh -G user@host` to read the user's effective config. We never
-  override settings the user already has (ControlMaster, ControlPath,
-  ServerAliveInterval, ServerAliveCountMax). Our `-o` flags are added only
-  for keys the user has not set.
-* `GIT_SSH_COMMAND` points at a small wrapper (`mama_ssh.py`) so per-host
-  options can be applied just-in-time. A single global GIT_SSH_COMMAND can't
-  encode per-host decisions, so the wrapper does it on each invocation.
-* Pre-warm one master per host with `ssh -fN` BEFORE we kick off parallel git
-  ops, so 20 concurrent fetches don't trigger 20 concurrent auths.
-* Track which masters we started; clean them up at exit. Pre-existing masters
-  the user manages are left alone.
-* Never touch ssh-agent: no IdentityAgent, no IdentityFile, no manipulation of
-  SSH_AUTH_SOCK. The user's keys and agent stay exactly as configured.
-"""
+"""SSH connection multiplexing for git operations: one authenticated master socket per host carries many
+parallel git fetches. Adds only options the user has not set, and never touches ssh-agent or the user's keys."""
 
 from __future__ import annotations
 
@@ -39,31 +18,26 @@ from urllib.parse import urlparse
 from .system import System
 
 
-# One master carries every parallel fetch as a separate SSH session, and sshd's default MaxSessions is
-# 10. Above that the server answers `mux_client_request_session: session request failed: Session open
-# refused by peer` and the fetch dies. Raise it per project with `parallel=N` when the host allows more.
+# One master carries every parallel fetch as a separate SSH session, and sshd's default MaxSessions is 10.
+# Above that the server refuses the session and the fetch dies. init_fetch_semaphore() clamps to this cap.
 DEFAULT_MAX_CONCURRENT_FETCHES = 8
 
 # A UNIX socket path caps at 104 bytes on macOS and 108 on Linux, and ssh expands %C to 40 hex chars.
-# A control dir that leaves no room for that produces `unix_listener: path too long`, so the chooser
-# below measures every candidate against this budget.
+# A control dir with no room for that fails `unix_listener: path too long`, so the chooser measures each candidate.
 _MAX_SOCKET_PATH = 100
 _CONTROL_SUBDIR = 'mama-cm'
 
 
 def _control_dir_candidates() -> list:
-    """Where to keep our control sockets, best first. A container can mount ~/.ssh read-only, and mama
-    then loses multiplexing, so a writable temp dir comes first. The uid keeps two users on one shared
-    /tmp apart, because a dir another user owns is a dir we cannot write.
-
-    The joins stay f-strings. normalized_join() calls abspath, which rewrites the POSIX '/tmp' fallback
-    into 'C:/tmp' on Windows. mama.util also costs about 200ms to import, and mama_ssh.py imports this
-    module on every git ssh spawn."""
+    """Where to keep our control sockets, best first. A read-only ~/.ssh loses multiplexing, so a writable
+    temp dir comes first, and the uid keeps two users on one shared /tmp apart.
+    The joins stay f-strings: normalized_join() calls abspath, which rewrites '/tmp' into 'C:/tmp' on
+    Windows, and mama.util costs about 200ms to import on every git ssh spawn."""
     uid = getattr(os, 'geteuid', lambda: 0)()  # Windows has no geteuid, and never opens a master anyway
     runtime = os.environ.get('XDG_RUNTIME_DIR')
     dirs = [f'{runtime.rstrip("/")}/{_CONTROL_SUBDIR}'] if runtime else []
     dirs.append(f'{tempfile.gettempdir().rstrip("/")}/{_CONTROL_SUBDIR}-{uid}')
-    dirs.append(f'/tmp/{_CONTROL_SUBDIR}-{uid}')  # macOS $TMPDIR is long enough to blow the socket budget
+    dirs.append(f'/tmp/{_CONTROL_SUBDIR}-{uid}')  # macOS $TMPDIR is long enough to exceed the socket budget
     dirs.append(os.path.expanduser('~/.ssh/cm'))  # where mama kept them before, for a host with no temp
     fits = [d for d in dirs if len(d) + 41 <= _MAX_SOCKET_PATH]
     return fits or dirs[-1:]  # every candidate is too long: try the old spot and let ssh report it
@@ -76,9 +50,8 @@ _DEFAULT_KEEPALIVE_INTERVAL = '60'
 _DEFAULT_KEEPALIVE_COUNT    = '3'
 _DEFAULT_CONTROL_PERSIST    = '10m'
 
-# Always-on so a parallel clone never freezes on an SSH prompt: bound the TCP connect + auto-accept
-# NEW host keys (still rejects CHANGED). NOT BatchMode (would break interactive-passphrase keys);
-# the SubProcess idle-timeout is the backstop for stuck auth prompts.
+# Always-on so a parallel clone never freezes on a prompt: bound the TCP connect, auto-accept NEW host keys (reject CHANGED).
+# NOT BatchMode, which breaks interactive-passphrase keys. The SubProcess idle-timeout backstops a stuck auth prompt.
 _SAFETY_OPTS = ['-oConnectTimeout=30', '-oStrictHostKeyChecking=accept-new']
 
 
@@ -92,25 +65,14 @@ _fetch_semaphore: threading.Semaphore | None = None
 
 # URL parsing --------------------------------------------------------------
 
-# scp-style git URL: [user@]host:path  (the path must NOT start with //, that
-# would be ssh://). We anchor on a colon that isn't followed by //.
+# scp-style git URL: [user@]host:path. The regex anchors on a colon not followed by //, which would be ssh://.
 _SCP_RE = re.compile(r'^(?:(?P<user>[^@/\s]+)@)?(?P<host>[^:/\s]+):(?!//)')
 
 
 def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
-    """
-    Return (user, host, port_or_None) for an SSH-using git URL, or None.
-
-    Accepts:
-        git@github.com:user/repo.git           -> ('git', 'github.com', None)
-        ssh://git@host:2222/user/repo.git      -> ('git', 'host', '2222')
-    Rejects:
-        https://github.com/user/repo.git
-        /path/to/local/repo
-        file:///...
-        C:/foo                                 (Windows path, not scp-style)
-        host:                                  (no path after colon)
-    """
+    """Return (user, host, port_or_None) for an SSH git URL: scp-style `git@host:path`, or `ssh://user@host:port/path`.
+    Returns None for a https/file URL, a local or Windows drive path, or a colon with no path after it.
+    url: the git remote url"""
     if not url:
         return None
     if url.startswith('ssh://'):
@@ -124,8 +86,7 @@ def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
         return (p.username or 'git', p.hostname, port)
     if '://' in url:
         return None
-    # Reject Windows-style absolute paths: a single drive letter followed by
-    # `:` and then `/` or `\`. Git itself doesn't treat these as scp URLs.
+    # a drive letter + ':' + slash is a Windows absolute path, which git itself does not treat as an scp URL
     if len(url) >= 3 and url[1] == ':' and url[0].isalpha() and url[2] in ('/', '\\'):
         return None
     m = _SCP_RE.match(url)
@@ -141,18 +102,14 @@ def parse_ssh_endpoint(url: str) -> tuple[str, str, str | None] | None:
 # ssh -G probe -------------------------------------------------------------
 
 def probe_ssh_config(ssh_args: list[str], timeout: float = 5.0) -> dict[str, str]:
-    """
-    Run `ssh -G <ssh_args>` and return effective config (lower-cased keys).
-    Empty dict on failure - probe must never block the build.
-
-    `ssh_args` is whatever you'd pass to ssh after `-G` - typically just
-    `[f'{user}@{host}']`, optionally with `-p PORT` etc.
-
-    Raw subprocess.run with capture_output, not SubProcess.run: every ssh helper in this module must
-    stay silent. ssh writes a warning per bad line in the user's ssh_config, and a probe that echoed
-    those would print the same block once per dependency. It also runs from mama_ssh.py, a standalone
-    wrapper process with no display to route output to. The same applies to every other ssh call below.
-    """
+    """Run `ssh -G <ssh_args>` and return the effective config (lower-cased keys). Empty dict on failure:
+    the probe must never block the build.
+    ssh_args: whatever ssh takes after `-G`, typically `[f'{user}@{host}']`, optionally with `-p PORT`
+    timeout: seconds before the probe gives up
+    Raw subprocess.run with capture_output, not SubProcess.run: every ssh helper in this module must stay
+    silent. ssh warns per bad line in the user's ssh_config, and an echoed probe would print that block
+    once per dependency. It also runs from mama_ssh.py, a standalone wrapper process with no display to
+    route output to. The same applies to every other ssh call below."""
     try:
         cp = subprocess.run(['ssh', '-G', *ssh_args],
                             capture_output=True, text=True, timeout=timeout)
@@ -167,7 +124,7 @@ def probe_ssh_config(ssh_args: list[str], timeout: float = 5.0) -> dict[str, str
             continue
         parts = line.split(None, 1)
         if len(parts) == 2:
-            # `ssh -G` prints each key only once; keep first.
+            # `ssh -G` prints each key only once, keep the first
             out.setdefault(parts[0].lower(), parts[1])
     return out
 
@@ -180,22 +137,16 @@ def is_multiplex_configured(probe: dict[str, str]) -> bool:
 
 
 def multiplex_known_broken() -> bool:
-    """Native Windows: skip multiplex entirely. Microsoft OpenSSH's
-    ControlMaster is unreliable in practice - `mux_client_request_session:
-    read from master failed: Connection reset by peer` mid-fetch and stale
-    `ControlSocket ... already exists, disabling multiplexing` after a master
-    drops. WSL/Cygwin/Git-Bash run as Linux from Python's POV
+    """Native Windows: skip multiplex entirely. Microsoft OpenSSH's ControlMaster resets connections
+    mid-fetch and leaves stale sockets that disable multiplexing. WSL/Cygwin/Git-Bash report as Linux
     (`System.windows == False`) and keep multiplex."""
     return System.windows
 
 
 def _control_dir_usable() -> bool:
-    """Make our control dir, and report False instead of raising when we cannot. A CI container often
-    runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh` gives Errno 13), and
-    multiplexing is an optimization - it must never be the thing that fails a build. Without a dir we
-    just skip the multiplex flags and every fetch opens its own connection, as it always could.
-
-    Walks the candidates, so a read-only ~/.ssh costs one fallback instead of the whole optimization."""
+    """Make our control dir, and report False instead of raising: multiplexing is an optimization and must
+    never fail a build. Walks the candidates, so a read-only ~/.ssh costs one fallback, not the whole
+    optimization. Without a dir the multiplex flags are skipped and every fetch opens its own connection."""
     global _OUR_CONTROL_DIR, _OUR_CONTROL_PATH
     for candidate in [_OUR_CONTROL_DIR] + _control_dir_candidates():
         try: os.makedirs(candidate, mode=0o700, exist_ok=True)
@@ -208,12 +159,9 @@ def _control_dir_usable() -> bool:
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:
-    """
-    Return (-o args, we_own_master). `we_own_master` is True when we are the
-    one configuring multiplex (and therefore responsible for pre-warming and
-    cleaning it up). False if the user already has multiplex configured, or
-    if multiplex is known-broken on this platform.
-    """
+    """Return (-o args, we_own_master). `we_own_master` is True when mama configures multiplex itself and
+    so owns the pre-warm and the cleanup. False when the user already has multiplex, or it is known-broken.
+    probe: the effective ssh config from probe_ssh_config()"""
     opts: list[str] = list(_SAFETY_OPTS)
     we_own_master = False
     if not multiplex_known_broken() and not is_multiplex_configured(probe) and _control_dir_usable():
@@ -247,15 +195,10 @@ def _probe_args(user: str, host: str, port: str | None) -> list[str]:
 
 
 def ensure_master_for_url(url: str) -> None:
-    """
-    Idempotent. Probes the host's SSH config and, if multiplexing isn't
-    already set up by the user, opens a master connection and remembers it
-    for cleanup. Sets GIT_SSH_COMMAND so subsequent git ops use our wrapper.
-
-    Safe to call concurrently from multiple threads. Blocks the FIRST caller
-    per host while the master is being established; subsequent callers return
-    immediately.
-    """
+    """Idempotent, thread-safe. When the user has no multiplex of their own, opens a master connection,
+    remembers it for cleanup, and sets GIT_SSH_COMMAND so later git ops use the mama_ssh.py wrapper.
+    Blocks the FIRST caller per host while the master opens, later callers return immediately.
+    url: the git remote url, a non-SSH url is ignored"""
     ep = parse_ssh_endpoint(url)
     if ep is None:
         return
@@ -272,18 +215,14 @@ def ensure_master_for_url(url: str) -> None:
 
         if we_own_master:
             state = _open_master(user, host, port, opts)
-            # ADOPTED: a master was already listening (a parallel mama run, or an earlier run's
-            # ControlPersist master on a runner that keeps $HOME). Use it, but never `ssh -O exit` it at
-            # exit - closing another job's connection kills its fetches mid-transfer.
+            # ADOPTED: another run's master was already listening. Use it, but never `ssh -O exit` it at
+            # exit: closing another job's connection kills its fetches mid-transfer.
             if state == _MASTER_ADOPTED:
                 we_own_master = False
             elif state == _MASTER_FAILED:
-                # Pre-warm failed (auth declined, network blip, host key prompt,
-                # MFA timeout). If we left ControlMaster/ControlPath in opts,
-                # every subsequent fetch would race to BECOME the master and
-                # we'd trigger N concurrent auths instead of one - the exact
-                # thing multiplexing is meant to prevent. Strip the multiplex
-                # flags so each fetch makes its own simple connection.
+                # Pre-warm failed. With the multiplex flags left in opts, every later fetch would race to
+                # BECOME the master and trigger N concurrent auths instead of one, the exact thing
+                # multiplexing prevents. Strip the flags so each fetch makes its own simple connection.
                 opts = [o for o in opts
                         if not (o.startswith('-oControlMaster=')
                                 or o.startswith('-oControlPath=')
@@ -293,8 +232,7 @@ def ensure_master_for_url(url: str) -> None:
         with _state_lock:
             _warmed[ep] = {'opts': opts, 'we_own_master': we_own_master}
 
-        # Only install the wrapper when there's something for it to do -
-        # otherwise it's a fork+exec per git op for no benefit.
+        # only install the wrapper when it has something to do, otherwise it costs a fork+exec per git op
         if opts:
             _set_git_ssh_command()
 
@@ -321,13 +259,9 @@ def _master_alive(user: str, host: str, port: str | None, opts: list[str]) -> bo
 
 
 def _remove_stale_socket(user: str, host: str, port: str | None, opts: list[str]) -> None:
-    """
-    `ssh -fN -oControlMaster=yes` refuses to open a master while the socket file exists, even when
-    nothing listens on it - it prints `ControlSocket ... already exists, disabling multiplexing` and
-    connects unmultiplexed. A killed master, or a CI runner that keeps $HOME between jobs, leaves
-    exactly that. Delete the dead socket, but ONLY under our own control dir: a user-configured
-    ControlPath is theirs to manage. `ssh -G` expands the %C token for us.
-    """
+    """ssh refuses to open a master while the socket file exists, even dead, and connects unmultiplexed.
+    Delete the dead socket, but ONLY under mama's own control dir: a user-configured ControlPath is
+    theirs to manage. `ssh -G` expands the %C token."""
     probe = probe_ssh_config(_master_control_args(opts) + _probe_args(user, host, port))
     path = probe.get('controlpath', '')
     if not path.startswith(_OUR_CONTROL_DIR):
@@ -337,25 +271,20 @@ def _remove_stale_socket(user: str, host: str, port: str | None, opts: list[str]
 
 
 def _open_master(user: str, host: str, port: str | None, opts: list[str]) -> str:
-    """
-    Make a master usable on this ControlPath. Returns one of:
-      _MASTER_ADOPTED - one was already listening. Use it, but it is not ours to close.
-      _MASTER_STARTED - we opened it, so we own its cleanup.
-      _MASTER_FAILED  - none available. The caller must drop the multiplex flags, so concurrent
-                        fetches don't all race to be the master and trigger N parallel auths.
-    """
+    """Make a master usable on this ControlPath. Returns _MASTER_ADOPTED (one already listened, not mama's
+    to close), _MASTER_STARTED (mama owns its cleanup), or _MASTER_FAILED (the caller must drop the
+    multiplex flags)."""
     if _master_alive(user, host, port, opts):
         return _MASTER_ADOPTED
     _remove_stale_socket(user, host, port, opts)
-    # Force ControlMaster=yes for the master itself; replace any =auto.
+    # force ControlMaster=yes for the master itself, replacing any =auto
     cmd = ['ssh', '-fN'] + [o for o in opts if not o.startswith('-oControlMaster=')]
     cmd += ['-oControlMaster=yes']
     if port:
         cmd += ['-p', port]
     cmd += [f'{user}@{host}']
     try:
-        # 30s is generous for password/2FA prompts. -fN backgrounds AFTER auth
-        # but BEFORE the ControlPath socket is bound, so we still need to poll.
+        # 30s is generous for password/2FA prompts. -fN backgrounds AFTER auth but BEFORE the socket binds, so a poll follows.
         cp = subprocess.run(cmd, timeout=30, capture_output=True, text=True)
         if cp.returncode != 0:
             return _MASTER_FAILED
@@ -366,12 +295,8 @@ def _open_master(user: str, host: str, port: str | None, opts: list[str]) -> str
 
 def _wait_master_ready(user: str, host: str, port: str | None,
                        opts: list[str], deadline_s: float = 5.0) -> bool:
-    """
-    Poll `ssh -O check` until the master responds or we hit the deadline.
-    `ssh -fN` returns as soon as auth+fork happen, but the ControlPath socket
-    can take a brief moment to bind. Without this poll the first racing
-    fetches see "no socket yet" and each open their own connection.
-    """
+    """Poll `ssh -O check` until the master responds or the deadline passes. `ssh -fN` returns before the
+    ControlPath socket binds, and without this poll the first racing fetches each open their own connection."""
     end = time.monotonic() + deadline_s
     delay = 0.05
     while time.monotonic() < end:
@@ -383,7 +308,7 @@ def _wait_master_ready(user: str, host: str, port: str | None,
 
 
 def cleanup_masters() -> None:
-    """Run `ssh -O exit` for masters we started. Don't touch user-owned ones."""
+    """Run `ssh -O exit` for the masters mama started. Never touch a user-owned one."""
     with _state_lock:
         snapshot = list(_warmed.items())
     for (user, host, port), info in snapshot:
@@ -403,8 +328,7 @@ atexit.register(cleanup_masters)
 
 
 def _set_git_ssh_command() -> None:
-    # If GIT_SSH_COMMAND is already set we leave it alone - either the user
-    # made an explicit choice or we already installed our wrapper.
+    # an already-set GIT_SSH_COMMAND stays untouched: a user choice, or the wrapper is already installed
     if os.environ.get('GIT_SSH_COMMAND'):
         return
     wrapper = os.path.join(os.path.dirname(__file__), 'mama_ssh.py')
@@ -416,10 +340,9 @@ def _set_git_ssh_command() -> None:
 # Concurrent-fetch semaphore -----------------------------------------------
 
 def init_fetch_semaphore(max_concurrent: int = DEFAULT_MAX_CONCURRENT_FETCHES) -> None:
-    """Initialise the global semaphore that caps concurrent git fetches. Clamped to
-    DEFAULT_MAX_CONCURRENT_FETCHES whatever the caller asks for: `parallel_max` also sizes the
-    scheduler's LOAD pool, where artifactory downloads want a high number, but every git session above
-    the server's MaxSessions is refused outright on the shared master."""
+    """Initialize the global semaphore that caps concurrent git fetches, clamped to DEFAULT_MAX_CONCURRENT_FETCHES.
+    max_concurrent: the requested cap. `parallel_max` also sizes the scheduler's LOAD pool, where
+    artifactory downloads want a high number, so the clamp stays independent of it."""
     global _fetch_semaphore
     n = max(1, min(int(max_concurrent), DEFAULT_MAX_CONCURRENT_FETCHES))
     with _state_lock:
@@ -428,21 +351,15 @@ def init_fetch_semaphore(max_concurrent: int = DEFAULT_MAX_CONCURRENT_FETCHES) -
 
 
 def fetch_slot():
-    """
-    Context manager that holds a slot in the fetch semaphore. No-op if
-    `init_fetch_semaphore` has not been called (e.g. for non-parallel runs).
-    """
+    """Context manager that holds a slot in the fetch semaphore. No-op when `init_fetch_semaphore` has not run."""
     return _fetch_semaphore or contextlib.nullcontext()
 
 
 # Connection pacing --------------------------------------------------------
 
-# Pacing is REACTIVE, and off until a host pushes back. A wave of parallel clones opens its TCP and
-# auth handshakes inside a few milliseconds, and a git host can answer that by closing the connection
-# mid-handshake. Multiplexing removes the handshakes on a shared SSH host, but an https remote still
-# connects per clone and Windows has no multiplexing at all. An unconditional stagger would cost wall
-# clock on every run to protect the few that need it, so the first dropped connection turns it on
-# instead and everything after that arrives spread out.
+# Pacing is REACTIVE, off until a host pushes back: a git host can answer a wave of parallel handshakes
+# by closing connections mid-handshake, and multiplexing does not cover https remotes or Windows.
+# An unconditional stagger would cost wall clock on every run, so the first dropped connection turns it on.
 THROTTLED_CONNECT_INTERVAL = 0.25  # seconds between the START of two git network commands, once throttled
 _connect_lock = threading.Lock()
 _connect_interval = 0.0
@@ -457,9 +374,8 @@ def note_connection_throttled() -> None:
 
 
 def pace_new_connection() -> None:
-    """Hold a git network command back until the pacing interval has passed since the last one
-    started. No-op until note_connection_throttled() fires. Only the START of each connection is
-    staggered, so the transfers themselves stay fully parallel."""
+    """Hold a git network command back until the pacing interval has passed since the last one started.
+    No-op until note_connection_throttled() fires. Only the START staggers, transfers stay fully parallel."""
     global _last_connect
     with _connect_lock:  # held across the sleep, so N waiters stagger instead of waking together
         if not _connect_interval: return

@@ -42,7 +42,7 @@ def test_toolchain_names_the_clang_stdlib_on_linux(capsys):
         == f'Mama {__version__} building 3 target(s) linux x64 with clang 14.3 libstdc++'
     assert _banner(capsys, _cfg(msvc=True, linux=False, platform_class=Windows)) \
         == f'Mama {__version__} building windows x64 with msvc 14.44'
-    # off linux the stdlib isn't a choice, so it isn't reported
+    # off linux the stdlib is not a choice, so the banner omits it
     assert _banner(capsys, _cfg('/usr/bin/clang', linux=False)) \
         == f'Mama {__version__} building linux x64 with clang 14.3'
 
@@ -63,7 +63,7 @@ def _android(**over):
 
 
 def test_banner_names_the_android_api_arch_and_ndk(capsys):
-    # 'clang 21.0' alone can't tell an android cross build from a host clang - the platform must say so
+    # 'clang 21.0' alone cannot tell an android cross build from a host clang - the platform must say so
     assert _banner(capsys, _android()) \
         == f'Mama {__version__} building android-36 arm64 ndk-29.0.14206865 with clang 21.0'
 

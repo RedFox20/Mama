@@ -40,7 +40,7 @@ def test_unshallow_converts_shim_to_clone_without_refetch(tmp_path):
     assert dep.is_artifactory_shim()
     clone_mock, fetch_mock = _load_unshallow_target(dep)
     clone_mock.assert_called_once()
-    fetch_mock.assert_not_called()    # the bug: post-clone probe re-fetched the pkg, making the clone moot
+    fetch_mock.assert_not_called()    # a post-clone pkg re-fetch would make the clone moot
     assert not dep.is_artifactory_shim()
     assert not dep.from_artifactory
 
@@ -56,7 +56,7 @@ def test_unshallow_already_clone_target_skips_artifactory(tmp_path):
 
 
 def test_limbo_dir_is_wiped_and_recloned(tmp_path):
-    # A dropped shim leaves a non-.git dir (e.g. mama.cmake proxy): it can't be pulled, must reclone.
+    # A dropped shim leaves a non-.git dir (e.g. mama.cmake proxy): it cannot be pulled, must reclone.
     dep = make_mock_dep(tmp_path)
     os.makedirs(dep.src_dir, exist_ok=True)
     with open(f'{dep.src_dir}/mama.cmake', 'w') as f: f.write('# proxy stub\n')

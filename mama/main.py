@@ -48,7 +48,7 @@ def print_usage():
     console('    install-clang-<ver> - configures and installs clang-<ver> for ubuntu, ex: install-clang-18')
     console('    install-gcc-<ver>   - configures and installs gcc-<ver> for ubuntu, ex: install-gcc-13')
     console('    install-msbuild     - configures and installs MSBuild for linux')
-    console('    install-ndk-<ver>   - configures and installs Android NDK <ver> for linux or windows (ex: install-ndk-25b)')
+    console('    install-ndk-<ver>   - configures and installs Android NDK <ver> for linux or windows (ex: install-ndk-25c)')
     console('    install-raspi       - installs the Raspberry Pi arm64 cross toolchain (ubuntu/debian)')
     console('    install-raspi32     - installs the legacy Raspberry Pi armv7 cross toolchain')
     console('  args:')
@@ -66,14 +66,14 @@ def print_usage():
     console('    android    - build for android')
     console('    android-N  - build for android targeting specific API level, ex: android-26')
     console('    ndk-<ver>  - build for android targeting specific NDK version, ex: ndk-28 or ndk-28.2')
-    console('    clang      - prefer clang for linux (default on linux/macos/ios/android)')
+    console('    clang      - prefer clang for linux (default on macos/ios/android)')
     console('    gcc        - prefer gcc for linux')
     console('    fortran    - enable automatic fortran detection (or configure this in mamafile)')
     console('    release    - (default) CMake configuration RelWithDebInfo')
     console('    debug      - CMake configuration Debug')
     console('    arch=x86   - Override cross-compiling architecture: (x86, x64, arm, arm64)')
     console('    x86        - Shorthand for arch=x86, all shorthands: x86 x64 arm arm64')
-    console('    jobs=N     - Max number of parallel compilations. (default=system.core.count)')
+    console('    jobs=N     - Max number of parallel compilations. (default=system.core.count, minus one on linux)')
     console('    target=P   - Name of the target')
     console('    all        - Short for target=all')
     console('    with_tests - Forces CMake option -DENABLE_TESTS=ON and -DBUILD_TESTS=ON')
@@ -102,7 +102,7 @@ def print_usage():
     console('    mama build android-26 arm      Cross compile to armv7 android NDK API level 26')
     console('    mama update                    Update all dependencies by doing git pull and build.')
     console('    mama clean                     Cleans main project only.')
-    console('    mama clean x86 opencv          Cleans main project only.')
+    console('    mama clean x86 opencv          Cleans the x86 build of target opencv.')
     console('    mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.')
     console('    mama rebuild                   Cleans, update and build main project only.')
     console('    mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.')
@@ -133,7 +133,7 @@ def open_project(config: BuildConfig, root_dependency: BuildDependency):
     if not found:
         raise KeyError(f'No project named {name}')
 
-    # `mama open <shim>` has no source dir to open; tell the user how to materialize one.
+    # `mama open <shim>` has no source dir to open. Tell the user how to fetch one.
     if found.is_artifactory_shim():
         warning(f'Target {found.name} is an artifactory shim - no source files available locally.')
         console(f'To fetch source, run: mama unshallow {found.name}')
@@ -165,12 +165,12 @@ def _find_ide_project(platform, dep: BuildDependency) -> str:
     return max(matches, key=os.path.getmtime) if matches else ''
 
 
-_RETIRED_ARGS = {'buildtimes': 'buildstats'}  # removed flags worth naming, so they don't read as a target
+_RETIRED_ARGS = {'buildtimes': 'buildstats'}  # removed flags worth naming, so they do not read as a target
 
 
 def set_target_from_unused_args(config: BuildConfig):
     """An unrecognized bare word is the target name, so `mama rebuild ReCpp` works. An option-shaped arg
-    (`jobz=4`, `-foo`) can never be one, so it's a typo - fail here, not 20s later as 'target not found'."""
+    (`jobz=4`, `-foo`) can never be one, so it is a typo - fail here, not 20s later as 'target not found'."""
     for arg in config.unused_args:
         if arg in _RETIRED_ARGS:  # else a removed flag reads as a target and fails with 'target not found'
             console(f"ERROR: '{arg}' was removed, use '{_RETIRED_ARGS[arg]}' instead")
@@ -187,9 +187,9 @@ def set_target_from_unused_args(config: BuildConfig):
 
 def _can_unify(config: BuildConfig) -> bool:
     """True for a build/update the unified clone+build scheduler handles: a full tree, or a `deps_only`
-    run, which the scheduler scopes to the named target's dependencies as the graph grows. Targeted /
-    list / dirty / mama_init / serial runs need the classic load->execute path (which resolves the whole
-    tree up front for target lookup and filtering)."""
+    run, which the scheduler scopes to the named target's dependencies as the graph grows. Targeted,
+    list, dirty, mama_init and serial runs need the classic load->execute path, which resolves the
+    whole tree up front for target lookup and filtering."""
     return (not config.serial_load and (config.build or config.update)
             and (config.no_specific_target() or config.deps_only) and not config.list
             and not config.dirty and not config.mama_init)
@@ -198,7 +198,7 @@ def _can_unify(config: BuildConfig) -> bool:
 def check_config_target(config: BuildConfig, root: BuildDependency):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
-        if dep is None:  # list what IS valid: the name was likely a typo'd target or a misspelled flag
+        if dep is None:  # list what IS valid: the name is likely a misspelled target or flag
             names = ', '.join(sorted(d.name for d in get_flat_deps(root)))
             console(f"ERROR: specified target='{config.target}' not found! Available targets: {names}")
             exit(-1)
@@ -214,7 +214,7 @@ def print_package_exports(dep: BuildDependency):
 
 
 def mama_dirty(root: BuildDependency, dep: BuildDependency):
-    """ Marks `dep` as dirty and also marks all projects that depend on `dep` as dirty """
+    """ Mark `dep` dirty, and also every project that depends on `dep` """
     dirty_chain = get_deps_that_depend_on_target(root, dep)
     if root.config.print:
         used_by = ", ".join([d.name for d in dirty_chain]) if dirty_chain else 'none'
@@ -235,15 +235,13 @@ def run_coverage_report(target: BuildTarget):
         gcov_path = os.path.realpath(target.config.cc_path).replace('gcc', 'gcov')
         if os.path.exists(gcov_path):
             gcov_exec = f'--gcov-executable "{gcov_path}" '
-    # this is too verbose for CI
-    #verbose = '--verbose ' if target.config.verbose else ''
     cmd = 'gcovr --gcov-ignore-errors all --gcov-ignore-parse-errors all ' \
         + '--sort uncovered-percent ' \
         + gcov_exec \
         + f'--root "{root}" "{target.build_dir()}"'
     try:
-        # throw if coverage fails, but don't exit with error, so we don't break CI on coverage report failures
-        # instead stdout must be checked for coverage report success or failure separately
+        # a report failure must not break CI, so log the error instead of an exit.
+        # CI checks stdout for the report result separately.
         status, _ = execute_piped_echo(cwd=target.source_dir(), cmd=cmd, echo=True)
         if status != 0:
             warning(f'WARNING: gcovr exited {status} - coverage report may be incomplete')
@@ -252,9 +250,9 @@ def run_coverage_report(target: BuildTarget):
 
 
 def mamabuild(args, source_dir=os.getcwd()):
-    """ Main entry point for MamaBuild. Parses command line arguments and executes the requested actions. 
-        - args: list of command line arguments, without the script name. Ex: ['build', 'target=all', 'debug']
-        - source_dir: the directory to treat as the main project source
+    """Main entry point for MamaBuild. Parses the command line arguments and executes the requested actions.
+    - args: list of command line arguments, without the script name, e.g. ['build', 'target=all', 'debug']
+    - source_dir: the directory to treat as the main project source
     """
     if sys.version_info < (3, 10):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
@@ -276,7 +274,7 @@ def mamabuild(args, source_dir=os.getcwd()):
 
     name = os.path.basename(source_dir)
     local_src = LocalSource(name, source_dir, mamafile=None, always_build=False, args=[])
-    workspace = None # figure out the workspace from the root mamafile.py
+    workspace = None # the root mamafile.py decides the workspace later
     root = BuildDependency(None, config, workspace, local_src)
 
     if config.unused_args:
@@ -324,24 +322,24 @@ def mamabuild(args, source_dir=os.getcwd()):
         print_sched_debug(root)
         return
 
-    # Full build/update and deps_only -> unified clone+configure+build scheduler; everything else
-    # (which needs the fully-loaded tree up front for lookup/filtering) -> classic load->execute path.
+    # Full build/update and deps_only -> unified clone+configure+build scheduler. Everything else
+    # needs the fully loaded tree up front for lookup/filtering -> classic load->execute path.
     if _can_unify(config):
         execute_unified(root, DepsOnlyScope(config, deps_only_target_name) if config.deps_only else None)
         dep = root
-        flat_deps = get_flat_deps(root)  # the graph is fully grown by now; keep it defined for the code below
+        flat_deps = get_flat_deps(root)  # the graph is fully grown by now, keep this defined for the code below
     else:
         load_dependency_chain(root)
         check_config_target(config, root)
 
-        # clean is not a build: dirs wiped during load, so packaging them fabricates an empty package or
-        # dies in a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.
+        # clean is not a build: the load wiped the dirs, so a packaging pass fabricates an empty package
+        # or fails a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.
         if config.clean_only():
             if config.targets_all(): sweep_orphaned_build_dirs(root, config)  # deps with no source on disk
             return
 
         # Only now is the tree loaded, so X's subtree is known: revive the deps X needs but that have
-        # nothing on disk. _should_build can't do this at load time - deps have no parent link then.
+        # nothing on disk. _should_build cannot do this at load time - deps have no parent link then.
         if (config.build or config.update) and config.has_target() and not config.targets_all():
             mark_unbuilt_target_deps(root, config)
 
@@ -362,9 +360,8 @@ def mamabuild(args, source_dir=os.getcwd()):
         flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
         flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
-        # `build/upload/deploy X` runs X and what X needs - not the whole tree. An out-of-scope dep did
-        # no build work but still reached _run_packaging(), re-packaging a target that was never built
-        # (and asserting on libs that don't exist). Upload/deploy of the deps is still gated per-target.
+        # `build/upload/deploy X` runs X and what X needs, not the whole tree. An out-of-scope dep builds
+        # nothing yet still reaches _run_packaging(), which asserts on missing libs. Deploy stays gated per-target.
         targeted = ((config.build or config.upload or config.deploy)
                     and config.has_target() and not config.targets_all() and not config.deps_only)
         if targeted and dep is not None:
@@ -380,7 +377,7 @@ def mamabuild(args, source_dir=os.getcwd()):
                 flat_deps_reverse.remove(root)
 
         if config.list:
-            # if listing, then mark all deps for no-build
+            # a list run builds nothing, so mark every dep no-build
             for d in flat_deps:
                 d.target.nothing_to_build()
 
@@ -398,9 +395,8 @@ def mamabuild(args, source_dir=os.getcwd()):
             chain = ' -> '.join([d.name for d in flat_deps_reverse])
             console(f'Executing task chain for build:\n    {chain}', Color.BLUE)
 
-        # Parallel by default; only an explicit `serial` opts out. A one-dep graph has nothing to
-        # overlap, but the scheduler owns the live display - falling back to the serial runner for it
-        # dumped raw cmake output instead, so `build <target>` looked nothing like a full build.
+        # Parallel by default, only an explicit `serial` selects the serial runner. Even a one-dep graph
+        # goes parallel: that scheduler owns the live display, and the serial runner dumps raw cmake output.
         if config.serial_load:
             execute_task_chain(flat_deps_reverse)
         else:

@@ -40,7 +40,7 @@ def _git_dep(tmp_path, **cfg):
 
 
 def _fetched_during_load(dep):
-    """Did loading this dep reach out to git? Returns the checkout call count."""
+    """Load the dep and return the git checkout call count."""
     def load_target(self):
         self.target = Mock(args='', build_products=[], name=self.name)
         return self.target
@@ -54,8 +54,7 @@ def _fetched_during_load(dep):
 
 
 def test_clean_does_not_clone_missing_sources(tmp_path):
-    # `mama clean all` used to spend minutes cloning deps whose shim marker an earlier clean removed,
-    # only to delete the directory it just filled.
+    # a clean-only run must not clone a missing source that the clean deletes right after
     assert _fetched_during_load(_git_dep(tmp_path, clean=True, build=False)) == 0
 
 

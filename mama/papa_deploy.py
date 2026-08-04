@@ -49,10 +49,8 @@ def _gather_includes(target:BuildTarget, recurse):
 
 
 def _gather_libs(target:BuildTarget, recurse):
-    # gather all libs from the root target
     libs = [(target,l) for l in target.exported_libs]
 
-    # and for children, only gather dynamic libs if recurse is set
     if recurse:
         def get_dylibs(t:BuildTarget):
             for l in t.exported_libs:
@@ -104,9 +102,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     def is_header(path:str) -> bool:
         name = os.path.basename(path)
         if name.endswith(suffixes): return True
-        # Qt and QCoro name a stub header after the class it declares, with no extension, as in
-        # `#include <QCoro/QCoroTask>`. Ship one only when the header it forwards to is in the tree,
-        # so a LICENSE or an AUTHORS file never ships.
+        # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
+        # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
         return '.' not in name and name.lower() in stems
 
     exported = []  # export dir names already handled, so one name never ships twice
@@ -118,9 +115,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         src_dir, dst_dir, record = _include_deploy(target, includes_root, abs_include)
         first = deploy_dirs.setdefault(os.path.basename(dst_dir).lower(), dst_dir)
         if first != dst_dir:
-            # QCoro/ next to qcoro/ is ONE dir on Windows and macOS. The merge also puts a stub header
-            # beside the header it forwards to, which is how `#include "qcorotask.h"` resolves.
-            # Only one spelling survives on Linux, so the package tells the author which one won.
+            # Two dirs whose names differ only by case are ONE dir on Windows and macOS, and the merge puts
+            # a stub header beside its target. Only one spelling survives on Linux, so name the winner.
             dst_dir = first
             warning(f'  PAPA Deploy {target.name}: merged {record[2:]} into include/{os.path.basename(first)}.' + \
                     ' A consumer must write the surviving spelling.')
@@ -134,9 +130,9 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
 
 def find_duplicate_trees(files:list) -> list:
     """(dir a, dir b, [file names]) for every pair of directories that hold the same file content twice.
-    QCoro installs its headers into include/qcoro AND include/qcoro6/qcoro, so a package that exports the
-    whole include dir ships both. That doubles the archive and gives the consumer two copies to keep in
-    sync. files: (relative path, full path) for every file to compare."""
+    A project that installs its headers into two include dirs doubles the archive and gives the consumer
+    two copies of every header.
+    - files: (relative path, full path) for every file to compare"""
     by_name = {}
     for rel, full in files:
         by_name.setdefault((os.path.basename(rel), os.path.getsize(full)), []).append((rel, full))
@@ -183,7 +179,7 @@ def _warn_about_duplicate_include_trees(target:BuildTarget, package_full_path:st
 
 
 def _compiler_stamp(config) -> str:
-    """'gcc14.3' / 'clang18.1', '' if the platform can't name one - a diagnostic, never a deploy failure."""
+    """'gcc14.3' / 'clang18.1', or '' when the platform cannot name one. A diagnostic, never a deploy failure."""
     try: return config.compiler_version()
     except Exception: return ''
 
@@ -195,10 +191,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     detail_echo = config.print and target.is_current_target() and (not config.test)
     if detail_echo: console(f'  - PAPA Deploy {package_full_path}')
 
-    # Defense-in-depth: never write into a directory holding a shim marker. A
-    # misconfigured caller could pass the shim's build_dir directly, which would
-    # corrupt the artifactory snapshot (papa.txt + unzipped tree) the next mama
-    # run depends on. The proper deploy-skip lives in _execute_deploy_tasks.
+    # Defense-in-depth: never write into a directory holding a shim marker. A misconfigured caller could
+    # pass the shim's build_dir and corrupt the artifactory snapshot. The deploy-skip lives in _execute_deploy_tasks.
     if has_shim_marker(package_full_path):
         raise RuntimeError(f'papa_deploy refused: {package_full_path} contains a mama_shim marker.')
 
@@ -207,8 +201,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     if not os.path.exists(package_full_path): # check to avoid Access Denied errors
         os.makedirs(package_full_path, exist_ok=True)
 
-    # set up project and dependencies. `C` = compiler that built these libs (same string as the archive name),
-    # so a load can spot a gcc tree landing in a clang build.
+    # `C` records the compiler that built these libs, the same string as in the archive name,
+    # so a load can spot a gcc tree in a clang build.
     descr = [ f'P {target.name}' ]
     compiler = _compiler_stamp(config)
     if compiler: descr.append(f'C {compiler}')
@@ -231,7 +225,6 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         descr.append(f'L {relpath}')
         outpath = normalized_join(package_full_path, relpath)
         os.makedirs(os.path.dirname(outpath), exist_ok=True)
-        #outpath = package_full_path
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
         if lib != outpath:
             if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
@@ -256,7 +249,6 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     write_text_to(os.path.join(package_full_path, 'papa.txt'), '\n'.join(descr))
 
-    # write summary
     if config.print:
         console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 
@@ -276,7 +268,7 @@ class PapaFileInfo:
         self.papa_dir = os.path.dirname(papa_file)
 
         self.project_name = None
-        self.compiler = None # 'gcc14.3' / 'clang18.1'; None for packages predating the C record
+        self.compiler = None # 'gcc14.3' / 'clang18.1'. None for a package that predates the C record
         self.dependencies = []
         self.includes = []
         self.libs = []

@@ -51,7 +51,7 @@ def test_phases_merge_into_one_summary_with_breakdown():
     d.start_task('geo', 'configure', 'geo'); clk.tick(0.3); d.finish_task('geo', ok=True, final=False)
     d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
     text = squeeze(out.getvalue())
-    assert text.count('geo') == 1 and 'build J32' in text  # one merged line; kind = last phase that did work
+    assert text.count('geo') == 1 and 'build J32' in text  # one merged line, kind = last phase that did work
     assert 'git 3.7s' in text and 'cfg 0.3s' in text and 'bld 0.5s' in text  # git pull, configure, build
 
 
@@ -102,7 +102,7 @@ def test_phase_tags_collapse_git_loads_and_label_each_source():
 def test_non_tty_verbose_dumps_full_output():
     d, out, clk = _disp(isatty=False, verbose=True)
     d.start_task(1, 'build', 'bar'); d.feed(1, 'compiling x.cpp'); d.feed(1, 'linking')
-    clk.tick(0.2); d.finish_task(1, ok=True)   # past reveal: a real build that emitted output isn't instant
+    clk.tick(0.2); d.finish_task(1, ok=True)   # past reveal: a real build that emitted output is not instant
     assert 'compiling x.cpp' in out.getvalue() and 'linking' in out.getvalue()
 
 
@@ -156,7 +156,7 @@ def test_tty_preview_strips_ansi_but_buffer_keeps_it():
 
 def test_region_line_drops_cursor_moves_smuggled_in_by_a_nested_display():
     """A nested build's own live region (a `mama` host-binary bootstrap, ninja) arrives as preview
-    text; one cursor-up reaching the terminal strands every finished task line in the scrollback."""
+    text. One cursor-up reaching the terminal strands every finished task line in the scrollback."""
     d, _, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'protobuf'); clk.tick(0.5)
     d.feed(1, '\x1b[1A\x1b[2Knested frame')
@@ -207,8 +207,7 @@ def test_cpu_sampling_updates_task_and_renders_percent():
 
 
 def test_late_cpu_sample_does_not_resurrect_a_detached_task():
-    # The sampler runs off-lock; if the task detaches during that window, the stale CPU it computed
-    # must NOT be written back - else a dead subprocess shows as busy until the task finishes.
+    # The sampler runs off-lock: a stale CPU written after a mid-scan detach shows a dead subprocess as busy until finish.
     d, _, _ = _disp(isatty=True, sample_interval=999)
     d.start_task(1, 'build', 'x'); d.attach_pid(1, 7)
     def sampler(snap):
@@ -277,8 +276,7 @@ def test_set_pending_shows_then_clears_the_blocked_task_line():
 
 
 def test_render_skips_when_another_thread_is_drawing():
-    # A non-forced render must not block while another thread holds the render lock (that block would
-    # stall the subprocess reader -> fill the pipe -> stall the compiler). It skips; a later draw covers it.
+    # A blocked non-forced render stalls the reader -> fills the pipe -> stalls the compiler. Skip, a later draw covers it.
     d, out, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'x'); clk.tick(0.2)
     d._render_lock.acquire()
@@ -313,8 +311,7 @@ def test_build_barrier_is_noop_without_scheduler_else_uses_slot():
 
 
 def test_multiline_console_reaches_the_sink_as_separate_lines():
-    # A multi-line message smuggled through as ONE line shifts the terminal cursor and desyncs the
-    # live region's cursor-up math, stranding running task lines in the scrollback.
+    # A multi-line message passed as ONE line shifts the cursor and desyncs the live region's cursor-up math.
     sink = []
     with system.capture_to(sink.append):
         system.console('\n\n#### CMakeBuild myapp')
@@ -415,8 +412,7 @@ def test_scan_diagnostics_caps_and_counts_full_totals():
 
 
 def test_scan_diagnostics_catches_cmakes_error_at_form():
-    # 'CMake Error at <file>' has no colon after the severity, so the generic form missed it entirely -
-    # which is how a failing target's real error went absent from the end-of-build summary.
+    # 'CMake Error at <file>' has no colon after the severity, so the generic form alone misses it.
     diags, n_err, n_warn = scan_diagnostics([
         'CMake Error at /usr/share/cmake-3.28/Modules/FindOpenSSL.cmake:668 (find_package):',
         'CMake Warning at CMakeLists.txt:5 (message):'])
@@ -462,7 +458,7 @@ def test_region_line_has_no_trailing_padding_before_a_preview_arrives():
     d, _, clk = _disp(isatty=True)
     d.start_task('t', 'configure', 'rpclib')
     line = d._task_line(d._tasks['t'], clk(), 200)
-    assert line == line.rstrip()          # trailing pad shows up as stray spaces in the region
+    assert line == line.rstrip()          # trailing pad appears as stray spaces in the region
     d.feed('t', 'compiling foo.cpp')
     assert d._task_line(d._tasks['t'], clk(), 200).endswith('compiling foo.cpp')
 
@@ -498,7 +494,7 @@ def test_a_cmake_block_keeps_its_body_not_just_the_header():
     assert (n_err, n_warn) == (0, 1)
     text = diags[0][1]
     assert text.startswith('CMake Warning:')
-    assert 'Manually-specified variables' in text and 'BUILD_APPS' in text  # the body used to be dropped
+    assert 'Manually-specified variables' in text and 'BUILD_APPS' in text  # the body must survive, not only the header
     assert 'Configuring done' not in text                                   # the blank pair ends the block
 
 
@@ -522,8 +518,7 @@ def test_a_runaway_cmake_block_is_capped_and_says_so():
 
 
 def test_a_render_after_close_cannot_redraw_over_the_final_output():
-    # the CPU sampler can outlive close()'s 1s join (a slow process scan) and would otherwise redraw
-    # the region below the build summary, with _drawn already reset to 0
+    # the CPU sampler can outlive close()'s 1s join and would redraw the region below the build summary
     d, out, clk = _disp(isatty=True)
     d.start_task('t', 'build', 'protobuf'); clk.tick(2.0)
     d.close()
@@ -533,7 +528,7 @@ def test_a_render_after_close_cannot_redraw_over_the_final_output():
 
 
 def test_print_above_after_close_still_reaches_the_terminal():
-    # console() can race between display.close() and set_active_display(None); the line must not vanish
+    # console() can race between display.close() and set_active_display(None). The line must not vanish.
     d, out, clk = _disp(isatty=True)
     d.close()
     out.truncate(0); out.seek(0)

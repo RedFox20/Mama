@@ -25,7 +25,6 @@ class TestCounters:
         assert s.total == 6
 
     def test_thread_safety(self):
-        """100 threads each incrementing all three counters must produce exact totals."""
         s = UpdateStats()
         def worker():
             for _ in range(100):
@@ -104,13 +103,12 @@ class TestSummaryLine:
         assert 'ms' in line or 's' in line  # either is valid depending on timing
 
     def test_kinds_order_is_shim_pull_clone(self):
-        """Stable ordering keeps the summary readable; shim is cheapest, clone is slowest."""
+        """Stable ordering keeps the summary readable. Shim is cheapest, clone is slowest."""
         s = UpdateStats()
         s.record_clone()
         s.record_pull()
         s.record_shim()
         line = s.summary_line()
-        # shim-fetched should appear before pulled, which appears before cloned
         i_shim = line.index('shim-fetched')
         i_pull = line.index('pulled')
         i_clone = line.index('cloned')
@@ -121,5 +119,4 @@ class TestSummaryLine:
         s.record_pull()
         line = s.summary_line()
         assert '1 pulled' in line
-        # zero counts should not appear
         assert '0 ' not in line

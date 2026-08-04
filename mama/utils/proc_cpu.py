@@ -1,10 +1,5 @@
-"""Per-build subprocess-tree CPU% sampling, isolated for unit-testing + benchmarking.
-
-A sampler is `callable(snapshot) -> {tid: cpu%}`, where snapshot is `{tid: set(root_pids)}`. It sums
-the cpu-time delta since the last sample over wall-clock for each build's OWN process tree (cmake ->
-ninja/make/msbuild -> compilers), so a tree saturating N cores reads ~N*100%. It reads CPU only for
-those trees, never every system process. Windows uses kernel32 directly (one CreateToolhelp32Snapshot
-+ GetProcessTimes); other platforms use psutil. make_sampler() picks the right one (None if neither)."""
+"""Per-build subprocess-tree CPU% sampling. A sampler is `callable(snapshot) -> {tid: cpu%}` with
+snapshot = `{tid: set(root_pids)}`. make_sampler() picks kernel32 on Windows, psutil elsewhere, else None."""
 import time
 from .system import System
 
@@ -12,17 +7,16 @@ from .system import System
 def make_sampler():
     if System.windows:
         try: return WinTreeCpu()        # low-level kernel32: far cheaper than psutil on Windows
-        except Exception: pass           # ctypes oddity -> fall back to psutil
+        except Exception: pass           # ctypes oddity -> use psutil instead
     try: import psutil
     except ImportError: return None
     return PsutilTreeCpu(psutil)
 
 
 def accumulate_cpu(state: dict, now: float, trees: dict) -> dict:
-    """trees: {tid: {pid: (cpu_seconds, create_ts)}} -> {tid: cpu%}. Per pid, CPU% is the cpu-time
-    delta since the last sample over wall-clock (first sight averages over the lifetime so far), so a
-    build tree saturating N cores reads ~N*100%. `state` (pid -> (cpu_seconds, ts)) carries the delta
-    across samples and is pruned of pids no longer in any tree."""
+    """trees: {tid: {pid: (cpu_seconds, create_ts)}} -> {tid: cpu%}. Per pid, CPU% is the cpu-time delta
+    since the last sample over wall-clock (a new pid averages over its lifetime so far), so a tree that
+    saturates N cores reads ~N*100%. `state` carries the delta across samples and drops dead pids."""
     result, seen = {}, set()
     for tid, procs in trees.items():
         total = 0.0
@@ -38,8 +32,8 @@ def accumulate_cpu(state: dict, now: float, trees: dict) -> dict:
 
 
 class PsutilTreeCpu:
-    """Process-tree CPU% via psutil (non-Windows): cpu_times read ONLY for each build's own tree, never
-    every system process. oneshot() batches the per-proc cpu_times + create_time into one read."""
+    """Process-tree CPU% through psutil (non-Windows): reads cpu_times ONLY for each build's own tree,
+    never every system process. oneshot() batches the per-proc cpu_times + create_time into one read."""
     def __init__(self, psutil):
         self._ps = psutil
         self._state: dict = {}  # pid -> (cpu_seconds, wallclock_ts)
@@ -62,10 +56,9 @@ class PsutilTreeCpu:
 
 
 class WinTreeCpu:
-    """Process-tree CPU% straight from kernel32 (no psutil): ONE CreateToolhelp32Snapshot builds the
-    ppid tree of all processes, then GetProcessTimes reads CPU for each build-tree pid. psutil's
-    children(recursive=True) snapshots the whole process table once PER build root, plus heavy
-    per-process handle work - that is what made Windows sampling slow."""
+    """Process-tree CPU% straight from kernel32 (no psutil): ONE CreateToolhelp32Snapshot builds the ppid
+    tree, then GetProcessTimes reads CPU per build-tree pid. psutil snapshots the whole process table
+    once PER build root, plus heavy per-process handle work, which made Windows sampling slow."""
     _SNAPPROCESS = 0x00000002
     _QUERY = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION
 

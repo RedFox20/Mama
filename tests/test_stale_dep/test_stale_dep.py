@@ -1,3 +1,4 @@
+"""Integration: pins that `mama update` moves a dependency clone reset to a stale commit back to the latest."""
 from testutils import init, mama_exec, shell_exec, file_contains, native_platform_name
 from mama.types.git import Git
 
@@ -19,7 +20,7 @@ def switch_to_stale_commit(dep_name):
     with open(status_file, 'w') as f:
         f.write(Git.format_git_status(REPO_URL, '', '', OLD_SHORT))
 
-# Simulates stale dependency updating
+
 def test_stale_dep(tmp_path):
     init(__file__, tmp_path)
 

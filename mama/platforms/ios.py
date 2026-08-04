@@ -60,5 +60,4 @@ class Ios(Platform):
         # Xcode SDK selection has no build-system-neutral form, so it goes through the escape hatch
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          extra_opts=('IOS_PLATFORM=OS', 'CMAKE_XCODE_EFFECTIVE_PLATFORMS=-iphoneos',
-                                     'CMAKE_OSX_ARCHITECTURES=arm64',  # ALWAYS ARM64
-                                     'CMAKE_OSX_SYSROOT=iphoneos'))
+                                     'CMAKE_OSX_ARCHITECTURES=arm64', 'CMAKE_OSX_SYSROOT=iphoneos'))

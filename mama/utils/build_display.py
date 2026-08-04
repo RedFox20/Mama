@@ -1,13 +1,5 @@
-"""Unified live display for parallel configure/build jobs.
-
-TTY: a live region of one line per ACTIVELY-running task, capped to terminal height, redrawn in
-place (superconsole style). A dep flows through phases (load -> configure -> build) on ONE task that
-stays put across them; when its whole workflow finishes it commits a single summary line above the
-region with a per-phase timing breakdown - `git 3.7s  cfg 0.4s  bld 0.4s` (git/loc/art load, cfg
-configure, bld build), every step shown + tagged (even an instant configure) for a consistent column.
-Non-TTY: that same one merged summary line per dep, + a full output dump when verbose.
-Every task keeps its raw colour-preserving output for failure replay. Injected seams (out / isatty /
-term_size / clock) -> unit-testable with no real terminal/threads/subprocesses."""
+"""Live display for parallel configure/build jobs: one redrawn-in-place line per running task, and one committed
+summary line per dep with a per-phase timing breakdown. Injected seams (out / isatty / term_size / clock) ease tests."""
 
 from __future__ import annotations
 import re, time, threading
@@ -19,26 +11,21 @@ from ..util import get_time_str, is_progress_line
 _CURSOR_UP = '\x1b[1A'
 _ERASE_EOL = '\x1b[K'  # erase to end of line (colorama enables it on Windows)
 _ERASE_EOL_LF = _ERASE_EOL + '\n'  # clear-to-EOL then newline: one written task/permanent line
-_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR colour codes, for width-correct previews
-_ESC_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]|\x1b.')  # ANY escape sequence, colour ones included
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')  # SGR color codes, for width-correct previews
+_ESC_RE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]|\x1b.')  # any escape sequence, color codes included
 _CTRL_RE = re.compile(r'[\x00-\x1a\x1c-\x1f\x7f]')  # every C0 control except ESC, which _ESC_RE handles
-# A diagnostic line: MSVC 'warning C4996:' / 'error C2065:' / 'error LNK2019:', GCC/Clang 'warning:' /
-# 'error:', and CMake's 'CMake Error at <file>' (no colon, so the generic form below never caught it -
-# which is exactly how a failing target's real error went missing from the summary).
-# \b guards keep -Werror, std::error_code and '0 errors' from matching.
+# Matches MSVC 'error C2065:', GCC/Clang 'warning:' / 'error:', and CMake's colon-less 'CMake Error at <file>'.
+# The \b guards keep -Werror, std::error_code and '0 errors' from matching.
 _DIAG_RE = re.compile(r'\bcmake\s+(?P<cm>error|warning)\b|\b(?P<sev>error|warning)\b\s*(?:[A-Za-z]+[0-9]+)?\s*:',
                       re.IGNORECASE)
 
 
 _CMAKE_HEAD = re.compile(r'^cmake\s+(error|warning)\b', re.IGNORECASE)
-_MAX_BODY = 8  # continuation lines kept per cmake block, so one chatty warning can't bury the rest
+_MAX_BODY = 8  # continuation lines kept per cmake block, so one chatty warning cannot bury the rest
 
-# GCC and Clang wrap a diagnostic in context. The lines BEFORE it name the call site - which template
-# instantiated this, or which of the user's functions this system header got inlined into - and that is
-# where the bug usually is. The numbered source snippet AFTER it shows the expression that broke.
-# Without both, a diagnostic reads as one line pointing deep inside a header nobody edited.
-# The `In function` header carries no file prefix when it opens an inlining chain, so the prefix is
-# optional here; `inlined from` and `from` are its indented continuation lines.
+# Keep the context BEFORE a diagnostic (the call site) and the numbered snippet AFTER it (the broken
+# expression), or a diagnostic reads as one line that points deep inside a header nobody edited.
+# An `In function` header that opens an inlining chain carries no file prefix, so the prefix is optional here.
 _DIAG_ROLE = (r'In (instantiation of|substitution of|(static |member |lambda )*function|constructor|destructor)\b'
               r'|At global scope:')
 _DIAG_CONTEXT = re.compile(r'^(In file included from |\s+(inlined )?from \S'
@@ -47,7 +34,7 @@ _DIAG_CONTEXT = re.compile(r'^(In file included from |\s+(inlined )?from \S'
                            r'|.*:\s*note:\s+in instantiation of\b)')
 _DIAG_SNIPPET = re.compile(r'^\s*(\d+\s*\||\||[\^~])')  # `  566 | expr` and `      |     ~~~^~~~`
 _DIAG_NOTE = re.compile(r'.*:\s*note:\s')
-_MAX_CONTEXT = 5  # an instantiation chain runs dozens deep; the innermost frames are the useful ones
+_MAX_CONTEXT = 5  # an instantiation chain runs dozens deep, and the innermost frames are the useful ones
 _MAX_SNIPPET = 3  # the numbered source line plus its caret line, and one spare for a multi-line caret
 _MAX_NOTES = 2    # clang reports the instantiation site in the notes AFTER the error, not above it
 
@@ -65,8 +52,7 @@ def _diag_context(lines, i):
 
 
 def _diag_snippet(lines, i):
-    """The source snippet the compiler prints under a diagnostic. Returns (snippet, next_i). Leading
-    whitespace is kept, so the caret still points at the right column."""
+    """The source snippet under a diagnostic, whitespace kept so the caret column stays right. Returns (snippet, next_i)."""
     out = []
     while i < len(lines) and len(out) < _MAX_SNIPPET:
         text = _ANSI_RE.sub('', lines[i]).rstrip()
@@ -77,9 +63,8 @@ def _diag_snippet(lines, i):
 
 
 def _diag_trailer(lines, i):
-    """Everything the compiler prints under a diagnostic: the source snippet, then the `note:` lines with
-    their own snippets. Clang reports the instantiation site in those notes rather than above the error,
-    so without them a Clang template failure keeps the same one-line-inside-a-header problem."""
+    """The source snippet under a diagnostic, then the `note:` lines with their own snippets. Returns (out, next_i).
+    Clang reports the instantiation site in those notes, not above the error, so they must survive."""
     out, i = _diag_snippet(lines, i)
     for _ in range(_MAX_NOTES):
         if i >= len(lines): break
@@ -92,10 +77,8 @@ def _diag_trailer(lines, i):
 
 
 def _cmake_body(lines, i):
-    """A cmake diagnostic is a header plus an INDENTED body that ends on a blank pair - scanning by line
-    alone reports a bare 'CMake Warning:' with the actual message thrown away. Always walks to the END of
-    the block - stopping at the cap left the scanner inside it, re-reporting body lines as diagnostics of
-    their own - but keeps only the first _MAX_BODY lines. Returns (body, next_i)."""
+    """A cmake diagnostic is a header plus an INDENTED body that ends on a blank pair. Returns (body, next_i).
+    Walks to the END of the block, so the scanner never re-reports body lines, but keeps only _MAX_BODY lines."""
     body, j, blanks, dropped = [], i + 1, 0, 0
     while j < len(lines):
         raw = _ANSI_RE.sub('', lines[j]).rstrip()
@@ -113,10 +96,11 @@ def _cmake_body(lines, i):
 
 
 def scan_diagnostics(lines, limit=8):
-    """Pull compiler warning/error diagnostics out of a task's raw output for the post-build summary
-    (parallel builds only replay output on failure, so a successful build's diagnostics are lost).
-    De-duplicated, errors before warnings, capped to `limit`. Returns (diags, n_err, n_warn) with
-    diags = [(severity, ansi-stripped text)]; a cmake block keeps its body as embedded newlines."""
+    """Extract compiler diagnostics for the post-build summary (a parallel build replays output only on failure).
+    Returns (diags, n_err, n_warn) with diags = [(severity, ansi-stripped text)], de-duplicated, errors
+    before warnings. A cmake block keeps its body as embedded newlines.
+    lines: the task's raw captured output lines
+    limit: max diagnostics returned"""
     seen = set(); errs = []; warns = []
     i = 0
     while i < len(lines):
@@ -140,25 +124,23 @@ def scan_diagnostics(lines, limit=8):
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
 _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
-# Short lowercase tag per phase for the timing breakdown (lowercase stands out between the times):
-# git for any git load (check/clone/pull), loc local source, art artifactory, cfg configure, bld build.
+# Short tag per phase for the timing breakdown (lowercase stands out between the times):
+# git any git load, loc local source, art artifactory, cfg configure, bld build.
 _PHASE_TAG = {'check': 'git', 'clone': 'git', 'pulling': 'git', 'local': 'loc', 'artifactory': 'art',
               'configure': 'cfg', 'build': 'bld'}
 
 
 def _fmt_dur(d: float) -> str:
-    """One phase's duration for the timing column, right-aligned to a fixed width so the cfg/bld
-    columns line up across rows. Sub-0.1s shows 2 decimals (`0.03s`) not the noisy `34ms`; 0.1s+
-    uses the shared get_time_str (`0.5s`, `2m 44s`)."""
+    """One phase's duration, right-aligned to a fixed width so the timing columns line up across rows.
+    Sub-0.1s shows 2 decimals (`0.03s`), 0.1s and up uses the shared get_time_str (`0.5s`, `2m 44s`)."""
     s = f'{d:.2f}s' if d < 0.1 else get_time_str(d)
     if s == '0.00s': s = '0.0s'   # an instant phase: 0.0s reads better than an over-precise 0.00s
     return s.rjust(6)
 
 
 class Task:
-    """One dep across its whole workflow. `kind`/`detail`/`start` track the CURRENT phase; `phases`
-    accumulates (duration, kind, detail) for each completed phase that did real work, so the final
-    summary can show the breakdown. `lines` accumulates across phases for failure replay."""
+    """One dep across its whole workflow. `kind`/`detail`/`start` track the CURRENT phase. `phases` holds
+    each completed phase that did real work, and `lines` accumulates across phases for failure replay."""
     def __init__(self, id, kind: str, name: str, start: float, detail: str = ''):
         self.id = id
         self.kind = kind            # current phase: 'check' | 'configure' | 'build' | ...
@@ -168,7 +150,7 @@ class Task:
         self.end = None
         self.state = 'run'          # 'run' | 'ok' | 'fail'
         self.cpu = 0.0              # live subprocess-tree CPU% (Linux-style: 8 busy cores ~ 800%)
-        self.lines: list[str] = []  # full raw output, colours intact (for replay)
+        self.lines: list[str] = []  # full raw output, colors intact (for replay)
         self.phase_start = 0        # index in `lines` where the CURRENT phase's output begins
         self.current = ''           # last non-empty line, shown live
         self.phases: list = []      # completed (duration, kind, detail), interesting phases only
@@ -180,9 +162,8 @@ class Task:
         self.phase_start = len(self.lines)  # replay shows THIS phase, not the whole dep's history
 
     def feed(self, line: str):
-        # Collapse a run of progress updates (git 'Receiving objects: 0%..100%', a download bar's
-        # per-percent frames) to just its latest line, so a captured clone/download doesn't flood the
-        # buffer (and thus the log + failure replay) with hundreds of updates.
+        # Collapse a run of progress updates to just the latest line, so a captured clone or download
+        # does not flood the buffer (and thus the log + failure replay) with hundreds of updates.
         if self.lines and is_progress_line(line) and is_progress_line(self.lines[-1]):
             self.lines[-1] = line
         else:
@@ -205,7 +186,7 @@ class BuildDisplay:
         self._clock = clock          # () -> float
         self._verbose = verbose
         self._color = color
-        self._platform = f'[{platform}] ' if platform else ''  # tells apart parallel builds of different platforms
+        self._platform = f'[{platform}] ' if platform else ''  # separates parallel builds of different platforms
         self._min_interval = min_interval
         self._margin = margin
         self._reveal = reveal_delay  # hide tasks that start+finish faster than this (instant no-ops)
@@ -216,8 +197,8 @@ class BuildDisplay:
         self._drawn = 0                  # active region lines drawn last frame
         self._last_render = 0.0
         self._lock = threading.RLock()        # guards task/region state (held only briefly)
-        self._render_lock = threading.Lock()  # serializes terminal writes; non-forced renders skip if busy
-        self._cpu_sampler = cpu_sampler  # (set[int]) -> float total tree CPU%; None -> auto (psutil)
+        self._render_lock = threading.Lock()  # serializes terminal writes, non-forced renders skip if busy
+        self._cpu_sampler = cpu_sampler  # (set[int]) -> float total tree CPU%. None -> auto (psutil)
         self._cpu_auto = cpu_sampler is None
         self._pids: dict[object, set] = {}  # tid -> live child pids, for CPU sampling
         self._sampler = None             # daemon thread, lazily started on first attach_pid
@@ -232,9 +213,8 @@ class BuildDisplay:
     # -- task lifecycle ----------------------------------------------------
 
     def start_task(self, id, kind: str, name: str, detail: str = '') -> Task:
-        # Create on the first phase, else RESUME the existing dep task on a new phase (so check ->
-        # configure -> build stay one line). Either way INVISIBLE until it outlives reveal_delay, so
-        # an instant no-op (~0.0s cached dep) never clutters output.
+        # Create on the first phase, else RESUME the existing dep task, so check -> configure -> build stay
+        # one line. Either way INVISIBLE until it outlives reveal_delay, so an instant no-op never clutters.
         with self._lock:
             t = self._tasks.get(id)
             if t is None: t = self._tasks[id] = Task(id, kind, name, self._clock(), detail)
@@ -251,8 +231,7 @@ class BuildDisplay:
 
     def set_pending(self, hint):
         """Show the single next blocked task `(name, reason)` below the live region, or clear it (None).
-        Renders on change so the line updates even when nothing else draws - the stalled-scheduler case
-        the user most wants to see."""
+        Renders on change, so a stalled scheduler stays visible even when nothing else draws."""
         with self._lock:
             if hint == self._pending_hint: return
             self._pending_hint = hint
@@ -263,13 +242,12 @@ class BuildDisplay:
             t = self._tasks.get(id)
             if t is None: return
             t.feed(line)
-        if self._isatty: self.render()  # state lock released first: a slow draw can't stall the subprocess reader
+        if self._isatty: self.render()  # state lock released first: a slow draw cannot stall the subprocess reader
 
     def finish_task(self, id, ok: bool, final: bool = True):
-        # End the current phase. A non-final success stays DORMANT (no summary yet); the dep's last
-        # phase (final=True) or any failure commits ONE merged summary for the whole dep. Every phase
-        # is recorded so the table shows all steps (incl. an instant 0ms configure); only a dep whose
-        # every phase was instant (a pure cached no-op) is hidden.
+        # End the current phase. A non-final success stays DORMANT, the dep's last phase or any failure
+        # commits ONE merged summary. Every phase is recorded so the table shows all steps, but a dep
+        # whose every phase was instant (a pure cached no-op) is hidden.
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
@@ -277,7 +255,7 @@ class BuildDisplay:
             t.state = 'ok' if ok else 'fail'
             if id in self._active: self._active.remove(id)
             t.phases.append((t.elapsed(t.end), t.kind, t.detail))
-            done = final or not ok                        # workflow over -> emit; else dormant, resume later
+            done = final or not ok                        # workflow over -> emit, else dormant until resume
             show = done and (not ok or any(d >= self._reveal for d, _, _ in t.phases))  # hide a wholly-instant dep
             if done: self._log_task(t)  # full per-target output -> log, even for deps hidden from the live region
             if not self._isatty:
@@ -295,23 +273,21 @@ class BuildDisplay:
         """Emit a line that survives above the live region (status messages)."""
         if self._log is not None: self._log.write(text + '\n')
         with self._lock:
-            if not self._isatty or self._closed:  # no live region (or it's gone): write it straight out
+            if not self._isatty or self._closed:  # no live region (or it is gone): write it straight out
                 self._writeln(text); return
             self._pending.append(text)
         self.render(force=True)
 
     def _log_task(self, t: Task):
-        """Write a target's whole captured buffer to the build log as ONE contiguous block (all phases,
-        verbatim) so the log has the full configure/build output the live region only previews, never
-        intermixed across parallel targets."""
+        """Write a target's whole captured buffer to the build log as ONE contiguous block, never intermixed
+        across parallel targets. The log then has the full output the live region only previews."""
         if self._log is None or not t.lines: return
         self._log.write(f'\n{"=" * 100}\n{self._summary_line(t)}\n{"-" * 100}\n')
         self._log.write('\n'.join(t.lines) + '\n')
 
     def replay(self, id):
-        """Dump the FAILING phase's captured output permanently (colours intact). Not the whole dep
-        buffer: replaying load/configure output after the build died reads as stale mid-build noise
-        long after the fact. The full history is still in mamabuild.log."""
+        """Dump the FAILING phase's captured output permanently (colors intact). Not the whole dep buffer:
+        an earlier phase replays as stale noise. The full history is still in mamabuild.log."""
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
@@ -326,9 +302,9 @@ class BuildDisplay:
     # -- rendering ---------------------------------------------------------
 
     def render(self, force=False):
-        """Draw the live frame. A forced render waits for the terminal; a normal one SKIPS if another
-        thread is already drawing (it'll be covered by that draw / the next tick), so feeders never
-        block. State is snapshotted under the short state lock; the terminal write happens off it."""
+        """Draw the live frame. A forced render waits for the terminal, a normal one SKIPS if another thread
+        already draws, so feeders never block. The state snapshot goes under the short state lock, the
+        terminal write off it."""
         if not self._isatty or self._closed:
             return
         if force: self._render_lock.acquire()
@@ -354,8 +330,7 @@ class BuildDisplay:
         """Finalize: stop the CPU sampler, flush any pending permanent lines, drop the live region."""
         self._stop.set()
         if self._sampler is not None: self._sampler.join(timeout=1.0)  # join off-lock: sampler takes it
-        # take the render lock too: a slow sampler scan can outlive the join, and its render would
-        # otherwise redraw the region UNDER the final output with _drawn already reset to 0
+        # take the render lock too: a sampler render that outlives the join would redraw the region UNDER the final output
         with self._render_lock, self._lock:
             self._closed = True
             if self._isatty:
@@ -369,8 +344,7 @@ class BuildDisplay:
     # -- internals ---------------------------------------------------------
 
     def _clear_region(self):
-        # Cursor sits below the region (after trailing newlines); walk up,
-        # erasing each line, to land at the region's top-left.
+        # the cursor sits below the region: walk up, erasing each line, to land at the region's top-left
         if self._drawn:
             self._out.write((_CURSOR_UP + '\r' + _ERASE_EOL) * self._drawn)
             self._drawn = 0
@@ -380,7 +354,7 @@ class BuildDisplay:
         cap = max(1, rows - self._margin)
         ids = [i for i in self._active if self._tasks[i].elapsed(now) >= self._reveal]  # past reveal delay
         lines = [self._task_line(self._tasks[i], now, cols) for i in ids]
-        if self._pending_hint:  # the single next blocked task + why, so a stall is visible at a glance
+        if self._pending_hint:  # the single next blocked task + why, so a stall is visible
             lines.append(self._pending_line(self._pending_hint[0], self._pending_hint[1], cols))
         if len(lines) > cap:
             lines[cap - 1:] = [self._truncate(f'  ... (+{len(lines) - (cap - 1)} more)', cols)]
@@ -401,16 +375,15 @@ class BuildDisplay:
         return _PHASE_TAG.get(kind, (kind[:3] or '?').lower())
 
     def _time_field(self, t: Task, now: float) -> str:
-        # Always tag every phase (even a lone build -> 'bld 4.0s'), so the timing column stays
-        # consistent whether or not configure/load did visible work.
+        # tag every phase, even a lone build -> 'bld 4.0s', so the timing column stays consistent
         phases = t.phases + ([(t.elapsed(now), t.kind, t.detail)] if t.state == 'run' else [])
         return self._platform + '  '.join(f'{self._tag(k)} {_fmt_dur(d)}' for d, k, _ in phases)
 
     def _task_line(self, t: Task, now: float, cols: int) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
-        preview = _ANSI_RE.sub('', t.current)  # strip colours so width math is correct
+        preview = _ANSI_RE.sub('', t.current)  # strip colors so width math is correct
         head = f'{icon} {self._kind_field(t.kind, t.detail, t.cpu):<24}{t.name:<22} {self._time_field(t, now)}  '
-        return self._truncate((head + preview).rstrip(), cols)  # rstrip: no trailing pad when there's no preview yet
+        return self._truncate((head + preview).rstrip(), cols)  # rstrip: no trailing pad when there is no preview yet
 
     def _summary_line(self, t: Task) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
@@ -421,7 +394,7 @@ class BuildDisplay:
 
     def attach_pid(self, tid, pid: int):
         """Register a running child pid so the sampler can attribute its process-tree CPU to `tid`.
-        Only build tasks are sampled - a CPU% on a configure/clone/update step is noise and wasted work."""
+        The sampler covers only build tasks: a CPU% on a configure/clone/update step is noise."""
         with self._lock:
             t = self._tasks.get(tid)
             if t is None or t.kind != 'build': return
@@ -449,8 +422,7 @@ class BuildDisplay:
             self._sampler.start()
 
     def _next_wait(self, sample_cost: float) -> float:
-        # back off when a sample is expensive (busy host, huge process table) so CPU sampling can never
-        # exceed ~10% of wall-time - a hard cap against starving the build threads (cost*9 -> 1-in-10).
+        # wait longer when a sample is expensive, so sampling never exceeds ~10% of wall-time (cost*9 -> 1-in-10)
         return max(self._sample_interval, sample_cost * 9)
 
     def _sample_loop(self):
@@ -466,21 +438,17 @@ class BuildDisplay:
         with self._lock:
             snapshot = {tid: set(pids) for tid, pids in self._pids.items() if pids}
         if not snapshot: return
-        cpus = self._cpu_sampler(snapshot)  # ONE process scan for ALL build trees -> {tid: cpu%}; off-lock
+        cpus = self._cpu_sampler(snapshot)  # ONE process scan for ALL build trees -> {tid: cpu%}, off-lock
         with self._lock:
             for tid, cpu in cpus.items():
-                if tid not in self._pids: continue  # detached mid-scan: don't resurrect a dead task's CPU
+                if tid not in self._pids: continue  # detached mid-scan: do not resurrect a dead task's CPU
                 t = self._tasks.get(tid)
                 if t is not None: t.cpu = cpu
 
     def _truncate(self, text: str, cols: int) -> str:
-        # Cap to cols-1 to avoid wrapping that would break the cursor math. If it
-        # fits, keep colours; if not, truncate the plain text (drops the icon colour).
-        # Neutralize every control character first. ONE stray \n shifts the cursor and strands every
-        # finished task line on screen. A child's OWN live display (a nested `mama` bootstrap, ninja,
-        # aqtinstall) smuggles \x1b[1A and \x1b[2K in the same way. A tab breaks the same math: it counts as one
-        # character and renders up to eight columns, so the line wraps. GNU make tags every line with one.
-        # Colour is width-free, and survives.
+        # Cap to cols-1: a wrapped line breaks the cursor math. A fitting line keeps its colors, an over-long
+        # one truncates as plain text. Neutralize control characters and non-color escapes first: one stray
+        # \n, cursor-move escape or multi-column tab shifts the cursor and strands finished task lines.
         text = _CTRL_RE.sub(' ', text)
         if '\x1b' in text: text = _ESC_RE.sub(lambda m: m[0] if m[0].endswith('m') else '', text)
         limit = max(1, cols - 1)
