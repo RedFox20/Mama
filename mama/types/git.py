@@ -9,7 +9,7 @@ from ..utils.sub_process import SubProcess, execute_piped, execute_piped_echo
 from ..utils import ssh_multiplex
 from ..util import (is_dir_empty, has_source_content, save_file_if_contents_changed, read_lines_from, path_join,
                     is_network_error, get_time_str, normalized_path, git_dir_fingerprint, git_progress_status,
-                    remove_tree, GitError)
+                    forget_git_dir_fingerprint, remove_tree, GitError)
 from .git_errors import classify_git_failure, format_git_failure, stall_message
 from ..mamafile_version import trusted_version
 
@@ -46,6 +46,12 @@ _CLONE_RETRY_BASE = 0.5  # seconds, doubled per attempt and jittered so a thrott
 
 # git subcommands that open a connection. The rest are local and must not pay the pacing delay.
 _NETWORK_GIT_CMDS = ('fetch', 'pull', 'push', 'clone', 'ls-remote', 'submodule')
+
+# git subcommands that never touch the working tree, so they keep the memoized source fingerprint.
+# The list is an allowlist on purpose. An unknown subcommand drops the memo, because a missed drop
+# would hide a source edit from the next build.
+_READONLY_GIT_CMDS = ('status', 'diff', 'log', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'config',
+                      'remote', 'symbolic-ref', 'describe', 'cat-file', 'for-each-ref', 'fetch')
 
 _ERROR_TAIL = 40  # git lines kept for the failure report. A fetch's output is otherwise unbounded
 
@@ -199,8 +205,9 @@ class Git(DepSource):
             if not noise: tail.append(line)     # the report shows the same lines as the screen
             if dep.config.verbose or not noise: console(f'  {dep.name: <16} {line}')
         start = time.monotonic()
+        verb = git_command.split(' ', 1)[0]
         with ssh_multiplex.fetch_slot():
-            if git_command.split(' ', 1)[0] in _NETWORK_GIT_CMDS: ssh_multiplex.pace_new_connection()
+            if verb in _NETWORK_GIT_CMDS: ssh_multiplex.pace_new_connection()
             # cwd= instead of `cd && cmd` because SubProcess uses execve, not a shell.
             # idle_timeout: kill a fetch stuck on an auth prompt so a parallel run never freezes.
             try:
@@ -209,8 +216,10 @@ class Git(DepSource):
                 stalled = stall_message(dep.config.git_timeout)
                 tail.append(stalled); error(f'  {dep.name: <16} {stalled}')
                 result = -1
+        # A failed command can still leave a half-changed tree, so the memo drops either way.
+        if verb not in _READONLY_GIT_CMDS: forget_git_dir_fingerprint(dep.src_dir)
         if result != 0 and throw:
-            raise GitError(self._failure_report(dep, f'GIT {git_command.split(" ", 1)[0].upper()} FAILED', cmd,
+            raise GitError(self._failure_report(dep, f'GIT {verb.upper()} FAILED', cmd,
                                                 result, get_time_str(time.monotonic() - start), '\n'.join(tail)))
         return result
 

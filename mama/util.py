@@ -233,24 +233,57 @@ def read_lines_from(file: str) -> List[str]:
         return f.readlines()
 
 
+_git_fingerprints = {}  # src_dir -> fingerprint, the memo of git_dir_fingerprint for one mama run
+# During a build, mama is the only writer of a dependency tree, and run_git drops the entry whenever a
+# subcommand changes one. A test that edits a tree itself sets this False, so every call asks git again.
+memoize_git_fingerprints = True
+
+
+def forget_git_dir_fingerprint(src_dir: str):
+    """Drop the memo of `src_dir`. run_git calls this after a git subcommand that can change the tree."""
+    _git_fingerprints.pop(src_dir, None)
+
+
 def git_dir_fingerprint(src_dir: str) -> str:
     """Cheap content-aware hash of uncommitted source under `src_dir`: tracked `git diff HEAD` scoped
     to this dir plus untracked file stats. '' for a clean tree, a dir not under git, or a missing dir.
     Lets `mama build` catch in-place source edits without a full status check or reconfigure.
+
+    Two things keep the cost down. mama memoizes the answer per source dir, because one build asks twice
+    per dependency and the tree holds still between the two. A `git status` then gates the two content
+    commands, so a clean tree costs ONE process instead of two. A pinned dependency is clean.
 
     Uses subprocess.run with stderr=DEVNULL, not SubProcess.run: a local source dir may not be under
     git at all, and the `fatal: not a git repository` noise must not reach the user. Scoping with `-- .`
     keeps a subfolder of a larger repo from fingerprinting the parent's unrelated changes."""
     if not src_dir or not os.path.exists(src_dir):
         return ''
+    if not memoize_git_fingerprints:
+        return _compute_git_dir_fingerprint(src_dir)
+    if src_dir not in _git_fingerprints:
+        _git_fingerprints[src_dir] = _compute_git_dir_fingerprint(src_dir)
+    return _git_fingerprints[src_dir]
+
+
+def _compute_git_dir_fingerprint(src_dir: str) -> str:
+    """The git work behind git_dir_fingerprint, with no memo in front of it."""
     def git(args) -> bytes:
         try:
             cp = subprocess.run(['git', *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=src_dir, timeout=10)
             return cp.stdout if cp.returncode == 0 else b''
         except Exception:
             return b''
-    diff = git(['diff', 'HEAD', '--', '.'])
-    others = git(['ls-files', '--others', '--exclude-standard', '-z']).decode('utf-8', 'replace')
+    # status reports the same set as the two content commands together: staged and unstaged changes
+    # against HEAD, plus untracked files that .gitignore does not cover.
+    status = git(['status', '--porcelain', '-z', '--', '.'])
+    if not status:
+        return ''  # clean tree, and a pinned dependency almost always is. One process answered it
+    entries = status.split(b'\0')
+    untracked = any(e.startswith(b'??') for e in entries)
+    tracked = any(e and not e.startswith(b'??') for e in entries)
+    # status already named WHICH kinds changed, so each content command runs only when it has work
+    diff = git(['diff', 'HEAD', '--', '.']) if tracked else b''
+    others = git(['ls-files', '--others', '--exclude-standard', '-z']).decode('utf-8', 'replace') if untracked else ''
     if not diff and not others:
         return ''
     h = hashlib.sha1(diff)

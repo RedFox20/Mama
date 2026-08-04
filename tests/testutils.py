@@ -389,6 +389,19 @@ def init(caller_file: str, workdir) -> str:
     return project
 
 def shell_exec(cmd: str, exit_on_fail: bool = True, echo: bool = True) -> int:
+@pytest.fixture(autouse=True)
+def unmemoized_git_fingerprints():
+    """Ask git every time, for a test that edits a working tree itself. mama memoizes the fingerprint per
+    source dir, because during a build only mama writes a dependency tree and run_git drops the memo when
+    it does. A test writes files directly, so the memo would answer with the state before the edit.
+    Import this into the conftest of a directory whose tests edit a tree."""
+    from mama import util
+    util.memoize_git_fingerprints = False
+    util._git_fingerprints.clear()
+    yield
+    util.memoize_git_fingerprints = True
+
+
     if echo: print(f'exec: {cmd}')
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0 and exit_on_fail:
