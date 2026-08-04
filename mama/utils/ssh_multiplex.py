@@ -31,6 +31,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from urllib.parse import urlparse
@@ -43,8 +44,33 @@ from .system import System
 # refused by peer` and the fetch dies. Raise it per project with `parallel=N` when the host allows more.
 DEFAULT_MAX_CONCURRENT_FETCHES = 8
 
-_OUR_CONTROL_DIR = os.path.expanduser('~/.ssh/cm')
-_OUR_CONTROL_PATH = os.path.join(_OUR_CONTROL_DIR, '%C')
+# A UNIX socket path caps at 104 bytes on macOS and 108 on Linux, and ssh expands %C to 40 hex chars.
+# A control dir that leaves no room for that produces `unix_listener: path too long`, so the chooser
+# below measures every candidate against this budget.
+_MAX_SOCKET_PATH = 100
+_CONTROL_SUBDIR = 'mama-cm'
+
+
+def _control_dir_candidates() -> list:
+    """Where to keep our control sockets, best first. A container can mount ~/.ssh read-only, and mama
+    then loses multiplexing, so a writable temp dir comes first. The uid keeps two users on one shared
+    /tmp apart, because a dir another user owns is a dir we cannot write.
+
+    The joins stay f-strings. normalized_join() calls abspath, which rewrites the POSIX '/tmp' fallback
+    into 'C:/tmp' on Windows. mama.util also costs about 200ms to import, and mama_ssh.py imports this
+    module on every git ssh spawn."""
+    uid = getattr(os, 'geteuid', lambda: 0)()  # Windows has no geteuid, and never opens a master anyway
+    runtime = os.environ.get('XDG_RUNTIME_DIR')
+    dirs = [f'{runtime.rstrip("/")}/{_CONTROL_SUBDIR}'] if runtime else []
+    dirs.append(f'{tempfile.gettempdir().rstrip("/")}/{_CONTROL_SUBDIR}-{uid}')
+    dirs.append(f'/tmp/{_CONTROL_SUBDIR}-{uid}')  # macOS $TMPDIR is long enough to blow the socket budget
+    dirs.append(os.path.expanduser('~/.ssh/cm'))  # where mama kept them before, for a host with no temp
+    fits = [d for d in dirs if len(d) + 41 <= _MAX_SOCKET_PATH]
+    return fits or dirs[-1:]  # every candidate is too long: try the old spot and let ssh report it
+
+
+_OUR_CONTROL_DIR = _control_dir_candidates()[0]
+_OUR_CONTROL_PATH = f'{_OUR_CONTROL_DIR}/%C'
 
 _DEFAULT_KEEPALIVE_INTERVAL = '60'
 _DEFAULT_KEEPALIVE_COUNT    = '3'
@@ -166,13 +192,19 @@ def multiplex_known_broken() -> bool:
 def _control_dir_usable() -> bool:
     """Make our control dir, and report False instead of raising when we cannot. A CI container often
     runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh` gives Errno 13), and
-    multiplexing is an optimization - it must never be the thing that fails a build. Without the dir we
-    just skip the multiplex flags and every fetch opens its own connection, as it always could."""
-    try:
-        os.makedirs(_OUR_CONTROL_DIR, mode=0o700, exist_ok=True)
+    multiplexing is an optimization - it must never be the thing that fails a build. Without a dir we
+    just skip the multiplex flags and every fetch opens its own connection, as it always could.
+
+    Walks the candidates, so a read-only ~/.ssh costs one fallback instead of the whole optimization."""
+    global _OUR_CONTROL_DIR, _OUR_CONTROL_PATH
+    for candidate in [_OUR_CONTROL_DIR] + _control_dir_candidates():
+        try: os.makedirs(candidate, mode=0o700, exist_ok=True)
+        except OSError: continue
+        if candidate != _OUR_CONTROL_DIR:
+            _OUR_CONTROL_DIR = candidate
+            _OUR_CONTROL_PATH = f'{candidate}/%C'
         return True
-    except OSError:
-        return False
+    return False
 
 
 def options_to_add(probe: dict[str, str]) -> tuple[list[str], bool]:

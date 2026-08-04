@@ -470,3 +470,43 @@ def test_an_unwritable_control_dir_disables_multiplex_instead_of_raising(monkeyp
     assert we_own_master is False
     assert not any(o.startswith('-oControlMaster=') or o.startswith('-oControlPath=') for o in opts)
     assert any(o.startswith('-oServerAliveInterval=') for o in opts)  # keepalives still help
+
+
+class TestControlDir:
+    """Where the control sockets live: a temp dir, so a container can mount ~/.ssh read-only."""
+
+    def test_a_normal_session_keeps_the_sockets_out_of_ssh(self, monkeypatch):
+        monkeypatch.delenv('XDG_RUNTIME_DIR', raising=False)
+        monkeypatch.setattr(sm.tempfile, 'gettempdir', lambda: '/tmp')
+        assert sm._control_dir_candidates()[0].startswith(f'/tmp/{sm._CONTROL_SUBDIR}-')
+
+    def test_the_runtime_dir_wins_when_the_session_has_one(self, monkeypatch):
+        monkeypatch.setenv('XDG_RUNTIME_DIR', '/run/user/1000')
+        assert sm._control_dir_candidates()[0] == f'/run/user/1000/{sm._CONTROL_SUBDIR}'
+
+    def test_a_long_temp_dir_falls_back_to_a_short_one(self, monkeypatch):
+        # macOS $TMPDIR is /var/folders/<2>/<27>/T/, long enough to blow the socket budget with %C
+        monkeypatch.delenv('XDG_RUNTIME_DIR', raising=False)
+        monkeypatch.setattr(sm.tempfile, 'gettempdir', lambda: '/var/folders/ab/' + 'x' * 80 + '/T')
+        assert sm._control_dir_candidates()[0].startswith('/tmp/')
+
+    def test_every_candidate_fits_the_socket_limit(self, monkeypatch):
+        # ssh expands %C to 40 hex chars, and a UNIX socket path caps at 104 bytes on macOS
+        monkeypatch.delenv('XDG_RUNTIME_DIR', raising=False)
+        assert all(len(d) + 41 <= sm._MAX_SOCKET_PATH for d in sm._control_dir_candidates())
+
+    def test_an_unusable_first_choice_moves_the_socket_to_the_next_one(self, monkeypatch, tmp_path):
+        blocked = tmp_path / 'file'; blocked.write_text('')  # makedirs under a file raises
+        good = str(tmp_path / 'good')
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(blocked / 'cm'))
+        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(blocked / 'cm' / '%C'))
+        monkeypatch.setattr(sm, '_control_dir_candidates', lambda: [good])
+        assert sm._control_dir_usable()
+        assert sm._OUR_CONTROL_DIR == good
+        assert sm._OUR_CONTROL_PATH == f'{good}/%C'
+
+    @pytest.mark.linux_host
+    def test_the_dir_is_private(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
+        assert sm._control_dir_usable()
+        assert oct(os.stat(tmp_path / 'cm').st_mode)[-3:] == '700'
