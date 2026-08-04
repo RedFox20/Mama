@@ -4,9 +4,10 @@ from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
-from .mamafile_version import pinned_version
+from .mamafile_version import pinned_version, computed_local_version
+from .local_version import is_publishable
 from .util import get_file_size_str, console, normalized_join, path_join, forward_slashes, ProgressBar
-from .utils.system import error
+from .utils.system import error, warning
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 
 if TYPE_CHECKING:
@@ -160,12 +161,29 @@ def _download_can_find_this_version(target:BuildTarget) -> bool:
     An upload runs the mamafile and uses the value in memory. A download reads the file as text, because
     it must name the package before the clone. A computed or twice-assigned version makes the two disagree,
     and mama would publish an archive no consumer can ever ask for. Refuse the upload instead."""
+    dep = target.dep
     executed = target.version or ''
-    readable = pinned_version(target.dep)
+    if dep.dep_source.is_src and not dep.is_root:
+        return _local_module_can_publish(target, executed)
+    readable = pinned_version(dep)
     if executed == readable: return True
     error(f'  - Target {target.name: <16} UPLOAD REFUSED: this build named the package ' +
           f'{executed or "<commit hash>"!r}, but a download reads {readable or "<commit hash>"!r} ' +
           'from the mamafile. Pin self.version with ONE raw string literal, or drop it.')
+    return False
+
+
+def _local_module_can_publish(target:BuildTarget, executed:str) -> bool:
+    """A local module needs no pre-clone reader, because its source is on disk for both sides. So the
+    text-scan rule does not apply, and a mamafile may compute its own version.
+
+    Only one thing stops the upload: an uncommitted edit. No other machine can reproduce that tree, so
+    the package would carry a name that means one thing on one disk. The build still finishes, the same
+    way a 404 for a git dep is not fatal."""
+    if is_publishable(target.dep): return True
+    named = executed or computed_local_version(target.dep) or '<computed>'
+    warning(f'  - Target {target.name: <16} UPLOAD SKIPPED: {named} names an edited working tree, ' +
+            'so no other machine can rebuild it. Commit the changes to publish this package.')
     return False
 
 

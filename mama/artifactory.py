@@ -3,7 +3,7 @@ import os, sys, ftplib, traceback, getpass
 from typing import List, Tuple, TYPE_CHECKING
 
 from . import build_names
-from .mamafile_version import pinned_version
+from .mamafile_version import pinned_version, computed_local_version
 from .types.git import Git
 from .types.local_source import LocalSource
 from .types.artifactory_pkg import ArtifactoryPkg
@@ -63,6 +63,8 @@ def artifactory_archive_name(target:BuildTarget):
                 branch = build_names.sanitize_version(git.branch)
                 version = f'{branch}-{commit}' if branch else commit
         elif p.is_src:
+            # A local module has no commit of its own to name, so mama names it by its source content.
+            version = computed_local_version(target.dep)
             if not version:
                 raise RuntimeError(f'Local package {target.name} has no target.version set in mamafile')
 

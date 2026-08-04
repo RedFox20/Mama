@@ -54,14 +54,26 @@ def pinned_version(dep) -> str:
 
     Pre-clone the mamafile is on disk only for a parent-repo override (`dep.mamafile`), which is how a
     consumer names a third-party package. Post-clone it is also in the dep's own tree. Returns '' when
-    the dep is unpinned, when the mamafile is not on disk yet, or when `trusted_version` refuses it."""
+    the dep is unpinned, when the mamafile is not on disk yet, or when `trusted_version` refuses it.
+
+    A local dependency that pins nothing gets a computed version instead of ''. Its source is already on
+    disk, so both readers run the same walk over the same tree and cannot disagree."""
     path = dep.mamafile_path()
     if path and os.path.exists(path):
         try:
-            return trusted_version(dep, read_text_from(path), path)
+            pinned = trusted_version(dep, read_text_from(path), path)
+            if pinned: return pinned
         except OSError:
             return ''
-    return ''
+    return computed_local_version(dep)
+
+
+def computed_local_version(dep) -> str:
+    """The content version of an unpinned LOCAL dependency, and '' for every other dep source. A git dep
+    keeps the rule of roadmap-target-version.md, because no reader can walk a tree it has not cloned."""
+    if not dep.dep_source.is_src or dep.is_root: return ''
+    from .local_version import compute_version  # local import: local_version reads build_names
+    return compute_version(dep)
 
 
 def _scan_ast(tree) -> VersionScan:
