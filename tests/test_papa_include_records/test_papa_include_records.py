@@ -108,8 +108,8 @@ def test_a_stub_without_its_real_header_does_not_ship(tmp_path):
 
 
 @pytest.mark.parametrize('windows, dirs, records', [
-    (False, ['include/QCoro/QCoroTask', 'include/qcoro/coroutine.h', 'include/qcoro/qcorotask.h'],
-            ['I include', 'I include/qcoro']),
+    pytest.param(False, ['include/QCoro/QCoroTask', 'include/qcoro/coroutine.h', 'include/qcoro/qcorotask.h'],
+                 ['I include', 'I include/qcoro'], marks=pytest.mark.case_sensitive_fs),
     (True,  ['include/QCoro/QCoroTask', 'include/QCoro/coroutine.h', 'include/QCoro/qcorotask.h'],
             ['I include']),
 ])

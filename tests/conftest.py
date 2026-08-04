@@ -9,14 +9,17 @@ sys.path.insert(0, _here)
 sys.path.insert(0, _repo_root)
 
 
-from testutils import is_linux  # after the sys.path setup above, so tests/ is importable
+from testutils import is_linux, has_case_sensitive_fs  # after the sys.path setup above, so tests/ is importable
 
 
 def pytest_runtest_setup(item):
-    """Skip a linux_host test off Linux. MIPS, every Yocto SDK and install-raspi need a Linux host, so
-    the code under test raises there instead of answering."""
+    """Skip a test whose host cannot run it. MIPS, every Yocto SDK and install-raspi need a Linux host, so
+    the code under test raises elsewhere. A case_sensitive_fs test deploys two dirs whose names differ only
+    by case, and Windows and macOS hold one dir for that pair."""
     if item.get_closest_marker('linux_host') and not is_linux():
         pytest.skip('needs a Linux host')
+    if item.get_closest_marker('case_sensitive_fs') and not has_case_sensitive_fs():
+        pytest.skip('needs a case-sensitive filesystem')
 
 
 @pytest.fixture(autouse=True)

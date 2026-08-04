@@ -3,7 +3,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+from functools import lru_cache
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -425,6 +427,14 @@ def is_linux() -> bool:
 
 def is_macos() -> bool:
     return sys.platform == 'darwin'
+
+@lru_cache(maxsize=1)  # the filesystem cannot change mid-run, so probe it once
+def has_case_sensitive_fs() -> bool:
+    """True when the pytest temp filesystem keeps two spellings of one name. Windows and macOS hold ONE
+    dir for `QCoro/` and `qcoro/`, so a test that deploys both cannot run there."""
+    with tempfile.TemporaryDirectory(dir=os.environ.get('PYTEST_DEBUG_TEMPROOT')) as tmp:
+        with open(os.path.join(tmp, 'CaseProbe'), 'w'): pass
+        return not os.path.exists(os.path.join(tmp, 'caseprobe'))
 
 def executable_extension() -> str:
     if is_windows():

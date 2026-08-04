@@ -71,6 +71,7 @@ def test_a_second_export_of_one_dir_name_is_skipped(producer):
 CASE_VARIANTS = {'qcoro/qcorotask.h': '// h\n', 'QCoro/QCoroTask': '#include "qcorotask.h"\n'}
 
 
+@pytest.mark.case_sensitive_fs
 def test_a_case_sensitive_filesystem_keeps_both_spellings(producer, monkeypatch):
     # QCoro includes "qcorotask.h" in one header and "qcoro/coroutine.h" in the next, so a merged
     # dir on Linux resolves the first form and breaks the second
