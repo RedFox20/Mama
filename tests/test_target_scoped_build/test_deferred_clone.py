@@ -157,7 +157,7 @@ def test_a_reload_that_discovers_a_deferred_child_loops():
     b = _fake('B', deferred=True)
     a = _fake('A', deferred=True)
     x = _fake('X', [a])
-    def grow(scope):
+    def grow(scope, display=None):
         if b not in x.children: x.children.append(b)   # the reload of A discovered B
     with patch.object(chain, 'load_dependency_chain', side_effect=grow) as load:
         assert reload_deferred_deps(x) is True
@@ -208,7 +208,7 @@ def test_the_target_may_hide_below_a_deferred_dep(tmp_path):
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     hidden = _fake('hidden')
     parent = _fake('parent', deferred=True)
-    def uncover(scope):
+    def uncover(scope, display=None):
         if hidden not in parent.children: parent.children.append(hidden)
     with patch('mama.main.load_path_to_target', side_effect=lambda r: setattr(r, 'children', [parent])), \
          patch('mama.dependency_chain.load_dependency_chain', side_effect=uncover), \

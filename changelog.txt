@@ -2,15 +2,13 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
- - bugfix: a targeted run fetches and clones only what its target needs
- - bugfix: every action that names a target runs that target's subtree alone
- - perf: naming a target explores the cheap local modules first, then stops
- - perf: finding a target only skims mamafiles, it loads no dep it passes
- - bugfix: build_dir() and source_dir() raise instead of returning no path
+ - feature: the load phase draws one live line per dep, with no git chatter
+ - feature: one build log per run, holding both the load and the build
+ - bugfix: a targeted run loads and builds only the subtree of its target
+ - bugfix: a shared dependency loads once, not once per parent
  - bugfix: wipe a target that loaded as a package, instead of doing nothing
- - bugfix: a target with no test() reports a skip, it no longer claims a run
- - bugfix: a failed package() names its target, with no mama stack trace
- - bugfix: mama list reports a package it cannot complete, it no longer stops
+ - bugfix: a package, a listing and a skipped test each name their target
+ - perf: naming a target only skims mamafiles, and stops at the first match
 
 release: 0.13.12 (2026-Aug-05)
  - bugfix: a targeted rebuild no longer clones or fetches unrelated deps

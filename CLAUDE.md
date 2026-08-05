@@ -238,6 +238,16 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
 - The `SubProcess.run` calls of the shim probe also go through `fetch_slot`. Count
   the slot acquisitions per probe: one for the clone, and one more for `git show`.
 - `ensure_master_for_url` is idempotent and serialized per host.
+- **One thread owns each dep's load.** `load_dependency_chain` claims a dep before it loads
+  it, so a shared dep loads once, walks its subtree once and draws one display line. A parent
+  that arrives at a claimed dep waits for the answer and walks nothing. A parent that arrives
+  at a dep an earlier walk finished returns at once. The lock covers the claim, never the load.
+- **The walk always enters the dep it starts from.** mamabuild loads the root first, and a
+  reload revives deps below a scope that already loaded. Every OTHER loaded dep stops the walk.
+- **mamabuild owns the run.** It loads the root, then opens the one build log under the
+  workspace that root named. A display reads that log through `get_build_log`. It opens none.
+  The classic path wraps its whole load in one `load_display` region, which closes before the
+  package listing prints. `execute_unified` draws its own.
 
 ## Tests
 

@@ -52,7 +52,8 @@ class FakeUnifiedDep:
         self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
         self._child_specs = child_specs; self._shared = shared_children
         self._children = []; self.already_executed = False
-        self.is_root = False; self.load_action = 'check'; self.target = FakeUnifiedTarget(self, ev, lock)
+        self.is_root = False; self.load_action = 'check'; self.artifactory_archive = ''
+        self.target = FakeUnifiedTarget(self, ev, lock)
     def load(self):
         with self._lock: self._ev.append(('load', self.name))
         self._children = self._shared if self._shared is not None else \
@@ -63,6 +64,33 @@ class FakeUnifiedDep:
     def create_build_dir_if_needed(self): pass
     def is_root_or_config_target(self): return False
     def is_real_clone(self): return False  # load label resolves to 'clone'
+
+
+class FakeWalkDep:
+    """Dep for the load_dependency_chain walk tests. load() records its name and returns the children the
+    test declared, so the log holds the walk order."""
+    def __init__(self, name, config, log, children=(), loaded=False, on_load=None):
+        self.name = name; self.config = config; self._log = log; self._children = list(children)
+        self.already_loaded = loaded; self.should_rebuild = False; self.is_root = False
+        self.load_action = 'check'; self.artifactory_archive = ''; self.phase_times = {}
+        self._on_load = on_load  # what this dep prints while it loads
+    def load(self):
+        self._log.append(self.name)
+        if self._on_load: self._on_load()
+        self.already_loaded = True
+        return self.should_rebuild
+    def get_children(self): return self._children
+    def after_load(self): pass
+    def is_real_clone(self): return False  # the opening load label resolves to 'clone'
+
+
+def make_walk_config(**overrides):
+    """The BuildConfig fields load_dependency_chain touches. Serial by default, so a test reads one order."""
+    cfg = SimpleNamespace(serial_load=True, parallel_load=False, parallel_max=4, print=False,
+                          verbose=False, update_stats=Mock())
+    cfg.update_stats.summary_line.return_value = ''
+    for k, v in overrides.items(): setattr(cfg, k, v)
+    return cfg
 
 
 def make_unified_config(**overrides):
@@ -81,7 +109,7 @@ def stub_loaders(grow_tree):
     from contextlib import ExitStack
     from unittest.mock import patch
     stack = ExitStack()
-    stack.enter_context(patch('mama.main.load_dependency_chain', side_effect=grow_tree))
+    stack.enter_context(patch('mama.main.load_dependency_chain', side_effect=lambda r, display=None: grow_tree(r)))
     stack.enter_context(patch('mama.main.load_path_to_target', side_effect=grow_tree))
     stack.enter_context(patch('mama.dependency_chain.load_dependency_chain'))
     return stack
@@ -93,7 +121,7 @@ def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
     target = Mock(build_products=[], args='')
     target.name = name  # Mock(name=..) names the mock itself, not the attribute
     d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False,
-                        children=list(children), target=target, from_artifactory=False)
+                        children=list(children), target=target, from_artifactory=False, artifactory_archive='')
     d.get_children = lambda d=d: d.children
     d.has_usable_artifacts = lambda usable=usable: usable
     d.load_is_free = lambda free=free: free

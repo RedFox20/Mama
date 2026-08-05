@@ -37,9 +37,9 @@ def test_unified_dedups_a_diamond_dependency(no_cmake_writes):
     assert names('bld').count('D') == 1     # and built once
 
 
-def test_unified_loads_the_root_before_the_display_exists(no_cmake_writes, monkeypatch):
-    """The root's settings() picks the toolchain everything else needs, so it runs first - and its
-    output must reach the terminal instead of a captured task line nobody scrolls back to."""
+def test_the_root_loads_before_any_display_exists(no_cmake_writes, monkeypatch):
+    """The root's settings() picks the toolchain everything else needs, so mamabuild loads it before it
+    dispatches. That output must reach the terminal, not a captured task line the display hides."""
     cfg = make_unified_config()
     ev, lock = [], threading.Lock()
     make_display = dc._make_display
@@ -47,6 +47,7 @@ def test_unified_loads_the_root_before_the_display_exists(no_cmake_writes, monke
     root = FakeUnifiedDep('root', cfg, ev, lock)
     sinks, load = [], root.load
     root.load = lambda: (sinks.append(system.capture_context()[0]), load())[1]
+    dc.load_root(root)  # what mamabuild does before it picks an execution path
     dc.execute_unified(root)
 
     assert ev.index(('load', 'root')) < ev.index(('display', '-'))

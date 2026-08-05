@@ -12,8 +12,9 @@ from .build_dependency import BuildDependency
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
-                               mark_unbuilt_target_deps, sweep_orphaned_build_dirs,
+                               mark_unbuilt_target_deps, sweep_orphaned_build_dirs, load_root, load_display,
                                revive_deferred_target_deps, reload_deferred_deps, load_path_to_target)
+from .utils.log_writer import open_run_log
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -204,13 +205,13 @@ def _targeted(config: BuildConfig) -> bool:
     return config.has_target() and not config.targets_all() and not config.deps_only
 
 
-def check_config_target(config: BuildConfig, root: BuildDependency):
+def check_config_target(config: BuildConfig, root: BuildDependency, display=None):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
         # The target may hide below a deferred dep. A cached package expands first, because it costs
         # no network. The deps that need a fetch or a clone expand only when the name is still missing.
         for free_only in (True, False):
-            if dep is None and reload_deferred_deps(root, free_only):
+            if dep is None and reload_deferred_deps(root, free_only, display):
                 dep = find_dependency(root, config.target)
         if dep is None:  # list what IS valid: the name is likely a misspelled target or flag
             names = ', '.join(sorted(d.name for d in get_flat_deps(root)))
@@ -221,7 +222,8 @@ def check_config_target(config: BuildConfig, root: BuildDependency):
 def print_package_exports(dep: BuildDependency):
     target:BuildTarget = dep.target
     if dep.from_artifactory or target.try_automatic_artifactory_fetch():
-        console(f'    Target {target.name} fetched from artifactory')
+        archive = f' {dep.artifactory_archive}' if dep.artifactory_archive else ''
+        console(f'    Target {target.name} fetched from artifactory{archive}')
     else:
         console(f'    Target {target.name} local build at {target.build_dir()}')
     target.print_exports(abs_paths=True)
@@ -335,6 +337,11 @@ def mamabuild(args, source_dir=os.getcwd()):
     # subfolder out of it instead of spawning its own git. Eager, so a parallel load needs no lock.
     load_repo_status(source_dir)
 
+    # The root loads before every other dep: its settings() locks the compiler that names each dep dir,
+    # and its mamafile names the workspace. The run then owns ONE build log, which every phase writes to.
+    load_root(root)
+    open_run_log(config.workspaces_root, root.workspace)
+
     if config.sched_debug:  # TEMP: load the tree, print the build-weight calc per target, then stop
         load_dependency_chain(root)
         print_sched_debug(root)
@@ -347,17 +354,20 @@ def mamabuild(args, source_dir=os.getcwd()):
         dep = root
         flat_deps = get_flat_deps(root)  # the graph is fully grown by now, keep this defined for the code below
     else:
-        # `dirty` marks every dependent of the target, and only a full load names them all
-        if _targeted(config) and not config.dirty:
-            load_path_to_target(root)
-        else:
-            load_dependency_chain(root)
-        check_config_target(config, root)
+        # One live region for the whole load, so parallel clones report on one line each. Stage two runs
+        # inside it, and it closes before the package listing, which prints as plain lines.
+        with load_display(config) as display:
+            # `dirty` marks every dependent of the target, and only a full load names them all
+            if _targeted(config) and not config.dirty:
+                load_path_to_target(root)
+            else:
+                load_dependency_chain(root, display)
+            check_config_target(config, root, display)
 
-        # Stage two: load the subtree of the target, which stage one stopped short of. It runs BEFORE
-        # the clean_only return below, because a clean acts inside the load of the target it names.
-        if _targeted(config):
-            revive_deferred_target_deps(root, config)
+            # Stage two: load the subtree of the target, which stage one stopped short of. It runs BEFORE
+            # the clean_only return below, because a clean acts inside the load of the target it names.
+            if _targeted(config):
+                revive_deferred_target_deps(root, config, display)
 
         # clean is not a build: the load wiped the dirs, so a packaging pass fabricates an empty package
         # or fails a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.

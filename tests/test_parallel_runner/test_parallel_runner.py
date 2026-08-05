@@ -122,14 +122,17 @@ def test_run_phase_relabels_load_to_actual_action(monkeypatch):
     monkeypatch.setattr(dc.system, 'capture_to', lambda *a, **k: contextlib.nullcontext())
     seen = {}
     disp = SimpleNamespace(start_task=lambda *a: None, feed=lambda *a: None, finish_task=lambda *a: None,
-                           relabel=lambda tid, kind: seen.__setitem__('k', kind))
+                           relabel=lambda tid, kind: seen.__setitem__('k', kind),
+                           set_note=lambda tid, text: seen.__setitem__('note', text))
     dep = SimpleNamespace(name='ReCpp', is_root=False, get_children=lambda: [], phase_times={},
-                          config=SimpleNamespace(verbose=False), load_action='pulling')
+                          config=SimpleNamespace(verbose=False), load_action='pulling',
+                          artifactory_archive='ReCpp-ubuntu-24-x64-release-abc1234')
     dc._run_phase(disp, dep, 'load', lambda s: None, None)
     assert seen['k'] == 'pulling'        # relabeled to what load() actually did
+    assert seen['note'] == 'ReCpp-ubuntu-24-x64-release-abc1234'  # the summary names the package
     seen.clear()
     dc._run_phase(disp, dep, 'build', lambda s: None, None)
-    assert 'k' not in seen               # only 'load' is relabeled, not other phases
+    assert not seen                      # only 'load' relabels and annotates, no other phase does
 
 
 def test_reserve_weight_is_zero_for_custom_build_root_else_reserved_cores():

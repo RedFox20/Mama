@@ -92,6 +92,19 @@ def test_live_line_shows_all_prior_phases_including_an_instant_one():
     assert 'git 3.7s' in line and 'cfg 0.0s' in line and 'bld 0.5s' in line  # every step shown, even the instant cfg
 
 
+def test_note_names_the_package_on_the_summary_line():
+    d, out, clk = _disp(isatty=False)
+    d.start_task('gt', 'artifactory', 'googletest'); d.set_note('gt', 'googletest-ubuntu-24-x64-release-ae51a95')
+    clk.tick(0.7); d.finish_task('gt', ok=True)
+    assert 'art 0.7s googletest-ubuntu-24-x64-release-ae51a95' in squeeze(out.getvalue())
+
+
+def test_an_empty_note_keeps_the_summary_line_bare():
+    d, out, clk = _disp(isatty=False)
+    d.start_task('s', 'clone', 'SDL'); d.set_note('s', ''); clk.tick(2.9); d.finish_task('s', ok=True)
+    assert squeeze(out.getvalue()).rstrip().endswith('git 2.9s')
+
+
 def test_phase_tags_collapse_git_loads_and_label_each_source():
     tag = BuildDisplay._tag
     assert tag('check') == tag('clone') == tag('pulling') == 'git'  # all git loads share one tag

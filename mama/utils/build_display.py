@@ -154,6 +154,7 @@ class Task:
         self.phase_start = 0        # index in `lines` where the CURRENT phase's output begins
         self.current = ''           # last non-empty line, shown live
         self.phases: list = []      # completed (duration, kind, detail), interesting phases only
+        self.note = ''              # dep-level fact for the summary line, eg the artifactory archive
 
     def begin(self, kind: str, start: float, detail: str = ''):
         """Resume this task on a new phase (keeps phases/lines, resets the live preview + timer)."""
@@ -228,6 +229,14 @@ class BuildDisplay:
         with self._lock:
             t = self._tasks.get(id)
             if t is not None: t.kind = kind
+
+    def set_note(self, id, text: str):
+        """Attach a dep-level fact to the summary line, so a reader sees where the exports came from.
+        An empty text keeps whatever the task already holds."""
+        if not text: return
+        with self._lock:
+            t = self._tasks.get(id)
+            if t is not None: t.note = text
 
     def set_pending(self, hint):
         """Show the single next blocked task `(name, reason)` below the live region, or clear it (None).
@@ -389,7 +398,8 @@ class BuildDisplay:
     def _summary_line(self, t: Task) -> str:
         icon = self._colored(_ICON[t.state], _ICON_COLOR[t.state])
         _, kind, detail = t.phases[-1] if t.phases else (0, t.kind, t.detail)  # kind = last phase that did work
-        return f'{icon} {self._kind_field(kind, detail):<24}{t.name:<22} {self._time_field(t, t.end)}'
+        line = f'{icon} {self._kind_field(kind, detail):<24}{t.name:<22} {self._time_field(t, t.end)}'
+        return f'{line}  {t.note}' if t.note else line
 
     # -- live CPU sampling -------------------------------------------------
 

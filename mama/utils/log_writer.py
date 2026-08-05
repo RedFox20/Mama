@@ -2,6 +2,8 @@
 build thread. The writer strips ANSI codes, and a bad path or IO error never breaks a build."""
 import atexit, os, re, threading, queue
 
+from .paths import path_join
+
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves, stripped for the log file
 
 
@@ -46,7 +48,7 @@ _build_log = None
 
 def open_build_log(path: str):
     """The one build log of this run, opened on the first call and reused after it. A run has several
-    phases, and each one that draws a display asks for the log, so only the first open may truncate.
+    phases, and each one writes to the same log, so only the first open may truncate.
     Returns None when the file cannot be created: the log must never break a build."""
     global _build_log
     if _build_log is not None:
@@ -57,6 +59,19 @@ def open_build_log(path: str):
     except OSError:
         return None
     atexit.register(close_build_log)  # every exit path drains it, and a display never owns it
+    return _build_log
+
+
+def open_run_log(workspaces_root: str, workspace: str):
+    """Open the build log of this run under the workspace the root mamafile named. mamabuild calls this
+    once, right after the root load, because that load is what names the workspace. Returns None when
+    there is nowhere to write."""
+    if not workspaces_root: return None
+    return open_build_log(path_join(workspaces_root, workspace or 'packages', 'mamabuild.log'))
+
+
+def get_build_log():
+    """The build log this run opened, or None. A display reads it, it never opens one of its own."""
     return _build_log
 
 

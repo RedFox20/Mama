@@ -45,7 +45,8 @@ Printed line:
   - Target opencv           SHIM CACHED <archive>
 ```
 Specifically **not** `SHIM FETCHED` (misleading - mama fetched nothing), and
-**not** `Artifactory cache /path/to.zip` (mama touched no zip).
+**not** `Artifactory cache /path/to.zip` (mama touched no zip). The load display
+previews this line and `mamabuild.log` keeps it, so a fast load stays quiet.
 
 ### State 2: stale shim (rare, but must not silently miss it)
 

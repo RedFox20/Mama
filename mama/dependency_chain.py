@@ -1,4 +1,4 @@
-import os, sys, shutil, time, concurrent.futures
+import os, sys, shutil, time, contextlib, concurrent.futures
 from typing import List
 
 from mama.build_config import BuildConfig
@@ -75,6 +75,30 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
         if config.print: warning(f'  - Target {dep.name: <16} BUILD [dependency of {target.name} not built yet]')
 
 
+@contextlib.contextmanager
+def load_display(config):
+    """The live region of the load phase, for the classic path. execute_unified draws its own, and the
+    root already loaded, so nothing this region hides decides the toolchain."""
+    display = _make_display(config)
+    system.set_active_display(display)  # an ownerless console() line lands above the region, not through it
+    try:
+        yield display
+    finally:
+        display.close()
+        system.set_active_display(None)
+
+
+def load_root(root: BuildDependency):
+    """Load the root before any other dep. Its settings() locks the compiler that names every dep dir
+    below it. Its mamafile names the workspace that holds the build log. The output of that load
+    reaches the terminal directly, so a mis-picked toolchain never hides inside a display."""
+    try:
+        root.load()
+    except BuildError as err:  # the same report the full load prints, see load_dependency_chain
+        _report_error(err, root.config.verbose)
+        exit(-1)
+
+
 def load_path_to_target(root: BuildDependency):
     """Stage one of a targeted load: skim the cheapest dep next and stop once the graph names the
     target. A skim names the children of a dep and nothing more, so this stage fetches nothing,
@@ -110,26 +134,27 @@ def load_path_to_target(root: BuildDependency):
         exit(-1)
 
 
-def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig):
+def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig, display=None):
     """Stage two of a targeted load: load the subtree of the target, which stage one stopped short of,
     and revive the deferred deps inside it. A dep outside that subtree stays unloaded and never builds."""
     target = find_dependency(root, config.target)
     if target is None: return
-    load_dependency_chain(target)
-    reload_deferred_deps(target)
+    load_dependency_chain(target, display)
+    reload_deferred_deps(target, display=display)
 
 
-def reload_deferred_deps(scope: BuildDependency, free_only=False) -> bool:
+def reload_deferred_deps(scope: BuildDependency, free_only=False, display=None) -> bool:
     """Load every deferred dep under `scope`. A reload can discover new children, so loop until the
     scope holds no deferred dep. Return True when this call revived a dep.
-    free_only: revive only the deps a cached package answers, so the pass costs no network"""
+    free_only: revive only the deps a cached package answers, so the pass costs no network
+    display: the live region of the load phase, so a revived dep draws its line there too"""
     revived = False
     while True:
         deferred = [d for d in get_flat_deps(scope) if d.load_deferred and (not free_only or d.load_is_free())]
         if not deferred: return revived
         revived = True
         for d in deferred: d.revive_deferred_load()
-        load_dependency_chain(scope)
+        load_dependency_chain(scope, display)
 
 
 # files mama writes into a build dir - one must be present before the sweep will delete a directory
@@ -433,7 +458,7 @@ def _save_mama_cmake(root: BuildDependency):
     save_file_if_contents_changed(_mama_cmake_path(root), mama_cmake_text(build_dir_defines))
 
 
-def load_dependency_chain(root: BuildDependency):
+def load_dependency_chain(root: BuildDependency, display=None):
     """
     Main entry point: load the whole dependency chain. Parallel load is the default, and `serial` opts
     out. load() and add_child are thread-safe. Parents block on child futures while they hold a worker
@@ -441,6 +466,7 @@ def load_dependency_chain(root: BuildDependency):
     A semaphore inside Git.run_git caps the SSH-multiplexed fetch concurrency at 8, whatever
     `parallel_max` asks for (see ssh_multiplex.init_fetch_semaphore).
     root: the root BuildDependency, whose loads discover the rest of the graph
+    display: the live region of the load phase, or None to print each load as a plain line
     """
     if not root.config.serial_load:
         root.config.parallel_load = True
@@ -449,16 +475,20 @@ def load_dependency_chain(root: BuildDependency):
 
     root.config.update_stats.start()
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
-        def load_dependency(dep: BuildDependency):
+        def load_dependency(dep: BuildDependency, is_entry=False):
             abort.check()  # a queued load must not start a clone during a build abort
-            if dep.already_loaded:
+            # The walk always enters the dep it starts from, because mamabuild loads the root first and a
+            # reload revives deps below a loaded scope. Any OTHER loaded dep is one a sibling already walked.
+            if dep.already_loaded and not is_entry:
                 return dep.should_rebuild
 
-            changed = dep.load()
+            if display is not None:  # one live line per dep, the shape the build phase already draws
+                _run_phase(display, dep, 'load', lambda s: dep.load(), None, final=True)
+            else:
+                dep.load()
+            changed = dep.should_rebuild  # what load() returned, and what a replayed load still holds
             if dep.config.parallel_load:
-                futures = []
-                for child in dep.get_children():
-                    futures.append(e.submit(load_dependency, child))
+                futures = [e.submit(load_dependency, child) for child in dep.get_children()]
                 for f in futures:
                     changed |= f.result()
             else:
@@ -468,7 +498,7 @@ def load_dependency_chain(root: BuildDependency):
             dep.after_load()
             return changed
         try:
-            load_dependency(root)
+            load_dependency(root, is_entry=True)
         except BuildError as err:  # a bad url or a dropped clone: the report is complete, a traceback buries it
             _report_error(err, root.config.verbose)
             # Stop the other loads before the exit: the pool's shutdown(wait=True) would otherwise run the
@@ -532,16 +562,15 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
 
 
 def _make_display(config):
+    """A live display for one phase of the run. The log belongs to the run, so this reads the open log
+    and never opens one of its own. mamabuild opens it after the root load, see open_run_log."""
     import sys, shutil, time
     from .utils.build_display import BuildDisplay
-    from .utils.log_writer import open_build_log
-    out = sys.stdout
+    from .utils.log_writer import get_build_log
     isatty = not system.is_headless()  # a CI runner with a pty still must not get cursor-up escapes
-    root = config.workspaces_root
-    log = open_build_log(path_join(root, 'packages', 'mamabuild.log')) if root else None
-    return BuildDisplay(out, isatty=isatty, clock=time.monotonic,
+    return BuildDisplay(sys.stdout, isatty=isatty, clock=time.monotonic,
                         term_size=lambda: tuple(shutil.get_terminal_size((100, 24))),
-                        verbose=config.verbose, log=log, platform=config.name())
+                        verbose=config.verbose, log=get_build_log(), platform=config.name())
 
 
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
@@ -568,7 +597,9 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
     finally:
         pt = dep.phase_times  # accumulate for the `buildstats` breakdown
         if pt is not None: pt[kind] = pt.get(kind, 0.0) + (time.monotonic() - t0)
-        if kind == 'load': display.relabel(tid, dep.load_action)  # reflect what load() actually did
+        if kind == 'load':
+            display.relabel(tid, dep.load_action)  # reflect what load() actually did
+            display.set_note(tid, dep.artifactory_archive)  # name the package the exports came from
         display.finish_task(tid, ok, final)
 
 
@@ -926,16 +957,14 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
     """Dynamic DAG scheduler that interleaves clones with configure and build: each completed LOAD grows
     the graph with its children's jobs, and a CONFIGURE waits on its own LOAD plus its children's BUILDs,
     so leaves build while deeper deps still clone. A plain full build uses this path, and main() falls
-    back to the classic path otherwise. Deploy/run/test stay serial. The ROOT loads up front, because
-    everything below it needs what its settings() picks. Under a `deps_only` DepsOnlyScope every dep
-    still loads, but only the deps the scope includes get a CONFIGURE and a BUILD job."""
+    back to the classic path otherwise. Deploy/run/test stay serial. mamabuild loads the ROOT before it
+    calls this, because everything below it needs what its settings() picks. Under a `deps_only`
+    DepsOnlyScope every dep still loads, but only the deps the scope includes get a CONFIGURE and a BUILD job."""
     import time
     from .build_scheduler import Job, LOAD, CONFIGURE, BUILD, assign_priorities
     config = root.config
     ssh_multiplex.init_fetch_semaphore(config.parallel_max)
-    # outside the display on purpose: root settings() output must land on the terminal, or a mis-picked toolchain is invisible
-    root.load()
-    print_build_banner(config)  # root settings() has now locked compiler + stdlib
+    print_build_banner(config)  # the root load has locked compiler + stdlib
     config.update_stats.start()
     display = _make_display(config)
     sched = _make_scheduler(config, max_load=config.parallel_max, pending_log=display.set_pending)

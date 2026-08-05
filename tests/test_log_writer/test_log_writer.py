@@ -1,6 +1,8 @@
 """Pins AsyncLogWriter: queued writes reach the stream in order, ANSI stripped, amortized idle-flush,
-close() drains."""
+close() drains. Also pins that one run opens one log."""
 import time
+import pytest
+import mama.utils.log_writer as lw
 from mama.utils.log_writer import AsyncLogWriter
 
 
@@ -27,6 +29,34 @@ def test_write_never_raises_on_a_broken_stream():
         def close(self): pass
     w = AsyncLogWriter(_Broken())
     w.write('x\n'); w.close()   # the drain swallows the OSError; the build must not crash
+
+
+@pytest.fixture
+def no_run_log(monkeypatch):
+    """The module holds the ONE log of a run, so each test starts and ends without one."""
+    monkeypatch.setattr(lw, '_build_log', None)
+    yield
+    lw.close_build_log()
+
+
+def test_the_run_log_lands_in_the_workspace_the_root_named(tmp_path, no_run_log):
+    log = lw.open_run_log(str(tmp_path), 'mypackages')
+    assert lw.get_build_log() is log       # a display reads it back, it never opens one of its own
+    log.write('first phase\n')
+    lw.close_build_log()
+    assert (tmp_path / 'mypackages' / 'mamabuild.log').read_text() == 'first phase\n'
+
+
+def test_a_later_phase_reuses_the_one_log_instead_of_truncating_it(tmp_path, no_run_log):
+    first = lw.open_run_log(str(tmp_path), 'packages')
+    first.write('load phase\n')
+    assert lw.open_run_log(str(tmp_path), 'packages') is first
+    lw.close_build_log()
+    assert (tmp_path / 'packages' / 'mamabuild.log').read_text() == 'load phase\n'
+
+
+def test_no_workspace_root_means_no_log(no_run_log):
+    assert lw.open_run_log(None, 'packages') is None and lw.get_build_log() is None
 
 
 def test_flushes_on_idle_without_waiting_for_close():

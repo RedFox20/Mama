@@ -38,17 +38,15 @@ def yocto_project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_unified_dispatch_does_not_probe_the_toolchain_before_loading_the_root(yocto_project, monkeypatch):
-    probes_at_dispatch, configs = [], []
-    def fake_unified(root, scope=None):
-        probes_at_dispatch.extend(root.config.yocto_linux.probes)
-        configs.append(root.config)
-        root.load()  # the scheduler's first job: root LOAD -> settings() -> set_yocto_toolchain()
-    monkeypatch.setattr(mama_main, 'execute_unified', fake_unified)
+def test_the_root_load_resolves_the_toolchain_from_settings_before_dispatch(yocto_project, monkeypatch):
+    # mamabuild loads the root, then dispatches. The toolchain must come from that load's settings(),
+    # never from a default probe that ran earlier.
+    configs = []
+    monkeypatch.setattr(mama_main, 'execute_unified', lambda root, scope=None: configs.append(root.config))
     mama_main.mamabuild(['imx8mp', 'build'], source_dir=str(yocto_project))
 
-    assert probes_at_dispatch == []  # a probe here resolves the DEFAULT sdk before settings() can speak
     config = configs[0]
+    assert config.yocto_linux.probes == ['/opt/custom-sdk']  # the DEFAULT sdk was never probed
     assert config.yocto_linux.toolchain_dir == '/opt/custom-sdk'
     assert config.cc_path == '/opt/custom-sdk/bin/aarch64-poky-linux-gcc'
 
