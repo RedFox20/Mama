@@ -8,6 +8,7 @@ unreleased
  - perf: finding a target only skims mamafiles, it loads no dep it passes
  - bugfix: build_dir() and source_dir() raise instead of returning no path
  - bugfix: wipe a target that loaded as a package, instead of doing nothing
+ - bugfix: a target with no test() reports a skip, it no longer claims a run
 
 release: 0.13.12 (2026-Aug-05)
  - bugfix: a targeted rebuild no longer clones or fetches unrelated deps

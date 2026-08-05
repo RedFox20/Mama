@@ -1599,10 +1599,14 @@ class BuildTarget:
         """True when this target has real build work: not header-only, not from artifactory, flagged for rebuild."""
         return not self.dep.nothing_to_build and self.dep.should_rebuild and not self.dep.from_artifactory
 
+    def _overrides(self, hook: str) -> bool:
+        """True when the mamafile defines `hook` itself, instead of inheriting the empty base one."""
+        return getattr(type(self), hook) is not getattr(BuildTarget, hook)
+
     def _has_custom_build(self) -> bool:
         """A mamafile that overrides build() fuses cmake configure+build, so the split is impossible.
         The scheduler runs it whole in build_phase and skips the separate configure step."""
-        return type(self).build is not BuildTarget.build
+        return self._overrides('build')
 
     def _run_configure_once(self):
         """User configure() hook, guarded to run at most once (configure_phase / build_phase / serial)."""
@@ -1750,26 +1754,35 @@ class BuildTarget:
         return False
 
 
+    def _run_test_task(self):
+        """Run the test() hook of the mamafile, or report that there is nothing to run.
+        A target without a test() runs no test, so a report of a test run would be false."""
+        if not self._overrides('test'):
+            if self.config.print:
+                warning(f'  - Testing {self.name} SKIPPED, this mamafile defines no test()')
+            return
+        test_args = self.config.test.lstrip()
+        if self.config.test_until_failure > 0:
+            start = time.time()
+            if self.config.print:
+                console(f'  - Testing {self.name} {test_args} until failure (N={self.config.test_until_failure})')
+            for i in range(self.config.test_until_failure):
+                if self.config.print: console(f'  - Testing {self.name} {test_args} ({i+1}/{self.config.test_until_failure})')
+                self.test(test_args) # should throw on failure and stop loop
+            elapsed = time.time() - start
+            if self.config.print:
+                console(f'  - Testing {self.name} {test_args} N={self.config.test_until_failure}' +
+                        f' SUCCESS in {get_time_str(elapsed)}', color=Color.GREEN)
+        else:
+            if self.config.print:
+                console(f'  - Testing {self.name} {test_args}')
+            self.test(test_args)
+
+
     def _execute_run_tasks(self):
-        if self.is_test_target():
-            if not self._require_source('test'):
-                return
-            test_args = self.config.test.lstrip()
-            if self.config.test_until_failure > 0:
-                start = time.time()
-                if self.config.print:
-                    console(f'  - Testing {self.name} {test_args} until failure (N={self.config.test_until_failure})')
-                for i in range(self.config.test_until_failure):
-                    if self.config.print: console(f'  - Testing {self.name} {test_args} ({i+1}/{self.config.test_until_failure})')
-                    self.test(test_args) # should throw on failure and stop loop
-                elapsed = time.time() - start
-                if self.config.print:
-                    console(f'  - Testing {self.name} {test_args} N={self.config.test_until_failure}' +
-                            f' SUCCESS in {get_time_str(elapsed)}', color=Color.GREEN)
-            else:
-                if self.config.print:
-                    console(f'  - Testing {self.name} {test_args}')
-                self.test(test_args)
+        # a refused test must not block `start`, which asks _require_source for itself
+        if self.is_test_target() and self._require_source('test'):
+            self._run_test_task()
 
         if self.config.start:
             # start only for the current target or the root target
