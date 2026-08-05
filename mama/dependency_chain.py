@@ -1,4 +1,4 @@
-import os, sys, shutil, time, contextlib, concurrent.futures
+import os, sys, shutil, time, contextlib, threading, concurrent.futures
 from typing import List
 
 from mama.build_config import BuildConfig
@@ -474,29 +474,50 @@ def load_dependency_chain(root: BuildDependency, display=None):
     ssh_multiplex.init_fetch_semaphore(root.config.parallel_max)
 
     root.config.update_stats.start()
+    claims: dict = {}  # id(dep) -> Event, set once the owner finished that dep and its whole subtree
+    claims_lock = threading.Lock()
+
+    def claim_load(dep) -> tuple:
+        """(True, event) for the one thread that owns this dep, (False, event) for every later arrival.
+        The lock covers the claim alone. The load runs outside it, so different deps stay concurrent."""
+        with claims_lock:
+            done = claims.get(id(dep))
+            if done is not None: return False, done
+            claims[id(dep)] = done = threading.Event()
+            return True, done
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=256) as e:
         def load_dependency(dep: BuildDependency, is_entry=False):
+            """Load `dep` and its subtree exactly once. A parent that reaches a dep an earlier walk
+            finished returns at once. A parent that reaches a dep another parent owns waits for the answer
+            it needs. The first parent to reach a dep owns its load, its subtree and its display line."""
             abort.check()  # a queued load must not start a clone during a build abort
             # The walk always enters the dep it starts from, because mamabuild loads the root first and a
             # reload revives deps below a loaded scope. Any OTHER loaded dep is one a sibling already walked.
             if dep.already_loaded and not is_entry:
                 return dep.should_rebuild
+            owner, done = claim_load(dep)
+            if not owner:
+                done.wait()  # the owner decides should_rebuild, and the after_load of this parent reads it
+                return dep.should_rebuild
+            try:
+                if display is not None:  # one live line per dep, the shape the build phase already draws
+                    _run_phase(display, dep, 'load', lambda s: dep.load(), None, final=True)
+                else:
+                    dep.load()
+                changed = dep.should_rebuild  # what load() returned, and what a replayed load still holds
+                if dep.config.parallel_load:
+                    futures = [e.submit(load_dependency, child) for child in dep.get_children()]
+                    for f in futures:
+                        changed |= f.result()
+                else:
+                    for child in dep.get_children():
+                        changed |= load_dependency(child)
 
-            if display is not None:  # one live line per dep, the shape the build phase already draws
-                _run_phase(display, dep, 'load', lambda s: dep.load(), None, final=True)
-            else:
-                dep.load()
-            changed = dep.should_rebuild  # what load() returned, and what a replayed load still holds
-            if dep.config.parallel_load:
-                futures = [e.submit(load_dependency, child) for child in dep.get_children()]
-                for f in futures:
-                    changed |= f.result()
-            else:
-                for child in dep.get_children():
-                    changed |= load_dependency(child)
-
-            dep.after_load()
-            return changed
+                dep.after_load()
+                return changed
+            finally:
+                done.set()  # release every waiter, a failed load included, so no parent hangs
         try:
             load_dependency(root, is_entry=True)
         except BuildError as err:  # a bad url or a dropped clone: the report is complete, a traceback buries it

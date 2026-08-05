@@ -1,5 +1,5 @@
-"""Pins which deps the load walk enters, and that its live region holds one line per dep."""
-import io
+"""Pins which deps the load walk enters, that one thread owns each load, and one live line per dep."""
+import io, threading, time
 from testutils import FakeWalkDep, make_walk_config
 from mama.dependency_chain import load_dependency_chain
 from mama.utils.build_display import BuildDisplay
@@ -55,6 +55,51 @@ def test_a_dep_reports_what_its_load_did_not_the_opening_guess():
     line = _walk_with_display(dep)[0]
     assert 'artifactory' in line and 'clone' not in line  # relabeled from the optimistic opening label
     assert 'dep-linux-x64-release-abc1234' in line        # and it names the package it unpacked
+
+
+def _diamond(cfg, log, shared):
+    """A root with two parents of one shared dep. The barrier holds both parents until they load
+    together, so they reach the shared dep at the same time and one of them must wait."""
+    gate = threading.Barrier(2, timeout=5)
+    parents = [FakeWalkDep(name, cfg, log, [shared], on_load=gate.wait) for name in ('A', 'B')]
+    return FakeWalkDep('root', cfg, log, parents), parents
+
+
+def test_only_one_parent_loads_a_shared_dep_and_walks_its_subtree():
+    cfg = make_walk_config(serial_load=False)
+    log = []
+    below = FakeWalkDep('below', cfg, log)
+    shared = FakeWalkDep('shared', cfg, log, [below], on_load=lambda: time.sleep(0.05))
+    root, _ = _diamond(cfg, log, shared)
+    lines = _walk_with_display(root)
+    assert log.count('shared') == 1 and log.count('below') == 1  # the waiting parent walks nothing
+    assert sum('shared' in line for line in lines) == 1          # and it draws no second line
+
+
+def test_a_waiting_parent_reads_the_finished_rebuild_flag():
+    # a parent that returned early would read a half-loaded dep, and its after_load would miss the change
+    cfg = make_walk_config(serial_load=False)
+    log = []
+    def slow_load(): time.sleep(0.05); shared.should_rebuild = True
+    shared = FakeWalkDep('shared', cfg, log, on_load=slow_load)
+    root, parents = _diamond(cfg, log, shared)
+    seen = {}
+    for p in parents: p.after_load = lambda p=p: seen.__setitem__(p.name, shared.should_rebuild)
+    load_dependency_chain(root)
+    assert seen == {'A': True, 'B': True}
+
+
+def test_a_failed_load_releases_the_waiting_parent():
+    cfg = make_walk_config(serial_load=False)
+    log = []
+    def boom(): time.sleep(0.05); raise RuntimeError('clone died')
+    root, _ = _diamond(cfg, log, FakeWalkDep('shared', cfg, log, on_load=boom))
+    def walk_until_it_raises():
+        try: load_dependency_chain(root)
+        except RuntimeError: pass
+    walk = threading.Thread(target=walk_until_it_raises, daemon=True)
+    walk.start(); walk.join(10)
+    assert not walk.is_alive()  # a waiter left blocked would hang the whole load
 
 
 def test_the_output_of_a_load_feeds_its_own_line_and_not_the_terminal(capsys):
