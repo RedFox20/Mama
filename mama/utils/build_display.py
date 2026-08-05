@@ -339,7 +339,8 @@ class BuildDisplay:
                 self._pending.clear()
                 self._drawn = 0
                 self._flush()
-        if self._log is not None: self._log.close()  # drain + close the async log writer
+        # the log belongs to the run, not to this display: a later phase opens its own display and
+        # writes to the same log. log_writer closes it when the process exits.
 
     # -- internals ---------------------------------------------------------
 

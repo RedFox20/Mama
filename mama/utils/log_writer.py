@@ -1,6 +1,6 @@
 """Async build log: a daemon thread drains a queue to packages/mamabuild.log, so write() never blocks a
 build thread. The writer strips ANSI codes, and a bad path or IO error never breaks a build."""
-import os, re, threading, queue
+import atexit, os, re, threading, queue
 
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves, stripped for the log file
 
@@ -42,10 +42,27 @@ class AsyncLogWriter:
         except (OSError, ValueError): pass
 
 
+_build_log = None
+
 def open_build_log(path: str):
-    """Open `path` (truncating) as an AsyncLogWriter, or None when it cannot be created: the log must never break a build."""
+    """The one build log of this run, opened on the first call and reused after it. A run has several
+    phases, and each one that draws a display asks for the log, so only the first open may truncate.
+    Returns None when the file cannot be created: the log must never break a build."""
+    global _build_log
+    if _build_log is not None:
+        return _build_log
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        return AsyncLogWriter(open(path, 'w', encoding='utf-8'))
+        _build_log = AsyncLogWriter(open(path, 'w', encoding='utf-8'))
     except OSError:
         return None
+    atexit.register(close_build_log)  # every exit path drains it, and a display never owns it
+    return _build_log
+
+
+def close_build_log():
+    """Drain and close the build log of this run. Runs at process exit."""
+    global _build_log
+    if _build_log is not None:
+        _build_log.close()
+        _build_log = None
