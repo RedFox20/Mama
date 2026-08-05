@@ -62,6 +62,9 @@ def _find_object(build_dir):
 def test_configure_and_build_produce_the_right_target_machine(platform, machine, probe_path, tmp_path):
     if probe_path and not os.path.exists(probe_path):
         pytest.skip(f'no {platform} toolchain at {probe_path}')
+    # A platform with no probe path builds with the host compiler, which only a matching host has.
+    if platform == 'linux' and not testutils.is_linux():
+        pytest.skip('a linux target needs a linux host')
     _write_probe_project(tmp_path)
     cwd = os.getcwd()
     try:
