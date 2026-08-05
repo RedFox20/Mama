@@ -59,13 +59,15 @@ def test_mamabuild_loads_the_root_then_opens_one_log_before_it_dispatches(tmp_pa
     # the root load names the workspace the log lives in, so the order is load, open, dispatch
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     order = []
+    def open_log(*args): order.append('log'); return 'LOG'
     with stub_loaders(lambda r: None), patch('mama.main.print_build_banner'), \
          patch('mama.main.load_root', side_effect=lambda r: order.append('load')) as load, \
-         patch('mama.main.open_run_log', side_effect=lambda *a: order.append('log')) as opened, \
+         patch('mama.main.open_run_log', side_effect=open_log) as opened, patch('mama.main.set_run_log') as wired, \
          patch('mama.main.execute_unified', side_effect=lambda *a, **k: order.append('dispatch')):
         mamabuild(['build'], source_dir=str(tmp_path))
     assert order == ['load', 'log', 'dispatch']
     assert load.call_count == 1 and opened.call_count == 1  # one run, one root load, one log
+    wired.assert_called_once_with('LOG')  # console() logs the lines that no display owns
 
 
 def test_the_classic_path_closes_its_live_region_before_the_package_listing(tmp_path):

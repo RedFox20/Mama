@@ -2,7 +2,7 @@
 import sys, os
 
 from .types.local_source import LocalSource
-from .utils.system import Color, console, warning
+from .utils.system import Color, console, warning, set_run_log
 from .utils.sub_process import execute, execute_piped_echo
 from .utils.git_status import load_repo_status
 from .utils.paths import glob_with_extensions, glob_folders_with_name_match
@@ -340,7 +340,7 @@ def mamabuild(args, source_dir=os.getcwd()):
     # The root loads before every other dep: its settings() locks the compiler that names each dep dir,
     # and its mamafile names the workspace. The run then owns ONE build log, which every phase writes to.
     load_root(root)
-    open_run_log(config.workspaces_root, root.workspace)
+    set_run_log(open_run_log(config.workspaces_root, root.workspace))
 
     if config.sched_debug:  # TEMP: load the tree, print the build-weight calc per target, then stop
         load_dependency_chain(root)

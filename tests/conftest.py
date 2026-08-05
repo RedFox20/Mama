@@ -74,6 +74,16 @@ def _forget_repo_status():
 
 
 @pytest.fixture(autouse=True)
+def _close_run_log():
+    """Close the build log after every test that opened one. It holds a file under that test's tmp dir,
+    and console() would keep writing into it for the whole session."""
+    yield
+    from mama.utils import log_writer, system
+    log_writer.close_build_log()
+    system.set_run_log(None)
+
+
+@pytest.fixture(autouse=True)
 def _disarm_abort():
     """Clear the process-wide abort flag after every test. A test that sets the flag and then fails
     leaves it set. Every later test that spawns a subprocess then dies on that stale flag."""

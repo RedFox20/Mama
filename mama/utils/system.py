@@ -68,6 +68,7 @@ _progress_active = False  # last write left cursor mid-row
 _ERASE_EOL = '\x1b[K'  # ANSI erase-to-end-of-line (colorama enables it on Windows)
 _active_display = None  # duck-typed BuildDisplay, routes normal lines above its live region
 _capture = threading.local()  # per-thread sink: a running job's console() lines go to its display task
+_run_log = None  # the build log of this run, for the lines no display owns
 
 # Set by GitHub Actions and GitLab CI (CI), Azure Pipelines, Jenkins and TeamCity.
 _CI_ENV_VARS = ('CI', 'TF_BUILD', 'JENKINS_URL', 'TEAMCITY_VERSION')
@@ -97,6 +98,13 @@ def _redraw_due() -> bool:
     due = last is not None and (now - last) >= _HEADLESS_PROGRESS_INTERVAL
     if due or last is None: _progress_at.at = now
     return due
+
+
+def set_run_log(log):
+    """Give console() the build log of this run. A display logs the lines it owns, so this covers the
+    rest: the banner before it opens, and the build summary and diagnostics after it closes."""
+    global _run_log
+    _run_log = log
 
 
 def set_active_display(display):
@@ -174,6 +182,9 @@ def console(text:str, color=None, end="\n"):
         if is_redraw: text += _ERASE_EOL  # erase-to-EOL so a shorter redraw clears the longer prev line
         print(text, end=end, flush=True)
         _progress_active = (end != '\n')
+        # under the lock, so the log keeps the order of the terminal. A mid-progress redraw carries no
+        # newline, and one log line per percent would bury the run.
+        if _run_log is not None and end == '\n': _run_log.write(clean + '\n')
 
 
 def progress(text:str, color=None, final=False):

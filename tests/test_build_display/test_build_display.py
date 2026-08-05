@@ -467,6 +467,23 @@ def test_log_writes_permanent_lines_and_closes():
     assert 'Built 3 target(s)' in log.text
 
 
+def test_the_summary_a_closed_display_no_longer_owns_still_reaches_the_log(capsys):
+    # the build summary and the diagnostics print after close(), and an error there must be traceable
+    log = _Log()
+    d, _, _ = _disp(isatty=False, log=log)
+    d.start_task('geo', 'build', 'geo'); d.feed('geo', 'compiling x.cpp'); d.finish_task('geo', ok=True)
+    d.close()
+    system.set_run_log(log)
+    try:
+        system.console('Built 27 target(s) in 5m 22s')
+        system.warning('  geo: 1 warning(s)')
+    finally:
+        system.set_run_log(None)
+    assert log.text.index('compiling x.cpp') < log.text.index('Built 27 target(s)')  # after every target
+    assert '1 warning(s)' in log.text
+    assert 'Built 27 target(s)' in capsys.readouterr().out  # and still on the terminal
+
+
 def test_region_line_has_no_trailing_padding_before_a_preview_arrives():
     d, _, clk = _disp(isatty=True)
     d.start_task('t', 'configure', 'rpclib')
