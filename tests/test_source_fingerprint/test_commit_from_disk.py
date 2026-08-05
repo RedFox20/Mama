@@ -1,8 +1,5 @@
-"""Pins reading the current commit from `.git` instead of spawning `git show --format=%h`.
-
-git abbreviates from the object count, never from the working tree, so a clean and a dirty checkout
-report the same hash. The length comes from what mama stored last time, so an archive name cannot move.
-"""
+"""Pins reading the current commit from `.git` instead of spawning `git show --format=%h`. The length
+comes from what mama stored last time, so an archive name cannot move."""
 import os, subprocess
 import pytest
 
