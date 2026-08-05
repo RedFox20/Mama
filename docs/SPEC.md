@@ -35,9 +35,12 @@ an audit against the code cannot confirm it. Every other line is a claim the cod
 
 ## 0 Why mama exists
 
-Mama is a **project-based, from-source, actively-modifiable** dependency and build tool. It follows the
-branch, tag or commit a mamafile names, with no lockfile and no version solver. `mama update` moves a
-branch dep to the newest commit. It builds for **several platforms side by side**. The whole point
+Mama is a **project-based, from-source, actively-modifiable** dependency and build tool. It **follows
+the latest** by default. `mama update` fetches a branch dep and hard-resets it to `origin/<branch>`, so
+the tree matches upstream even after a force-push. A pin wins over that default: a tag, or a commit,
+which mama keeps in the same field. A branch declared beside a tag still wins the checkout. A
+`self.version` pins the artifactory archive name, not the git revision. There is no lockfile and no
+version solver. Mama builds for **several platforms side by side**. The whole point
 is that `mama build` and then `mama android build` both work, from one checkout, with no clean between
 them.
 
@@ -113,6 +116,16 @@ also keeps the user home dir. See `docs/BUGS.md`.
 
 **Every `(platform, arch, variant)` pair gets its own build dir, and Linux also splits gcc from clang.**
 A shared dir means two builds clobber each other's cache and libraries.
+
+**Debug and release deliberately share one build dir.** The name carries no build-type token, so
+`mama build debug` reuses the dir `mama build` used. It runs no configure either, because a build-type
+flip does not force one, so the cmake cache keeps the older `CMAKE_BUILD_TYPE`. See `docs/BUGS.md`.
+The artifactory archive name does carry `release` or `debug`, so the two packages never collide on the
+server.
+
+**Why:** mama lets a project mix release and debug packages, so the build type belongs to the package
+name and not to the tree. A sanitizer is the opposite case. `-asan` and `-tsan` each get their own
+tree, because a sanitizer build that shares a tree with a plain one reports false positives.
 
 The variant suffix is spelled in exactly one place, `build_names.build_variant_suffix`. The build dir
 name and the artifactory archive name both read it, so they cannot disagree.
@@ -278,7 +291,7 @@ A plain `mama build` makes no network call for a dep in state 1.
 **Why:** `mama build` is the hot path. It runs many times per developer per day, so it has to stay
 cheap. An ls-remote per shim across N deps is exactly the cost the cached path exists to avoid.
 
-### Local modifications are never destroyed
+### Mama protects local modifications
 
 A package under `packages/` is a working copy a developer edits, builds and tests in place before
 publishing it. So a load protects it:
@@ -289,6 +302,10 @@ publishing it. So a load protects it:
   would overwrite them.
 - A plain `mama build` runs no pull at all, so it cannot move a working tree the developer is using.
 - An in-place edit still rebuilds the dep, through the working-tree fingerprint of reason 9.
+
+One gap: the dirty-tree guard asks `git diff --quiet HEAD`, which reads a local COMMIT as clean. The
+`reset --hard origin/<branch>` of an update then moves the branch off that commit. Uncommitted work is
+safe. A commit the developer has not pushed is not.
 
 **Why:** this is the workflow mama exists for. A tool that silently reset a package to origin would
 lose a day of work, and no speed gain pays for that.

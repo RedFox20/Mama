@@ -4,6 +4,15 @@ Open defects, newest first. Tick the box in the commit that fixes the bug, and d
 the fix ships in a release. A bug that needs more than five lines here gets its own handover doc, and
 this list links to it.
 
+- [ ] **`mama build debug` after `mama build` builds release, and says nothing.**
+  Debug and release share one build dir on purpose, but a build-type flip does not force a configure.
+  `must_configure` at `buildsys/cmake/configure.py:390` reads only `update` and `run_cmake_configure`,
+  and `debug` sets neither. `run_config` then returns early on the existing cache, which still holds
+  `CMAKE_BUILD_TYPE=RelWithDebInfo`. `--config Debug` reaches `cmake --build`, so a multi-config
+  generator such as MSVC is fine. A single-config generator, Ninja or Make, silently builds release.
+  The build type is already part of the configure fingerprint, so adding it to `must_configure` fixes
+  it. If mama means to keep the older build type, delete this entry.
+
 - [ ] **A revived deferred dep with a parent-supplied mamafile crashes the run.**
   `revive_deferred_load` clears `already_loaded` and `target`, but it keeps `children` and leaves
   `did_skim` False. The second `_load` therefore runs `dependencies()` again, and `add_child` raises
