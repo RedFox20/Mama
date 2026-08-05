@@ -36,13 +36,25 @@ _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to
               'Your configuration specifies to merge with the ref ', 'from the remote, but no such ref was fetched',
               'There is no tracking information for the current branch')
 
+# Transfer bookkeeping git prints around a fetch, a clone or a submodule update. It reports no target
+# state and no failure, so a parallel load prints several such lines per dep and buries the real ones.
+_GIT_CHATTER = ('remote: Enumerating objects:', 'remote: Total ', 'From ', 'Cloning into ', 'Submodule ',
+                '* branch ', '* [new branch]', '* [new tag]', '* [new ref]')
+
 # An ssh client built without GSSAPI warns once per fetch about the `GSSAPIAuthentication` line many
 # distros ship in /etc/ssh/ssh_config. Auth still works, so the line says nothing about the build.
 _SSH_CONFIG_WARNING = re.compile(r'^\S*(?:ssh_config|/config) line \d+: ')
 
+# mama detaches on purpose, so no run wants git's detached-HEAD tutorial. `-c` also reaches a
+# submodule child, through GIT_CONFIG_PARAMETERS.
+_GIT_QUIET = 'git -c advice.detachedHead=false'
+
 def _is_git_status_noise(line: str) -> bool:
-    return line.startswith(_GIT_NOISE) or 'set up to track ' in line \
-        or _SSH_CONFIG_WARNING.match(line) is not None
+    """True for benign git chatter that reports no target state: post-op status text, transfer
+    bookkeeping and ref updates. Verbose still prints it, and the failure report never keeps it."""
+    text = line.strip()
+    return text.startswith(_GIT_NOISE) or text.startswith(_GIT_CHATTER) \
+        or 'set up to track ' in text or _SSH_CONFIG_WARNING.match(text) is not None
 
 
 _CLONE_ATTEMPTS = 3
@@ -278,7 +290,7 @@ class Git(DepSource):
             error(f'  {dep.name: <16} {msg}')
             if throw: raise GitError(msg)
             return 1
-        cmd = f'git --git-dir="{dep.src_dir}/.git" --work-tree="{dep.src_dir}" {git_command}'
+        cmd = f'{_GIT_QUIET} --git-dir="{dep.src_dir}/.git" --work-tree="{dep.src_dir}" {git_command}'
         if dep.config.verbose:
             warning(f'  {dep.name: <16} {cmd}')
         ssh_multiplex.ensure_master_for_url(self.url)
@@ -684,7 +696,7 @@ class Git(DepSource):
 
 
     def clone_with_filtered_progress(self, dep: BuildDependency, clone_args: str, clone_to_dir: str):
-        cmd = f'git clone {clone_args} {clone_to_dir}'
+        cmd = f'{_GIT_QUIET} clone {clone_args} {clone_to_dir}'
         for attempt in range(1, _CLONE_ATTEMPTS + 1):
             result, output, elapsed = self._run_git_with_filtered_progress(dep, cmd, label='CLONE')
             if result == 0:

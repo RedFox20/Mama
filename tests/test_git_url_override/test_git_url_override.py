@@ -61,13 +61,19 @@ def test_no_override_leaves_url(tmp_path):
     'HEAD is now at 98f23d8 QCoro 0.13.0',  # post reset/checkout chatter from a parallel-mode git checkout
     "Your configuration specifies to merge with the ref 'refs/heads/x'", 'from the remote, but no such ref was fetched.',
     '/etc/ssh/ssh_config line 53: Unsupported option "gssapiauthentication"',  # ssh built without GSSAPI
-    '/home/ci/.ssh/config line 7: Unsupported option "gssapikeyexchange"'])
+    '/home/ci/.ssh/config line 7: Unsupported option "gssapikeyexchange"',
+    # transfer bookkeeping: a percent-less counter, the pack total, the ref update and the submodule report
+    'remote: Enumerating objects: 12, done.', 'remote: Total 11 (delta 8), reused 2 (delta 0)',
+    'From https://github.com/RedFox20/ReCpp', ' * branch  caf5158 -> FETCH_HEAD',
+    ' * [new branch] main -> origin/main', "Cloning into '/w/packages/SDL/SDL'...",
+    "Submodule 'vcpkg' (https://github.com/microsoft/vcpkg.git) registered for path 'vcpkg'",
+    "Submodule path 'vcpkg': checked out '7213cf8'"])
 def test_update_noise_is_filtered(line):
     assert _is_git_status_noise(line)
 
 
 @pytest.mark.parametrize('line', [
-    'error: pathspec broke', 'remote: Enumerating objects: 12, done.', "fatal: couldn't find remote ref x",
+    'error: pathspec broke', "fatal: couldn't find remote ref x",
     'ControlSocket /home/ci/.ssh/cm/99ac79e already exists, disabling multiplexing',  # a real multiplex fault
     'mux_client_request_session: session request failed: Session open refused by peer'])
 def test_real_git_output_is_kept(line):
@@ -79,6 +85,18 @@ def test_git_progress_status_classifies_transfer_lines():
     assert git_progress_status('remote: Counting objects: 100% (30/30), done.')[1] == 100
     assert git_progress_status(' * [new branch] main -> origin/main') is None  # a real ref line, not progress
     assert git_progress_status('From https://github.com/RedFox20/ReCpp') is None
+
+
+@pytest.mark.parametrize('line,percent', [
+    ('Unpacking objects:  45% (5/11)', 45), ('remote: Compressing objects:  64% (16/25)', 64),
+    ('Checking out files:  90% (900/1000)', 90), ('Filtering content:  12% (1/8)', 12),
+    ('remote: Enumerating objects: 100% (21/21), done.', 100)])
+def test_every_git_counter_is_classified_as_progress(line, percent):
+    assert git_progress_status(line)[1] == percent  # a missed counter reaches the terminal once per percent
+
+
+def test_a_counter_without_a_percent_is_not_progress():
+    assert git_progress_status('remote: Enumerating objects: 21, done.') is None  # chatter, see the noise filter
 
 
 def test_is_progress_line_matches_git_and_download_bars():
@@ -95,7 +113,8 @@ def test_run_git_collapses_progress_flood_but_keeps_real_lines(tmp_path):
     # run_git must collapse the per-percent progress lines instead of printing every one raw
     dep = make_mock_dep(tmp_path, print=True)
     flood = [f'Receiving objects: {p}% ({p}/100)' for p in range(101)]
-    real = ['From https://github.com/RedFox20/ReCpp', ' * [new branch] main -> origin/main']
+    real = ['From https://github.com/RedFox20/ReCpp', ' * [new branch] main -> origin/main',
+            'warning: the repository is shallow']
     consoled, progressed = [], []
     def fake_run(cmd, io_func=None, **kw):
         for ln in flood + real: io_func(Mock(), ln)
@@ -108,7 +127,8 @@ def test_run_git_collapses_progress_flood_but_keeps_real_lines(tmp_path):
         dep.dep_source.run_git(dep, 'fetch --unshallow')
     assert not any('Receiving objects' in c for c in consoled)  # no raw per-percent flood on the console
     assert len(progressed) <= 5                                 # collapsed into a few throttled redraws
-    assert any('new branch' in c for c in consoled)             # real ref output still shown
+    assert not any('new branch' in c or 'From http' in c for c in consoled)  # transfer bookkeeping stays quiet
+    assert any('repository is shallow' in c for c in consoled)  # a real warning still reaches the user
 
 
 def test_check_status_override_is_not_url_change(tmp_path):

@@ -64,15 +64,20 @@ class ProgressBar:
         self._draw(self._percent(), final=True)
 
 
-# git transfer progress ('Receiving objects: 42% (...)') classification - shared so every place that
-# captures git output collapses the per-percent flood identically.
-_GIT_PROGRESS = (('remote: Counting objects:', 'counting objects   '), ('remote: Compressing objects:', 'compressing objects'),
+# git transfer progress classification, shared so every git runner collapses the flood identically. A
+# counter missing here reaches the terminal once per percent. `remote: ` is a substring away, so no needle carries it.
+_GIT_PROGRESS = (('Counting objects:', 'counting objects   '), ('Compressing objects:', 'compressing objects'),
                  ('Receiving objects:', 'receiving objects  '), ('Resolving deltas:', 'resolving deltas   '),
-                 ('Updating files:', 'updating files     '))
+                 ('Unpacking objects:', 'unpacking objects  '), ('Updating files:', 'updating files     '),
+                 ('Checking out files:', 'checking out files '), ('Filtering content:', 'filtering content  '),
+                 ('Enumerating objects:', 'enumerating objects'))
 
 
 def git_progress_status(line: str):
-    """(status label, percent) for a raw git transfer-progress line ('Receiving objects: 42%'), else None."""
+    """(status label, percent) for a raw git transfer-progress line ('Receiving objects: 42%'), else None.
+    A counter line with no percent is not progress. `remote: Enumerating objects: 21, done.` is chatter,
+    which the git noise filter drops instead."""
+    if '%' not in line: return None
     for needle, status in _GIT_PROGRESS:
         if needle in line:
             pct = line.split('%')[0].rsplit(':', 1)[-1].strip()

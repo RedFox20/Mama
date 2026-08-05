@@ -71,7 +71,7 @@ def _failed_clone(output):
 def test_the_report_names_the_target_url_ref_dir_command_and_git_error():
     msg = _failed_clone(RESET)
     for expected in ['[CLONE FAILED]  ffmpeg', 'https://git.ffmpeg.org/ffmpeg.git', 'n8.0.1', '/packages/ffmpeg',
-                     'git clone --depth 1', '128 after 2.2s', 'curl 35 Recv failure', 'Check the network']:
+                     'clone --depth 1', '128 after 2.2s', 'curl 35 Recv failure', 'Check the network']:
         assert expected in msg
 
 
