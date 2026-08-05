@@ -18,6 +18,7 @@ from .papa_deploy import papa_deploy_to
 # papa_upload is deferred to the one call site in papa_package(), see there
 import mama.buildsys.msbuild as msbuild
 from .utils.fileio import copy_if_needed, read_text_from
+from .utils.errors import BuildError
 from .utils.net import download_and_unzip, download_file
 from .utils.paths import glob_with_extensions, normalized_join, path_join
 from .utils.progress import get_time_str
@@ -1656,6 +1657,19 @@ class BuildTarget:
                 package.clean_intermediate_files(self)
         self._run_packaging()
 
+    def _run_package_hook(self):
+        """Run the package() hook of the mamafile, and name the target when it fails.
+
+        A `list` run builds nothing, so a package() that reads a build product cannot pass. That is
+        not a failure of the run, because a list only reports. Every other run stops."""
+        try:
+            self.package() # user customization
+        except Exception as e:
+            if not self.config.list:
+                raise BuildError(f'Package failed for target {self.name}: {e}') from e
+            warning(f'  - Package {self.name: <16} INCOMPLETE, this run built nothing: {e}')
+
+
     def _run_packaging(self):
         # package() is user mamafile code that asserts on build outputs. Wipe, upload, deploy and test walk
         # the task chain without building, so they would package artifacts never produced or just deleted.
@@ -1680,7 +1694,7 @@ class BuildTarget:
                 self.exported_assets = []
 
             # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
-            self.package() # user customization
+            self._run_package_hook()
 
             # the user provided no packaging, use the default packaging instead
             if not self.exported_includes and not self.no_includes:
@@ -1700,7 +1714,8 @@ class BuildTarget:
                     os.remove(artifactory_papa_file)
 
         elif self.dep.from_artifactory:
-            self.packaging_result = 'artifactory-cache'
+            # name the archive, so a listing shows which package the exports below came out of
+            self.packaging_result = f'artifactory-cache {self.dep.artifactory_archive}'.rstrip()
         elif not self.dep.should_rebuild:
             self.packaging_result = 'local-cache'
         else:

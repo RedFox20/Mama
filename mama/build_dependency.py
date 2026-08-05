@@ -52,6 +52,7 @@ class BuildDependency:
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # True when this dep loaded from artifactory
+        self.artifactory_archive = '' # the package it unpacked, so a listing can name the source of the exports
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # a root dep always builds
@@ -325,6 +326,7 @@ class BuildDependency:
         probe_target = BuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)
         fetched, dependencies = artifactory_load_target(probe_target, self.build_dir, num_files_copied=0)
         if not fetched: return None
+        self.artifactory_archive = stored_archive
         if dependencies: self.add_children(dependencies)
         if self.config.print:
             console(f'  - Target {self.name: <16} SHIM CACHED {marker.get("archive", "")}', color=Color.GREEN)

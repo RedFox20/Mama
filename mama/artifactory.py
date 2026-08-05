@@ -358,14 +358,18 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
             and not target.config.test:
             console(f'    Artifactory cache {local_file}')
         success, deps = unzip_and_load_target(target, local_file)
-        if success: return (success, deps)
+        if success:
+            target.dep.artifactory_archive = archive
+            return (success, deps)
 
     url = artifactory_sanitize_url(url)
     local_file = _fetch_package(target, url, archive, cache_dir)
     if not local_file:
         return (False, None)
     console(f'  - {target.name: <16} Artifactory unzip {archive}')
-    return unzip_and_load_target(target, local_file)
+    fetched, deps = unzip_and_load_target(target, local_file)
+    if fetched: target.dep.artifactory_archive = archive
+    return (fetched, deps)
 
 
 def try_load_artifactory_shim(dep) -> Tuple:
