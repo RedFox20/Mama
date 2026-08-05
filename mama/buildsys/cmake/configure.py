@@ -5,7 +5,7 @@ from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
 from mama.utils.errors import BuildError
 from mama.utils.fileio import file_sha1, read_text_from, write_text_to
-from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir
+from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
@@ -223,14 +223,14 @@ def _probe_toolchain(target:BuildTarget):
 def _seed_root(target:BuildTarget) -> str:
     """Where the compiler seeds live.
 
-    The workspace by default, under `packages/`, so `rm -rf packages/` still heals a broken seed. Under
-    `globalcache` the root moves to the user cache dir. The seed id carries the platform, the arch and a
-    compiler hash, so one probe there serves every checkout on this machine. A new checkout then skips
-    the 4-second probe, which is what a CI job and the test suite want. A developer keeps the local root,
-    because one bad seed in the user cache would reach every project."""
+    The workspace by default, under `packages/.mama/`, so `rm -rf packages/` still heals a broken seed.
+    Under `globalcache` the root moves to the user cache dir. The seed id carries the platform, the arch
+    and a compiler hash, so one probe there serves every checkout on this machine. A new checkout then
+    skips the 4-second probe, which is what a CI job and the test suite want. A developer keeps the local
+    root, because one bad seed in the user cache would reach every project."""
     if target.config.global_compiler_cache:
         return user_cache_dir('compiler_seed')
-    return path_join(os.path.dirname(os.path.dirname(target.build_dir())), '.mama_compiler_seed')
+    return workspace_mama_dir(os.path.dirname(os.path.dirname(target.build_dir())), 'compiler_seed')
 
 
 def _seed_coordinator(target:BuildTarget) -> seedcache.Coordinator:

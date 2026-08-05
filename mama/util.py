@@ -40,7 +40,7 @@ _MOVED = {'BuildError': 'errors', 'Color': 'system', 'GitError': 'errors', 'MAMA
           'save_file_if_contents_changed': 'fileio', 'short_path': 'paths', 'source_fingerprint': 'git_status',
           'source_walk_file': 'git_status', 'source_walk_moved': 'git_status', 'strstr_multi': 'paths',
           'try_unzip': 'archive', 'unzip': 'archive', 'user_cache_dir': 'paths', 'version_at_least': 'versions',
-          'warning': 'system', 'write_text_to': 'fileio'}
+          'warning': 'system', 'workspace_mama_dir': 'paths', 'write_text_to': 'fileio'}
 
 __all__ = sorted(n for n in _MOVED if not n.startswith('_'))
 

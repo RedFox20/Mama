@@ -73,6 +73,15 @@ def _cache_base() -> str:
     return path_join(base, 'mama')
 
 
+_MAMA_DIR = '.mama'  # one hidden entry per workspace, so `ls packages/` shows packages and nothing else
+
+
+def workspace_mama_dir(workspace: str, *parts) -> str:
+    """What mama keeps inside a workspace but never ships: the lock sidecars and the compiler seeds.
+    Everything lives under one `.mama` dir, so `rm -rf packages/` still heals all of it at once."""
+    return path_join(workspace, _MAMA_DIR, *parts)
+
+
 @lru_cache(maxsize=None)
 def user_cache_dir(*parts) -> str:
     """Cache dir for what belongs to this machine and this user, not to one workspace. The compiler seed

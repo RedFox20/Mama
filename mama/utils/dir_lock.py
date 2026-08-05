@@ -1,6 +1,7 @@
 """Cross-process advisory lock on a directory, held as an flock/msvcrt lock on a sidecar file under
-`.mama_locks`. The kernel releases it when the fd closes or the process dies, so a crash never sticks."""
+`.mama/locks`. The kernel releases it when the fd closes or the process dies, so a crash never sticks."""
 import contextlib, os, time
+from .paths import workspace_mama_dir
 from .system import System, warning
 
 if System.windows:
@@ -25,24 +26,21 @@ else:
         except OSError: pass
 
 
-_LOCK_DIR = '.mama_locks'  # one hidden dir per workspace, so no sidecar clutters the package list
-
-
 @contextlib.contextmanager
 def interprocess_dir_lock(lock_dir: str, timeout: float, poll: float = 0.1):
     """Hold an exclusive cross-process lock on `lock_dir` for the `with` block. Yields True on acquire, else
     False on timeout, and a timed-out caller still runs, unlocked. Always releases on exit.
 
-    The sidecar lives in a `.mama_locks` dir beside lock_dir, never inside it. A lock file removed while a
-    process holds it keeps that inode for that process alone. The next opener creates a fresh inode and
-    takes it, so two processes both believe they hold the lock. `mama wipe` removes a whole dep dir, so a
-    sidecar inside one would hit exactly that.
+    The sidecar lives in the `.mama/locks` dir of the workspace, never inside lock_dir. A lock file removed
+    while a process holds it keeps that inode for that process alone. The next opener creates a fresh inode
+    and takes it, so two processes both believe they hold the lock. `mama wipe` removes a whole dep dir, so
+    a sidecar inside one would hit exactly that.
 
     lock_dir: the directory to guard. Different lock_dirs never contend, so loads of different deps stay parallel
     timeout: seconds to wait for the lock
     poll: seconds between lock attempts"""
     lock_dir = os.path.normpath(lock_dir)
-    locks = os.path.join(os.path.dirname(lock_dir) or '.', _LOCK_DIR)
+    locks = workspace_mama_dir(os.path.dirname(lock_dir) or '.', 'locks')
     os.makedirs(locks, exist_ok=True)
     fd = os.open(os.path.join(locks, f'{os.path.basename(lock_dir)}.lock'), os.O_RDWR | os.O_CREAT, 0o644)
     acquired = False

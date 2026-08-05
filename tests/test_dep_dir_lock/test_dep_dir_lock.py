@@ -14,7 +14,7 @@ def test_acquires_uncontended_and_puts_the_sidecar_beside_not_inside(tmp_path):
     d = str(tmp_path / 'pkg' / 'libfoo')
     with interprocess_dir_lock(d, timeout=5) as ok:
         assert ok is True
-        assert os.path.exists(str(tmp_path / 'pkg' / '.mama_locks' / 'libfoo.lock'))
+        assert os.path.exists(str(tmp_path / 'pkg' / '.mama' / 'locks' / 'libfoo.lock'))
         assert not os.path.exists(d)  # the lock never creates the dir it guards, so a wipe cannot reach it
 
 

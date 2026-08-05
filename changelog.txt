@@ -4,7 +4,7 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - feature: the load phase draws one live line per dep, with no git chatter
  - feature: one build log per run, holding the load, the build and the summary
- - bugfix: dep lock files no longer clutter the packages dir
+ - bugfix: mama keeps its locks and compiler seeds in one packages/.mama dir
  - bugfix: a targeted run loads and builds only the subtree of its target
  - bugfix: a shared dependency loads once, not once per parent
  - bugfix: wipe a target that loaded as a package, instead of doing nothing

@@ -17,7 +17,7 @@ def test_the_seed_stays_in_the_workspace_by_default(tmp_path):
     # a developer heals a broken seed with `rm -rf packages/`, which only works while it lives there
     t, _ = make_configured_target(tmp_path, global_compiler_cache=False)
     root = cc._seed_root(t)
-    assert root.endswith('/.mama_compiler_seed')
+    assert root.endswith('/.mama/compiler_seed')
     assert root.startswith(util.forward_slashes(str(tmp_path)))
 
 
