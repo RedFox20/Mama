@@ -765,9 +765,13 @@ class Git(DepSource):
         update`. Most dependencies have none, so mama paid both for nothing, once per dependency per
         update. `.gitmodules` is a tracked file at the repository root, so a plain clone still brings
         it and this check reads the truth.
+
+        The exclude skips a committed worktree dir. Such a gitlink has no `.gitmodules` url,
+        and one undeclared gitlink fails the whole init.
         shallow: clone each submodule at depth 1, to match a shallow parent clone"""
         if not os.path.exists(path_join(dep.src_dir, '.gitmodules')): return
-        self.run_git(dep, 'submodule update --init --recursive' + (' --depth 1' if shallow else ''))
+        cmd = 'submodule update --init --recursive' + (' --depth 1' if shallow else '')
+        self.run_git(dep, f'{cmd} -- ":(exclude).worktrees"')
 
 
     def unshallow(self, dep: BuildDependency):
