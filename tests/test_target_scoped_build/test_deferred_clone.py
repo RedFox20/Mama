@@ -101,29 +101,29 @@ def _walkable_root(tmp_path, target):
     root = make_mock_dep(tmp_path, name='root', target=target, deps_only=False)
     root.config.targets_all.return_value = False
     root.config.target_matches = lambda name, t=target: name.lower() == t.lower()
-    loaded = []
+    skimmed = []
     def branch(name, children=(), is_src=True):
         d = _fake(name, children)
         d.dep_source = SimpleNamespace(is_src=is_src)
         d.is_real_clone = lambda: False
-        d.load = lambda d=d: loaded.append(d.name)
+        d.skim = lambda d=d: skimmed.append(d.name)
         return d
     root.children = [branch('gitdep', is_src=False), branch('local', [branch('deep')]), branch('sibling')]
-    return root, loaded
+    return root, skimmed
 
 
 def test_the_walk_stops_as_soon_as_the_graph_names_the_target(tmp_path):
-    root, loaded = _walkable_root(tmp_path, target='local')
+    root, skimmed = _walkable_root(tmp_path, target='local')
     with patch.object(build_dependency.BuildDependency, 'load'):
         chain.load_path_to_target(root)
-    assert loaded == []   # the root load already named `local`, so no child load ran
+    assert skimmed == []   # the root load already named `local`, so no child skim ran
 
 
 def test_the_walk_reads_a_local_branch_before_a_git_branch(tmp_path):
-    root, loaded = _walkable_root(tmp_path, target='deep')
+    root, skimmed = _walkable_root(tmp_path, target='deep')
     with patch.object(build_dependency.BuildDependency, 'load'):
         chain.load_path_to_target(root)
-    assert loaded == ['local']   # the local branch named `deep`, so gitdep and sibling stayed unread
+    assert skimmed == ['local']   # the local branch named `deep`, so gitdep and sibling stayed unread
 
 
 def test_the_walk_never_turns_a_cached_shim_into_a_clone(tmp_path):

@@ -138,6 +138,17 @@ class BuildTarget:
         return self.dep.get_children()
 
 
+    def _dep_path(self, kind: str, path: str, subpath: str) -> str:
+        """One directory of this dep, or a raise. A caller that reads a path the load has not
+        resolved gets None, and a copy then writes outside the dependency."""
+        if self.dep.skimming:
+            raise RuntimeError(f'{self.name}: {kind}() is unavailable while mama explores the graph.' + \
+                               ' Read the path in configure(), build() or package() instead.')
+        if not path:
+            raise RuntimeError(f'{self.name}: {kind}() has no path. An artifactory package has no source dir.')
+        return path_join(path, subpath) if subpath else path
+
+
     def source_dir(self, subpath=''):
         """
         Returns the current source directory.
@@ -148,8 +159,7 @@ class BuildTarget:
             # --> C:/Projects/ReCpp/lib/ReCpp.lib
         ```
         """
-        if not subpath: return self.dep.src_dir
-        return path_join(self.dep.src_dir, subpath)
+        return self._dep_path('source_dir', self.dep.src_dir, subpath)
 
 
     def build_dir(self, subpath=''):
@@ -162,8 +172,7 @@ class BuildTarget:
             # --> C:/Projects/ReCpp/build/windows/lib/ReCpp.lib
         ```
         """
-        if not subpath: return self.dep.build_dir
-        return path_join(self.dep.build_dir, subpath)
+        return self._dep_path('build_dir', self.dep.build_dir, subpath)
 
 
     def host_build_dir(self, subpath=''):

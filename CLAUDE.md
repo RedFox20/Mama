@@ -219,6 +219,12 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   loads the subtree of the target and nothing else. When the graph never names the
   target, the cached packages expand first, because they cost no network. Only then
   do the deps that need a fetch expand.
+- **A skim names children, it does not load a dep.** `BuildDependency.skim` parses the
+  mamafile and runs `settings()` and `dependencies()`, because only those two hooks name
+  a child. It creates no build dir. Both hooks run once, so `_load` must skip them when
+  `did_skim` is set. A second `dependencies()` call makes `add_child` refuse a child it
+  already holds. While a skim runs, `build_dir()` and `source_dir()` raise, so a mamafile
+  that reads a path too early fails fast instead of writing outside the dependency.
 - **EVERY action that names a target executes that subtree alone**, not only build,
   upload and deploy. An out-of-scope dep builds nothing, yet it still reaches
   `_run_packaging`, where a mamafile asserts on libs that no run produced.

@@ -46,6 +46,8 @@ class BuildDependency:
         self.currently_loading = False
         self.load_deferred = False # a targeted load skipped the clone fallback of a dep outside the target
         self.clone_revived = False # revive_deferred_load ran, so the next load must clone
+        self.skimming = False   # a skim runs the hooks right now, so every dep path reads as unresolved
+        self.did_skim = False   # settings() and dependencies() already ran, so the load must not repeat them
         self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
@@ -350,6 +352,26 @@ class BuildDependency:
         self.create_build_dir_if_needed()
         return self.target
 
+
+    def skim(self):
+        """Name the children of this dep without loading it. The walk uses this to find a target.
+
+        A skim parses the mamafile and runs settings() and dependencies(), because only those two
+        hooks name a child. It fetches nothing, it clones nothing and it creates no build dir. The
+        hooks run once, so the later load must not repeat them, and add_child cannot raise.
+
+        The root never skims. Its load locks the compiler, and every dep dir name below reads that."""
+        if self.is_root or self.did_skim or self.already_loaded: return
+        self.did_skim = True
+        self.create_build_target()
+        self._update_dep_name_and_dirs(self.name)  # requires the workspace the mamafile names
+        self.skimming = True  # a hook that reads a dep path now gets a raise, not a half-resolved path
+        try:
+            self.target.settings()
+            self.target.dependencies()
+        finally:
+            self.skimming = False
+
     def _git_checkout_if_needed(self) -> bool:
         # A shim has no working tree. The ls-remote in try_load_artifactory_shim checks upstream.
         if self.is_artifactory_shim():
@@ -511,12 +533,15 @@ class BuildDependency:
 
         if conf.verbose:
             console(f'  - Target {self.name: <16} load settings and dependencies')
-        target.settings() ## customization point for project settings
-        if self.is_root:
-            conf.lock_compiler()  # root settings() is the last prefer_clang/gcc call, lock before any dep loads
-            conf.init_platform_toolchain()  # after settings(), so its set_*_toolchain() beats the default probe
-            self._update_dep_name_and_dirs(self.name)  # the build_dir predates the compiler lock, so re-resolve it
-        target.dependencies() ## customization point for additional dependencies
+        # A skim already ran both hooks and kept what they named. Running them twice would append a
+        # setting twice, and add_child would refuse the child it already holds.
+        if not self.did_skim:
+            target.settings() ## customization point for project settings
+            if self.is_root:
+                conf.lock_compiler()  # root settings() is the last prefer_clang/gcc call, lock before any dep loads
+                conf.init_platform_toolchain()  # after settings(), so its set_*_toolchain() beats the default probe
+                self._update_dep_name_and_dirs(self.name)  # the build_dir predates the compiler lock, so re-resolve it
+            target.dependencies() ## customization point for additional dependencies
 
         if not loaded_from_pkg and self.is_root:
             conf.get_preferred_compiler_paths() # fetch the compiler immediately from root settings

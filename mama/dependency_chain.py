@@ -76,10 +76,11 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
 
 
 def load_path_to_target(root: BuildDependency):
-    """Stage one of a targeted load: read the cheapest dep next and stop once the graph names the
-    target. A branch the walk never enters stays unloaded.
+    """Stage one of a targeted load: skim the cheapest dep next and stop once the graph names the
+    target. A skim names the children of a dep and nothing more, so this stage fetches nothing,
+    clones nothing and creates no build dir. A branch the walk never enters stays unread.
 
-    Keep the walk serial. It stops early, and a parallel wave loads the branches the stop skips."""
+    Keep the walk serial. It stops early, and a parallel wave reads the branches the stop skips."""
     config = root.config
     def cost(dep: BuildDependency) -> int:
         """Ranks a dep by what its load reveals. A deferred load names no child, so it reads last."""
@@ -96,13 +97,13 @@ def load_path_to_target(root: BuildDependency):
             found = found or config.target_matches(dep.name)
             queue.append((cost(dep), dep))
     try:
-        root.load()
+        root.load()  # the root load locks the compiler, which every dep dir name below depends on
         enqueue(root.get_children())
         while queue and not found:
-            abort.check()  # a queued load must not start during a build abort
+            abort.check()  # a queued read must not start during a build abort
             entry = min(queue, key=lambda e: e[0])   # equal cost keeps the order the mamafile declared
             queue.remove(entry)
-            entry[1].load()
+            entry[1].skim()
             enqueue(entry[1].get_children())
     except BuildError as err:  # the same report the full load prints, see load_dependency_chain
         _report_error(err, config.verbose)
