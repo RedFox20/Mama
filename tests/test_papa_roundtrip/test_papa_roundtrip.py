@@ -13,6 +13,16 @@ BUILD_FILES = ['include/foo/foo.h', 'include/foo/foo.hpp', 'include/foo/detail.i
                'src/api.h', 'src/detail.inc', 'lib/libfoo.a', 'bin/tool']
 
 
+SOURCE_FILES = ['data/table.txt', 'data/params.xml', 'notes.md']
+
+
+def _write_source_tree(src_dir):
+    for rel in SOURCE_FILES:
+        path = os.path.join(src_dir, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f: f.write(f'; {rel}\n')
+
+
 def _write_build_output(build_dir):
     for rel in BUILD_FILES:
         path = os.path.join(build_dir, rel)
@@ -54,20 +64,25 @@ def _assets(self):
     self.export_include('include', build_dir=True)
     self.export_asset('bin/tool', build_dir=True)
 
+def _source_root_payload(self):
+    # the shape ArduPilotParams and sdl_gamecontrollerdb use: ship data files, not headers
+    self.export_include('', build_dir=False, includes_filter=['.txt', '.xml'])
+
 def _everything(self):
     self.export_include('include', build_dir=True, includes_filter=['.h', '.hpp', '.inc', '.txt'])
     self.export_libs('lib', ['.a'], build_dir=True)
     self.export_syslib('dl', required=False)
     self.export_asset('bin/tool', build_dir=True)
 
-STYLES = {'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
+STYLES = {'source_root_payload': _source_root_payload, 'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
           'includes_root': _includes_root, 'libs_only': _libs_only, 'syslibs': _syslibs,
           'assets': _assets, 'everything': _everything}
 
 
-def _deploy(root, recipe, *, fetched_from=None):
+def _deploy(root, recipe, *, fetched_from=None, shape='shim', source_of=None):
     """Package and deploy one target under `root`. `fetched_from` unzips an archive first, so the
-    target loads the way an artifactory fetch leaves it. Returns (deploy dir, the target)."""
+    target loads the way an artifactory fetch leaves it. `shape` picks which fetched shape to model:
+    a shim has no working tree, a fetched clone still has its source. Returns (deploy dir, the target)."""
     root.mkdir(parents=True, exist_ok=True)
     target = make_package_target(root, package=recipe, print=False,
                                  dep_attrs={'should_rebuild': fetched_from is None,
@@ -75,11 +90,14 @@ def _deploy(root, recipe, *, fetched_from=None):
                                             'artifactory_archive': 'libfoo-linux-x64-release-abc1234'})
     build_dir = target.dep.build_dir
     if fetched_from:
+        if shape == 'shim': target.dep.src_dir = str(root / 'no_source_here')
+        elif source_of:     _write_source_tree(target.dep.src_dir)
         assert try_unzip(fetched_from, build_dir)[0]
         assert artifactory_load_target(target, build_dir, num_files_copied=0)[0]
         assert target.dep.from_artifactory
     else:
         _write_build_output(build_dir)
+        _write_source_tree(target.dep.src_dir)
     target._run_packaging()
     target.papa_deploy('pkg')
     return target.papa_path, target
@@ -89,12 +107,13 @@ def _archive(deploy_dir, dest_base):
     return shutil.make_archive(str(dest_base), 'zip', root_dir=deploy_dir)
 
 
+@pytest.mark.parametrize('shape', ['shim', 'clone'])
 @pytest.mark.parametrize('style', sorted(STYLES), ids=sorted(STYLES))
-def test_a_fetched_archive_deploys_exactly_what_the_source_build_deployed(tmp_path, style):
+def test_a_fetched_archive_deploys_exactly_what_the_source_build_deployed(tmp_path, style, shape):
     recipe = STYLES[style]
     built, _ = _deploy(tmp_path / 'src', recipe)
     archive = _archive(built, tmp_path / 'libfoo-linux-x64-release-abc1234')
-    fetched, _ = _deploy(tmp_path / 'pkg', recipe, fetched_from=archive)
+    fetched, _ = _deploy(tmp_path / 'pkg', recipe, fetched_from=archive, shape=shape, source_of=True)
 
     assert _tree(fetched) == _tree(built)
     assert (open(os.path.join(fetched, 'papa.txt')).read()

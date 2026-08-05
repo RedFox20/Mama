@@ -553,11 +553,38 @@ A failing `package()` names its target and stops the run. A `list` run builds no
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
 reports the gap and carries on.
 
-**A dep fetched from artifactory runs `package()` too.** The hook is the only place a recipe states
-its export RULES: the include filter, the includes_root, and the `no_includes` and `no_libs`
-opt-outs. `papa.txt` records the export list and never the rules, so a deploy that skipped the hook
-shipped the wrong files. When that hook declares nothing, or raises, the export list `papa.txt`
-already loaded stands, and the run carries on. The default packaging never runs for a fetched dep.
+### Rules against list, and why a fetched dep runs the hook
+
+Two different things describe a package, and only one of them survives an archive.
+
+- The **rules** live in `package()`: the include filter, the `as_includes_root` alias, and the
+  `no_includes` and `no_libs` opt-outs. They decide WHICH files ship and WHERE they land.
+- The **list** lives in `papa.txt`: the include dirs, the libs, the syslibs and the assets an archive
+  holds. It decides WHAT a consumer links against.
+
+`papa.txt` records the list and never the rules. So **a dep fetched from artifactory runs `package()`
+too.** A deploy that skipped the hook fell back to the default header filter and shipped the wrong
+files.
+
+Mama merges the two per category. The hook owns every category it declares. `papa.txt` owns every
+category the hook leaves alone, so a recipe that exports includes only keeps the libs the archive
+recorded. A hook that declares nothing, or one that raises, leaves the whole recorded list standing
+and the run carries on. **The default packaging never runs for a fetched dep**, because the archive
+already holds an authoritative list and a glob would only guess at it.
+
+### Packaging is idempotent
+
+A package that came out of an archive must deploy the same tree the source build deployed. Anything
+else means a republished package loses files, or grows them, on every trip.
+
+Two fetched shapes have to agree. A **shim** has no working tree, so an export that names a source
+path fails and the recorded list stands. A **fetched clone** still has its source, so the same export
+succeeds and re-declares that category from source. Both produce the deployed tree of the source
+build, because the archive was built from that same source.
+
+`tests/test_papa_roundtrip/` pins this over every export style, both shapes, and a second reload.
+One case does NOT hold yet: `as_includes_root` over a dir name the archive also has re-roots a tree
+that a deploy already rooted. It is an xfail there and an entry in `docs/BUGS.md`.
 
 A shared dep contributes its libs **once**, not once per path through the graph. The link order stays
 Unix order: every lib appears after everything that references it.
