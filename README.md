@@ -15,6 +15,10 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.13.12** (2026-Aug-05)
+- bugfix: a targeted rebuild no longer clones or fetches unrelated deps
+- bugfix: a committed .worktrees dir no longer fails the submodule init
+
 **0.13.11** (2026-Aug-05)
 - feature: globalcache seed sharing, and local modules named by source
 - perf: much less git and cmake work per run, and mama starts 45% faster
@@ -25,11 +29,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 **0.13.10** (2026-Aug-03)
 - bugfix: deploy duplicate path names into a single dir, whatever their case
 - bugfix: support VS 18 (2026) .slnx, and stop the every-run reconfigure
-
-**0.13.9** (2026-Aug-03)
-- feature: improved self.version parsing, upload refuses unfindable names
-- feature: sanitizer builds get their own artifactory artifact names
-- bugfix: papa no longer ships duplicate include trees
 
 [Full changelog](https://github.com/RedFox20/Mama/blob/master/changelog.txt)
 
