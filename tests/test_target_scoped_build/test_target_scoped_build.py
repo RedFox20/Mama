@@ -3,15 +3,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from mama.main import mamabuild
-from testutils import make_mock_dep
+from testutils import make_mock_dep, make_tree_dep as _dep
 from mama.dependency_chain import mark_unbuilt_target_deps
-
-
-def _dep(name, children=(), usable=True):
-    d = SimpleNamespace(name=name, should_rebuild=False, children=list(children))
-    d.get_children = lambda d=d: d.children
-    d.has_usable_artifacts = lambda usable=usable: usable
-    return d
 
 
 def _tree():

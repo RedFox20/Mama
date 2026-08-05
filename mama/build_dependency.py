@@ -10,7 +10,8 @@ from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
 from .mamafile_version import pinned_version
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
-from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, MAMA_SHIM_FILENAME
+from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
+                         has_source_content, MAMA_SHIM_FILENAME
 from . import build_names
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
@@ -43,6 +44,8 @@ class BuildDependency:
         self.already_loaded = False
         self.already_executed = False
         self.currently_loading = False
+        self.load_deferred = False # a targeted load skipped the clone fallback of a dep outside the target
+        self.clone_revived = False # revive_deferred_load ran, so the next load must clone
         self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
@@ -176,7 +179,9 @@ class BuildDependency:
         def first_time_build():
             return not self.build_file_exists('mamafile_tag') \
                 and not self.build_file_exists('CMakeCache.txt')
-        return self.config.rebuild or first_time_build()
+        # a targeted rebuild must not send every other dep through the artifactory probe again
+        rebuild_all = self.config.rebuild and self.config.no_specific_target()
+        return rebuild_all or first_time_build()
 
 
     def exported_libs_file(self):
@@ -350,9 +355,32 @@ class BuildDependency:
         if self.is_artifactory_shim():
             return False
         if not self.is_root and self.dep_source.is_git:
+            if self._defer_clone(): return False
             git:Git = self.dep_source
             return git.dependency_checkout(self)
         return False
+
+
+    def _defer_clone(self) -> bool:
+        """True when a targeted run skips the clone fallback of a dep outside the target.
+        After the load, revive_deferred_target_deps clones the deferred deps the target's subtree needs."""
+        config = self.config
+        if not config.target or config.targets_all() or config.deps_only: return False
+        if self.is_current_target() or self.clone_revived: return False
+        # only the clone fallback defers: a real clone updates, and guarded source builds as-is
+        if self.is_real_clone() or has_source_content(self.src_dir): return False
+        self.load_deferred = True
+        if config.verbose:
+            console(f'  - Target {self.name: <16} CLONE deferred (not needed by target {config.target})', color=Color.BLUE)
+        return True
+
+
+    def revive_deferred_load(self):
+        """Forget a deferred load, so the next load() clones the source and parses the real mamafile."""
+        self.load_deferred = False
+        self.clone_revived = True
+        self.already_loaded = False
+        self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
 
 
     def _force_source_clone(self) -> bool:

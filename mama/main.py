@@ -12,7 +12,8 @@ from .build_dependency import BuildDependency
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
-                               mark_unbuilt_target_deps, sweep_orphaned_build_dirs)
+                               mark_unbuilt_target_deps, sweep_orphaned_build_dirs,
+                               revive_deferred_target_deps, reload_deferred_deps)
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -200,6 +201,8 @@ def _can_unify(config: BuildConfig) -> bool:
 def check_config_target(config: BuildConfig, root: BuildDependency):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
+        if dep is None and reload_deferred_deps(root):  # the target may hide below a deferred dep
+            dep = find_dependency(root, config.target)
         if dep is None:  # list what IS valid: the name is likely a misspelled target or flag
             names = ', '.join(sorted(d.name for d in get_flat_deps(root)))
             console(f"ERROR: specified target='{config.target}' not found! Available targets: {names}")
@@ -346,8 +349,10 @@ def mamabuild(args, source_dir=os.getcwd()):
 
         # Only now is the tree loaded, so X's subtree is known: revive the deps X needs but that have
         # nothing on disk. _should_build cannot do this at load time - deps have no parent link then.
-        if (config.build or config.update) and config.has_target() and not config.targets_all():
-            mark_unbuilt_target_deps(root, config)
+        if config.has_target() and not config.targets_all():
+            revive_deferred_target_deps(root, config)
+            if config.build or config.update:
+                mark_unbuilt_target_deps(root, config)
 
         # get the main target dependency
         if config.has_target():

@@ -2,6 +2,7 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - bugfix: a targeted rebuild no longer clones or fetches unrelated deps
 
 release: 0.13.11 (2026-Aug-05)
  - feature: globalcache seed sharing, and local modules named by source

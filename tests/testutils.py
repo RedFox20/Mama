@@ -74,6 +74,17 @@ def make_unified_config(**overrides):
     return cfg
 
 
+def make_tree_dep(name, children=(), usable=True, deferred=False):
+    """SimpleNamespace dep for the dependency_chain scoping passes. It answers the walk, mark and revive calls."""
+    d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False,
+                        children=list(children))
+    d.get_children = lambda d=d: d.children
+    d.has_usable_artifacts = lambda usable=usable: usable
+    def revive(d=d): d.load_deferred = False; d.revived = True
+    d.revive_deferred_load = revive
+    return d
+
+
 def make_mock_config(tmp_path, **overrides):
     """Mock BuildConfig pre-populated with the defaults every shim/probe/dep
     unit test needs. Pass kwargs to override specific fields per test."""

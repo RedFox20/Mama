@@ -31,7 +31,7 @@ def test_option_shaped_typo_fails_immediately(capsys):
 def test_unknown_target_error_lists_the_valid_ones(capsys):
     cfg = _mk([], 'buildstatz')
     cfg.targets_all = lambda: False
-    root = Mock()
+    root = Mock(load_deferred=False, **{'get_children.return_value': []})  # nothing deferred to revive
     with patch('mama.main.find_dependency', return_value=None), \
          patch('mama.main.get_flat_deps', return_value=[SimpleNamespace(name=n) for n in ('ReCpp', 'zlib')]):
         with pytest.raises(SystemExit):

@@ -207,6 +207,10 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   working tree (`not self.is_real_clone()`). For an already-cloned dep, the regular
   `fetch + reset` path is correct. The extra probe only re-clones into a tempdir
   and does nothing useful.
+- **A targeted run stays inside the subtree of its target.** The load defers the
+  clone fallback of a no-source dep outside that subtree (`_defer_clone`). After the
+  load, `revive_deferred_target_deps` clones only the deferred deps the subtree needs.
+  A shim probe miss for an unrelated dep must never start a full git clone.
 
 ## SSH multiplex / parallel loading
 

@@ -75,6 +75,25 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
         if config.print: warning(f'  - Target {dep.name: <16} BUILD [dependency of {target.name} not built yet]')
 
 
+def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig):
+    """After the load, clone and reload the deferred deps inside the subtree of the target.
+    A dep outside that subtree stays deferred, so it keeps no source and never builds."""
+    target = find_dependency(root, config.target)
+    if target is not None: reload_deferred_deps(target)
+
+
+def reload_deferred_deps(scope: BuildDependency) -> bool:
+    """Clone and reload every deferred dep under `scope`. A reload can discover new children, so
+    loop until the scope holds no deferred dep. Return True when this call revived a dep."""
+    revived = False
+    while True:
+        deferred = [d for d in get_flat_deps(scope) if d.load_deferred]
+        if not deferred: return revived
+        revived = True
+        for d in deferred: d.revive_deferred_load()
+        load_dependency_chain(scope)
+
+
 # files mama writes into a build dir - one must be present before the sweep will delete a directory
 _BUILD_DIR_MARKERS = ('CMakeCache.txt', 'mama-dependencies.cmake', 'mama_exported_libs', MAMA_SHIM_FILENAME,
                       'papa.txt', 'git_status', 'mamafile_tag')
