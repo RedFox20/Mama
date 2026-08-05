@@ -37,6 +37,7 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/RedFox20/Mama"
 "Bug Tracker" = "https://github.com/RedFox20/Mama/issues"
+"Changelog" = "https://github.com/RedFox20/Mama/blob/master/changelog.txt"
 
 [project.scripts]
 mama = "mama.main:__main__"

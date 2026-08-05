@@ -172,11 +172,23 @@ one line. Nobody reads a changelog to learn which function moved.
 2. Rename the `unreleased` heading in `changelog.txt` to
    `release: {major}.{minor}.{patch} (YYYY-Mon-DD)`. Add the entries any commit
    missed.
-3. Commit: `release: v{major}.{minor}.{patch} <50 char description>`.
-4. Push the release commit.
-5. Run `./deploy.sh` to publish the build to PyPI.
+3. Copy the new release into the `## Recent changes` section of `README.md`. Drop the oldest
+   one there. PyPI has no field for release notes, so that section is the only place the
+   entries reach the project page. `tests/test_release_metadata/` fails when the README and
+   `changelog.txt` disagree.
+4. Run both gates. Release only when both pass. The full suite is
+   `python -m pytest tests/`. The slow platform gate is
+   `python -m pytest tests/test_platform_configure -m slow`. The default run excludes the
+   slow gate, so a release that skips it ships a platform nobody configured.
+5. On Windows, run both gates again inside WSL. A Windows-only run has shipped a broken
+   Linux build. The mirror lives at `~/Mama`. Clone it there when it is missing:
+   `git clone git@github.com:RedFox20/Mama.git ~/Mama`. Sync it to the release commit
+   first, because a stale mirror tests the wrong tree.
+6. Commit: `release: v{major}.{minor}.{patch} <50 char description>`.
+7. Push the release commit.
+8. Run `./deploy.sh` to publish the build to PyPI.
 
-Steps 4 and 5 reach outside this machine, so ask the user before you run them.
+Steps 7 and 8 reach outside this machine, so ask the user before you run them.
 
 ## Artifactory + git status invariants
 

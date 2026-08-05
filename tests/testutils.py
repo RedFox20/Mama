@@ -159,7 +159,8 @@ def platform_config(platform_class, arch=None, **overrides):
     return cfg
 
 
-MAMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mama')
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAMA_DIR = os.path.join(REPO_ROOT, 'mama')
 CMAKE_OPTIONS = 'buildsys/cmake/options.py'  # the ONE module allowed to format a cmake option
 
 
