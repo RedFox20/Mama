@@ -161,6 +161,32 @@ def copy_file(src: str, dst: str, filter=None) -> bool:
     return False
 
 
+_VCS_DIRS = ('.git', '.svn', '.hg')   # VCS metadata. A package never ships it, whatever a mamafile exports.
+
+
+def _norm_path(path: str) -> str:
+    """One spelling for a path, so a compare cannot fail on a detail. Windows ignores case, and `a/b`
+    and `a\\b\\` name one dir. Both sides of a compare go through this."""
+    return os.path.normcase(os.path.normpath(path))
+
+
+def _prune_walk_dirs(walk_dir: str, dirs: list, skip_dir: str):
+    """Remove every subdir this copy must not enter. Two rules apply. A VCS dir never ships in a
+    package. The output dir would make the walk copy its own output, again and again.
+
+    The slice assignment at the end is not a style choice. os.walk reads this same list back after it
+    yields, and it descends into whatever is left. A plain `dirs = keep` would rebind the local name
+    and change nothing.
+    - walk_dir: the dir os.walk is visiting now, which names each subdir below
+    - skip_dir: the output dir of this copy, already through _norm_path"""
+    keep = []
+    for d in dirs:
+        if d in _VCS_DIRS: continue
+        if _norm_path(path_join(walk_dir, d)) == skip_dir: continue
+        keep.append(d)
+    dirs[:] = keep
+
+
 def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) -> bool:
     """Copies an entire dir. Copies each file only when it passes the filter and has changed.
     Returns True if any file was copied.
@@ -173,11 +199,9 @@ def copy_dir(src_dir: str, out_dir: str, filter=None, remap_root_dirname=False) 
         os.makedirs(out_dir, exist_ok=True)
     copied = False
     root = src_dir if remap_root_dirname else os.path.dirname(src_dir)
-    norm_out = os.path.normcase(os.path.normpath(out_dir))
+    norm_out = _norm_path(out_dir)
     for fulldir, dirs, files in os.walk(src_dir):
-        # skip the output directory to prevent infinite recursion
-        dirs[:] = [d for d in dirs if os.path.normcase(os.path.normpath(os.path.join(fulldir, d))) != norm_out]
-
+        _prune_walk_dirs(fulldir, dirs, norm_out)
         reldir = fulldir[len(root):].lstrip('\\/')
         if reldir:
             dst_folder = path_join(out_dir, reldir)

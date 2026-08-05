@@ -150,3 +150,32 @@ def test_the_deploy_warns_about_a_duplicated_tree_at_build_time(tmp_path, capsys
     with pytest.raises(RuntimeError, match='duplicated directory pairs'):
         deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
     assert 'include/qcoro and include/qcoro6/qcoro hold 1 identical files' in capsys.readouterr().out
+
+
+# --- the deploy dir still holds the last deploy, so mama clears it before the next one writes ---
+
+def test_a_stale_include_dir_does_not_survive_the_next_deploy(tmp_path):
+    build, target = _built(tmp_path, {'include/foo/foo.h': '#pragma once\n'}, ['include'])
+    package = f'{build}/deploy/libfoo'
+    write_files(package, {'include/gone/old.h': TASK_H})  # what an earlier mamafile exported
+    archive = deploy_and_archive(tmp_path, target, package)
+    assert not os.path.exists(f'{package}/include/gone')
+    assert 'include/gone/old.h' not in zipfile.ZipFile(archive).namelist()
+
+
+def test_a_stale_case_variant_cannot_duplicate_the_tree(tmp_path):
+    # `I include` ships the whole tree, so a stale case variant doubles every header it holds
+    build, target = _built(tmp_path, {'include/qcoro/task.h': TASK_H}, ['include'])
+    package = f'{build}/deploy/libfoo'
+    write_files(package, {'include/QCoro/task.h': TASK_H})
+    archive = deploy_and_archive(tmp_path, target, package)
+    headers = [n for n in zipfile.ZipFile(archive).namelist() if n.endswith('task.h')]
+    assert headers == ['include/qcoro/task.h']
+
+
+def test_a_git_dir_under_an_export_never_reaches_the_package(tmp_path):
+    build, target = _built(tmp_path, {'include/foo.h': '#pragma once\n', 'include/.git/HEAD': 'ref: x\n',
+                                      'include/.git/objects/ab/cdef': 'x'}, ['include'])
+    package = f'{build}/deploy/libfoo'
+    deploy_and_archive(tmp_path, target, package)
+    assert not os.path.exists(f'{package}/include/.git')

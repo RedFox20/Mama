@@ -8,7 +8,8 @@ from .types.artifactory_pkg import ArtifactoryPkg
 from .types.dep_source import DepSource
 from .types.asset import Asset
 
-from .utils.fileio import read_lines_from, file_sha1, write_text_to, copy_if_needed, copy_dir
+from .utils.fileio import (read_lines_from, file_sha1, write_text_to, copy_if_needed, copy_dir,
+                           remove_tree, _VCS_DIRS)
 from .utils.paths import normalized_join, path_join, forward_slashes, has_shim_marker
 from .utils.system import console
 from .utils.system import warning, System
@@ -75,7 +76,8 @@ def _header_stems(includes:list, suffixes:tuple) -> set:
     """Lowercased name of every real header in the exported trees, `qcorotask` for qcorotask.h."""
     stems = set()
     for _, abs_include in includes:
-        for _, _, names in os.walk(abs_include):
+        for _, dirs, names in os.walk(abs_include):
+            dirs[:] = [d for d in dirs if d not in _VCS_DIRS]  # a git object store holds no header
             stems |= {os.path.splitext(n)[0].lower() for n in names if n.endswith(suffixes)}
     return stems
 
@@ -214,6 +216,9 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
 
+    # Delete the include tree the last deploy wrote. A header this target no longer exports must not
+    # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
+    remove_tree(f'{package_full_path}/include')
     includes = _gather_includes(target, r_includes)
     _append_includes(target, package_full_path, detail_echo, descr, includes)
     _warn_about_duplicate_include_trees(target, package_full_path)

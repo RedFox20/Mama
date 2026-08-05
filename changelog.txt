@@ -7,6 +7,7 @@ unreleased
  - perf: far fewer git and cmake calls per run, so mama update is much faster
  - perf: mama starts about 45% faster, 169ms of import time down to 93ms
  - refactor: mama.util split into mama/utils/, old imports warn but keep working
+ - bugfix: a package ships only current headers, never a stale tree or .git
  - bugfix: every git command stays inside its dependency, never the repo above
  - bugfix: an MSVC toolset upgrade no longer poisons build dirs or package names
  - bugfix: ssh control sockets live in a temp dir, so ~/.ssh can mount read-only
