@@ -37,11 +37,13 @@ that never saw your reasoning. Give it the statements and the files, and make it
 every disagreement yourself before you change the spec.
 
 Your own reading of the code is the blind spot this catches. A statement can be right from the angle
-you read it and wrong from the angle you did not, and only a wider scan finds that. A first pass of
+you read it and wrong from the angle you did not. Only a wider scan finds that. A first pass of
 this audit over 252 statements returned 16 wrong and 26 imprecise, and it found 4 real bugs.
 
-A statement mama cannot verify does not belong in the spec. Wall-clock costs, "many times per day"
-and any other claim with no code behind it get rewritten as the mechanism, or cut.
+**Keep the reason, and mark it.** A wall-clock cost or a "this is the hot path" is design rationale,
+and it is the most valuable half of the spec. It goes on a `**Why:**` line, which the audit reports as
+UNVERIFIABLE and leaves alone. Never present rationale as behavior, and never cut it for being
+unverifiable. Cut only a claim that pretends to describe the code and does not.
 
 `docs/BUGS.md` is the open-defect list. Add an entry when you find a bug you do not fix in the same
 change. Tick its box in the commit that fixes it.

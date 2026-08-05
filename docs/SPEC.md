@@ -6,8 +6,12 @@ changes the behavior.
 
 Read the section that covers what you are about to change, before you change it.
 
+A **Why:** line states the reason a behavior exists. It is design rationale, not a behavior claim, so
+an audit against the code cannot confirm it. Every other line is a claim the code must answer for.
+
 | # | Section | Covers |
 |---|---|---|
+| 0 | [Why mama exists](#0-why-mama-exists) | the goal, and what each feature replaces |
 | 1 | [Vocabulary](#1-vocabulary) | dep, target, root, workspace, the three dirs, shim, papa |
 | 2 | [Disk layout](#2-disk-layout) | what mama writes, and where |
 | 3 | [The run](#3-the-run) | phase order, the two execution paths |
@@ -28,6 +32,36 @@ Read the section that covers what you are about to change, before you change it.
 | 18 | [Environment](#18-environment) | the variables mama reads |
 
 ---
+
+## 0 Why mama exists
+
+Mama is a **project-based, from-source, actively-modifiable** dependency and build tool. It follows the
+branch, tag or commit a mamafile names, with no lockfile and no version solver. `mama update` moves a
+branch dep to the newest commit. It builds for **several platforms side by side**. The whole point
+is that `mama build` and then `mama android build` both work, from one checkout, with no clean between
+them.
+
+Each feature answers a specific pain.
+
+1. **Git submodules are annoying to maintain.** A mamafile names a dep in one line, and mama owns the
+   clone.
+2. **A CMake subproject joins the main build.** A clean or a rebuild of a very large project then costs
+   a full rebuild of everything. Mama gives each dep its own build dir, so a clean scopes to one target.
+3. **Hand-managed sub-clones go stale.** `mama update` moves every dep forward in one command.
+4. **A package needs edits before you publish it.** Edit it in place, build and test it inside the
+   bigger project, then publish. `mama build` must never overwrite a local modification inside a
+   package. This one is not negotiable, see section 7.
+5. **A cmake configure is slow.** Mama configures deps in parallel, and it caches the compiler
+   detection that cmake would otherwise repeat per build dir.
+6. **A slow build often uses little CPU.** Mama builds deps in parallel and gates them on a core
+   budget, so a link-bound target does not hold the machine.
+7. **A package that rarely changes wastes every recompile.** Artifactory serves a prebuilt archive for
+   a source version that already built on this platform, arch, compiler, build type and variant.
+8. **A clone can be slow.** The shim downloads that archive with no working tree. It resolves the
+   commit by ls-remote, and only a dep that may pin `self.version` costs one throwaway blob-less clone.
+9. **Link order is a recurring bug.** Mama derives the flat dep list and the link order from the graph.
+10. **Testing needs scaffolding.** `mama build test=<args>` builds, then hands `<args>` to the `test()`
+    hook of the mamafile, which decides what to run. The `gtest()` helper reads them as a test filter.
 
 ## 1 Vocabulary
 
@@ -239,8 +273,25 @@ Under `mama update <X>` only X takes the `update` column. Every other dep takes 
 because `check_status` runs only for the current target. A real clone that never built also runs the
 post-clone artifactory probe, whatever the command.
 
-A plain `mama build` makes no network call for a dep in state 1. That is the property the cached shim
-path exists to keep, and the reason it does not check staleness.
+A plain `mama build` makes no network call for a dep in state 1.
+
+**Why:** `mama build` is the hot path. It runs many times per developer per day, so it has to stay
+cheap. An ls-remote per shim across N deps is exactly the cost the cached path exists to avoid.
+
+### Local modifications are never destroyed
+
+A package under `packages/` is a working copy a developer edits, builds and tests in place before
+publishing it. So a load protects it:
+
+- Source on disk with no usable `.git` is never cloned over. Mama warns, builds it as-is, and names
+  `mama wipe <target>` as the only way to discard it.
+- `mama update` on a dep with uncommitted changes to tracked files fails loudly, before the pull that
+  would overwrite them.
+- A plain `mama build` runs no pull at all, so it cannot move a working tree the developer is using.
+- An in-place edit still rebuilds the dep, through the working-tree fingerprint of reason 9.
+
+**Why:** this is the workflow mama exists for. A tool that silently reset a package to origin would
+lose a day of work, and no speed gain pays for that.
 
 ### The two-stage targeted load
 
@@ -306,7 +357,11 @@ An `add_artifactory_pkg` with a `fullname` uses that name verbatim.
 
 ### The shim
 
-A shim lets mama satisfy a dep without cloning it. `try_load_artifactory_shim` resolves the commit hash
+A shim lets mama satisfy a dep without cloning it.
+
+**Why:** a clone can be slow, and a consumer that only needs the built artifacts never needs the
+source. The shim trades the clone for one archive download.
+ `try_load_artifactory_shim` resolves the commit hash
 without a clone: the cached `git_status` answers first, then a hex tag pin, and ls-remote last. It
 fetches the archive named by the pinned version when a readable mamafile pins one, else by that hash.
 It extracts the archive into the build dir and writes the `mama_shim` marker. It prints
@@ -427,15 +482,23 @@ Else, with a valid `CMakeCache.txt` and no must-configure, mama skips the config
 toolchain fingerprint as the new baseline.
 
 **`update` asks for a configure per target, and mama compares the inputs first.** The cmake run is
-skipped when the cache is valid, and when the recorded fingerprint still matches. That fingerprint covers the toolchain, the build type, the cmake
+skipped when the cache is valid, and when the recorded fingerprint still matches.
+
+**Why:** a warm configure of a real project still costs most of a minute, and `update` would pay it
+once per target for nothing. That fingerprint covers the toolchain, the build type, the cmake
 defines, the install prefix, the source dir and the exports of the dependencies. `mama configure` is the explicit override, and it
 never lands there.
 
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per
-seed id, and injects the result into each build dir that holds no cache of its own. The seed **transplants compiler detection only, never project flags**, so a
-single-language project is not poisoned by the synthetic C plus C++ probe.
+seed id, and injects the result into each build dir that holds no cache of its own.
+
+The seed **transplants compiler detection only, never project flags**, so a single-language project
+is not poisoned by the synthetic C plus C++ probe.
+
+**Why:** that detection dominates a cold configure. `buildsys/cmake/compiler_cache.py` records the
+measurement it was written from: about 6.5 seconds down to about 1.7.
 
 The seed id carries the platform, the arch and a compiler hash, so one seed can never answer for
 another platform. It lives in `<workspace>/.mama/compiler_seed` by default, so `rm -rf packages/`
