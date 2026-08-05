@@ -87,8 +87,13 @@ def git_source_changed(src_dir: str) -> bool:
     The filter is the point. `git status` answers 'does the tree differ from HEAD', so mama rebuilt a
     target when a developer edited a README, a yaml or a license. This asks the question mama means, and
     it runs on every platform, because that defect is not specific to one."""
+    started = time.time()
     entries = _parse_status(_git_output(['status', '--porcelain', '-z', '--', '.'], src_dir))
-    return any(is_build_input(path) for path in entries)
+    changed = any(is_build_input(path) for path in entries)
+    if log_status_checks:
+        found = 'a build input changed' if changed else f'{len(entries)} entries, none a build input'
+        _log_status_check(src_dir, 'the walk gate opened', 'git status', found, time.time() - started)
+    return changed
 
 
 def source_walk_file(build_dir: str) -> str:
@@ -104,11 +109,15 @@ def source_walk_moved(src_dir: str, build_dir: str) -> bool:
     the gate ends the question. An mtime is not content, so a True here only means `ask git`. Off
     Windows it always returns True, and the git check answers alone."""
     if not System.windows: return True
+    started = time.time()
     stored = ''
     try: stored = read_text_from(source_walk_file(build_dir)).strip()
     except OSError: pass
-    if not stored: return True  # never recorded, so nothing to compare against
-    return source_fingerprint(src_dir) != stored
+    moved = source_fingerprint(src_dir) != stored if stored else True  # no record, so git has to answer
+    if log_status_checks:
+        found = 'no record yet' if not stored else ('moved' if moved else 'nothing moved')
+        _log_status_check(src_dir, 'gate the git check', 'walk', found, time.time() - started)
+    return moved
 
 
 def record_source_walk(src_dir: str, build_dir: str):
