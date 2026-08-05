@@ -4,7 +4,7 @@ That is the run the gate exists for, and it is also the run where nothing rebuil
 only from `save_status`, which needs a successful build, left the gate dead: a real project answered
 45 `git status` calls where it had answered 24 before.
 """
-import os
+import os, time
 from unittest.mock import patch
 import pytest
 
@@ -52,6 +52,7 @@ def test_the_second_build_then_spawns_no_git(dep):
 def test_a_changed_source_never_arms_the_gate(dep):
     with patch.object(util.System, 'windows', True):
         _changed(dep)                                            # arm it on a clean tree
+        time.sleep(0.01)
         open(f'{dep.src_dir}/lib.cpp', 'w').write('int f(){return 2;}\n')
         recorded = util.read_text_from(util.source_walk_file(dep.build_dir))
         assert _changed(dep) is True
