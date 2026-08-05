@@ -122,7 +122,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama rebuild deps_only         Cleans and rebuilds all dependencies, but not the main project.
   mama rebuild dep1 deps_only    Cleans and rebuilds only dep1's dependencies, skipping dep1 itself.
   mama build dep1 deps_only      Build only dep1's dependencies, skipping dep1 itself.
-  mama configure deps_only       Re-runs CMake configure on all dependencies, but not the main project.
+  mama configure deps_only       Reconfigures and rebuilds all dependencies, but not the main project.
   mama build dep1                Build dep1 only. Clones if missing, but does not git pull.
   mama update dep1               Update and build the specified target.
   mama serve android             Update, rebuild, deploy and upload for Android.
