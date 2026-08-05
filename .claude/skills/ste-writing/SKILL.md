@@ -58,6 +58,12 @@ sentence, paragraph and active-voice discipline, but keep enough vocabulary to r
 - For steps, use a numbered list, one action per item, imperative form.
 - Put a condition before its command: "If the fetch returns 404, keep the cached status."
 
+**Comments**
+- Max two lines. A comment that needs a third line is a docstring, or the code needs a better name.
+- State the general rule, not the incident. Name the failure mode. Do not name the project, the
+  dependency or the version that hit it. The next reader does not use that one.
+- The incident goes in the commit message. A reader who wants the history looks there.
+
 Write only the requested text. No preamble, no summary, no closing remarks.
 
 ## Self-lint before you send or commit text
@@ -73,6 +79,9 @@ Run this over the text you just wrote, including every comment and docstring in 
    plain verb.
 6. Any idiom ("says it all", "in the first place", "en masse")? Name the action instead.
 7. The same thing named two ways? Pick one name.
+8. A comment over two lines? Cut it, or move it into a docstring.
+9. A comment that names the dependency, project or version that hit the bug? State the rule instead,
+   and put the incident in the commit message.
 
 The word-level checks are grep-able. `mama-style-review` runs them over the diff and reports each hit,
 so a slip in a comment fails the review the same way an over-long line does.

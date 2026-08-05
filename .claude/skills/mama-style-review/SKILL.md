@@ -183,6 +183,11 @@ because a comment gets written while the attention is on the code it explains.
 - **One name for one thing.** A `BuildDependency` is "the dep" in every line, or "the target" in every
   line, never both.
 - **A comment says WHY.** A comment that restates the code is a finding on its own.
+- **A comment runs two lines at most.** A third line is a finding. Move it into a docstring, or give
+  the code a name that needs no comment.
+- **A comment states the general rule, never the incident.** The project, dependency or version that
+  hit the bug does not belong in the code. A future reader does not use it. That history goes in the
+  commit message. Flag every proper noun in an added comment that names one specific dependency.
 
 Grep helpers. The word-level hits are exact, so report each one:
 ```bash

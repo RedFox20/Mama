@@ -77,8 +77,8 @@ class _Shim(types.ModuleType):
     """Carries a write to the new home. PEP 562 gives a module a `__getattr__`, but never a
     `__setattr__`, so a plain module cannot see an assignment. mama swaps this class in below.
 
-    `log_status_checks` is the name that proved it. `mama.util.log_status_checks = True` used to land
-    here, the real module kept its False, the run logged nothing, and mama printed no warning."""
+    Without it, a write to a moved flag lands here, the real module keeps its old value, and the caller
+    gets no warning."""
     def __setattr__(self, name, value):
         module = _MOVED.get(name)
         if module:

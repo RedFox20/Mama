@@ -40,7 +40,7 @@ def test_a_detached_head_reads_the_object_name(repo):
 
 
 def test_a_dirty_tree_reports_the_same_commit(repo):
-    # the hypothesis worth checking: modifications do NOT change the abbreviation
+    # a modified working tree does NOT change the abbreviation
     before = read_commit_from_disk(repo, 7)
     open(os.path.join(repo, 'scratch.txt'), 'w').write('x\n')
     assert read_commit_from_disk(repo, 7) == before == _git_says(repo)
