@@ -802,9 +802,11 @@ class Git(DepSource):
         if not dep.is_real_clone() or self._is_repo_broken(dep):
             if self._refuse_destructive_clone(dep): return False
             # source_only: a broken tree here says nothing about the sibling platforms sharing this dep_dir.
-            # An explicit `mama wipe` still means everything, because the user asked for it.
-            if dep.source_dir_exists():
-                self.reclone_wipe(dep, source_only=not (dep.is_current_target() and dep.config.reclone))
+            # An explicit `mama wipe` still means everything, because the user asked for it. A shim has
+            # no source, so the wipe must not wait for a source dir, or the stale package would survive.
+            explicit_wipe = dep.is_current_target() and dep.config.reclone
+            if explicit_wipe or dep.source_dir_exists():
+                self.reclone_wipe(dep, source_only=not explicit_wipe)
             self.clone_or_pull(dep)
             return True
 

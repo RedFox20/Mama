@@ -1,6 +1,7 @@
-"""Pins rebuild/clean of a cached artifactory shim: `rebuild` drops the shim and builds from source;
-a plain `clean` re-extracts the package after wiping the build dir (so dependents can still link)."""
+"""Pins how a cached artifactory shim answers each action. An action that needs source drops the
+shim, and a plain clean re-extracts the package so dependents can still link."""
 from unittest.mock import Mock, patch
+import pytest
 
 from testutils import make_mock_shim_dep
 
@@ -9,16 +10,23 @@ from mama.build_dependency import BuildDependency
 from mama.types.git import Git
 
 
-def test_rebuild_forces_source_clone_like_unshallow(tmp_path):
-    dep = make_mock_shim_dep(tmp_path, rebuild=True)
+# every action that needs real source on disk. `wipe` belongs here because only the git path
+# honors config.reclone, so a shim that loads instead would skip the wipe.
+SOURCE_ACTIONS = ['rebuild', 'unshallow', 'reclone']
+
+
+@pytest.mark.parametrize('action', SOURCE_ACTIONS)
+def test_an_action_that_needs_source_forces_a_clone(tmp_path, action):
+    dep = make_mock_shim_dep(tmp_path, **{action: True})
     dep.config.target_matches.return_value = True
     assert dep._force_source_clone()
     dep.config.target_matches.return_value = False
-    assert not dep._force_source_clone()   # only the rebuilt target, not every dep in a targeted run
+    assert not dep._force_source_clone()   # only the named target, not every dep in a targeted run
 
 
-def test_rebuild_target_drops_cached_shim_for_source(tmp_path):
-    dep = make_mock_shim_dep(tmp_path, rebuild=True)
+@pytest.mark.parametrize('action', SOURCE_ACTIONS)
+def test_such_an_action_drops_the_cached_shim_for_source(tmp_path, action):
+    dep = make_mock_shim_dep(tmp_path, **{action: True})
     dep.config.target_matches.return_value = True
     assert dep.is_artifactory_shim()
     assert dep._try_artifactory_shim() is False   # cached shim NOT loaded

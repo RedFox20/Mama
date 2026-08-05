@@ -7,6 +7,7 @@ unreleased
  - perf: naming a target explores the cheap local modules first, then stops
  - perf: finding a target only skims mamafiles, it loads no dep it passes
  - bugfix: build_dir() and source_dir() raise instead of returning no path
+ - bugfix: wipe a target that loaded as a package, instead of doing nothing
 
 release: 0.13.12 (2026-Aug-05)
  - bugfix: a targeted rebuild no longer clones or fetches unrelated deps

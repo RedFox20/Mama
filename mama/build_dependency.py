@@ -416,9 +416,11 @@ class BuildDependency:
 
 
     def _force_source_clone(self) -> bool:
-        """A `rebuild` or `unshallow` of THIS target must produce a real clone, even from a cached shim.
+        """A `rebuild`, `unshallow` or `wipe` of THIS target must produce a real clone, even from a
+        cached shim. Only the git path honors a wipe, so a shim that loads here would skip it.
         A plain `clean` does NOT force a clone. It reloads the package after the clean."""
-        return (self.config.rebuild or self.config.unshallow) and self.is_current_target()
+        conf = self.config
+        return (conf.rebuild or conf.unshallow or conf.reclone) and self.is_current_target()
 
 
     def _drop_stale_shim_marker(self):
@@ -438,7 +440,7 @@ class BuildDependency:
         if self._force_source_clone():
             if self.is_artifactory_shim():
                 if self.config.print:
-                    console(f'  - Target {self.name: <16} REBUILD shim -> source clone', color=Color.BLUE)
+                    console(f'  - Target {self.name: <16} SHIM dropped, this run needs source', color=Color.BLUE)
                 self.remove_shim_marker()
             # suppress the post-clone probe so it cannot reload the package over the clone (also for an already-cloned target)
             self.did_check_artifactory = True

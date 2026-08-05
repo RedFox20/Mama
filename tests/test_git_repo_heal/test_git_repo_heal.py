@@ -100,6 +100,15 @@ def test_wiping_the_target_still_forces_the_reclone(tmp_path):
     assert _checkout(dep) == (True, True, True)
 
 
+def test_wiping_a_target_with_no_source_still_wipes_the_package(tmp_path):
+    # a shim keeps no source, so a wipe that waits for a source dir would leave the stale package
+    dep = make_mock_dep(tmp_path, reclone=True)
+    dep.config.target_matches.return_value = True
+    with _stubbed(dep, broken=False) as (wipe, clone):
+        dep.dep_source.dependency_checkout(dep)
+    assert wipe.call_args.kwargs == {'source_only': False} and clone.called
+
+
 def test_wiping_a_different_target_does_not_clobber_this_one(tmp_path):
     dep = make_mock_dep(tmp_path, reclone=True)  # `mama wipe other` must not delete a sandboxed dep
     _seed(dep, 'ffmpeg.c')
