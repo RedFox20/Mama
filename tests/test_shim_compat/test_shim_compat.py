@@ -48,10 +48,15 @@ def test_the_warning_names_the_new_home_once_per_name(capsys):
     assert 'path_join' not in capsys.readouterr().out
 
 
-def test_writable_state_warns_that_a_write_does_not_reach_the_module(capsys):
-    """Assigning util.memoize_git_fingerprints lands here, not on git_status. Silence would be a trap."""
-    util.memoize_git_fingerprints
-    assert 'does NOT reach' in capsys.readouterr().out
+def test_a_write_reaches_the_new_home():
+    """The trap this closes: a write used to land on the shim while the real module kept its old value."""
+    from mama.utils import git_status
+    try:
+        util.memoize_git_fingerprints = False
+        assert git_status.memoize_git_fingerprints is False
+    finally:
+        util.memoize_git_fingerprints = True
+    assert git_status.memoize_git_fingerprints is True
 
 
 def test_dir_lists_the_moved_names():

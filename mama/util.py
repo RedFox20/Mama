@@ -11,6 +11,8 @@ Nothing binds eagerly below, not even the warning function this module calls. A 
 name in globals(), __getattr__ would never run for it, and neither the warning nor the deferral would
 happen. See tests/test_shim_compat/."""
 
+import sys, types   # Python loads both before mama starts, so the deferral below still costs nothing
+
 # name -> the module under mama/utils/ that defines it now
 _MOVED = {'BuildError': 'errors', 'Color': 'system', 'GitError': 'errors', 'MAMA_SHIM_FILENAME': 'paths',
           'ProgressBar': 'progress', 'System': 'system', '_GIT_PROGRESS': 'progress', '_NON_SOURCE_ENTRIES': 'paths',
@@ -42,10 +44,6 @@ _MOVED = {'BuildError': 'errors', 'Color': 'system', 'GitError': 'errors', 'MAMA
 
 __all__ = sorted(n for n in _MOVED if not n.startswith('_'))
 
-# State mama itself mutates. A write through this module lands on THIS module and the real one never
-# sees it, so the name is worth calling out rather than silently half-working.
-_WRITABLE = {'log_status_checks', 'memoize_git_fingerprints'}
-
 _warned = set()
 
 
@@ -60,13 +58,34 @@ def __getattr__(name: str):
     from importlib import import_module
     value = getattr(import_module(f'.utils.{module}', __package__), name)
     globals()[name] = value
-    if name not in _warned:
-        _warned.add(name)
-        from .utils.system import warning
-        extra = ' Assigning to it here does NOT reach the real module.' if name in _WRITABLE else ''
-        warning(f'  mama.util.{name} moved to mama.utils.{module}. Update the import.{extra}')
+    _warn_once(name, module)
     return value
+
+
+def _warn_once(name: str, module: str):
+    if name in _warned: return
+    _warned.add(name)
+    from .utils.system import warning
+    warning(f'  mama.util.{name} moved to mama.utils.{module}. Update the import.')
 
 
 def __dir__():
     return sorted(set(globals()) | set(_MOVED))
+
+
+class _Shim(types.ModuleType):
+    """Carries a write to the new home. PEP 562 gives a module a `__getattr__`, but never a
+    `__setattr__`, so a plain module cannot see an assignment. mama swaps this class in below.
+
+    `log_status_checks` is the name that proved it. `mama.util.log_status_checks = True` used to land
+    here, the real module kept its False, the run logged nothing, and mama printed no warning."""
+    def __setattr__(self, name, value):
+        module = _MOVED.get(name)
+        if module:
+            if name not in globals(): _warn_once(name, module)  # a read binds into globals and warns there
+            from importlib import import_module
+            setattr(import_module(f'.utils.{module}', __package__), name, value)
+        object.__setattr__(self, name, value)
+
+
+sys.modules[__name__].__class__ = _Shim
