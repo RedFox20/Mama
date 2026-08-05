@@ -1,75 +1,99 @@
-"""Pins the load scope of a targeted run: a no-source dep outside the target defers its
-clone, and the revive pass clones only the deps the subtree of the target needs."""
+"""Pins the two load stages of a targeted run: stage one explores the graph for free, and stage two
+loads only the deps the subtree of the target needs."""
 import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from testutils import make_mock_dep, make_tree_dep as _fake
+import pytest
 
+from testutils import make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake
+
+import mama.build_dependency as build_dependency
 import mama.dependency_chain as chain
 from mama.dependency_chain import reload_deferred_deps, revive_deferred_target_deps
 from mama.main import mamabuild
 from mama.types.git import Git
 
 
-def _targeted_dep(tmp_path, target='other'):
-    dep = make_mock_dep(tmp_path, target=target, deps_only=False)
+def _targeted_dep(tmp_path, target='other', **over):
+    dep = make_mock_dep(tmp_path, target=target, deps_only=False, **over)
     dep.config.targets_all.return_value = False
     return dep
 
 
-def test_a_no_source_dep_outside_the_target_defers_its_clone(tmp_path):
-    dep = _targeted_dep(tmp_path)
-    with patch.object(Git, 'dependency_checkout') as checkout:
-        assert dep._git_checkout_if_needed() is False
-    checkout.assert_not_called()
-    assert dep.load_deferred
+def _targeted_shim_dep(tmp_path, **over):
+    dep = make_mock_shim_dep(tmp_path, target='other', deps_only=False, **over)
+    dep.config.targets_all.return_value = False
+    return dep
 
 
-def test_the_named_target_still_clones(tmp_path):
+def test_a_no_source_dep_outside_the_target_defers_its_load(tmp_path):
+    assert _targeted_dep(tmp_path)._defer_load()
+
+
+def test_the_named_target_still_loads(tmp_path):
     dep = _targeted_dep(tmp_path)
     dep.config.target_matches.return_value = True
-    with patch.object(Git, 'dependency_checkout', return_value=True) as checkout:
-        assert dep._git_checkout_if_needed() is True
-    checkout.assert_called_once()
-    assert not dep.load_deferred
+    assert not dep._defer_load()
 
 
 def test_an_untargeted_run_never_defers(tmp_path):
     for target, matches_all in ((None, False), ('all', True)):
         dep = make_mock_dep(tmp_path / str(target), target=target, deps_only=False)
         dep.config.targets_all.return_value = matches_all
-        assert not dep._defer_clone()
+        assert not dep._defer_load()
 
 
-def test_a_real_clone_updates_instead_of_deferring(tmp_path):
+def test_a_real_clone_is_free_so_it_loads(tmp_path):
     dep = _targeted_dep(tmp_path)
     os.makedirs(f'{dep.src_dir}/.git')
-    assert not dep._defer_clone()
+    assert not dep._defer_load()
 
 
-def test_guarded_source_is_not_deferred(tmp_path):
-    # dependency_checkout guards real source: it prints SKIP CLONE and builds the tree as-is
+def test_local_source_is_free_so_it_loads(tmp_path):
     dep = _targeted_dep(tmp_path)
     os.makedirs(dep.src_dir)
     Path(dep.src_dir, 'main.cpp').write_text('int main() { return 0; }\n')
-    assert not dep._defer_clone()
+    assert not dep._defer_load()
+
+
+def test_a_cached_shim_defers_but_stays_free_to_expand(tmp_path):
+    dep = _targeted_shim_dep(tmp_path)
+    assert dep._defer_load() and dep.load_is_free()
+
+
+@pytest.mark.parametrize('flag', ['update', 'disable_artifactory'])
+def test_a_cached_shim_that_re_probes_the_remote_is_not_free(tmp_path, flag):
+    assert not _targeted_shim_dep(tmp_path, **{flag: True}).load_is_free()
 
 
 def test_deps_only_never_defers(tmp_path):
     dep = _targeted_dep(tmp_path)
     dep.config.deps_only = True
-    assert not dep._defer_clone()
+    assert not dep._defer_load()
 
 
-def test_revive_makes_the_next_load_clone(tmp_path):
+def test_a_deferred_load_touches_no_network(tmp_path):
+    # THE bug: `mama build protobuf` fetched a package for every git dep just to find one target
+    dep = _targeted_dep(tmp_path, build=True)
+    with patch.object(build_dependency, 'try_load_artifactory_shim') as shim, \
+         patch.object(build_dependency, 'artifactory_fetch_and_reconfigure') as fetch, \
+         patch.object(Git, 'dependency_checkout') as checkout:
+        dep._load()
+    shim.assert_not_called()
+    fetch.assert_not_called()
+    checkout.assert_not_called()
+    assert dep.load_deferred and dep.target is not None   # the dep still holds a name for find_dependency
+
+
+def test_revive_makes_the_next_load_fetch(tmp_path):
     dep = _targeted_dep(tmp_path)
-    assert dep._defer_clone()
+    assert dep._defer_load()
     dep.already_loaded = True
     dep.revive_deferred_load()
     assert not dep.load_deferred and not dep.already_loaded and dep.target is None
-    assert not dep._defer_clone()   # the revived load must reach dependency_checkout
+    assert not dep._defer_load()   # the revived load must reach the shim probe and the checkout
 
 
 def test_reload_deferred_deps_revives_the_whole_scope():
@@ -78,6 +102,14 @@ def test_reload_deferred_deps_revives_the_whole_scope():
     with patch.object(chain, 'load_dependency_chain') as load:
         assert reload_deferred_deps(x) is True
     assert a.revived and load.call_count == 1
+
+
+def test_a_free_only_reload_leaves_the_deps_that_need_the_network():
+    cached, fetch = _fake('cached', deferred=True, free=True), _fake('fetch', deferred=True)
+    x = _fake('X', [cached, fetch])
+    with patch.object(chain, 'load_dependency_chain'):
+        assert reload_deferred_deps(x, free_only=True) is True
+    assert cached.revived and not fetch.revived   # the fetch waits until the name is still missing
 
 
 def test_a_reload_that_discovers_a_deferred_child_loops():

@@ -74,12 +74,17 @@ def make_unified_config(**overrides):
     return cfg
 
 
-def make_tree_dep(name, children=(), usable=True, deferred=False):
-    """SimpleNamespace dep for the dependency_chain scoping passes. It answers the walk, mark and revive calls."""
+def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
+    """SimpleNamespace dep for the scoping passes of a whole mamabuild run. It answers the walk, the
+    mark, the revive and the post-chain report that every public command reaches."""
+    target = Mock(build_products=[], args='')
+    target.name = name  # Mock(name=..) names the mock itself, not the attribute
     d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False,
-                        children=list(children))
+                        children=list(children), target=target, from_artifactory=False)
     d.get_children = lambda d=d: d.children
     d.has_usable_artifacts = lambda usable=usable: usable
+    d.load_is_free = lambda free=free: free
+    d.get_enabled_coverage = lambda: False
     def revive(d=d): d.load_deferred = False; d.revived = True
     d.revive_deferred_load = revive
     return d

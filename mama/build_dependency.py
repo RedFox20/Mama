@@ -355,28 +355,38 @@ class BuildDependency:
         if self.is_artifactory_shim():
             return False
         if not self.is_root and self.dep_source.is_git:
-            if self._defer_clone(): return False
             git:Git = self.dep_source
             return git.dependency_checkout(self)
         return False
 
 
-    def _defer_clone(self) -> bool:
-        """True when a targeted run skips the clone fallback of a dep outside the target.
-        After the load, revive_deferred_target_deps clones the deferred deps the target's subtree needs."""
+    def _defer_load(self) -> bool:
+        """True when a targeted run skips every network step of a dep outside the target: the shim
+        probe, the package fetch and the clone. The dep keeps its name, so the graph still holds it.
+
+        This is the first of the two load stages. Stage one explores the graph for free, and it reads
+        only what the disk already answers. After the load, revive_deferred_target_deps runs stage two
+        and loads the deferred deps that the subtree of the target needs."""
         config = self.config
         if not config.target or config.targets_all() or config.deps_only: return False
         if self.is_current_target() or self.clone_revived: return False
-        # only the clone fallback defers: a real clone updates, and guarded source builds as-is
+        if not self.dep_source.is_git: return False  # a local dep is already on disk, a pkg dep is one url
+        # source on disk costs nothing to read, and it grows the graph, so it always loads
         if self.is_real_clone() or has_source_content(self.src_dir): return False
         self.load_deferred = True
         if config.verbose:
-            console(f'  - Target {self.name: <16} CLONE deferred (not needed by target {config.target})', color=Color.BLUE)
+            console(f'  - Target {self.name: <16} LOAD deferred (outside target {config.target})', color=Color.BLUE)
         return True
 
 
+    def load_is_free(self) -> bool:
+        """True when this deferred dep loads with no network, because a cached package answers from disk.
+        `update` and `noart` both re-probe the remote, so under either one no cached package is free."""
+        return self.is_artifactory_shim() and not (self.config.update or self.config.disable_artifactory)
+
+
     def revive_deferred_load(self):
-        """Forget a deferred load, so the next load() clones the source and parses the real mamafile."""
+        """Forget a deferred load, so the next load() fetches or clones the dep and parses its mamafile."""
         self.load_deferred = False
         self.clone_revived = True
         self.already_loaded = False
@@ -472,17 +482,18 @@ class BuildDependency:
             # A non-root target only creates the required dirs. The mamafile loads after the shim or clone step.
             self._update_dep_name_and_dirs(self.name)
             self.create_build_dir_if_needed()
-            if self.dep_source.is_git:
-                # One dep_dir-keyed cross-process lock over BOTH the shim setup and the checkout: a sibling
-                # `mama <host> build` process must never read a half-written clone as a broken tree.
-                # Different deps never contend, and the mamafile parse below needs no lock.
-                with interprocess_dir_lock(self.dep_dir, timeout=_LOAD_LOCK_TIMEOUT_SEC):
-                    loaded_from_pkg = self._try_artifactory_shim()
-                    # a clean never needs source: without this guard a shim-less dep clones minutes of git, then deletes it
-                    if not loaded_from_pkg and not conf.clean_only():
-                        git_changed = self._git_checkout_if_needed() ## pull git before the target mamafile load
-            elif not conf.clean_only():
-                git_changed = self._git_checkout_if_needed()  # non-git local source: no shared tree to lock
+            if not self._defer_load():
+                if self.dep_source.is_git:
+                    # One dep_dir-keyed cross-process lock over BOTH the shim setup and the checkout: a sibling
+                    # `mama <host> build` process must never read a half-written clone as a broken tree.
+                    # Different deps never contend, and the mamafile parse below needs no lock.
+                    with interprocess_dir_lock(self.dep_dir, timeout=_LOAD_LOCK_TIMEOUT_SEC):
+                        loaded_from_pkg = self._try_artifactory_shim()
+                        # a clean never needs source: without this guard a shim-less dep clones minutes of git, then deletes it
+                        if not loaded_from_pkg and not conf.clean_only():
+                            git_changed = self._git_checkout_if_needed() ## pull git before the target mamafile load
+                elif not conf.clean_only():
+                    git_changed = self._git_checkout_if_needed()  # non-git local source: no shared tree to lock
             target = self._load_target() ## load target for Git and Src
 
         if conf.clean and is_target:
@@ -491,7 +502,8 @@ class BuildDependency:
             if loaded_from_pkg:
                 loaded_from_pkg = self._reload_artifactory_after_clean(target)
 
-        if not self.is_root and not loaded_from_pkg:
+        # a deferred dep skips this probe too: the archive name needs a commit hash, which costs an ls-remote
+        if not self.is_root and not loaded_from_pkg and not self.load_deferred:
             # The post-clone probe covers target.version-pinned deps that the pre-clone shim could not predict.
             loaded_from_pkg = self._try_artifactory_load(target)
             if not loaded_from_pkg:

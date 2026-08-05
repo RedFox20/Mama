@@ -1,7 +1,8 @@
-"""Pins `build target=X`: revive the unbuilt deps X needs, and ONLY those - never the whole workspace."""
+"""Pins `mama <action> X`: run and revive the deps X needs, and ONLY those - never the whole workspace."""
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+import pytest
 from mama.main import mamabuild
 from testutils import make_mock_dep, make_tree_dep as _dep
 from mama.dependency_chain import mark_unbuilt_target_deps
@@ -96,33 +97,27 @@ def _executed_deps(args, tmp_path):
          patch('mama.main.execute_task_chain', side_effect=capture), \
          patch('mama.main.execute_task_chain_parallel', side_effect=capture), \
          patch('mama.main.execute_unified'), \
+         patch('mama.main.open_project'), \
          patch('mama.main.print_build_banner'):
         mamabuild(args, source_dir=str(tmp_path))
     return seen.get('names', [])
 
 
-def test_building_one_target_does_not_execute_unrelated_targets(tmp_path):
-    # an out-of-scope dep does no build work but would still run package(), which asserts on libs that were never built
-    names = _executed_deps(['build', 'protobuf'], tmp_path)
-    assert names == ['protobuf']
-    assert 'rpcservice' not in names and 'myapp' not in names
+# every action that reaches the task chain. A run that names a target must scope to that target.
+PUBLIC_ACTIONS = ['build', 'update', 'list', 'deploy', 'upload', 'rebuild', 'configure', 'test',
+                  'start', 'serve', 'wipe', 'reclone', 'open']
 
 
-def test_building_a_mid_tree_target_still_includes_what_it_needs(tmp_path):
-    names = _executed_deps(['build', 'rpclib'], tmp_path)
-    assert set(names) == {'rpclib', 'protobuf'}   # its own dep comes along, its dependents do not
+@pytest.mark.parametrize('action', PUBLIC_ACTIONS)
+def test_a_targeted_action_executes_that_leaf_alone(tmp_path, action):
+    # an out-of-scope dep does no build work but still reaches package(), which asserts on libs no run produced
+    assert _executed_deps([action, 'protobuf'], tmp_path) == ['protobuf']
 
 
-def test_uploading_one_target_does_not_execute_unrelated_targets(tmp_path):
-    # upload must scope like a targeted build, or an unrelated dep packages libs that were never built
-    names = _executed_deps(['upload', 'protobuf'], tmp_path)
-    assert names == ['protobuf']
-    assert 'rpcservice' not in names and 'myapp' not in names
-
-
-def test_deploying_a_mid_tree_target_scopes_to_its_subtree(tmp_path):
-    names = _executed_deps(['deploy', 'rpclib'], tmp_path)
-    assert set(names) == {'rpclib', 'protobuf'}   # deps come along to be packaged, dependents do not
+@pytest.mark.parametrize('action', PUBLIC_ACTIONS)
+def test_a_targeted_action_still_includes_what_the_target_needs(tmp_path, action):
+    # the deps of the target come along to be built and packaged, its dependents do not
+    assert set(_executed_deps([action, 'rpclib'], tmp_path)) == {'rpclib', 'protobuf'}
 
 
 def test_an_untargeted_build_still_runs_the_whole_tree(tmp_path):

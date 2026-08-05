@@ -82,12 +82,13 @@ def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig):
     if target is not None: reload_deferred_deps(target)
 
 
-def reload_deferred_deps(scope: BuildDependency) -> bool:
-    """Clone and reload every deferred dep under `scope`. A reload can discover new children, so
-    loop until the scope holds no deferred dep. Return True when this call revived a dep."""
+def reload_deferred_deps(scope: BuildDependency, free_only=False) -> bool:
+    """Load every deferred dep under `scope`. A reload can discover new children, so loop until the
+    scope holds no deferred dep. Return True when this call revived a dep.
+    free_only: revive only the deps a cached package answers, so the pass costs no network"""
     revived = False
     while True:
-        deferred = [d for d in get_flat_deps(scope) if d.load_deferred]
+        deferred = [d for d in get_flat_deps(scope) if d.load_deferred and (not free_only or d.load_is_free())]
         if not deferred: return revived
         revived = True
         for d in deferred: d.revive_deferred_load()

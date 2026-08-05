@@ -201,8 +201,11 @@ def _can_unify(config: BuildConfig) -> bool:
 def check_config_target(config: BuildConfig, root: BuildDependency):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
-        if dep is None and reload_deferred_deps(root):  # the target may hide below a deferred dep
-            dep = find_dependency(root, config.target)
+        # The target may hide below a deferred dep. A cached package expands first, because it costs
+        # no network. The deps that need a fetch or a clone expand only when the name is still missing.
+        for free_only in (True, False):
+            if dep is None and reload_deferred_deps(root, free_only):
+                dep = find_dependency(root, config.target)
         if dep is None:  # list what IS valid: the name is likely a misspelled target or flag
             names = ', '.join(sorted(d.name for d in get_flat_deps(root)))
             console(f"ERROR: specified target='{config.target}' not found! Available targets: {names}")
@@ -371,10 +374,10 @@ def mamabuild(args, source_dir=os.getcwd()):
         flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
         flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
-        # `build/upload/deploy X` runs X and what X needs, not the whole tree. An out-of-scope dep builds
-        # nothing yet still reaches _run_packaging(), which asserts on missing libs. Deploy stays gated per-target.
-        targeted = ((config.build or config.upload or config.deploy)
-                    and config.has_target() and not config.targets_all() and not config.deps_only)
+        # `mama <action> X` runs X and what X needs, never the whole tree. This holds for EVERY action,
+        # because an out-of-scope dep builds nothing yet still reaches _run_packaging(), which asserts
+        # on libs that no run produced. `deps_only` scopes itself below, and `all` asks for everything.
+        targeted = config.has_target() and not config.targets_all() and not config.deps_only
         if targeted and dep is not None:
             flat_deps = get_flat_deps(dep)
             flat_deps_reverse = list(reversed(flat_deps))

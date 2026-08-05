@@ -2,6 +2,8 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - bugfix: a targeted run fetches and clones only what its target needs
+ - bugfix: every action that names a target runs that target's subtree alone
 
 release: 0.13.12 (2026-Aug-05)
  - bugfix: a targeted rebuild no longer clones or fetches unrelated deps
