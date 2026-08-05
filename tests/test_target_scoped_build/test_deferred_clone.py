@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake
+from testutils import make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake, stub_loaders
 
 import mama.build_dependency as build_dependency
 import mama.dependency_chain as chain
@@ -75,7 +75,7 @@ def test_deps_only_never_defers(tmp_path):
 
 
 def test_a_deferred_load_touches_no_network(tmp_path):
-    # THE bug: `mama build protobuf` fetched a package for every git dep just to find one target
+    # locating one target must never cost a fetch for every git dep in the graph
     dep = _targeted_dep(tmp_path, build=True)
     with patch.object(build_dependency, 'try_load_artifactory_shim') as shim, \
          patch.object(build_dependency, 'artifactory_fetch_and_reconfigure') as fetch, \
@@ -94,6 +94,47 @@ def test_revive_makes_the_next_load_fetch(tmp_path):
     dep.revive_deferred_load()
     assert not dep.load_deferred and not dep.already_loaded and dep.target is None
     assert not dep._defer_load()   # the revived load must reach the shim probe and the checkout
+
+
+def _walkable_root(tmp_path, target):
+    """A root whose load reveals a local branch holding `deep`, plus a git branch and a local leaf."""
+    root = make_mock_dep(tmp_path, name='root', target=target, deps_only=False)
+    root.config.targets_all.return_value = False
+    root.config.target_matches = lambda name, t=target: name.lower() == t.lower()
+    loaded = []
+    def branch(name, children=(), is_src=True):
+        d = _fake(name, children)
+        d.dep_source = SimpleNamespace(is_src=is_src)
+        d.is_real_clone = lambda: False
+        d.load = lambda d=d: loaded.append(d.name)
+        return d
+    root.children = [branch('gitdep', is_src=False), branch('local', [branch('deep')]), branch('sibling')]
+    return root, loaded
+
+
+def test_the_walk_stops_as_soon_as_the_graph_names_the_target(tmp_path):
+    root, loaded = _walkable_root(tmp_path, target='local')
+    with patch.object(build_dependency.BuildDependency, 'load'):
+        chain.load_path_to_target(root)
+    assert loaded == []   # the root load already named `local`, so no child load ran
+
+
+def test_the_walk_reads_a_local_branch_before_a_git_branch(tmp_path):
+    root, loaded = _walkable_root(tmp_path, target='deep')
+    with patch.object(build_dependency.BuildDependency, 'load'):
+        chain.load_path_to_target(root)
+    assert loaded == ['local']   # the local branch named `deep`, so gitdep and sibling stayed unread
+
+
+def test_the_walk_never_turns_a_cached_shim_into_a_clone(tmp_path):
+    # the walk must never replace a cached package with a git clone
+    dep = _targeted_shim_dep(tmp_path)
+    with patch.object(Git, 'dependency_checkout') as checkout, \
+         patch.object(build_dependency, 'try_load_artifactory_shim') as probe:
+        dep._load()
+    checkout.assert_not_called()
+    probe.assert_not_called()
+    assert dep.is_artifactory_shim() and not dep.is_real_clone()
 
 
 def test_reload_deferred_deps_revives_the_whole_scope():
@@ -125,11 +166,11 @@ def test_a_reload_that_discovers_a_deferred_child_loops():
 
 def test_deps_outside_the_target_subtree_stay_deferred():
     outside = _fake('outside', deferred=True)
-    target = _fake('X')
-    root = _fake('root', [target, outside])
-    with patch.object(chain, 'load_dependency_chain') as load:
+    inside = _fake('inside', deferred=True)
+    root = _fake('root', [_fake('X', [inside]), outside])
+    with patch.object(chain, 'load_dependency_chain'):
         revive_deferred_target_deps(root, SimpleNamespace(target='X'))
-    assert outside.load_deferred and not load.called
+    assert inside.revived and outside.load_deferred
 
 
 def test_an_unknown_target_revives_nothing():
@@ -142,11 +183,23 @@ def test_an_unknown_target_revives_nothing():
 def test_mamabuild_runs_the_revive_pass_for_a_targeted_build(tmp_path):
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     x = _fake('X')
-    with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', [x])), \
+    with stub_loaders(lambda r: setattr(r, 'children', [x])), \
          patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
          patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'), \
          patch('mama.main.revive_deferred_target_deps') as revive:
         mamabuild(['build', 'X'], source_dir=str(tmp_path))
+    revive.assert_called_once()
+
+
+def test_a_clean_loads_its_target_before_it_returns(tmp_path):
+    # a clean acts inside the load of the target, so stage two must run before the clean_only return
+    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
+    x = _fake('X')
+    with stub_loaders(lambda r: setattr(r, 'children', [x])), \
+         patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
+         patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'), \
+         patch('mama.main.revive_deferred_target_deps') as revive:
+        mamabuild(['clean', 'X'], source_dir=str(tmp_path))
     revive.assert_called_once()
 
 
@@ -157,7 +210,7 @@ def test_the_target_may_hide_below_a_deferred_dep(tmp_path):
     parent = _fake('parent', deferred=True)
     def uncover(scope):
         if hidden not in parent.children: parent.children.append(hidden)
-    with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', [parent])), \
+    with patch('mama.main.load_path_to_target', side_effect=lambda r: setattr(r, 'children', [parent])), \
          patch('mama.dependency_chain.load_dependency_chain', side_effect=uncover), \
          patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
          patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'):

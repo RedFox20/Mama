@@ -74,6 +74,19 @@ def make_unified_config(**overrides):
     return cfg
 
 
+def stub_loaders(grow_tree):
+    """Every loader a mamabuild run can enter, patched to `grow_tree`. A targeted run enters
+    load_path_to_target and an untargeted one load_dependency_chain. Stage two calls the second
+    through its own module, so that name needs its own patch. Returns an ExitStack for a `with`."""
+    from contextlib import ExitStack
+    from unittest.mock import patch
+    stack = ExitStack()
+    stack.enter_context(patch('mama.main.load_dependency_chain', side_effect=grow_tree))
+    stack.enter_context(patch('mama.main.load_path_to_target', side_effect=grow_tree))
+    stack.enter_context(patch('mama.dependency_chain.load_dependency_chain'))
+    return stack
+
+
 def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
     """SimpleNamespace dep for the scoping passes of a whole mamabuild run. It answers the walk, the
     mark, the revive and the post-chain report that every public command reaches."""

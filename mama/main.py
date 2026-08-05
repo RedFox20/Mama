@@ -13,7 +13,7 @@ from .dependency_chain import (load_dependency_chain, execute_task_chain, execut
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
                                mark_unbuilt_target_deps, sweep_orphaned_build_dirs,
-                               revive_deferred_target_deps, reload_deferred_deps)
+                               revive_deferred_target_deps, reload_deferred_deps, load_path_to_target)
 from .init_project import mama_init_project
 from ._version import __version__
 
@@ -198,6 +198,12 @@ def _can_unify(config: BuildConfig) -> bool:
             and not config.dirty and not config.mama_init)
 
 
+def _targeted(config: BuildConfig) -> bool:
+    """True when the run names one target, so both the load and the task chain scope to its subtree.
+    `all` asks for the whole tree, and `deps_only` scopes itself to the deps of its own target."""
+    return config.has_target() and not config.targets_all() and not config.deps_only
+
+
 def check_config_target(config: BuildConfig, root: BuildDependency):
     if config.has_target() and not config.targets_all():
         dep = find_dependency(root, config.target)
@@ -341,8 +347,17 @@ def mamabuild(args, source_dir=os.getcwd()):
         dep = root
         flat_deps = get_flat_deps(root)  # the graph is fully grown by now, keep this defined for the code below
     else:
-        load_dependency_chain(root)
+        # `dirty` marks every dependent of the target, and only a full load names them all
+        if _targeted(config) and not config.dirty:
+            load_path_to_target(root)
+        else:
+            load_dependency_chain(root)
         check_config_target(config, root)
+
+        # Stage two: load the subtree of the target, which stage one stopped short of. It runs BEFORE
+        # the clean_only return below, because a clean acts inside the load of the target it names.
+        if _targeted(config):
+            revive_deferred_target_deps(root, config)
 
         # clean is not a build: the load wiped the dirs, so a packaging pass fabricates an empty package
         # or fails a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.
@@ -352,10 +367,8 @@ def mamabuild(args, source_dir=os.getcwd()):
 
         # Only now is the tree loaded, so X's subtree is known: revive the deps X needs but that have
         # nothing on disk. _should_build cannot do this at load time - deps have no parent link then.
-        if config.has_target() and not config.targets_all():
-            revive_deferred_target_deps(root, config)
-            if config.build or config.update:
-                mark_unbuilt_target_deps(root, config)
+        if _targeted(config) and (config.build or config.update):
+            mark_unbuilt_target_deps(root, config)
 
         # get the main target dependency
         if config.has_target():
@@ -374,11 +387,9 @@ def mamabuild(args, source_dir=os.getcwd()):
         flat_deps = get_flat_deps(root) # root, dep2, deepest_dep
         flat_deps_reverse = list(reversed(flat_deps)) # deepest_dep, dep2, root
 
-        # `mama <action> X` runs X and what X needs, never the whole tree. This holds for EVERY action,
-        # because an out-of-scope dep builds nothing yet still reaches _run_packaging(), which asserts
-        # on libs that no run produced. `deps_only` scopes itself below, and `all` asks for everything.
-        targeted = config.has_target() and not config.targets_all() and not config.deps_only
-        if targeted and dep is not None:
+        # EVERY action scopes to its target. An out-of-scope dep builds nothing, yet it still reaches
+        # _run_packaging, where a mamafile asserts on libs that no run produced.
+        if _targeted(config) and dep is not None:
             flat_deps = get_flat_deps(dep)
             flat_deps_reverse = list(reversed(flat_deps))
 

@@ -75,11 +75,47 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
         if config.print: warning(f'  - Target {dep.name: <16} BUILD [dependency of {target.name} not built yet]')
 
 
+def load_path_to_target(root: BuildDependency):
+    """Stage one of a targeted load: read the cheapest dep next and stop once the graph names the
+    target. A branch the walk never enters stays unloaded.
+
+    Keep the walk serial. It stops early, and a parallel wave loads the branches the stop skips."""
+    config = root.config
+    def cost(dep: BuildDependency) -> int:
+        """Ranks a dep by what its load reveals. A deferred load names no child, so it reads last."""
+        if dep.dep_source.is_src: return 0
+        return 1 if dep.is_real_clone() else 2
+    found = config.target_matches(root.name)
+    queue, seen = [], set()   # the frontier of (cost, dep), and the ids it already holds
+    def enqueue(deps):
+        """A load names its children here, so the walk tests the new names here too."""
+        nonlocal found
+        for dep in deps:
+            if id(dep) in seen: continue
+            seen.add(id(dep))
+            found = found or config.target_matches(dep.name)
+            queue.append((cost(dep), dep))
+    try:
+        root.load()
+        enqueue(root.get_children())
+        while queue and not found:
+            abort.check()  # a queued load must not start during a build abort
+            entry = min(queue, key=lambda e: e[0])   # equal cost keeps the order the mamafile declared
+            queue.remove(entry)
+            entry[1].load()
+            enqueue(entry[1].get_children())
+    except BuildError as err:  # the same report the full load prints, see load_dependency_chain
+        _report_error(err, config.verbose)
+        exit(-1)
+
+
 def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig):
-    """After the load, clone and reload the deferred deps inside the subtree of the target.
-    A dep outside that subtree stays deferred, so it keeps no source and never builds."""
+    """Stage two of a targeted load: load the subtree of the target, which stage one stopped short of,
+    and revive the deferred deps inside it. A dep outside that subtree stays unloaded and never builds."""
     target = find_dependency(root, config.target)
-    if target is not None: reload_deferred_deps(target)
+    if target is None: return
+    load_dependency_chain(target)
+    reload_deferred_deps(target)
 
 
 def reload_deferred_deps(scope: BuildDependency, free_only=False) -> bool:

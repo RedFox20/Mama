@@ -208,12 +208,17 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   `fetch + reset` path is correct. The extra probe only re-clones into a tempdir
   and does nothing useful.
 - **A targeted run stays inside the subtree of its target.** The load runs in two
-  stages. Stage one explores the graph for free: `_defer_load` skips every network
-  step of a dep outside the target, which is the shim probe, the package fetch and
-  the clone. A dep keeps its name while deferred, so `find_dependency` still finds
-  it. Stage two, `revive_deferred_target_deps`, loads only what the subtree needs.
-  When the free graph misses the name, the cached packages expand first, because
-  they cost no network, and only then the deps that need a fetch.
+  stages. Stage one, `load_path_to_target`, reads the cheapest dep next and stops
+  the moment the graph names the target. A local dep costs one mamafile parse, so it
+  reads first, and a branch the walk never enters stays unread. This walk is serial
+  on purpose. A parallel wave would read the branches the early stop exists to skip.
+  Inside it, `_defer_load` skips every network step of a dep outside the target,
+  which is the shim probe, the package fetch and the clone. **Exploring the graph
+  must never turn a cached shim into a clone.** A dep keeps its name while deferred,
+  so `find_dependency` still finds it. Stage two, `revive_deferred_target_deps`,
+  loads the subtree of the target and nothing else. When the graph never names the
+  target, the cached packages expand first, because they cost no network. Only then
+  do the deps that need a fetch expand.
 - **EVERY action that names a target executes that subtree alone**, not only build,
   upload and deploy. An out-of-scope dep builds nothing, yet it still reaches
   `_run_packaging`, where a mamafile asserts on libs that no run produced.

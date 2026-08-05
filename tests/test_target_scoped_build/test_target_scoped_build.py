@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import pytest
 from mama.main import mamabuild
-from testutils import make_mock_dep, make_tree_dep as _dep
+from testutils import make_mock_dep, make_tree_dep as _dep, stub_loaders
 from mama.dependency_chain import mark_unbuilt_target_deps
 
 
@@ -93,7 +93,7 @@ def _executed_deps(args, tmp_path):
     root_children, _ = _fake_tree_root()
     seen = {}
     def capture(deps): seen['names'] = [d.name for d in deps]
-    with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', root_children.children)), \
+    with stub_loaders(lambda r: setattr(r, 'children', root_children.children)), \
          patch('mama.main.execute_task_chain', side_effect=capture), \
          patch('mama.main.execute_task_chain_parallel', side_effect=capture), \
          patch('mama.main.execute_unified'), \
@@ -130,7 +130,7 @@ def _runner_used(args, tmp_path):
     """Which task runner mamabuild picked - the parallel one owns the live display."""
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     root_children, _ = _fake_tree_root()
-    with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', root_children.children)), \
+    with stub_loaders(lambda r: setattr(r, 'children', root_children.children)), \
          patch('mama.main.execute_task_chain') as serial, \
          patch('mama.main.execute_task_chain_parallel') as parallel, \
          patch('mama.main.execute_unified'), \
@@ -153,7 +153,7 @@ def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
     (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     protobuf = _dep('protobuf', usable=False)
     rpc = _dep('rpclib', [protobuf])
-    with patch('mama.main.load_dependency_chain', side_effect=lambda r: setattr(r, 'children', [rpc])), \
+    with stub_loaders(lambda r: setattr(r, 'children', [rpc])), \
          patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
          patch('mama.main.execute_unified'), \
          patch('mama.main.print_build_banner'):
