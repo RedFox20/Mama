@@ -186,9 +186,14 @@ one line. Nobody reads a changelog to learn which function moved.
    first, because a stale mirror tests the wrong tree.
 6. Commit: `release: v{major}.{minor}.{patch} <50 char description>`.
 7. Push the release commit.
-8. Run `./deploy.sh` to publish the build to PyPI.
+8. Run `./deploy.sh` to publish the build to PyPI. Prefer the WSL mirror, because
+   `~/.pypirc` there holds the token and twine asks nothing. On Windows twine reads the
+   token through keyring, which opens a dialog. A background shell cannot answer a dialog,
+   so it hangs with no output until it times out.
 
 Steps 7 and 8 reach outside this machine, so ask the user before you run them.
+
+`twine upload` passes `--skip-existing`, so a repeated deploy is safe.
 
 ## Artifactory + git status invariants
 
