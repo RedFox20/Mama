@@ -80,8 +80,8 @@ def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
 
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:
     """The build folder name: the platform dir, the compiler, then the variant, coarsest axis first, eg
-    'linux', 'windows32', 'linux-clang-cov-asan-lgpl'. A 64-bit arch uses the bare platform name and
-    a 32-bit arch adds a suffix, which the platform itself decides.
+    'linux', 'windows32', 'linux-clang-cov-asan-lgpl'. The platform maps each arch to its own dir name.
+    Its primary arch uses the bare platform name, and every other arch gets a name of its own.
 
     '-clang' only on a linux clang build: a shared dir means one compiler clobbers the other and then g++
     links libc++ archives. gcc keeps the bare 'linux' so existing trees do not churn, and elsewhere the
