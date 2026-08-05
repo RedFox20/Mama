@@ -1,6 +1,6 @@
 """Pins the cross-process dep-dir lock: an flock/msvcrt guard that serializes a dep's shim+checkout
 across concurrent mama processes, and never hangs."""
-import contextlib, os, pytest
+import contextlib, os, shutil, pytest
 from unittest.mock import patch
 
 from testutils import make_mock_dep
@@ -14,9 +14,18 @@ def test_acquires_uncontended_and_puts_the_sidecar_beside_not_inside(tmp_path):
     d = str(tmp_path / 'pkg' / 'libfoo')
     with interprocess_dir_lock(d, timeout=5) as ok:
         assert ok is True
-        # beside libfoo, so a reclone-wipe rmtree of libfoo cannot unlink a held lock and break exclusion
-        assert os.path.exists(str(tmp_path / 'pkg' / '.libfoo.mama.lock'))
-        assert not os.path.exists(os.path.join(d, '.mama.lock'))
+        assert os.path.exists(str(tmp_path / 'pkg' / '.mama_locks' / 'libfoo.lock'))
+        assert not os.path.exists(d)  # the lock never creates the dir it guards, so a wipe cannot reach it
+
+
+def test_a_wipe_of_the_guarded_dir_cannot_free_the_lock(tmp_path):
+    d = tmp_path / 'pkg' / 'libfoo'
+    d.mkdir(parents=True)
+    with interprocess_dir_lock(str(d), timeout=5) as first:
+        assert first is True
+        shutil.rmtree(d)  # what `mama wipe` does to a dep dir while it holds this lock
+        with interprocess_dir_lock(str(d), timeout=0.3) as second:
+            assert second is False  # a second process still cannot clone into a tree the first one replaces
 
 
 def test_second_acquirer_times_out_but_still_runs_then_frees(tmp_path):
