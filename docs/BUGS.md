@@ -10,8 +10,17 @@ this list links to it.
   and `debug` sets neither. `run_config` then returns early on the existing cache, which still holds
   `CMAKE_BUILD_TYPE=RelWithDebInfo`. `--config Debug` reaches `cmake --build`, so a multi-config
   generator such as MSVC is fine. A single-config generator, Ninja or Make, silently builds release.
-  The build type is already part of the configure fingerprint, so adding it to `must_configure` fixes
-  it. If mama means to keep the older build type, delete this entry.
+  The build type is already part of the configure fingerprint, so adding it to `must_configure` starts
+  the fix.
+
+  What it should do instead:
+  1. Detect the build-type flip, then reconfigure and build the named target. A dep that already built
+     stays as it is, so a debug run of the root costs one target, not the tree.
+  2. Warn that the run mixes release and debug packages, and name every package that holds the other
+     build type. Each dep records its own type in its `CMakeCache.txt`.
+
+  The mix stays allowed. A developer often needs one target in debug to read a stack trace. A rebuild
+  of every dep to get it costs more than the stack trace is worth.
 
 - [ ] **A revived deferred dep with a parent-supplied mamafile crashes the run.**
   `revive_deferred_load` clears `already_loaded` and `target`, but it keeps `children` and leaves
