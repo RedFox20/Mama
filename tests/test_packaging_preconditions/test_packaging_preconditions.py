@@ -4,22 +4,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from testutils import make_mock_dep
+from testutils import make_mock_dep, make_package_target
 
 from mama.build_target import BuildTarget
 
 
 def _target(tmp_path, built=False, **dep_over):
     """A BuildTarget whose package() records whether it ran. `built` fakes real build work."""
-    dep = make_mock_dep(tmp_path)
-    dep.nothing_to_build = False
-    dep.from_artifactory = False
-    dep.should_rebuild = built
-    for k, v in dep_over.items(): setattr(dep, k, v)
-    target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
-    dep.target = target
-    target.package = Mock()
-    return target
+    return make_package_target(tmp_path, dep_attrs={'should_rebuild': built, **dep_over})
 
 
 def test_packaging_is_skipped_when_nothing_was_built_and_nothing_is_on_disk(tmp_path):
@@ -50,11 +42,12 @@ def test_packaging_runs_for_a_header_only_target(tmp_path):
     target.package.assert_called_once()
 
 
-def test_an_artifactory_package_is_not_repackaged(tmp_path):
-    # a fetched package already has its papa.txt exports, so package() is skipped unless the user asked for a local rebuild
+def test_an_artifactory_package_still_runs_package(tmp_path):
+    # package() is the only place the recipe states its export rules, and a deploy of a fetched
+    # package needs them. papa.txt records the export list and never the rules.
     target = _target(tmp_path, from_artifactory=True)
     target._run_packaging()
-    target.package.assert_not_called()
+    target.package.assert_called_once()
 
 
 def test_skip_is_announced_when_the_user_asked_to_deploy(tmp_path, capsys):

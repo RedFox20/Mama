@@ -1660,14 +1660,30 @@ class BuildTarget:
     def _run_package_hook(self):
         """Run the package() hook of the mamafile, and name the target when it fails.
 
-        A `list` run builds nothing, so a package() that reads a build product cannot pass. That is
-        not a failure of the run, because a list only reports. Every other run stops."""
+        A `list` run builds nothing, so a package() that reads a build product cannot pass. A fetched
+        package holds its export list in papa.txt already. Neither one fails the run, and the caller
+        keeps the exports the target already had. Every other run stops."""
         try:
             self.package() # user customization
         except Exception as e:
-            if not self.config.list:
+            if not self.config.list and not self.dep.from_artifactory:
                 raise BuildError(f'Package failed for target {self.name}: {e}') from e
-            warning(f'  - Package {self.name: <16} INCOMPLETE, this run built nothing: {e}')
+            warning(f'  - Package {self.name: <16} INCOMPLETE, keeping the exports on disk: {e}')
+
+
+    def _exports(self) -> tuple:
+        return (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets)
+
+
+    def _set_exports(self, exports: tuple):
+        (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets) = exports
+
+
+    def _packaging_source(self) -> str:
+        """Where the exports of this target came from, for the listing."""
+        if self.dep.from_artifactory and not self.dep.should_rebuild:
+            return f'artifactory-cache {self.dep.artifactory_archive}'.rstrip()
+        return 'target.package()'
 
 
     def _run_packaging(self):
@@ -1678,48 +1694,35 @@ class BuildTarget:
                 warning(f'  - Target {self.name: <16} PACKAGE skipped: nothing built, no artifacts on disk')
             return
 
-        # Skip package() when mama already fetched the target from artifactory,
-        # unless the user asked for a local rebuild.
-        if self.dep.should_rebuild or not self.dep.from_artifactory:
-            self.packaging_result = 'target.package()'
-            # clear the libs artifactory_load_target() loaded, so repackaging starts from empty exports
-            old_includes = self.exported_includes
-            old_libs = self.exported_libs
-            old_syslibs = self.exported_syslibs
-            old_assets = self.exported_assets
-            if self.dep.from_artifactory:
-                self.exported_includes = []
-                self.exported_libs = []
-                self.exported_syslibs = []
-                self.exported_assets = []
+        # ALWAYS run package(). It is the only place a recipe states its export RULES: the include
+        # filter, the includes_root, and the no_includes/no_libs opt-outs. papa.txt records the export
+        # list and never the rules, so a fetched target that skipped the hook deployed the wrong files.
+        fetched = self.dep.from_artifactory
+        loaded = self._exports()  # what artifactory_load_target read out of papa.txt
+        if fetched:
+            self._set_exports(([], [], [], []))  # start empty, so the hook decides the whole export set
 
-            # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
-            self._run_package_hook()
-
+        # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
+        self._run_package_hook()
+        if fetched:
+            # The hook owns the export RULES. papa.txt owns the LIST for every category the hook left
+            # alone, so a recipe that exports includes only keeps the libs the archive recorded.
+            self._set_exports(tuple(new or old for new, old in zip(self._exports(), loaded)))
+        else:
             # the user provided no packaging, use the default packaging instead
             if not self.exported_includes and not self.no_includes:
                 self.default_package_includes()
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
 
-            # if the exports changed, the local papa file is stale
-            exports_changed = (old_includes != self.exported_includes or
-                               old_libs != self.exported_libs or
-                               old_syslibs != self.exported_syslibs or
-                               old_assets != self.exported_assets)
-            if exports_changed and self.dep.from_artifactory and self.config.print:
-                console(f'  - Target {self.name} exports changed', color=Color.BLUE)
-                artifactory_papa_file = self.build_dir('papa.txt')
-                if os.path.exists(artifactory_papa_file):
-                    os.remove(artifactory_papa_file)
-
-        elif self.dep.from_artifactory:
-            # name the archive, so a listing shows which package the exports below came out of
-            self.packaging_result = f'artifactory-cache {self.dep.artifactory_archive}'.rstrip()
-        elif not self.dep.should_rebuild:
-            self.packaging_result = 'local-cache'
-        else:
-            self.packaging_result = 'unknown' # if this happens, update the elif cases above
+        self.packaging_result = self._packaging_source()
+        # A rebuild of a fetched package whose recipe now exports something else leaves a stale papa
+        # file. Only a rebuild drops it: a plain build would delete the file its own shim cache needs.
+        if fetched and self.dep.should_rebuild and loaded != self._exports() and self.config.print:
+            console(f'  - Target {self.name} exports changed', color=Color.BLUE)
+            artifactory_papa_file = self.build_dir('papa.txt')
+            if os.path.exists(artifactory_papa_file):
+                os.remove(artifactory_papa_file)
 
         if self.config.verbose:
             console(f'  - {self.name} package info loaded from [{self.packaging_result}]', color=Color.BLUE)

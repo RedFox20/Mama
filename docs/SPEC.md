@@ -553,8 +553,11 @@ A failing `package()` names its target and stops the run. A `list` run builds no
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
 reports the gap and carries on.
 
-Mama skips `package()` for a dep it fetched from artifactory, unless the run asks for a local rebuild.
-The papa.txt of the package already holds the exports.
+**A dep fetched from artifactory runs `package()` too.** The hook is the only place a recipe states
+its export RULES: the include filter, the includes_root, and the `no_includes` and `no_libs`
+opt-outs. `papa.txt` records the export list and never the rules, so a deploy that skipped the hook
+shipped the wrong files. When that hook declares nothing, or raises, the export list `papa.txt`
+already loaded stands, and the run carries on. The default packaging never runs for a fetched dep.
 
 A shared dep contributes its libs **once**, not once per path through the graph. The link order stays
 Unix order: every lib appears after everything that references it.

@@ -9,6 +9,7 @@ unreleased
  - bugfix: a shared dependency loads once, not once per parent
  - bugfix: wipe a target that loaded as a package, instead of doing nothing
  - bugfix: a package, a listing and a skipped test each name their target
+ - bugfix: deploying an artifactory package keeps the export rules of its recipe
  - perf: naming a target only skims mamafiles, and stops at the first match
 
 release: 0.13.12 (2026-Aug-05)

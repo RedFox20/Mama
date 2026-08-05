@@ -236,6 +236,23 @@ def grep_mama_sources(needles, skip=()) -> list:
     return hits
 
 
+def make_package_target(tmp_path, package=None, exports=None, dep_attrs=None, **config):
+    """A BuildTarget wired to a mock dep, for the packaging tests.
+    package: the mamafile hook, or None for a Mock that only records that it ran
+    exports: the (includes, libs, syslibs, assets) papa.txt would have loaded
+    dep_attrs: BuildDependency fields this test needs, eg from_artifactory"""
+    from mama.build_target import BuildTarget
+    dep = make_mock_dep(tmp_path, **config)
+    dep.nothing_to_build = False; dep.from_artifactory = False; dep.should_rebuild = False
+    for k, v in (dep_attrs or {}).items(): setattr(dep, k, v)
+    cls = type('mamafile', (BuildTarget,), {'package': package}) if package else BuildTarget
+    target = cls(name=dep.name, config=dep.config, dep=dep, args=[])
+    dep.target = target
+    if not package: target.package = Mock()
+    if exports: target._set_exports(tuple(list(x) for x in exports))
+    return target
+
+
 def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git', branch='main', tag='',
                   mamafile=None, commit='abc1234', **config_overrides):
     """Real BuildDependency wired to a mock BuildConfig + a Git dep_source.

@@ -49,7 +49,7 @@ this list links to it.
   `no_libs`. `_run_packaging` is unaffected, because it guards with `not self.no_includes` itself, so
   only a mamafile that calls `self.default_package()` by hand hits this.
 
-- [ ] **An artifactory package deploy ignores `includes_filter`.**
+- [x] **An artifactory package deploy ignores `includes_filter`.**
   Mama skips `package()` when a target loads from artifactory, so the papa deploy falls back to the
   default header filter `['.h', '.hpp', '.hxx', '.hh']`. A recipe that asked for another suffix loses
   those headers from the deployed tree and from the uploaded archive. Every consumer of that package
