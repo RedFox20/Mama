@@ -16,6 +16,36 @@ To turn off the response shape for a session, say "normal mode". Confirm in one
 line, then use the default style. `ste-writing` stays on, because it governs text
 that gets committed.
 
+## The behavior spec (read before you change behavior)
+
+`docs/SPEC.md` is the contract: what mama does, under every command, in every state. **Read the
+section that covers what you are about to change, before you change it.** Update the same section in
+the commit that changes the behavior. A change that contradicts the spec is a bug in one of the two.
+
+| Section | Read it before you touch |
+|---|---|
+| 3 The run, 4 Commands, 5 Flags | `main.py`, a new action or flag, the execution paths |
+| 7 The load | `dependency_chain.py`, `build_dependency.py`, skim, defer, the claim |
+| 8 Artifactory, 9 Versions | `artifactory.py`, the shim, archive naming, `mamafile_version.py` |
+| 10 Rebuild, 11 Configure | `_should_build`, `buildsys/cmake/configure.py`, the seed cache |
+| 12 Build, 13 Deploy | `build_target.py` phases, `package.py`, `papa_deploy.py`, `papa_upload.py` |
+| 16 Output, 17 Concurrency | `build_display.py`, `log_writer.py`, `dir_lock.py`, `ssh_multiplex.py` |
+
+**Every statement you add or edit in `docs/SPEC.md` gets independent verification.** Spawn a sub-agent
+that never saw your reasoning. Give it the statements and the files, and make it report
+`CONFIRMED | WRONG | IMPRECISE | UNVERIFIABLE` with a `file:line` citation for each one. Then verify
+every disagreement yourself before you change the spec.
+
+Your own reading of the code is the blind spot this catches. A statement can be right from the angle
+you read it and wrong from the angle you did not, and only a wider scan finds that. A first pass of
+this audit over 252 statements returned 16 wrong and 26 imprecise, and it found 4 real bugs.
+
+A statement mama cannot verify does not belong in the spec. Wall-clock costs, "many times per day"
+and any other claim with no code behind it get rewritten as the mechanism, or cut.
+
+`docs/BUGS.md` is the open-defect list. Add an entry when you find a bug you do not fix in the same
+change. Tick its box in the commit that fixes it.
+
 ## Code style
 
 - **Line length: up to 130 columns.** Do not wrap a single expression unless it
