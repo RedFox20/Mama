@@ -73,3 +73,28 @@ def test_a_uniform_tree_says_nothing(tmp_path):
     with patch('mama.dependency_chain.warning') as warn:
         dc._print_build_summary(deps, 1.0)
     warn.assert_not_called()
+
+
+# --- the flip never cascades ------------------------------------------------
+
+def test_a_dep_that_is_not_building_keeps_its_own_build_type(tmp_path):
+    # mixing is the point: one target goes debug for gdb, and its deps stay release. The check lives
+    # inside run_config, which only a target with real build work ever reaches.
+    t, dep = _configured(tmp_path, RELEASE, debug=True)
+    dep.should_rebuild = False
+    dep.from_artifactory = False
+    dep.nothing_to_build = False
+    with patch.object(type(t), '_cmake_configure_step') as step:
+        t.configure_phase()
+    step.assert_not_called()
+    assert cc.cached_build_type(t.build_dir()) == 'RelWithDebInfo'
+
+
+def test_the_target_that_is_building_does_reach_the_check(tmp_path):
+    t, dep = _configured(tmp_path, RELEASE, debug=True)
+    dep.should_rebuild = True
+    dep.from_artifactory = False
+    dep.nothing_to_build = False
+    with patch.object(type(t), '_cmake_configure_step') as step:
+        t.configure_phase()
+    step.assert_called_once()

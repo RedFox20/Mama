@@ -118,8 +118,12 @@ A shared dir means two builds clobber each other's cache and libraries.
 
 **Debug and release deliberately share one build dir.** The name carries no build-type token, so
 `mama build debug` reuses the dir `mama build` used. A build-type flip forces a reconfigure, because a
-single-config generator bakes `CMAKE_BUILD_TYPE` into the cache. The run then names every package that
-holds the other type, and it builds anyway. The artifactory archive name does carry `release` or
+single-config generator bakes `CMAKE_BUILD_TYPE` into the cache.
+
+**The flip never cascades.** The check lives inside the cmake configure, which only a target with real
+build work reaches. A dep that is up to date configures nothing, so it keeps its own build type.
+`mama build <X> debug` therefore moves X alone, and the run then names every package that holds the
+other type and builds anyway. The artifactory archive name does carry `release` or
 `debug`, so the two packages never collide on the server.
 
 **Why:** mama lets a project mix release and debug packages, so the build type belongs to the package
