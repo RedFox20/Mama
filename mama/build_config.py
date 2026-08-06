@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, shutil, threading, time  # psutil is deferred, see _default_build_jobs
+import os, sys, tempfile, shutil, threading, time, contextlib  # psutil is deferred, see _default_build_jobs
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -75,6 +75,46 @@ class UpdateStats:
         return f'Updated {self.total} target(s): {", ".join(parts)} in {get_time_str(self._duration)}'
 
 
+class DeployStats:
+    """What the deploy of the target this run named wrote, for the one-line summary of the build.
+
+    Scoped, not global: a tree of 30 deps deploys far more than the user asked about. The window opens
+    around the deploy hook of the current target, so a package that hook delegates to counts too."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._scope = threading.local()  # only the thread inside the current target's deploy records
+        self.counts = [0, 0, 0, 0]  # includes, libs, syslibs, assets
+        self.dirs = set()
+
+    @contextlib.contextmanager
+    def recording(self, enabled=True):
+        """Count every papa deploy this thread makes until the block ends. Re-entrant, because a build
+        hook that deploys sits inside its own window. `enabled=False` changes nothing, so a nested
+        deploy of another target cannot close the window of its caller."""
+        if not enabled:
+            yield
+            return
+        self._scope.depth = getattr(self._scope, 'depth', 0) + 1
+        try: yield
+        finally: self._scope.depth -= 1
+
+    def record(self, out_dir:str, counts):
+        if getattr(self._scope, 'depth', 0) <= 0: return
+        with self._lock:
+            self.counts = [total + n for total, n in zip(self.counts, counts)]
+            self.dirs.add(out_dir)
+
+    def summary_line(self) -> str:
+        """One-line summary, or '' when this run deployed nothing."""
+        if not self.dirs: return ''
+        includes, libs, syslibs, assets = self.counts
+        what = f'{includes} includes, {libs} libs'
+        if syslibs: what += f', {syslibs} syslibs'
+        if assets:  what += f', {assets} assets'
+        where = next(iter(self.dirs)) if len(self.dirs) == 1 else f'{len(self.dirs)} package dirs'
+        return f'Deployed {what} to {where}'
+
+
 class BuildConfig:
     """The one build configuration, created in the root project working directory.
     Every dependency shares it."""
@@ -121,6 +161,7 @@ class BuildConfig:
         self.coverage  = None # gcc/clang: gcov | msvc: /fsanitize-coverage=edge
         self.coverage_report = None # runs gcovr to generate coverage report
         self.update_stats = UpdateStats() # clone/pull/shim counters for the load phase summary
+        self.deploy_stats = DeployStats() # what the papa deploys of this run wrote
         self.enable_clang_tidy = False # enables clang-tidy static analysis during build
         self.clang_tidy_path = None # resolved path to clang-tidy executable
         # the ONE active platform: set_platform() derives the mamafile flags below from it, and nothing else stores platform state

@@ -1644,7 +1644,8 @@ class BuildTarget:
                 self._run_configure_once() # configure_phase was a no-op for a custom build()
                 self._fetched = self.try_automatic_artifactory_fetch()
                 if not self._fetched:
-                    self.build() # user override owns configure+build
+                    with self._recording_deploys():
+                        self.build() # user override owns configure+build, and it may deploy too
             elif not self._fetched:
                 self._cmake_build_step(out=out)
             self.dep.successful_build()
@@ -1659,19 +1660,28 @@ class BuildTarget:
             self._run_configure_once() # user customization
             fetched = self.try_automatic_artifactory_fetch()
             if not fetched:
-                self.build() # user build customization
+                with self._recording_deploys():
+                    self.build() # user build customization, which may deploy too
             self.dep.successful_build()
             if not fetched:
                 package.clean_intermediate_files(self)
         self._run_packaging()
         if build_work and self.deploy_after_build: self._deploy_once()
 
+    def _recording_deploys(self):
+        """Count what the hooks of ONE target deploy: the named target, or the root when the run names
+        none. A hook that deploys another target's package counts, because this target asked for it.
+        The other 30 deps deploy far more than the user asked about, so they stay out."""
+        reported = self.dep.is_root if self.config.no_specific_target() else self.is_current_target()
+        return self.config.deploy_stats.recording(reported)
+
     def _deploy_once(self):
         """Run the deploy hook at most once per run. `deploy_after_build` and the deploy pass of a
         `deploy` or `upload` command can both ask for it."""
         if self._did_deploy: return
         self._did_deploy = True
-        self.deploy() # user customization
+        with self._recording_deploys():
+            self.deploy() # user customization
 
     def _run_package_hook(self):
         """Run the package() hook of the mamafile, and name the target when it fails.

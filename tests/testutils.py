@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import mama
 import pytest
 
+from mama.build_config import DeployStats
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
 from mama.utils.fileio import write_text_to
@@ -100,6 +101,7 @@ def make_walk_config(**overrides):
 def make_unified_config(**overrides):
     """The BuildConfig fields execute_unified and its display/scheduler touch."""
     cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(), print=False, debug=False,
+                          deploy_stats=DeployStats(),
                           workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
                           rebuild=False, update=False, clean=False, target=None, name=lambda: 'linux')
     for k, v in overrides.items(): setattr(cfg, k, v)
@@ -153,6 +155,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.unshallow = False
     cfg.git_url_override = None
     cfg.update_stats = Mock()
+    cfg.deploy_stats = DeployStats()
     # commands off by default - tests opt in explicitly
     cfg.build = False
     cfg.update = False
@@ -286,7 +289,7 @@ def make_git_and_mock_dep(name='libfoo', url='git@example.com:foo/libfoo.git', b
     dep = Mock(is_artifactory_shim=lambda: False)
     dep.name = name  # Mock(name=..) names the mock itself, not the attribute
     dep.src_dir = f'/packages/{name}'
-    dep.config = Mock(print=False, verbose=False, update_stats=Mock(), **config_overrides)
+    dep.config = Mock(print=False, verbose=False, update_stats=Mock(), deploy_stats=DeployStats(), **config_overrides)
     return git, dep
 
 

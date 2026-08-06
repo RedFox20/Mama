@@ -622,6 +622,11 @@ at most once per run, so a run that builds and uploads does not deploy twice.
 **Why:** a dependency ships a shared library, and the consumer needs that runtime beside its binaries
 before a test starts. Windows has no RPATH, so one missing DLL aborts a test before its first line.
 
+The build summary prints one line for what the deploy of the **current target** wrote: `Deployed 2
+includes, 3 libs to <dir>`. The counters record only inside that hook, so the deploys of 30 other deps
+never answer for the target the user named. A hook that deploys another target's package counts, because
+the current target asked for it. The per-target `PAPA Deployed` lines stay in the build log.
+
 **A shim never deploys or uploads.** It is read-only, its papa.txt and its unzipped tree must survive,
 and the artifactory already holds that package. Mama says so and points at `mama unshallow`.
 

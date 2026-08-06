@@ -12,6 +12,7 @@ from mama.papa_deploy import PapaFileInfo
 from testutils import (make_archive_name_target, make_configured_target, write_cmake_cache,
                        write_build_file, run_config_capturing)
 from mama import artifactory as art, build_names
+from mama.build_config import DeployStats
 import mama.dependency_chain as dc
 from mama.buildsys.cmake import configure as cc
 
@@ -61,7 +62,7 @@ def test_cached_build_type_reads_the_cache_and_tolerates_a_missing_dir(tmp_path)
 def _dep(tmp_path, name, cache=None):
     build_dir = tmp_path / name
     if cache: write_cmake_cache(str(build_dir), cache)
-    cfg = SimpleNamespace(print=True, debug=False)
+    cfg = SimpleNamespace(print=True, debug=False, deploy_stats=DeployStats())
     return SimpleNamespace(name=name, config=cfg, build_dir=str(build_dir),
                            should_rebuild=False, from_artifactory=False, nothing_to_build=True)
 

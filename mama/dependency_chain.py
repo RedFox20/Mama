@@ -785,6 +785,9 @@ def _print_build_summary(deps, elapsed: float):
     """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded)."""
     built = sum(1 for d in deps if d.should_rebuild and not d.from_artifactory and not d.nothing_to_build)
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
+    # The per-target deploy lines print inside the build job, so they reach the log and never the screen.
+    deployed = deps[0].config.deploy_stats.summary_line() if deps else ''
+    if deployed: console(deployed, color=Color.GREEN)
     _warn_on_mixed_build_types(deps)
 
 

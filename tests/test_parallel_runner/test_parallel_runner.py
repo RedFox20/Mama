@@ -4,6 +4,7 @@ import threading
 from types import SimpleNamespace
 import pytest
 from testutils import FakeBuildTarget, strip_ansi
+from mama.build_config import DeployStats
 from mama import dependency_chain as dc
 
 
@@ -34,7 +35,7 @@ def _graph(monkeypatch, fail_child=False):
     monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
     cfg = SimpleNamespace(jobs=2, verbose=False, test=False, workspaces_root=None, buildstats=False,
-                          print=False, debug=False, name=lambda: 'linux')
+                          print=False, debug=False, name=lambda: 'linux', deploy_stats=DeployStats())
     ev, lock = [], threading.Lock()
     child = _D('child', cfg); parent = _D('parent', cfg, [child])
     for d in (child, parent): d.target = _T(d, ev, lock)
@@ -145,7 +146,7 @@ def test_reserve_weight_is_zero_for_custom_build_root_else_reserved_cores():
 
 
 def test_build_summary_counts_only_real_builds(capsys):
-    cfg = SimpleNamespace(print=False, debug=False)
+    cfg = SimpleNamespace(print=False, debug=False, deploy_stats=DeployStats())
     d = lambda **k: SimpleNamespace(config=cfg, build_dir='', **k)
     deps = [d(should_rebuild=True, from_artifactory=False, nothing_to_build=False),    # compiled
             d(should_rebuild=True, from_artifactory=True, nothing_to_build=False),     # artifactory fetch

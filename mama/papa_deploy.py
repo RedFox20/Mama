@@ -271,6 +271,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     write_text_to(os.path.join(package_full_path, 'papa.txt'), '\n'.join(descr))
 
+    config.deploy_stats.record(package_full_path, (len(includes), len(libs), len(syslibs), len(assets)))
     if config.print:
         console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
 

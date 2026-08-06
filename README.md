@@ -569,6 +569,7 @@ class MyProject(mama.BuildTarget):
 `deploy_after_build` runs the hook once, right after a build that compiled something. A cached or an
 artifactory-loaded target deploys nothing, and a run that both builds and uploads calls the hook once.
 `papa_deploy` writes the package tree plus `papa.txt`. `default_deploy` is `papa_deploy('deploy/{name}')`.
+After the build, mama prints one line: `Deployed 2 includes, 3 libs to <dir>`.
 
 ## Mamafile examples
 
