@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake, stub_loaders
+from testutils import (FakeWalkDep, make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake,
+                       make_walk_config, stub_loaders)
 
 import mama.build_dependency as build_dependency
 import mama.dependency_chain as chain
@@ -139,10 +140,15 @@ def test_the_walk_never_turns_a_cached_shim_into_a_clone(tmp_path):
     assert dep.is_artifactory_shim() and not dep.is_real_clone()
 
 
+def _walked(scope, display=None):
+    """The patched walk marks the subtree loaded, the way the real one does."""
+    for d in chain.get_flat_deps(scope): d.already_loaded = True
+
+
 def test_reload_deferred_deps_revives_the_whole_scope():
     a = _fake('A', deferred=True)
     x = _fake('X', [a])
-    with patch.object(chain, 'load_dependency_chain') as load:
+    with patch.object(chain, 'load_dependency_chain', side_effect=_walked) as load:
         assert reload_deferred_deps(x) is True
     assert a.revived and load.call_count == 1
 
@@ -161,9 +167,21 @@ def test_a_reload_that_discovers_a_deferred_child_loops():
     x = _fake('X', [a])
     def grow(scope, display=None):
         if b not in x.children: x.children.append(b)   # the reload of A discovered B
+        _walked(scope)
     with patch.object(chain, 'load_dependency_chain', side_effect=grow) as load:
         assert reload_deferred_deps(x) is True
     assert b.revived and load.call_count == 2
+
+
+def test_a_revived_dep_under_a_loaded_parent_still_reloads():
+    # A shared dep sits below a parent an earlier walk finished. The walk stops at that parent, so the
+    # revived dep only reloads when it is the dep the walk starts from.
+    cfg, log = make_walk_config(), []
+    deep = FakeWalkDep('deep', cfg, log)
+    deep.load_deferred = True
+    root = FakeWalkDep('root', cfg, log, [FakeWalkDep('parent', cfg, log, [deep], loaded=True)], loaded=True)
+    reload_deferred_deps(root)
+    assert 'deep' in log
 
 
 def test_deps_outside_the_target_subtree_stay_deferred():

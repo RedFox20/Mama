@@ -155,6 +155,10 @@ def reload_deferred_deps(scope: BuildDependency, free_only=False, display=None) 
         revived = True
         for d in deferred: d.revive_deferred_load()
         load_dependency_chain(scope, display)
+        # That walk stops at every loaded dep it meets, so a revived dep under one never reloaded, and
+        # it would export nothing. Enter a walk AT each dep the scope walk could not reach.
+        for d in deferred:
+            if not d.already_loaded: load_dependency_chain(d, display)
 
 
 # files mama writes into a build dir - one must be present before the sweep will delete a directory

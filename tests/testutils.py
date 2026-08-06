@@ -74,7 +74,10 @@ class FakeWalkDep:
         self.name = name; self.config = config; self._log = log; self._children = list(children)
         self.already_loaded = loaded; self.should_rebuild = False; self.is_root = False
         self.load_action = 'check'; self.artifactory_archive = ''; self.phase_times = {}
+        self.load_deferred = False
         self._on_load = on_load  # what this dep prints while it loads
+    def revive_deferred_load(self):
+        self.load_deferred = False; self.already_loaded = False
     def load(self):
         self._log.append(self.name)
         if self._on_load: self._on_load()
@@ -121,13 +124,13 @@ def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
     mark, the revive and the post-chain report that every public command reaches."""
     target = Mock(build_products=[], args='')
     target.name = name  # Mock(name=..) names the mock itself, not the attribute
-    d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False,
+    d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False, already_loaded=False,
                         children=list(children), target=target, from_artifactory=False, artifactory_archive='')
     d.get_children = lambda d=d: d.children
     d.has_usable_artifacts = lambda usable=usable: usable
     d.load_is_free = lambda free=free: free
     d.get_enabled_coverage = lambda: False
-    def revive(d=d): d.load_deferred = False; d.revived = True
+    def revive(d=d): d.load_deferred = False; d.revived = True; d.already_loaded = False
     d.revive_deferred_load = revive
     return d
 

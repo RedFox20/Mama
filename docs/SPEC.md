@@ -355,7 +355,8 @@ then do the deps that need a fetch expand.
 One lock covers the claim alone. The load runs outside it, so different deps stay concurrent.
 
 **The walk always enters the dep it starts from**, even when that dep already loaded. mamabuild loads
-the root before the walk, and a reload revives deps below a scope that already loaded.
+the root before the walk, and a reload revives deps below a scope that already loaded. A reload starts
+one walk per revived dep, because a walk from the scope stops at the first loaded dep above it.
 
 `after_load` propagates a rebuilt child up to its parent, and only on a run that named no specific
 target. A targeted run scopes itself instead, through `mark_unbuilt_target_deps`. A shim has no
