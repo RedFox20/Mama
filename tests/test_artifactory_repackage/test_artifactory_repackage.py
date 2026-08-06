@@ -160,3 +160,24 @@ def test_a_rebuild_drops_a_papa_file_whose_exports_no_longer_match(tmp_path):
     papa.parent.mkdir(parents=True, exist_ok=True); papa.write_text('P libfoo\n')
     target._run_packaging()
     assert not papa.exists()
+
+
+# --- default_package(), the hand-called entry point --------------------------
+
+def test_default_package_collects_both_halves(tmp_path):
+    # a package() override calls this to get the default includes and libs
+    target = _target(tmp_path, None, fetched=False, rebuild=True)
+    with patch.object(BuildTarget, 'default_package_includes') as inc, \
+         patch.object(BuildTarget, 'default_package_libs') as libs:
+        target.default_package()
+    inc.assert_called_once(); libs.assert_called_once()
+
+
+@pytest.mark.parametrize('opt_out,skipped', [('no_export_includes', 'default_package_includes'),
+                                             ('no_export_libs', 'default_package_libs')])
+def test_default_package_honours_each_opt_out(tmp_path, opt_out, skipped):
+    target = _target(tmp_path, None, fetched=False, rebuild=True)
+    getattr(target, opt_out)()
+    with patch.object(BuildTarget, skipped) as m:
+        target.default_package()
+    m.assert_not_called()

@@ -1318,9 +1318,10 @@ class BuildTarget:
 
     def default_package(self):
         """Performs the default packaging steps. Mama calls this when self.package() exported nothing.
-        A package() override can also call it to collect the default includes and libs."""
-        if self.no_includes: self.default_package_includes()
-        if self.no_libs: self.default_package_libs()
+        A package() override can also call it to collect the default includes and libs.
+        `no_export_includes()` and `no_export_libs()` opt each half out."""
+        if not self.no_includes: self.default_package_includes()
+        if not self.no_libs: self.default_package_libs()
 
 
     ## TODO: move this into `package.py`

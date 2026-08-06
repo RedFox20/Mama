@@ -749,6 +749,10 @@ class BuildDependency:
         else:
             if not self.workspace:
                 self.workspace = 'packages'
+            # A root with no mamafile still owns its workspace. Without this the field keeps its HOME
+            # default, and every dep dir of a CMakeLists-only project lands in the home dir.
+            if self.is_root and not self.config.global_workspace:
+                self.config.workspaces_root = self.src_dir
             if self.config.verbose:
                 warning(f'  - Target {self.name: <16} Using Default BuildTarget Project={project} BuildTarget={buildTarget}')
             self.target = mamaBuildTarget(name=self.name, config=self.config, dep=self, args=self.target_args)

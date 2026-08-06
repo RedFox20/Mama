@@ -99,8 +99,7 @@ One name for one thing. This file uses these and no synonyms.
 ```
 
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
-keeps it at the user home dir. Only the mamafile parse assigns it, so a root with no `mamafile.py`
-also keeps the user home dir. See `docs/BUGS.md`.
+keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
 
 **`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
 

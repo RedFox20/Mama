@@ -45,13 +45,13 @@ this list links to it.
   The dep silently keeps the package of the old commit. Under `noart` the same dep does detect the
   move and clones, so the two flags disagree about the same state.
 
-- [ ] **A root project with no `mamafile.py` writes its packages into the user home dir.**
+- [x] **A root project with no `mamafile.py` writes its packages into the user home dir.**
   Only the mamafile parse assigns `config.workspaces_root`, at `build_dependency.py:740`. A
   CMakeLists-only root parses no mamafile, so the field keeps its `HOME` default and every dep dir
   lands in `~/packages/`. Verified: a bare `CMakeLists.txt` project resolves its root dep dir to
   `/home/<user>/packages/<name>`. The fix is to default `workspaces_root` to the root source dir.
 
-- [ ] **`default_package()` runs the default packaging only when told not to.**
+- [x] **`default_package()` runs the default packaging only when told not to.**
   `build_target.py:1322` reads `if self.no_includes: self.default_package_includes()`, and
   `no_export_includes()` sets `no_includes = True` to mean the opposite. The same inversion applies to
   `no_libs`. `_run_packaging` is unaffected, because it guards with `not self.no_includes` itself, so
