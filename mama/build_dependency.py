@@ -410,10 +410,16 @@ class BuildDependency:
 
 
     def revive_deferred_load(self):
-        """Forget a deferred load, so the next load() fetches or clones the dep and parses its mamafile."""
+        """Forget a deferred load, so the next load() fetches or clones the dep and parses its mamafile.
+
+        The children go too. A parent-supplied mamafile makes a deferred load name children of its own,
+        and the real load runs dependencies() again. add_child refuses a child the list already holds,
+        so keeping them crashes the run. Each one stays in the dep registry, so the second call
+        re-attaches the same instance."""
         self.load_deferred = False
         self.clone_revived = True
         self.already_loaded = False
+        self.children = []
         self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
 
 

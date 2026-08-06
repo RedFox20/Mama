@@ -12,8 +12,10 @@ from testutils import make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake,
 import mama.build_dependency as build_dependency
 import mama.dependency_chain as chain
 from mama.dependency_chain import reload_deferred_deps, revive_deferred_target_deps
+from mama.build_config import BuildConfig
 from mama.main import mamabuild
 from mama.types.git import Git
+from mama.types.local_source import LocalSource
 
 
 def _targeted_dep(tmp_path, target='other', **over):
@@ -226,3 +228,29 @@ def test_a_targeted_rebuild_skips_the_forced_artifactory_pass(tmp_path):
     assert not dep.is_first_time_build()
     dep.config.no_specific_target.return_value = True       # `mama rebuild` still refreshes every dep
     assert dep.is_first_time_build()
+
+
+def test_a_revive_drops_the_children_the_deferred_load_named(tmp_path):
+    # a parent-supplied mamafile makes a deferred load name children, and the real load names them
+    # again. add_child refuses a child it already holds, so keeping them crashed the run.
+    (tmp_path / 'mamadeps').mkdir()
+    (tmp_path / 'mamadeps' / 'foo.py').write_text(
+        "import mama\nclass foo(mama.BuildTarget):\n"
+        "    def dependencies(self): self.add_git('grandchild', 'https://example.com/gc.git')\n")
+    (tmp_path / 'CMakeLists.txt').write_text('project(rt)\n')
+    (tmp_path / 'mamafile.py').write_text(
+        "import mama\nclass rt(mama.BuildTarget):\n"
+        "    def dependencies(self):\n"
+        "        self.add_git('foo', 'https://example.com/foo.git', mamafile='mamadeps/foo.py')\n")
+    cfg = BuildConfig(['build', 'grandchild'])
+    cfg.root_source_dir = str(tmp_path)
+    root = build_dependency.BuildDependency(None, cfg, None, LocalSource('rt', str(tmp_path), None, False, []))
+    root.load()
+    foo = root.children[0]
+    with patch.object(build_dependency.BuildDependency, '_git_checkout_if_needed', lambda self: False), \
+         patch.object(build_dependency.BuildDependency, '_try_artifactory_shim', lambda self: False):
+        foo.load()
+        assert [c.name for c in foo.children] == ['grandchild']
+        foo.revive_deferred_load()
+        foo.load()  # this raised `has already been added`
+    assert [c.name for c in foo.children] == ['grandchild']

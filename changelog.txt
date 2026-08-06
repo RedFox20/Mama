@@ -7,6 +7,7 @@ unreleased
  - bugfix: mama keeps its locks and compiler seeds in one packages/.mama dir
  - bugfix: a targeted run loads and builds only the subtree of its target
  - bugfix: a shared dependency loads once, not once per parent
+ - bugfix: a targeted build no longer crashes on a parent-supplied mamafile
  - bugfix: wipe a target that loaded as a package, instead of doing nothing
  - bugfix: a package, a listing and a skipped test each name their target
  - bugfix: deploying an artifactory package keeps the export rules of its recipe

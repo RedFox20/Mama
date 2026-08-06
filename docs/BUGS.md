@@ -30,7 +30,7 @@ this list links to it.
   The mix stays allowed. A developer often needs one target in debug to read a stack trace. A rebuild
   of every dep to get it costs more than the stack trace is worth.
 
-- [ ] **A revived deferred dep with a parent-supplied mamafile crashes the run.**
+- [x] **A revived deferred dep with a parent-supplied mamafile crashes the run.**
   `revive_deferred_load` clears `already_loaded` and `target`, but it keeps `children` and leaves
   `did_skim` False. The second `_load` therefore runs `dependencies()` again, and `add_child` raises
   `has already been added`. It needs a deferred load that named children, which means an `add_git`
