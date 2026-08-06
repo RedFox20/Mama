@@ -1,5 +1,5 @@
 """Pins dependency flattening, deps_only scoping, and the unified scheduler's deps_only behavior."""
-import threading
+import threading, time
 from unittest.mock import Mock
 import pytest
 from testutils import FakeUnifiedDep, make_unified_config
@@ -238,6 +238,33 @@ def test_unified_deps_only_promotes_a_dep_first_seen_outside_the_scope(no_cmake_
     root = mk('root', [mk('B', [d]), mk('A1', [mk('A2', [mk('A', [d])])])])
     dc.execute_unified(root, DepsOnlyScope(cfg, 'A'))
     assert _named(ev, 'bld') == {'D', 'E'}  # E sits below D and inherits the promotion
+
+
+def test_unified_deps_only_promotes_a_dep_whose_child_has_no_job_yet(no_cmake_writes):
+    """A dep names its children before it grows the graph, so a promotion can reach a child that no job
+    knows yet. D holds inside that window until A promotes it."""
+    cfg = make_unified_config(target='A')
+    ev, lock = [], threading.Lock()
+    scope = DepsOnlyScope(cfg, 'A')
+    named_children = threading.Event()
+
+    class HoldsItsGrowth(FakeUnifiedDep):
+        def load(self):
+            super().load()
+            named_children.set()
+            deadline = time.monotonic() + 5
+            while not scope.is_inside(self) and time.monotonic() < deadline: time.sleep(0.001)
+
+    class WaitsForD(FakeUnifiedDep):
+        def load(self):
+            named_children.wait(5)
+            super().load()
+
+    mk = lambda name, kids: FakeUnifiedDep(name, cfg, ev, lock, shared_children=kids)
+    d = HoldsItsGrowth('D', cfg, ev, lock, child_specs=[('E', ())])
+    root = mk('root', [mk('B', [d]), WaitsForD('A', cfg, ev, lock, shared_children=[d])])
+    dc.execute_unified(root, scope)
+    assert _named(ev, 'bld') == {'D', 'E'}
 
 
 def test_unified_deps_only_target_forces_a_rebuild_of_its_deps(unified):

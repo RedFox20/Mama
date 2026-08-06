@@ -1036,7 +1036,10 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
                     if child not in load_jobs:
                         new += make_jobs(child, load_jobs[dep], dep)
                     elif scope is not None and scope.is_inside(dep):  # shared dep, now reached from inside the scope
-                        for d in scope.promote(child): new += make_build_jobs(d)
+                        # A load populates its children before it grows the graph, so a promoted dep can name a
+                        # child no job knows yet. That child builds when its own parent registers it.
+                        for d in scope.promote(child):
+                            if d in load_jobs: new += make_build_jobs(d)
                 C = cfg_jobs.get(dep)  # absent when the scope excludes this dep
                 if C is not None: C.deps.update(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
