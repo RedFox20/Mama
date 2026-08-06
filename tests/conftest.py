@@ -9,7 +9,8 @@ sys.path.insert(0, _here)
 sys.path.insert(0, _repo_root)
 
 
-from testutils import is_linux, has_case_sensitive_fs, make_example_remote  # after the sys.path setup above
+from testutils import (has_case_sensitive_fs, is_linux, make_example_remote,  # after the sys.path setup above
+                       set_repo_template_dir)
 
 
 def pytest_runtest_setup(item):
@@ -37,6 +38,13 @@ def _git_identity():
     `git config` spawns of its own. One git spawn costs about 27 milliseconds on Windows."""
     for field, value in (('NAME', 'mama test'), ('EMAIL', 'test@mama')):
         os.environ[f'GIT_AUTHOR_{field}'] = os.environ[f'GIT_COMMITTER_{field}'] = value
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _repo_template_dir(tmp_path_factory):
+    """Give the repo helper a session-lifetime dir, so it builds each repo shape with git one time and
+    copies it after that. pytest removes the dir at the end of the session."""
+    set_repo_template_dir(str(tmp_path_factory.mktemp('repo_templates')))
 
 
 @pytest.fixture(scope='session')

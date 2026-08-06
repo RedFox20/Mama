@@ -16,7 +16,7 @@ from mama.build_config import DeployStats
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
 from mama.utils.fileio import write_text_to
-from mama.utils.paths import normalized_path
+from mama.utils.paths import normalized_path, path_join
 from mama.utils.sub_process import execute_piped
 
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves
@@ -387,28 +387,50 @@ def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **
     return dep
 
 
-def git_init_commit(cwd, branch='', files=None):
-    """Turn `cwd` into a git repo and commit everything in it. The identity comes from the environment,
-    which conftest names once, so this costs three git spawns and not five.
-    branch: name the initial branch, for a test that pins one
-    files: {name: text} to write before the commit"""
-    from mama.utils.sub_process import execute_piped
-    os.makedirs(str(cwd), exist_ok=True)
-    for name, text in (files or {}).items(): write_text_to(os.path.join(str(cwd), name), text)
+_repo_templates = {}     # (branch, files) -> a built repo that a later call copies instead of rebuilding
+_repo_template_dir = ''  # a session-lifetime dir, so a template outlives the test that built it
+
+
+def set_repo_template_dir(path: str):
+    """conftest names the dir that holds the git repo templates, and pytest removes it at the end."""
+    global _repo_template_dir
+    _repo_template_dir = path
+
+
+def _build_git_repo(cwd, branch, files):
+    os.makedirs(cwd, exist_ok=True)
+    for name, text in (files or {}).items(): write_text_to(os.path.join(cwd, name), text)
     # --allow-empty: a repo with no file still needs the commit that every status read compares against
     for cmd in ['init -q' + (f' -b {branch}' if branch else ''), 'add -A', 'commit --allow-empty -q -m init']:
-        execute_piped(['git', *cmd.split()], cwd=str(cwd))
+        execute_piped(['git', *cmd.split()], cwd=cwd)
+
+
+def git_init_commit(cwd, branch='', files=None):
+    """Turn `cwd` into a git repo and commit everything in it. The identity comes from the environment,
+    which conftest names once.
+    branch: name the initial branch, for a test that pins one
+    files: {name: text} to write before the commit
+
+    The first call for one (branch, files) pair builds the repo with git and keeps a copy. Every later
+    call copies that one, which costs 24 ms on Windows against 158 ms for three git spawns."""
+    cwd = str(cwd)
+    # a caller that wrote its own files first gets a real build, because the key describes `files` alone
+    if os.path.isdir(cwd) and os.listdir(cwd): return _build_git_repo(cwd, branch, files)
+    key = (branch, tuple(sorted((files or {}).items())))
+    if key in _repo_templates:
+        shutil.copytree(_repo_templates[key], cwd, dirs_exist_ok=True)
+        return
+    _build_git_repo(cwd, branch, files)
+    if _repo_template_dir:
+        _repo_templates[key] = template = path_join(_repo_template_dir, str(len(_repo_templates)))
+        shutil.copytree(cwd, template)
 
 
 def make_git_root_with_local_pkgs(tmp_path, count=1):
     """A git repo at `tmp_path/root` holding `count` committed local packages under `libs/`. Returns the
     list of BuildDependency, one per package, which share the one enclosing repo."""
     root = tmp_path / 'root'
-    for i in range(count):
-        sub = root / 'libs' / f'pkg{i}'
-        sub.mkdir(parents=True)
-        (sub / 'lib.cpp').write_text(f'int f{i}(){{ return {i}; }}\n')
-    git_init_commit(root)
+    git_init_commit(root, files={f'libs/pkg{i}/lib.cpp': f'int f{i}(){{ return {i}; }}\n' for i in range(count)})
     return [make_mock_local_dep(tmp_path, src_dir=root / 'libs' / f'pkg{i}', name=f'pkg{i}')
             for i in range(count)]
 
