@@ -332,7 +332,8 @@ that reads a path too early fails fast instead of writing outside the dep.
 
 Both hooks run once per dep, and `did_skim` is what stops the later load from repeating them. A second
 `dependencies()` call makes `add_child` refuse a child it already holds. A deferred load that parsed a
-parent-supplied mamafile is the hole in that rule. See `docs/BUGS.md`.
+parent-supplied mamafile names children of its own, so `revive_deferred_load` drops them before the real
+load runs the hook again.
 
 Inside stage one, `_defer_load` skips every network step of a dep outside the target: the shim probe,
 the package fetch and the clone. **Exploring the graph must never turn a cached shim into a clone.** A

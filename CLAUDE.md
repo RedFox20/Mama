@@ -45,8 +45,8 @@ and it is the most valuable half of the spec. It goes on a `**Why:**` line, whic
 UNVERIFIABLE and leaves alone. Never present rationale as behavior, and never cut it for being
 unverifiable. Cut only a claim that pretends to describe the code and does not.
 
-`docs/BUGS.md` is the open-defect list. Add an entry when you find a bug you do not fix in the same
-change. Tick its box in the commit that fixes it.
+`docs/BUGS.md` holds an open list and a closed list. Add an entry to Open when you find a bug you do
+not fix in the same change. The commit that fixes it compacts the entry and moves it to Closed.
 
 ## Code style
 
