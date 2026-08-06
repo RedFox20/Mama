@@ -15,6 +15,19 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.13.13** (2026-Aug-06)
+- feature: the load shows one live line per dep, with the git chatter filtered
+- feature: one mamabuild.log per run holds the load, build and summary
+- bugfix: mama build TARGET clones, builds and packages only that subtree
+- bugfix: a shared dep loads once, and promoting it no longer crashes the run
+- bugfix: mama build debug reconfigures, and names any release package left
+- bugfix: mama update moves a stale shim forward when no package answers
+- bugfix: a full commit pin names its package by a 7 char hash, not 40
+- bugfix: republishing a package keeps its export rules and its include tree
+- bugfix: locks and compiler seeds live in packages/.mama, not beside each dep
+- bugfix: a project with no mamafile keeps its packages out of the home dir
+- perf: naming a target only skims mamafiles, and stops at the first match
+
 **0.13.12** (2026-Aug-05)
 - bugfix: a targeted rebuild no longer clones or fetches unrelated deps
 - bugfix: a committed .worktrees dir no longer fails the submodule init
@@ -25,10 +38,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 - bugfix: a package ships only current headers, never a stale tree or .git
 - bugfix: every git command stays inside its dependency, never the repo above
 - bugfix: an MSVC toolset upgrade no longer poisons build dirs or package names
-
-**0.13.10** (2026-Aug-03)
-- bugfix: deploy duplicate path names into a single dir, whatever their case
-- bugfix: support VS 18 (2026) .slnx, and stop the every-run reconfigure
 
 [Full changelog](https://github.com/RedFox20/Mama/blob/master/changelog.txt)
 
