@@ -92,6 +92,14 @@ def test_papa_upload_preserves_declared_paths_for_supported_content_types(tmp_pa
     assert names == set(expected_archive_entries(package_root))
 
 
+def test_an_undeployed_target_names_the_papa_file_it_wants(tmp_path: Path):
+    # the package dir usually exists and only papa.txt is missing, so naming the dir sent readers hunting
+    empty = tmp_path / 'deploy' / 'sample_pkg'
+    empty.mkdir(parents=True)
+    with pytest.raises(RuntimeError, match='papa.txt does not exist'):
+        papa_upload_to(FakeTarget(tmp_path / 'linux'), str(empty))
+
+
 def test_validate_archive_rejects_missing_content(tmp_path: Path):
     package_root, papa = create_sample_package(tmp_path / 'missing')
     entries = expected_archive_entries(package_root)

@@ -797,8 +797,9 @@ def _dep_build_type(dep) -> str:
     from .papa_deploy import PapaFileInfo  # local import: avoid a cycle
     recorded = build_names.build_dir_build_type(dep)
     if recorded: return recorded
+    # A summary must never fail a build that already succeeded, so a missing or malformed file answers ''.
     try: attributes = PapaFileInfo(path_join(dep.build_dir, 'papa.txt')).attributes
-    except OSError: return ''
+    except Exception: return ''
     return next((a for a in attributes if a in ('debug', 'release')), '')
 
 

@@ -58,6 +58,25 @@ def test_the_deploy_hook_runs_once_for_a_build_and_an_upload(tmp_path):
     deploy.assert_called_once()
 
 
+# --- nothing_to_upload ------------------------------------------------------
+
+def _uploaded(target) -> bool:
+    with patch('mama.papa_upload.papa_upload_to') as upload, patch.object(type(target), 'deploy'):
+        target._execute_deploy_tasks()
+    return upload.called
+
+
+def test_an_upload_skips_a_target_that_declares_nothing_to_upload(tmp_path):
+    # an application at the root builds no package, so `mama upload` must not demand a papa.txt of it
+    target = _target(tmp_path, deploy=False, upload=True)
+    target.nothing_to_upload()
+    assert not _uploaded(target)
+
+
+def test_a_target_that_declares_nothing_still_uploads_by_default(tmp_path):
+    assert _uploaded(_target(tmp_path, deploy=False, upload=True))
+
+
 # --- the one-line summary ---------------------------------------------------
 
 def _summary(stats) -> str:

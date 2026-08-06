@@ -199,9 +199,8 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
     package_full_path = package_full_path if package_full_path else target.build_dir()
     papa_file = normalized_join(package_full_path, 'papa.txt')
     if not os.path.exists(papa_file):
-        raise RuntimeError(f'BuildTarget {target.name} was not deployed because '\
-                           f'{package_full_path} does not exist! '\
-                            'Add self.papa_deploy() to mamafile deploy()!')
+        raise RuntimeError(f'BuildTarget {target.name} was not deployed because {papa_file} does not exist!' + \
+                           ' Add self.papa_deploy() to deploy(), or self.nothing_to_upload() to settings().')
 
     config = target.config
     built = build_dir_build_type(target.dep)

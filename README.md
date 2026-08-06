@@ -571,6 +571,14 @@ artifactory-loaded target deploys nothing, and a run that both builds and upload
 `papa_deploy` writes the package tree plus `papa.txt`. `default_deploy` is `papa_deploy('deploy/{name}')`.
 After the build, mama prints one line: `Deployed 2 includes, 3 libs to <dir>`.
 
+**A target that publishes nothing.** An application at the root builds no package for another project.
+`mama upload` then fails on the missing `papa.txt`. Declare the target instead:
+
+```py
+    def settings(self):
+        self.nothing_to_upload()   # `mama upload` skips this target and says so
+```
+
 ## Mamafile examples
 
 Project `AlphaGL/mamafile.py`

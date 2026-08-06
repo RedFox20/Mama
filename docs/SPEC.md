@@ -630,6 +630,11 @@ the current target asked for it. The per-target `PAPA Deployed` lines stay in th
 **A shim never deploys or uploads.** It is read-only, its papa.txt and its unzipped tree must survive,
 and the artifactory already holds that package. Mama says so and points at `mama unshallow`.
 
+A target that sets `nothing_to_upload()` in `settings()` skips the upload, and the run says so. An
+application at the root of a project publishes no package, so an upload of it has nothing to send. Without
+that flag mama demands a `papa.txt` and fails the run. The deploy hook still runs, because a project that
+deploys its runtime tree but publishes no archive is a normal shape.
+
 `papa.txt` records, one per line:
 
 | Record | Meaning |

@@ -84,6 +84,14 @@ def test_a_fetched_package_names_its_build_type_from_papa_txt(tmp_path):
     assert dc._dep_build_type(dep) == 'debug'
 
 
+def test_a_malformed_papa_file_never_fails_the_summary(tmp_path):
+    # the build already succeeded, so an unreadable package must cost the name, not the run
+    dep = _dep(tmp_path, 'broken')
+    os.makedirs(dep.build_dir, exist_ok=True)
+    write_text_to(path_join(dep.build_dir, 'papa.txt'), 'P broken\nD nonsense not-a-source\n')
+    assert dc._dep_build_type(dep) == ''
+
+
 def test_a_uniform_tree_says_nothing(tmp_path):
     deps = [_dep(tmp_path, 'a', RELEASE), _dep(tmp_path, 'b', RELEASE)]
     with patch('mama.dependency_chain.warning') as warn:

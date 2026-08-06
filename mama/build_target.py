@@ -103,6 +103,7 @@ class BuildTarget:
         self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
+        self.no_upload = False # nothing_to_upload(): an upload skips this target
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
@@ -505,6 +506,18 @@ class BuildTarget:
         ```
         """
         self.no_libs = True
+
+
+    def nothing_to_upload(self):
+        """
+        Declares that this target publishes no package, so `mama upload` skips it and reports
+        the skip. An application at the root of a project builds nothing another project consumes.
+        ```
+            def settings(self):
+                self.nothing_to_upload()
+        ```
+        """
+        self.no_upload = True
 
 
     def export_include(self, include_path, build_dir=False,
@@ -1782,6 +1795,9 @@ class BuildTarget:
         self._deploy_once()
 
         if self.config.upload:
+            if self.no_upload:
+                if self.config.print: warning(f'  - Target {self.name: <16} UPLOAD skipped (nothing_to_upload)')
+                return
             # deferred: papa_upload pulls zipfile, which costs about 28ms, and only an upload needs it
             from .papa_upload import papa_upload_to
             papa_upload_to(self, self.papa_path)
