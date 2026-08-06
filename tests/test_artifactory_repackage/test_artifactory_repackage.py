@@ -38,8 +38,8 @@ def _exports_by_category(target):
 
 
 def _every_subset():
-    for size in range(len(CATEGORIES) + 1):
-        yield from itertools.combinations(CATEGORIES, size)
+    """A list, not a generator: pytest.parametrize consumes argvalues more than once."""
+    return [c for size in range(len(CATEGORIES) + 1) for c in itertools.combinations(CATEGORIES, size)]
 
 
 # --- the export matrix ------------------------------------------------------

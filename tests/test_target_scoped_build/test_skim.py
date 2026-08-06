@@ -19,7 +19,7 @@ def _dep_with_mamafile(tmp_path, body, child='child'):
 
 
 def test_a_skim_names_the_children(tmp_path):
-    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', '{tmp_path}/child')\n")
+    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', r'{tmp_path}/child')\n")
     dep.skim()
     assert [c.name for c in dep.get_children()] == ['child']
 
@@ -38,14 +38,14 @@ def test_a_skim_does_not_count_as_a_load(tmp_path):
 
 def test_a_load_after_a_skim_runs_neither_hook_again(tmp_path):
     # add_child refuses a child it already holds, so a repeated dependencies() would raise
-    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', '{tmp_path}/child')\n")
+    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', r'{tmp_path}/child')\n")
     dep.skim()
     dep._load()
     assert [c.name for c in dep.get_children()] == ['child']
 
 
 def test_a_second_skim_is_a_no_op(tmp_path):
-    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', '{tmp_path}/child')\n")
+    dep = _dep_with_mamafile(tmp_path, f"    def dependencies(self): self.add_local('child', r'{tmp_path}/child')\n")
     dep.skim()
     dep.skim()   # a diamond dep is reached through two parents
     assert len(dep.get_children()) == 1
