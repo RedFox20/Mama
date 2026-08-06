@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from testutils import make_git_root_with_local_pkgs, git_init_commit
 from mama.utils import git_status as util
+from mama.utils.paths import normalized_path
 
 
 def _spawn_count(fn):
@@ -20,7 +21,7 @@ def test_one_status_answers_every_local_dep(tmp_path):
     fingerprints, lookup_spawns = _spawn_count(
         lambda: [d.dep_source.working_tree_fingerprint(d) for d in deps])
 
-    assert load_spawns == 2  # rev-parse --show-toplevel, then one status
+    assert load_spawns == 1  # the toplevel comes off disk, so only the status itself spawns
     assert lookup_spawns == 0  # five clean deps, and not one of them asked git
     assert fingerprints == [''] * 5
 
@@ -55,6 +56,22 @@ def test_a_git_dep_never_reads_the_shared_status(tmp_path):
     util.load_repo_status(str(root))
     _, spawns = _spawn_count(lambda: util._compute_git_dir_fingerprint(deps[0].src_dir, shared_status=False))
     assert spawns >= 1
+
+
+def test_the_toplevel_walk_finds_the_dir_that_holds_the_git_entry(tmp_path):
+    root = tmp_path / 'root'
+    deep = root / 'a' / 'b'
+    deep.mkdir(parents=True)
+    git_init_commit(root, files={'lib.cpp': 'int f(){return 1;}\n'})
+    assert util.find_repo_toplevel(str(deep)) == normalized_path(str(root))
+
+
+def test_the_toplevel_walk_accepts_a_git_file(tmp_path):
+    # a worktree and a submodule both mark their root with a `.git` FILE, not a dir
+    root = tmp_path / 'wt'
+    root.mkdir()
+    (root / '.git').write_text('gitdir: /elsewhere/.git/worktrees/wt\n')
+    assert util.find_repo_toplevel(str(root)) == normalized_path(str(root))
 
 
 def _clone_inside_the_workspace(tmp_path):
@@ -115,13 +132,14 @@ def test_path_case_does_not_break_the_match(tmp_path):
 
 
 def test_a_dir_that_git_does_not_track_loads_no_status(tmp_path):
-    """Patches git rather than using a bare dir: pytest puts tmp_path inside this repo, so git finds a
-    real toplevel above it and the dir is tracked after all."""
+    """Patches the walk rather than using a bare dir: pytest puts tmp_path inside this repo, so the walk
+    finds a real toplevel above it and the dir is tracked after all."""
     plain = tmp_path / 'plain'
     plain.mkdir()
-    with patch('mama.utils.git_status._git_output', return_value=b'') as git:
+    with patch('mama.utils.git_status.find_repo_toplevel', return_value=''), \
+         patch('mama.utils.git_status._git_output') as git:
         util.load_repo_status(str(plain))
-        assert git.call_count == 1  # rev-parse answered nothing, so no status ran
+        git.assert_not_called()  # no toplevel means no status to ask for
     assert util._repo_status_kinds(str(plain)) is None
 
 

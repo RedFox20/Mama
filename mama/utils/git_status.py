@@ -8,7 +8,7 @@ avoids one is worth its code."""
 import os, subprocess, hashlib, time
 
 from .system import System, Color, console
-from .paths import path_join, forward_slashes, _NON_SOURCE_ENTRIES
+from .paths import path_join, forward_slashes, normalized_path, _NON_SOURCE_ENTRIES
 from .fileio import read_text_from, write_text_to
 
 _git_fingerprints = {}  # src_dir -> fingerprint, the memo of git_dir_fingerprint for one mama run
@@ -167,6 +167,20 @@ def _parse_status(out: bytes) -> dict:
     return entries
 
 
+def find_repo_toplevel(start_dir: str) -> str:
+    """The working tree root at or above `start_dir`, or '' when no parent holds a `.git`.
+
+    A walk up the tree, not a `git rev-parse --show-toplevel`, because the answer is already on disk
+    and a git process is not free. `.git` as a file marks a worktree or a submodule, and the dir that
+    holds it is still the root of that working tree."""
+    current = normalized_path(start_dir)
+    while not os.path.exists(path_join(current, '.git')):
+        parent = os.path.dirname(current)
+        if parent == current: return ''
+        current = parent
+    return current
+
+
 def load_repo_status(root_dir: str):
     """Read every pending change of the repository at `root_dir` with ONE `git status`.
 
@@ -176,7 +190,7 @@ def load_repo_status(root_dir: str):
     result stays empty when `root_dir` is not under git."""
     global _repo_status
     _repo_status = None
-    top = _git_output(['rev-parse', '--show-toplevel'], root_dir).decode('utf-8', 'replace').strip()
+    top = find_repo_toplevel(root_dir)
     if not top: return
     entries = _parse_status(_git_output(['status', '--porcelain', '-z'], top))
     # Both sides of every later compare go through _case_key, so store the keys that way once.
