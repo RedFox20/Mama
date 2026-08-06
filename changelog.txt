@@ -10,6 +10,7 @@ unreleased
  - bugfix: a targeted build no longer crashes on a parent-supplied mamafile
  - bugfix: a project with no mamafile keeps its packages out of the home dir
  - bugfix: mama build debug reconfigures, and names any release package left
+ - bugfix: mama update moves a stale shim forward when its package is gone
  - bugfix: wipe a target that loaded as a package, instead of doing nothing
  - bugfix: a package, a listing and a skipped test each name their target
  - bugfix: deploying an artifactory package keeps the export rules of its recipe

@@ -469,7 +469,24 @@ class BuildDependency:
                 self.did_check_artifactory = True
                 if shim_deps: self.add_children(shim_deps)
                 return True
+            # The probe found no package. An `update` still has to move the dep forward, so drop a
+            # marker whose commit upstream has left behind and let the git path clone the source.
+            if self.config.update: self._drop_shim_if_upstream_moved()
         return False
+
+
+    def _drop_shim_if_upstream_moved(self) -> bool:
+        """Remove a shim marker whose recorded commit no longer matches upstream. Return True when it
+        went. A missing package for an UNCHANGED commit keeps the shim, because the files it already
+        extracted are still the right ones. The probe resolved the current commit, so this costs nothing."""
+        if not self.is_artifactory_shim(): return False
+        stored = self.read_shim_marker().get('hash', '')
+        current = self.dep_source.commit_hash
+        if not (stored and current and current != stored): return False
+        if self.config.print:
+            warning(f'  - Target {self.name: <16} SHIM STALE was={stored} now={current}, building from source')
+        self.remove_shim_marker()
+        return True
 
 
     def _try_artifactory_load(self, target) -> bool:

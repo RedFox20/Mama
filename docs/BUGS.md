@@ -39,7 +39,7 @@ this list links to it.
   `BuildTarget foo add dependency 'grandchild' failed because it has already been added`.
   The fix is for `revive_deferred_load` to drop the children the deferred load named.
 
-- [ ] **`mama update` cannot move a stale shim forward when no new package exists.**
+- [x] **`mama update` cannot move a stale shim forward when no new package exists.**
   Under `update`, `_try_artifactory_shim` skips the cached path, so nothing drops the marker. The
   probe then misses, and `_git_checkout_if_needed` returns False for any shim, so no clone happens.
   The dep silently keeps the package of the old commit. Under `noart` the same dep does detect the

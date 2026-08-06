@@ -280,7 +280,7 @@ A load resolves one dep. It gets the source or the package, then parses the mama
 | State | `build` | `update` | `build noart` |
 |---|---|---|---|
 | 1 valid shim | load `papa.txt` from disk. No network, no unzip, no ls-remote | ls-remote, then re-fetch and re-extract | ls-remote to check staleness, then load from disk |
-| 2 stale shim | not detected, and that is deliberate | the probe re-extracts and rewrites the marker on a hit. On a miss the marker stays and nothing clones | detected, marker dropped, clones and builds from source |
+| 2 stale shim | not detected, and that is deliberate | the probe re-extracts and rewrites the marker on a hit. On a miss the marker goes and the dep clones | detected, marker dropped, clones and builds from source |
 | 3 real clone | a local repo-health check, no network | fetch or pull, and reset only when the status moved | same as `build` |
 | 4 empty | ls-remote, probe artifactory, else clone | same | clone |
 
@@ -398,6 +398,10 @@ fetch and reset path is correct, and the probe would only re-clone into a tempdi
 
 A **failed ls-remote does not drop the marker.** A transient network failure must not force a re-clone
 on the next run.
+
+Under `update`, a probe that finds no package drops a marker whose commit upstream has left behind, so
+the dep clones and builds from source. A missing package for an UNCHANGED commit keeps the shim,
+because the files it already extracted are still the right ones.
 
 A dep that pins no version mama can read locally gets a second probe when the first one missed. The pin
 may live in the dep's own not-yet-cloned mamafile. Mama sparse-fetches that one file, reads the pin,
