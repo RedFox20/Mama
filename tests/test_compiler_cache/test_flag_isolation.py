@@ -27,15 +27,18 @@ def _ver_dir(build, lang='CXX'):
     return os.path.dirname(hits[0]) if hits else None
 
 
-def _probe_seed(tmp_path):
-    """What _build_seed_probe does in production: configure a synthetic C+CXX project, publish it."""
-    src = str(tmp_path / 'probe_src'); build = str(tmp_path / 'probe_build')
+@pytest.fixture(scope='session')
+def probe_seed(tmp_path_factory):
+    """What _build_seed_probe does in production: configure a synthetic C+CXX project, publish it.
+    Session scoped, because a published seed is read-only and the detection costs about two seconds."""
+    tmp = tmp_path_factory.mktemp('flag_isolation')
+    src = str(tmp / 'probe_src'); build = str(tmp / 'probe_build')
     os.makedirs(src, exist_ok=True)
     open(os.path.join(src, 'CMakeLists.txt'), 'w').write(_SEED_PROJECT)
     r = _configure(src, build)
     assert r.returncode == 0, r.stderr
     ver = _ver_dir(build)
-    seed = str(tmp_path / 'seed')
+    seed = str(tmp / 'seed')
     assert cc.publish(seed, ver, build_dir=build), 'a C+CXX probe must be publishable'
     return seed, os.path.basename(ver)
 
@@ -45,10 +48,10 @@ def _consume(seed, ver, src, build, flags=''):
     return _configure(src, build, flags)
 
 
-def test_a_single_language_project_configures_from_the_probe_seed(tmp_path):
+def test_a_single_language_project_configures_from_the_probe_seed(tmp_path, probe_seed):
     # The bug this design fixes: seeding used to copy whichever languages the first real target
     # detected, so a C-only target seeding first left C++ projects with 'CMAKE_CXX_COMPILER not set'.
-    seed, ver = _probe_seed(tmp_path)
+    seed, ver = probe_seed
     for name, langs in (('cxxonly', 'CXX'), ('conly', 'C')):
         src = _proj(str(tmp_path / name), name, langs)
         build = str(tmp_path / f'{name}_build')
@@ -58,8 +61,8 @@ def test_a_single_language_project_configures_from_the_probe_seed(tmp_path):
         assert subprocess.run(['cmake', '--build', build], capture_output=True).returncode == 0
 
 
-def test_the_seed_carries_no_project_flags(tmp_path):
-    seed, ver = _probe_seed(tmp_path)
+def test_the_seed_carries_no_project_flags(tmp_path, probe_seed):
+    seed, ver = probe_seed
     cxx = open(os.path.join(seed, 'CMakeCXXCompiler.cmake')).read()
     assert 'CMAKE_CXX_FLAGS' not in cxx  # only toolchain detection is transplanted
 
