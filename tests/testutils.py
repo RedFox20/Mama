@@ -387,11 +387,16 @@ def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **
     return dep
 
 
-def git_init_commit(cwd):
-    """Turn `cwd` into a git repo and commit everything already in it. Sets the identity, because a
-    machine with no global git identity cannot commit."""
+def git_init_commit(cwd, branch='', files=None):
+    """Turn `cwd` into a git repo and commit everything in it. The identity comes from the environment,
+    which conftest names once, so this costs three git spawns and not five.
+    branch: name the initial branch, for a test that pins one
+    files: {name: text} to write before the commit"""
     from mama.utils.sub_process import execute_piped
-    for cmd in ['init -q', 'config user.email t@t', 'config user.name t', 'add -A', 'commit -q -m init']:
+    os.makedirs(str(cwd), exist_ok=True)
+    for name, text in (files or {}).items(): write_text_to(os.path.join(str(cwd), name), text)
+    # --allow-empty: a repo with no file still needs the commit that every status read compares against
+    for cmd in ['init -q' + (f' -b {branch}' if branch else ''), 'add -A', 'commit --allow-empty -q -m init']:
         execute_piped(['git', *cmd.split()], cwd=str(cwd))
 
 
@@ -542,7 +547,6 @@ def make_example_remote(work_dir, buildable=False) -> dict:
     def git(*args) -> str:
         return execute_piped(['git', *args], cwd=work) or ''
     git('init', '-q', '-b', 'master')
-    git('config', 'user.email', 'test@mama'); git('config', 'user.name', 'mama test')
     files = _REMOTE_FILES if buildable else {**_REMOTE_FILES, 'mamafile.py': _REMOTE_MAMAFILE}
     for name, text in files.items(): write_text_to(os.path.join(work, name), text)
     for version, tag in (('', 'v1.0.0'), ('#define REMOTE_VERSION 2\n', 'v2.0.0')):

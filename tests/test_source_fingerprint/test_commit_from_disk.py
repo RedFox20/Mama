@@ -4,6 +4,7 @@ import os, subprocess
 import pytest
 
 from mama.types.git import read_commit_from_disk
+from testutils import git_init_commit
 
 
 def _git(args, cwd):
@@ -12,11 +13,8 @@ def _git(args, cwd):
 
 @pytest.fixture
 def repo(tmp_path):
-    d = tmp_path / 'dep'; d.mkdir()
-    for cmd in ('init -q -b master', 'config user.email t@t', 'config user.name t'):
-        _git(cmd.split(), d)
-    (d / 'lib.cpp').write_text('int f(){return 1;}\n')
-    _git(['add', '-A'], d); _git(['commit', '-q', '-m', 'init'], d)
+    d = tmp_path / 'dep'
+    git_init_commit(d, branch='master', files={'lib.cpp': 'int f(){return 1;}\n'})
     return str(d)
 
 

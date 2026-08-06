@@ -3,22 +3,9 @@
 mama writes `mama.cmake` into every dependency source dir. Counting it reported every clean dependency
 as dirty, which cost each one a `git ls-files` it did not need.
 """
-import os, subprocess
-import pytest
+import os
 
 from mama.utils import git_status as util
-
-
-@pytest.fixture
-def repo(tmp_path):
-    d = tmp_path / 'dep'
-    d.mkdir()
-    for cmd in ('init -q', 'config user.email t@t', 'config user.name t'):
-        subprocess.run(['git', *cmd.split()], cwd=str(d), capture_output=True)
-    (d / 'lib.cpp').write_text('int f(){return 1;}\n')
-    subprocess.run(['git', 'add', '-A'], cwd=str(d), capture_output=True)
-    subprocess.run(['git', 'commit', '-q', '-m', 'init'], cwd=str(d), capture_output=True)
-    return str(d)
 
 
 def _fingerprint(repo) -> str:

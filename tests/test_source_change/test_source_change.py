@@ -1,22 +1,14 @@
 """Pins working-tree fingerprint detection: `mama build` must rebuild a git dep
 whose source was edited in place, without a full status check or reconfigure."""
-import os
 from pathlib import Path
 from unittest.mock import Mock, patch
-from testutils import make_mock_dep
+from testutils import git_init_commit, make_mock_dep
 from mama.utils.sub_process import execute_piped
-
-
-def _init_repo(src_dir):
-    os.makedirs(src_dir, exist_ok=True)
-    for cmd in ['init -q', 'config user.email t@t', 'config user.name t',
-                'commit --allow-empty -q -m init']:
-        execute_piped(['git', *cmd.split()], cwd=src_dir)
 
 
 def _git_dep_with_repo(tmp_path):
     dep = make_mock_dep(tmp_path)
-    _init_repo(dep.src_dir)
+    git_init_commit(dep.src_dir)
     (Path(dep.src_dir) / 'lib.cpp').write_text('int f(){return 1;}\n')
     execute_piped(['git', 'add', '-A'], cwd=dep.src_dir)
     execute_piped(['git', 'commit', '-q', '-m', 'src'], cwd=dep.src_dir)

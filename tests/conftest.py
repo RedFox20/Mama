@@ -31,6 +31,14 @@ def _own_cache_dir(tmp_path_factory):
     os.environ['MAMA_GLOBAL_COMPILER_CACHE'] = '1'
 
 
+@pytest.fixture(scope='session', autouse=True)
+def _git_identity():
+    """Name the git author and committer once for the session. A test repo would otherwise spend two
+    `git config` spawns of its own. One git spawn costs about 27 milliseconds on Windows."""
+    for field, value in (('NAME', 'mama test'), ('EMAIL', 'test@mama')):
+        os.environ[f'GIT_AUTHOR_{field}'] = os.environ[f'GIT_COMMITTER_{field}'] = value
+
+
 @pytest.fixture(scope='session')
 def buildable_example_remote(tmp_path_factory):
     """The same remote, but with no mamafile, so mama really configures and builds the clone. Only a test

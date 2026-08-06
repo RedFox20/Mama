@@ -15,7 +15,6 @@ def _git(args, cwd):
 def _repo(path, commit=True, init_args=()):
     path.mkdir(parents=True, exist_ok=True)
     if _git(['init', '-q', *init_args], path).returncode != 0: return None
-    _git(['config', 'user.email', 't@t'], path); _git(['config', 'user.name', 't'], path)
     if commit:
         (path / 'f.txt').write_text('hi\n')
         _git(['add', '-A'], path); _git(['commit', '-q', '-m', 'init'], path)

@@ -9,18 +9,11 @@ from unittest.mock import patch
 import pytest
 
 from mama.utils import git_status as util
-from testutils import make_mock_dep
+from testutils import git_init_commit, make_mock_dep
 
 
 def _repo(dep):
-    src = dep.src_dir
-    os.makedirs(src, exist_ok=True)
-    import subprocess
-    for cmd in ('init -q', 'config user.email t@t', 'config user.name t'):
-        subprocess.run(['git', *cmd.split()], cwd=src, capture_output=True)
-    open(f'{src}/lib.cpp', 'w').write('int f(){return 1;}\n')
-    subprocess.run(['git', 'add', '-A'], cwd=src, capture_output=True)
-    subprocess.run(['git', 'commit', '-q', '-m', 'init'], cwd=src, capture_output=True)
+    git_init_commit(dep.src_dir, files={'lib.cpp': 'int f(){return 1;}\n'})
     return dep
 
 

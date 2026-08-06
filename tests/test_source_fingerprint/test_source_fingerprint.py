@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from mama.utils import git_status as util
-from testutils import make_mock_dep
+from testutils import git_init_commit, make_mock_dep
 
 
 def _git(args, cwd):
@@ -18,12 +18,7 @@ def dep(tmp_path):
     """A git dep with one source file, one README, and its walk already recorded by a `build`."""
     d = make_mock_dep(tmp_path, name='libfoo')
     src = d.src_dir
-    os.makedirs(src, exist_ok=True)
-    for cmd in ('init -q', 'config user.email t@t', 'config user.name t'):
-        _git(cmd.split(), src)
-    open(f'{src}/lib.cpp', 'w').write('int f(){return 1;}\n')
-    open(f'{src}/README.md', 'w').write('# docs\n')
-    _git(['add', '-A'], src); _git(['commit', '-q', '-m', 'init'], src)
+    git_init_commit(src, files={'lib.cpp': 'int f(){return 1;}\n', 'README.md': '# docs\n'})
     d.dep_source.save_status(d)          # what a successful build does
     util.forget_git_dir_fingerprint(src)
     return d

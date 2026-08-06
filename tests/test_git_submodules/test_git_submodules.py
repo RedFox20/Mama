@@ -49,7 +49,7 @@ def test_git_itself_skips_a_stale_worktree_gitlink(tmp_path, monkeypatch):
     git_init_commit(sub)
     main = tmp_path / 'main'; main.mkdir()
     run = lambda *a: execute_piped(['git', *a], cwd=str(main))
-    run('init', '-q'); run('config', 'user.email', 't@t'); run('config', 'user.name', 't')
+    run('init', '-q')
     run('submodule', 'add', '-q', str(sub), 'sub')
     run('update-index', '--add', '--cacheinfo', f'160000,{"1" * 40},.worktrees/diag')
     run('commit', '-qm', 'sub plus stale gitlink')

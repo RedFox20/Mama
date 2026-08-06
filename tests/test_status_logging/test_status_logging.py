@@ -1,21 +1,9 @@
 """Pins the `verbose` working-tree status log: silent by default, and one honest line per check."""
-import os, subprocess
+import os
 import pytest
 
 from mama.utils import git_status as util
 from testutils import strip_ansi
-
-
-@pytest.fixture
-def repo(tmp_path):
-    d = tmp_path / 'dep'
-    d.mkdir()
-    for cmd in ('init -q', 'config user.email t@t', 'config user.name t'):
-        subprocess.run(['git', *cmd.split()], cwd=str(d), capture_output=True)
-    (d / 'lib.cpp').write_text('int f(){return 1;}\n')
-    subprocess.run(['git', 'add', '-A'], cwd=str(d), capture_output=True)
-    subprocess.run(['git', 'commit', '-q', '-m', 'init'], cwd=str(d), capture_output=True)
-    return str(d)
 
 
 @pytest.fixture(autouse=True)
