@@ -68,13 +68,18 @@ def _source_root_payload(self):
     # the shape ArduPilotParams and sdl_gamecontrollerdb use: ship data files, not headers
     self.export_include('', build_dir=False, includes_filter=['.txt', '.xml'])
 
+def _root_over_include(self):
+    # the pathological shape: the rooted dir name is one the archive also has
+    self.export_include('include', build_dir=True, as_includes_root='foo', includes_filter=['.h', '.inc'])
+
 def _everything(self):
     self.export_include('include', build_dir=True, includes_filter=['.h', '.hpp', '.inc', '.txt'])
     self.export_libs('lib', ['.a'], build_dir=True)
     self.export_syslib('dl', required=False)
     self.export_asset('bin/tool', build_dir=True)
 
-STYLES = {'source_root_payload': _source_root_payload, 'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
+STYLES = {'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
+          'source_root_payload': _source_root_payload, 'root_over_include': _root_over_include,
           'includes_root': _includes_root, 'libs_only': _libs_only, 'syslibs': _syslibs,
           'assets': _assets, 'everything': _everything}
 
@@ -138,11 +143,17 @@ def test_a_payload_suffix_reaches_the_deployed_tree(tmp_path):
     assert 'readme.md' not in names  # and nothing it did not ask for
 
 
-@pytest.mark.xfail(reason='as_includes_root re-roots a tree that is already deployed, see docs/BUGS.md',
-                   strict=True)
 def test_as_includes_root_over_a_dir_the_archive_also_has_is_idempotent(tmp_path):
-    def recipe(self):
-        self.export_include('include', build_dir=True, as_includes_root='foo', includes_filter=['.h'])
-    built, _ = _deploy(tmp_path / 'src', recipe)
-    fetched, _ = _deploy(tmp_path / 'pkg', recipe, fetched_from=_archive(built, tmp_path / 'ar'))
-    assert _tree(fetched) == _tree(built)
+    # an unpacked archive is already rooted, so rooting it again would nest it once per republish
+    built, _ = _deploy(tmp_path / 'src', _root_over_include)
+    once = _deploy(tmp_path / 'p1', _root_over_include, fetched_from=_archive(built, tmp_path / 'a1'))[0]
+    twice = _deploy(tmp_path / 'p2', _root_over_include, fetched_from=_archive(once, tmp_path / 'a2'))[0]
+    assert _tree(once) == _tree(built)
+    assert _tree(twice) == _tree(built)  # and it stays stable over any number of republishes
+
+
+def test_a_source_build_still_roots_its_include_under_the_alias(tmp_path):
+    # only an unpacked archive skips the re-root. A real build must still get the alias layout,
+    # or the round trip would agree with itself while shipping the wrong tree.
+    built, _ = _deploy(tmp_path / 'src', _root_over_include)
+    assert 'include/foo/foo/foo.h' in _tree(built)

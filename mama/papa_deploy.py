@@ -82,11 +82,21 @@ def _header_stems(includes:list, suffixes:tuple) -> set:
     return stems
 
 
+def _is_unpacked_archive(target:BuildTarget, path:str) -> bool:
+    """True when `path` is the include tree an artifactory archive unpacked into the build dir. That
+    tree already carries its deployed layout, so a re-deploy copies it as it stands."""
+    dep = target.dep
+    return bool(dep.from_artifactory) and str(path).startswith(str(dep.build_dir))
+
+
 def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     """(source dir, deployed dir, papa record) for one exported include dir. The record is the include
     path a consumer gets, so `as_includes_root` deploys src/mylib as include/mylib and records include."""
     root_path, root_src, alias = target.includes_root
     if root_path and abs_include == root_path:
+        # An unpacked archive is already rooted. Rooting it again nests it one level per republish.
+        if _is_unpacked_archive(target, root_src):
+            return root_src, includes_root, 'I include'
         return f'{abs_include}/{os.path.basename(root_src)}', f'{includes_root}/{alias}', 'I include'
     name = os.path.basename(abs_include)
     if name == 'include': return abs_include, includes_root, 'I include'

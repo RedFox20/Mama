@@ -24,6 +24,8 @@ def make_mock_target(source_dir, build_dir=None):
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
     target.config.platform = Linux(target.config)
+    target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
+    target.dep.build_dir = target.build_dir()
     return target
 
 

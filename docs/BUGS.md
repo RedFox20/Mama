@@ -4,13 +4,13 @@ Open defects, newest first. Tick the box in the commit that fixes the bug, and d
 the fix ships in a release. A bug that needs more than five lines here gets its own handover doc, and
 this list links to it.
 
-- [ ] **`as_includes_root` re-roots a tree that a deploy already rooted.**
+- [x] **`as_includes_root` re-roots a tree that a deploy already rooted.**
   `_include_deploy` at `papa_deploy.py:85` applies the alias whenever the exported dir matches the
   includes root. An archive already holds the deployed layout, so a recipe that exports a dir name the
   archive also has, such as `export_include('include', as_includes_root='foo')`, gains one nesting
   level per republish: `include/foo/x.h`, then `include/foo/foo/x.h`. The documented shape exports a
   source dir that only a checkout holds, which reloads clean, so this bites the `include` spelling.
-  A fetched package needs no re-rooting at all. Pinned by an xfail in `tests/test_papa_roundtrip/`.
+  A fetched package needs no re-rooting at all. Pinned by `tests/test_papa_roundtrip/`.
 
 - [ ] **`mama build debug` after `mama build` builds release, and says nothing.**
   Debug and release share one build dir on purpose, but a build-type flip does not force a configure.

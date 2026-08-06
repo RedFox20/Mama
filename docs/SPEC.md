@@ -582,9 +582,13 @@ path fails and the recorded list stands. A **fetched clone** still has its sourc
 succeeds and re-declares that category from source. Both produce the deployed tree of the source
 build, because the archive was built from that same source.
 
-`tests/test_papa_roundtrip/` pins this over every export style, both shapes, and a second reload.
-One case does NOT hold yet: `as_includes_root` over a dir name the archive also has re-roots a tree
-that a deploy already rooted. It is an xfail there and an entry in `docs/BUGS.md`.
+**An unpacked archive is already rooted.** `as_includes_root` re-roots the tree it exports, so applying
+it to the `include` dir an archive unpacked would nest that tree one level deeper per republish. A
+deploy therefore copies an unpacked archive's include tree as it stands, and only a tree outside the
+build dir still gets the alias. A source build always gets it.
+
+`tests/test_papa_roundtrip/` pins all of this over every export style, both fetched shapes, and a
+second reload.
 
 A shared dep contributes its libs **once**, not once per path through the graph. The link order stays
 Unix order: every lib appears after everything that references it.
