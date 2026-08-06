@@ -15,6 +15,15 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.13.14** (2026-Aug-07)
+- feature: deploy_after_build deploys a target, and the build says where
+- feature: nothing_to_upload() skips a target that publishes no package
+- feature: papa.txt records the build type, platform and arch of its objects
+- bugfix: a fetched debug package no longer hides in a release build
+- bugfix: an upload names the build type of the artifacts, not of the run
+- bugfix: a targeted build no longer drops the libs of a shared dependency
+- bugfix: a git dep names its package by the commit, not the ls-remote line
+
 **0.13.13** (2026-Aug-06)
 - feature: the load shows one live line per dep, with the git chatter filtered
 - feature: one mamabuild.log per run holds the load, build and summary
@@ -31,13 +40,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 **0.13.12** (2026-Aug-05)
 - bugfix: a targeted rebuild no longer clones or fetches unrelated deps
 - bugfix: a committed .worktrees dir no longer fails the submodule init
-
-**0.13.11** (2026-Aug-05)
-- feature: globalcache seed sharing, and local modules named by source
-- perf: much less git and cmake work per run, and mama starts 45% faster
-- bugfix: a package ships only current headers, never a stale tree or .git
-- bugfix: every git command stays inside its dependency, never the repo above
-- bugfix: an MSVC toolset upgrade no longer poisons build dirs or package names
 
 [Full changelog](https://github.com/RedFox20/Mama/blob/master/changelog.txt)
 
