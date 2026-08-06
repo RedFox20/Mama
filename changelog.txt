@@ -4,6 +4,9 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - bugfix: a git dep names itself by its hash again, not by the ls-remote line
  - bugfix: a revived dep under a loaded parent reloads, and exports its libs
+ - bugfix: an upload names the build type of the artifacts, not of the run
+ - feature: papa.txt records the build type, platform and arch of its objects
+ - bugfix: a fetched debug package no longer hides in a release build
 
 release: 0.13.13 (2026-Aug-06)
  - feature: the load shows one live line per dep, with the git chatter filtered

@@ -29,13 +29,16 @@ class ArtifactoryCredentialsError(RuntimeError):
     pass
 
 
-def artifactory_archive_name(target:BuildTarget):
+def artifactory_archive_name(target:BuildTarget, build_type=''):
     """
     Builds the archive name for a papa deploy package:
     {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
     The version is the first of: mamafile `self.version`, the pinned `git_tag`, or the short commit hash.
     A `git_branch` pin labels the hash and does not replace it.
     target: the BuildTarget whose dep and config name the archive
+    build_type: `release` or `debug` to name, or '' for the type the run asks for. An upload passes
+                the type of the artifacts on disk. A download names the run, because that name
+                decides which package to fetch.
     """
     p:ArtifactoryPkg = target.dep.dep_source
 
@@ -80,7 +83,7 @@ def artifactory_archive_name(target:BuildTarget):
     arch = target.config.arch # eg 'x86', 'arm64'
     # The SAME suffix the dep's build dir carries, read from the dep: it holds the pre-parse consumer args.
     # The pre-clone shim probe and the upload then compose the same name.
-    build_type = ('release' if target.config.release else 'debug') + target.dep.variant_suffix
+    build_type = (build_type or ('release' if target.config.release else 'debug')) + target.dep.variant_suffix
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 

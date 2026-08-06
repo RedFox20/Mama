@@ -48,6 +48,28 @@ def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
     return ''.join('-' + t for t in tokens)
 
 
+def build_dir_build_type(dep) -> str:
+    """`release`, `debug`, or '' when the build dir names no type. Debug and release share one build
+    dir, so only the cmake cache says which type the artifacts in it came from. A multi-config
+    generator picks the type per build and keeps both, so its dir answers ''."""
+    from .buildsys.cmake.configure import cached_build_type  # local import: avoid a cycle
+    recorded = cached_build_type(dep.build_dir, single_config_only=True)
+    return ('debug' if recorded == 'Debug' else 'release') if recorded else ''
+
+
+def build_type_of(target) -> str:
+    """`release` or `debug`: what the artifacts of this target ARE. The build dir answers first, because
+    a run that built nothing leaves the artifacts of the last one. The run answers when the dir cannot."""
+    return build_dir_build_type(target.dep) or ('release' if target.config.release else 'debug')
+
+
+def object_attributes(target) -> str:
+    """Every axis that decides whether a consumer can link these objects: the build type, the platform,
+    the arch, then the variant tokens. The `O` record of papa.txt carries them, space separated."""
+    config = target.config
+    return f'{build_type_of(target)} {config.name()} {config.arch}' + target.dep.variant_suffix.replace('-', ' ')
+
+
 _UNSAFE_IN_VERSION = re.compile(r'[^A-Za-z0-9._-]+')
 
 

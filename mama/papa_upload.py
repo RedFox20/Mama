@@ -4,6 +4,7 @@ from collections import Counter
 import os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
+from .build_names import build_dir_build_type
 from .mamafile_version import pinned_version, computed_local_version
 from .local_version import is_publishable
 from .utils.paths import normalized_join, path_join, forward_slashes
@@ -203,9 +204,15 @@ def papa_upload_to(target:BuildTarget, package_full_path:str):
                             'Add self.papa_deploy() to mamafile deploy()!')
 
     config = target.config
-    archive_name = artifactory_archive_name(target)
+    built = build_dir_build_type(target.dep)
+    archive_name = artifactory_archive_name(target, build_type=built)
     if not archive_name:
         raise Exception(f'Could not get archive name for target: {target.name}')
+
+    # The dir holds the artifacts of its last build, whatever type this run asks for. Say so, because
+    # the name follows the artifacts and a reader expects the flag of the run.
+    if built and built != ('release' if config.release else 'debug'):
+        warning(f'  - Target {target.name: <16} UPLOAD: the build dir holds a {built} build, so the archive is {built}.')
 
     archive_path = target.build_dir(archive_name + '.zip')
     if config.verbose:

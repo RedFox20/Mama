@@ -26,6 +26,7 @@ def make_mock_target(source_dir, build_dir=None):
     target.config.platform = Linux(target.config)
     target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
     target.dep.build_dir = target.build_dir()
+    target.dep.variant_suffix = ''        # the papa `O` record appends it
     return target
 
 

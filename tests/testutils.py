@@ -189,9 +189,10 @@ def make_mock_config(tmp_path, **overrides):
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
     cfg.cmake_command = 'cmake'
-    # artifactory_archive_name uses these
+    # artifactory_archive_name and the papa `O` record use these
     cfg.get_distro_info.return_value = ('ubuntu', 22, 4)
     cfg.compiler_version.return_value = 'gcc11.3'
+    cfg.name.return_value = 'linux'
     cfg.arch = 'x64'
     cfg.release = True
     cfg.sanitize = None
@@ -299,7 +300,7 @@ def plain_config(sanitize=None, coverage=None):
     return cfg
 
 
-def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64',
+def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64', build_dir='',
                              version='abc1234', args=(), git_tag='', git_branch='', is_git=None):
     """Stub the BuildTarget surface artifactory_archive_name touches. compiler_version() and
     get_distro_info() read the host, so this answers with fixed values. `args` is what a consumer passed
@@ -313,12 +314,13 @@ def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch
     cfg.arch = arch
     cfg.compiler_version = lambda: 'gcc14'
     cfg.get_distro_info = lambda: ('linux', '24', 'noble')
+    cfg.name = lambda: 'linux'
     if is_git or (is_git is None and (git_tag or git_branch)):
         dep_source = Git(name='pkg', url='https://example.com/pkg.git', branch=git_branch, tag=git_tag,
                          mamafile=None, shallow=True, args=[])
     else:
         dep_source = SimpleNamespace(is_pkg=False, fullname=None, is_git=False, is_src=False)
-    dep = SimpleNamespace(is_root=False, dep_source=dep_source, target_args=list(args),
+    dep = SimpleNamespace(is_root=False, dep_source=dep_source, target_args=list(args), build_dir=build_dir,
                           variant_suffix=build_names.build_variant_suffix(cfg, args))
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)
 

@@ -370,7 +370,11 @@ source, so a changed child cannot change what it produces, and a shim never inhe
 {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}{variant}-{version}
 ```
 
-`build_type` is `release` or `debug`. `variant` is the same suffix the build dir carries. For a git dep the version
+`build_type` is `release` or `debug`. A download names the type the run asks for, because that name picks
+the package to fetch. An upload names the type the `CMakeCache.txt` of the build dir records, because that
+is the type the artifacts carry. The two share one build dir, so a run that uploads after a debug build of
+another type would otherwise publish debug artifacts under the release name. A dir with no cache falls back
+to the type of the run. `variant` is the same suffix the build dir carries. For a git dep the version
 is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. A hex tag is a
 commit pin, so it counts as the hash. The name carries the first 7 characters of the hash, whatever
 length the resolver answered. A branch pin labels the hash and does not replace it. A branch moves, so
@@ -620,11 +624,17 @@ and the artifactory already holds that package. Mama says so and points at `mama
 |---|---|
 | `P` | project name |
 | `C` | the compiler that built it |
+| `O` | what the objects are: build type, platform, arch, then the variant tokens |
 | `D` | a dependency source |
 | `I` | an exported include dir |
 | `L` | an exported lib |
 | `S` | an exported system lib |
 | `A` | an exported asset |
+
+The `O` record reads `O debug linux x64 asan lgpl`. It answers what a consumer needs before it links:
+the type, the target and every variant axis. A fetched package holds no `CMakeCache.txt`, so the record
+is the only thing that names its build type, and the mixed-type warning reads it. A package written
+before the `O` record carries no attributes at all.
 
 A package built by a different compiler than the current build warns and does not fail.
 Compiler-scoped build dirs make a cross-family mismatch unreachable in practice. A compiler version

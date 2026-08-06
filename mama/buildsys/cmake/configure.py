@@ -385,10 +385,18 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     return False  # no compiler recorded in the cache -> nothing to compare, do not wipe
 
 
-def cached_build_type(build_dir:str) -> str:
-    """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache."""
-    try: return _cache_entry(read_text_from(path_join(build_dir, 'CMakeCache.txt')), 'CMAKE_BUILD_TYPE')
+_MULTI_CONFIG_GENERATORS = ('visual studio', 'xcode', 'multi-config')
+
+
+def cached_build_type(build_dir:str, single_config_only=False) -> str:
+    """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache.
+    single_config_only: answer '' for a multi-config generator, which picks the type at build time,
+                        so its cache does not say what the artifacts in the dir are."""
+    try: cache = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return ''
+    if single_config_only and any(g in cache_generator(cache).lower() for g in _MULTI_CONFIG_GENERATORS):
+        return ''
+    return _cache_entry(cache, 'CMAKE_BUILD_TYPE')
 
 
 def run_config(target:BuildTarget, out=None, _seed=True):

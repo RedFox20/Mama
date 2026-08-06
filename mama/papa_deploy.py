@@ -15,6 +15,7 @@ from .utils.system import console
 from .utils.system import warning, System
 
 import mama.package as package
+from . import build_names
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -218,10 +219,12 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         os.makedirs(package_full_path, exist_ok=True)
 
     # `C` records the compiler that built these libs, the same string as in the archive name,
-    # so a load can spot a gcc tree in a clang build.
+    # so a load can spot a gcc tree in a clang build. `O` records every other axis of the objects,
+    # so a consumer can spot a debug or a sanitized package in a plain release build.
     descr = [ f'P {target.name}' ]
     compiler = _compiler_stamp(config)
     if compiler: descr.append(f'C {compiler}')
+    descr.append(f'O {build_names.object_attributes(target)}')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
@@ -288,6 +291,7 @@ class PapaFileInfo:
 
         self.project_name = None
         self.compiler = None # 'gcc14.3' / 'clang18.1'. None for a package that predates the C record
+        self.attributes = [] # 'debug'/'release', platform, arch, variant tokens. [] predates the O record
         self.dependencies = []
         self.includes = []
         self.libs = []
@@ -300,6 +304,7 @@ class PapaFileInfo:
         for line in read_lines_from(self.papa_file):
             if   line.startswith('P '): self.project_name = line[2:].strip()
             elif line.startswith('C '): self.compiler = line[2:].strip()
+            elif line.startswith('O '): self.attributes = line[2:].split()
             elif line.startswith('D '): self.dependencies.append(make_dep_source(line[2:].strip()))
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)

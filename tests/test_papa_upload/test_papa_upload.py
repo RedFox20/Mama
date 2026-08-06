@@ -20,9 +20,9 @@ class FakeTarget:
         self.config = SimpleNamespace(verbose=False, print=False)
         self.version = ''   # unpinned, so the upload's version guard reads the same '' on both sides
         # a git dep, so the guard compares the two readers instead of walking a local source tree
-        self.dep = SimpleNamespace(mamafile_path=lambda: None, is_root=False,
-                                   dep_source=SimpleNamespace(is_src=False))
         self._build_root = normalized_path(str(build_root))
+        self.dep = SimpleNamespace(mamafile_path=lambda: None, is_root=False, build_dir=self._build_root,
+                                   dep_source=SimpleNamespace(is_src=False))
 
     def build_dir(self, path: str = ''):
         if not path:

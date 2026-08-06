@@ -788,16 +788,26 @@ def _print_build_summary(deps, elapsed: float):
     _warn_on_mixed_build_types(deps)
 
 
+def _dep_build_type(dep) -> str:
+    """`debug`, `release` or '': what the artifacts of this dep are. A fetched package has no cmake
+    cache of its own, so the `O` record of its papa.txt answers instead."""
+    from .papa_deploy import PapaFileInfo  # local import: avoid a cycle
+    recorded = build_names.build_dir_build_type(dep)
+    if recorded: return recorded
+    try: attributes = PapaFileInfo(path_join(dep.build_dir, 'papa.txt')).attributes
+    except OSError: return ''
+    return next((a for a in attributes if a in ('debug', 'release')), '')
+
+
 def _warn_on_mixed_build_types(deps):
     """Name every package built in another build type than this run.
 
     The mix is allowed on purpose. One target in debug reads a stack trace, and a rebuild of the whole
     tree to get it costs more than that."""
-    from .buildsys.cmake.configure import cached_build_type
     config = deps[0].config if deps else None
     if not config or not config.print: return
-    wanted = 'Debug' if config.debug else 'RelWithDebInfo'
-    others = [(d.name, t) for d in deps for t in (cached_build_type(d.build_dir),) if t and t != wanted]
+    wanted = 'debug' if config.debug else 'release'
+    others = [(d.name, t) for d in deps for t in (_dep_build_type(d),) if t and t != wanted]
     if not others: return
     warning(f'  This build is {wanted}, and {len(others)} package(s) hold another build type:')
     for name, kind in others[:_MIXED_TYPE_LIMIT]:

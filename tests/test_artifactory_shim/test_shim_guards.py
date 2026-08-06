@@ -166,6 +166,7 @@ def test_papa_deploy_to_succeeds_for_normal_destination(tmp_path):
     target.children.return_value = []
     target.build_dir.return_value = str(deploy_dir)
     target.source_dir.return_value = str(deploy_dir)
+    target.dep.variant_suffix = ''   # the papa `O` record appends it
     papa_deploy_to(target, str(deploy_dir),
                    r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)
     assert (deploy_dir / 'papa.txt').exists()
