@@ -373,6 +373,15 @@ def note_connection_throttled() -> None:
         _connect_interval = THROTTLED_CONNECT_INTERVAL
 
 
+def reset_connection_pacing() -> None:
+    """Turn the pacer off. One mama run arms it once and then exits, so only a process that hosts
+    many runs needs this."""
+    global _connect_interval, _last_connect
+    with _connect_lock:
+        _connect_interval = 0.0
+        _last_connect = 0.0
+
+
 def pace_new_connection() -> None:
     """Hold a git network command back until the pacing interval has passed since the last one started.
     No-op until note_connection_throttled() fires. Only the START staggers, transfers stay fully parallel."""

@@ -7,6 +7,7 @@ import pytest
 from mama import dependency_chain as dc
 from mama.types.git import Git, _CLONE_ATTEMPTS
 from mama.types.git_errors import classify_git_failure
+from mama.utils import ssh_multiplex
 from mama.utils.errors import GitError
 from testutils import make_git_and_mock_dep, make_load_root, strip_ansi
 
@@ -73,6 +74,17 @@ def test_the_report_names_the_target_url_ref_dir_command_and_git_error():
     for expected in ['[CLONE FAILED]  ffmpeg', 'https://git.ffmpeg.org/ffmpeg.git', 'n8.0.1', '/packages/ffmpeg',
                      'clone --depth 1', '128 after 2.2s', 'curl 35 Recv failure', 'Check the network']:
         assert expected in msg
+
+
+def test_a_failed_clone_arms_the_connection_pacer():
+    _failed_clone(RESET)
+    assert ssh_multiplex._connect_interval == ssh_multiplex.THROTTLED_CONNECT_INTERVAL
+
+
+def test_a_later_test_starts_with_the_pacer_off():
+    # pytest runs a module in definition order, so the test above already armed the process-global pacer.
+    # Without the conftest reset, every later git test sleeps a quarter second per network command.
+    assert ssh_multiplex._connect_interval == 0.0
 
 
 def test_the_report_drops_the_transfer_chatter():

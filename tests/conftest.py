@@ -84,6 +84,15 @@ def _close_run_log():
 
 
 @pytest.fixture(autouse=True)
+def _unpace_connections():
+    """Turn the connection pacer off after every test. It is process-global, and a test that drives the
+    real retry path arms it. Every later git test would then sleep a quarter second per network command."""
+    yield
+    from mama.utils import ssh_multiplex
+    ssh_multiplex.reset_connection_pacing()
+
+
+@pytest.fixture(autouse=True)
 def _disarm_abort():
     """Clear the process-wide abort flag after every test. A test that sets the flag and then fails
     leaves it set. Every later test that spawns a subprocess then dies on that stale flag."""
