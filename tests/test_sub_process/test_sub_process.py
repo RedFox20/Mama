@@ -2,6 +2,7 @@
 import os
 import sys
 import subprocess
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -395,3 +396,26 @@ def test_execute_piped_never_lets_a_child_write_to_the_terminal(capfd):
     noisy = 'import sys; sys.stderr.write("boom\\n"); print("ok")'
     assert execute_piped([sys.executable, '-c', noisy]) == 'ok'
     assert capfd.readouterr().err == ''
+
+
+def _closed_child(reader_alive: bool) -> SubProcess:
+    """A SubProcess whose child already exited, with the reader thread still draining or already done."""
+    p = SubProcess.__new__(SubProcess)
+    p.process = Mock(stdout=Mock(closed=False))
+    p._killed = False
+    p._master_fd = None
+    p._reader_thread = Mock(is_alive=Mock(return_value=reader_alive))
+    return p
+
+
+@pytest.mark.parametrize('reader_alive, closes_inline', [(False, True), (True, False)])
+def test_close_hands_off_a_pipe_the_pump_may_still_be_reading(reader_alive, closes_inline):
+    """A live reader means the pump still blocks in os.read. On Windows the close waits for that read,
+    and a grandchild that outlived the child holds the write end, so waiting deadlocks the build."""
+    p = _closed_child(reader_alive)
+    with patch.object(SubProcess, 'kill'), \
+         patch('mama.utils.sub_process.System.windows', True), \
+         patch('mama.utils.sub_process.threading.Thread') as thread:
+        p.close()
+    assert p.process.stdout.close.called is closes_inline
+    assert thread.called is not closes_inline

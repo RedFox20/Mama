@@ -291,6 +291,13 @@ class SubProcess:
         except Exception: pass
 
 
+    @staticmethod
+    def _close_quietly(stream):
+        """Close a stream and ignore the error. A caller starts this on its own thread when a close can block."""
+        try: stream.close()
+        except OSError: pass
+
+
     def close(self):
         self.kill()  # no-op if the child already exited, sets self._killed if it had to kill a live one
         win_out = self.process.stdout if (System.windows and self.process) else None
@@ -301,12 +308,19 @@ class SubProcess:
             try: win_out.close()
             except OSError: pass
         # the reader drains its queue then exits on EOF: join so all trailing output reaches io_func before we return
+        drained = True
         if self._reader_thread:
             self._reader_thread.join(timeout=2.0)
+            drained = not self._reader_thread.is_alive()
             self._reader_thread = None
         if win_out and not win_out.closed:  # clean-exit path: now that the reader has drained, close it
-            try: win_out.close()
-            except OSError: pass
+            # A reader still alive means the pump still blocks in os.read on this handle. A close waits for
+            # that read, and a grandchild that outlived the child holds the write end open, so never wait here.
+            if drained:
+                try: win_out.close()
+                except OSError: pass
+            else:
+                threading.Thread(target=self._close_quietly, args=(win_out,), daemon=True).start()
         if self._master_fd is not None:
             try:
                 os.close(self._master_fd)
