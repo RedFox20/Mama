@@ -78,10 +78,23 @@ def test_an_unpinned_dep_still_names_itself_by_commit():
     assert _name(is_git=True) == _PREFIX + _HASH
 
 
+@pytest.mark.parametrize('commit, short', [
+    ('4acd9052f27a459314651dd485ae8fa79a04d49d', '4acd905'),
+    ('df76b66',     'df76b66'),
+    ('v0.13.0',     'v0.13.0'),  # not a hash, so every character stays
+    ('release-1.0', 'release-1.0'),
+    ('',            ''),
+])
+def test_only_a_hash_gets_cut_to_the_short_form(commit, short):
+    assert Git.short_hash(commit) == short
+
+
 def test_a_commit_pin_names_the_package_by_its_short_hash():
-    # add_git stores git_commit in the tag field, so the tag rule would otherwise name the archive after
-    # a 40 character hash. Git.is_hex_string is the same test the clone path uses to tell the two apart.
-    assert _name(git_tag='4acd9052f27a459314651dd485ae8fa79a04d49d') == _PREFIX + _HASH
+    # add_git stores git_commit in the tag field, and the resolver answers a hex tag with the pin
+    # itself, so without the cut the archive name would carry a 40 character hash.
+    full = '4acd9052f27a459314651dd485ae8fa79a04d49d'
+    with patch.object(Git, 'get_commit_hash', return_value=full):
+        assert art.artifactory_archive_name(_target(version='', git_tag=full)) == _PREFIX + '4acd905'
 
 
 def test_a_mamafile_literal_beats_the_pin():

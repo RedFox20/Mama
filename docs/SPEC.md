@@ -370,8 +370,9 @@ source, so a changed child cannot change what it produces, and a shim never inhe
 
 `build_type` is `release` or `debug`. `variant` is the same suffix the build dir carries. For a git dep the version
 is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. A hex tag is a
-commit pin, so it counts as the hash. A branch pin labels the hash and does not replace it. A branch
-moves, so its name alone would serve every commit ever pushed to it.
+commit pin, so it counts as the hash. The name carries the first 7 characters of the hash, whatever
+length the resolver answered. A branch pin labels the hash and does not replace it. A branch moves, so
+its name alone would serve every commit ever pushed to it.
 
 The other sources name themselves differently. The root always uses its checkout commit. A package dep
 uses its declared version. A local dep uses its content version.

@@ -33,7 +33,7 @@ def artifactory_archive_name(target:BuildTarget):
     """
     Builds the archive name for a papa deploy package:
     {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
-    The version is the first of: mamafile `self.version`, the pinned `git_tag`, or the commit hash.
+    The version is the first of: mamafile `self.version`, the pinned `git_tag`, or the short commit hash.
     A `git_branch` pin labels the hash and does not replace it.
     target: the BuildTarget whose dep and config name the archive
     """
@@ -49,7 +49,7 @@ def artifactory_archive_name(target:BuildTarget):
         version = target.version
     else:
         if target.dep.is_root:
-            version = Git.get_current_repository_commit(target.dep)
+            version = Git.short_hash(Git.get_current_repository_commit(target.dep))
             if not version:
                 return None # nothing to do at this point
         elif p.is_pkg:
@@ -62,7 +62,7 @@ def artifactory_archive_name(target:BuildTarget):
             if not version:
                 # No tag: the commit hash identifies the source, and a branch pin only prefixes it for a reader.
                 # A branch moves, so its name alone would serve every commit ever pushed to it.
-                commit = git.get_commit_hash(target.dep)
+                commit = Git.short_hash(git.get_commit_hash(target.dep))
                 if not commit:
                     return None # nothing to do at this point
                 branch = build_names.sanitize_version(git.branch)

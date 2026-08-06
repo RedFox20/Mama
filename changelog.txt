@@ -15,6 +15,7 @@ unreleased
  - bugfix: a package, a listing and a skipped test each name their target
  - bugfix: deploying an artifactory package keeps the export rules of its recipe
  - bugfix: republishing a package no longer nests its include tree deeper
+ - bugfix: a full commit pin names its package by the short hash, not 40 chars
  - perf: naming a target only skims mamafiles, and stops at the first match
 
 release: 0.13.12 (2026-Aug-05)

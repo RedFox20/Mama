@@ -29,6 +29,9 @@ _SCP_GIT_RE = re.compile(r'^(?P<user>[^@/]+)@(?P<host>[^:/]+):(?P<path>.+)$')
 _SCHEME_RE = re.compile(r'^(?P<scheme>[a-zA-Z][\w+.-]*)://(?P<rest>.*)$')
 _FILTERED_GIT_PROGRESS_REPORT_INTERVAL = 0.005
 
+# How many characters of a commit hash name a package. The git default abbreviation.
+SHORT_COMMIT_LEN = 7
+
 # Benign post-op chatter from git reset/checkout/pull - pure noise outside verbose mode. The
 # "merge with the ref ... no such ref was fetched" pair is the expected pull-then-fetch fallback.
 _GIT_NOISE = ('Reset branch ', 'Your branch is up to date with ', 'Already up to date',
@@ -391,6 +394,12 @@ class Git(DepSource):
     def is_hex_string(s: str) -> bool:
         return len(s) > 0 and all(c in string.hexdigits for c in s)
 
+    @staticmethod
+    def short_hash(commit: str) -> str:
+        """A hash-like commit cut to SHORT_COMMIT_LEN characters. Every other string passes through, so
+        a tag keeps its full name."""
+        return commit[:SHORT_COMMIT_LEN] if commit and len(commit) > SHORT_COMMIT_LEN and Git.is_hex_string(commit) else commit
+
 
     def fetch_self_version_from_remote(self, dep: BuildDependency):
         """Fetch only the dep's mamafile, to read `self.version` without the full repo. The shim
@@ -484,7 +493,7 @@ class Git(DepSource):
                 with ssh_multiplex.fetch_slot():
                     ssh_multiplex.pace_new_connection()
                     result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
-                if result: result = result.split(' ')[0][0:7]
+                if result: result = Git.short_hash(result.split(' ')[0])
                 if dep.config.verbose:
                     warning(f'    {self.name}  git ls-remote {self.url} {arguments}: {result}')
                 return result
