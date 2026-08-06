@@ -35,6 +35,8 @@
 *.egg-info/
 dist/
 *.pyc
+# parallel workers race on the bytecode write and leave `<name>.pyc.<pid>` behind, which *.pyc misses
+__pycache__/
 
 mama/mama.spec
 mama.cmake

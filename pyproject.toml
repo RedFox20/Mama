@@ -42,11 +42,17 @@ classifiers = [
 [project.scripts]
 mama = "mama.main:__main__"
 
+[project.optional-dependencies]
+# pip install -e .[dev] - the suite needs pytest-xdist, because addopts below asks for workers
+dev = ["pytest", "pytest-xdist"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # `slow` runs a real toolchain per platform (~90s). Run it before a release:
 #     python -m pytest tests/test_platform_configure -m slow
-addopts = "-m 'not slow'"
+# -n8: the suite waits on git and cmake processes far more than it computes. Fixed at 8, not `auto`,
+# to leave a dev machine responsive. Pass `-n0` to debug a test or to profile the children it spawns.
+addopts = "-m 'not slow' -n8"
 markers = ["slow: needs a real installed toolchain, excluded from the default run",
            "linux_host: needs a Linux host, skipped on Windows and macOS",
            "case_sensitive_fs: deploys two dir names that differ only by case, skipped where the filesystem merges them"]

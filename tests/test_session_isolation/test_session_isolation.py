@@ -1,6 +1,6 @@
 """Pins what lets two pytest sessions run at the same time. Each session gets its own tmp root, and an
 integration test builds in a private copy of its project, not in its own source directory."""
-import os
+import os, re
 
 from testutils import init
 
@@ -8,9 +8,9 @@ from testutils import init
 def test_the_tmp_root_is_per_session_inside_the_repo(tmp_path):
     root = os.environ['PYTEST_DEBUG_TEMPROOT'].replace('\\', '/')
     assert root.endswith('/.pytest_tmp')  # gitignored repo subtree, not system temp
-    # .pytest_tmp/pytest-of-<user>/pytest-<N>/<test name><i>. Each session gets its own numbered dir.
-    # A fixed basetemp has no numbered dir, and pytest wipes it at session start.
-    assert tmp_path.parent.name.startswith('pytest-')
+    # .pytest_tmp/pytest-of-<user>/pytest-<N>/[popen-gw<N>/]<test name><i>. Each session gets its own
+    # numbered dir, an xdist worker adds one level below it, and a fixed basetemp gets no number at all.
+    assert any(re.fullmatch(r'pytest-\d+', p.name) for p in tmp_path.parents)
     assert '.pytest_tmp' in str(tmp_path).replace('\\', '/')
 
 

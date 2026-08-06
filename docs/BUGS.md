@@ -12,7 +12,12 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-None.
+- [ ] **`test_a_shape_only_git_can_settle_defers[gitdir file]` fails about one Windows run in ten.**
+  `tests/test_git_repo_heal/test_repo_health.py:75` calls `shutil.move` on a `.git` dir that git wrote
+  a moment earlier. On Windows a move fails while any handle on the tree is open, and a virus scanner
+  holds one briefly. Seen once under `-n8`, then 13 clean runs, and the traceback was not captured.
+  Confirm the error is `PermissionError` before you fix it. The likely fix is a short retry around the
+  move, in a test helper. Linux never hits this, because a rename there ignores open handles.
 
 ## Closed
 

@@ -289,8 +289,10 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   builds, so they stay fast and they never fail on a flaky connection.
 - When you patch, write `patch('mama.<module>.<name>')`. Patch where the code looks
   the name up, not where the code defines it.
-- Always run the **full** suite (`python -m pytest tests/`) before you commit. The
-  full suite takes about 75 seconds.
+- Always run the **full** suite (`python -m pytest tests/`) before you commit. It runs on 8
+  worker processes and takes about 5 seconds on Linux, 13 on Windows. Add `-n0` to debug one
+  test or to read a traceback in order. It also lets a profiler see what a test spawns.
+  `pip install -e .[dev]` installs the pytest-xdist that the 8 workers need.
 - **To find out why something is slow, run `bench/profile_mama.py`.** It counts the
   child processes a run spawns and marks any that averages over 0.5 seconds. mama is
   IO bound, so that table answers the question more often than a profiler does. Its
@@ -360,8 +362,8 @@ rm .claude/.planning        # implementation starts, the review is live again
 Another agent may hold uncommitted work in the same tree. Review only what you wrote.
 
 Every task ends with these steps:
-1. Implement the change, then start the test suite **in the background**. The suite takes about
-   two minutes, and a review costs nothing while it runs.
+1. Implement the change, then start the test suite. It takes about 5 seconds on Linux, so run it
+   as often as you like.
 2. Invoke `/mama-style-review` WHILE the suite runs, or spawn a sub-agent with the prompt of
    that skill. The skill reports each finding as `<file>:<line> - <rule>: <fix>`. Read the suite
    result when it lands. Re-run the tests a change touched after you apply the fixes.

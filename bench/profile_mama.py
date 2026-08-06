@@ -87,7 +87,8 @@ def run_target(argv: list) -> int:
     tool, rest = argv[0], argv[1:]
     if tool == 'pytest':
         import pytest
-        return pytest.main(rest)
+        # -n0: an xdist worker is another process, and the hook of this one would count nothing it spawns
+        return pytest.main(['-n0', *rest])
     if tool == 'mama':
         import mama
         mama.mamabuild(rest, source_dir=os.getcwd())
@@ -118,7 +119,9 @@ def main():
     elif mode == 'sample':
         sample(args[1:])
     elif mode == 'tests':
-        subprocess.run([sys.executable, '-m', 'pytest', 'tests/', '-q', '--durations=40', '--durations-min=0.2'], cwd=ROOT)
+        # -n0: xdist reports a duration per worker, and the slowest test is what this mode looks for
+        subprocess.run([sys.executable, '-m', 'pytest', 'tests/', '-q', '-n0', '--durations=40',
+                        '--durations-min=0.2'], cwd=ROOT)
     else:
         print(__doc__)
 

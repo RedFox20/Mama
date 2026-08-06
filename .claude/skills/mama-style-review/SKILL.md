@@ -110,10 +110,9 @@ When you find a violation, prefer these proven moves:
 
    Do this even when you believe you remember them. That belief is the failure mode.
 
-1. **Start the test suite in the background.** The suite takes about two minutes, so the
-   review runs while it runs. Apply the findings during the wait, read the suite result when it
-   lands, then re-run the tests that a fix touched. A review that waits for a green suite wastes
-   two minutes of every cycle.
+1. **Start the test suite.** It runs on 8 worker processes and takes about 5 seconds on Linux.
+   Run it before the review and again after the fixes. Add `-n0` when a failure needs a traceback
+   read in order.
 
 2. **Inspect pending changes.** Combine staged + unstaged:
    ```
