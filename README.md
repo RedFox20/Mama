@@ -553,6 +553,23 @@ self.papa_deploy('path/to/package',                  # Deploy with RECURSIVE chi
 self.default_deploy()                                # Deploy with default settings
 ```
 
+**When the `deploy()` hook runs.** Only `mama deploy` and `mama upload` run it, and only for the target
+the run names. A plain `mama build` deploys nothing, so a shared library a dependency ships stays in its
+package dir. Windows has no RPATH, so a test that starts out of the build dir then aborts on a missing DLL.
+
+```py
+class MyProject(mama.BuildTarget):
+    def settings(self):
+        self.deploy_after_build = True   # also deploy after every build that did real work
+
+    def deploy(self):
+        self.papa_deploy('deploy/MyProject')   # writes papa.txt, the list `mama upload` reads
+```
+
+`deploy_after_build` runs the hook once, right after a build that compiled something. A cached or an
+artifactory-loaded target deploys nothing, and a run that both builds and uploads calls the hook once.
+`papa_deploy` writes the package tree plus `papa.txt`. `default_deploy` is `papa_deploy('deploy/{name}')`.
+
 ## Mamafile examples
 
 Project `AlphaGL/mamafile.py`

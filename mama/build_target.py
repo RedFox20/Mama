@@ -96,6 +96,9 @@ class BuildTarget:
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
         self.clean_intermediate_files = False # delete .o and .obj files after a successful build
+        # Run deploy() after a build, not only under the `deploy` and `upload` commands. A project whose
+        # deps ship shared libraries needs that runtime beside its binaries before a test starts.
+        self.deploy_after_build = False
         self.gcc_clang_visibility_hidden = True # -fvisibility=hidden
         self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
@@ -107,6 +110,7 @@ class BuildTarget:
         self.packaging_result = '' # result of the package() step
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._did_configure = False # guards configure() to run once across configure/build phases
+        self._did_deploy = False # guards deploy() to run once, for deploy_after_build plus a deploy command
         self._build_jobs = None # scheduler-sized -j for this target's build (None -> config.jobs)
         self._out_sink = None # display sink for cmake output during a scheduled phase (None -> print)
         self.includes_root = ('','','') # if set, this is (parent_path, src_path, alias_name) for clean include deployment
@@ -1634,7 +1638,8 @@ class BuildTarget:
         """Scheduled BUILD job: compile if needed, then ALWAYS package, so a no-work node
         still packages its exports in dependency order. Mirrors _execute_build_tasks."""
         self._out_sink = out  # captures cmake output from a custom build()->cmake_build() too
-        if self._build_work_enabled():
+        build_work = self._build_work_enabled()
+        if build_work:
             if self._has_custom_build():
                 self._run_configure_once() # configure_phase was a no-op for a custom build()
                 self._fetched = self.try_automatic_artifactory_fetch()
@@ -1646,9 +1651,11 @@ class BuildTarget:
             if not self._fetched:
                 package.clean_intermediate_files(self)
         self._run_packaging()
+        if build_work and self.deploy_after_build: self._deploy_once()
 
     def _execute_build_tasks(self):
-        if self._build_work_enabled():
+        build_work = self._build_work_enabled()
+        if build_work:
             self._run_configure_once() # user customization
             fetched = self.try_automatic_artifactory_fetch()
             if not fetched:
@@ -1657,6 +1664,14 @@ class BuildTarget:
             if not fetched:
                 package.clean_intermediate_files(self)
         self._run_packaging()
+        if build_work and self.deploy_after_build: self._deploy_once()
+
+    def _deploy_once(self):
+        """Run the deploy hook at most once per run. `deploy_after_build` and the deploy pass of a
+        `deploy` or `upload` command can both ask for it."""
+        if self._did_deploy: return
+        self._did_deploy = True
+        self.deploy() # user customization
 
     def _run_package_hook(self):
         """Run the package() hook of the mamafile, and name the target when it fails.
@@ -1754,7 +1769,7 @@ class BuildTarget:
                 console(f'    To repackage from source, run: mama unshallow {self.name}')
             return
 
-        self.deploy() # user customization
+        self._deploy_once()
 
         if self.config.upload:
             # deferred: papa_upload pulls zipfile, which costs about 28ms, and only an upload needs it

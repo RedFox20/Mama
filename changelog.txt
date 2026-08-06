@@ -7,6 +7,7 @@ unreleased
  - bugfix: an upload names the build type of the artifacts, not of the run
  - feature: papa.txt records the build type, platform and arch of its objects
  - bugfix: a fetched debug package no longer hides in a release build
+ - feature: deploy_after_build deploys a target right after it builds
 
 release: 0.13.13 (2026-Aug-06)
  - feature: the load shows one live line per dep, with the git chatter filtered

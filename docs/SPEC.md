@@ -615,6 +615,13 @@ Unix order: every lib appears after everything that references it.
 Deploy runs only under `deploy` or `upload`. Inside those, it runs for the root with no named target,
 for every dep under `all`, or for the one named target.
 
+A target that sets `deploy_after_build` also deploys right after a build that did real work. A cached,
+header-only or artifactory-loaded target deploys nothing, because it produced nothing new. The hook runs
+at most once per run, so a run that builds and uploads does not deploy twice.
+
+**Why:** a dependency ships a shared library, and the consumer needs that runtime beside its binaries
+before a test starts. Windows has no RPATH, so one missing DLL aborts a test before its first line.
+
 **A shim never deploys or uploads.** It is read-only, its papa.txt and its unzipped tree must survive,
 and the artifactory already holds that package. Mama says so and points at `mama unshallow`.
 
