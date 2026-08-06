@@ -385,6 +385,12 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     return False  # no compiler recorded in the cache -> nothing to compare, do not wipe
 
 
+def cached_build_type(build_dir:str) -> str:
+    """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache."""
+    try: return _cache_entry(read_text_from(path_join(build_dir, 'CMakeCache.txt')), 'CMAKE_BUILD_TYPE')
+    except OSError: return ''
+
+
 def run_config(target:BuildTarget, out=None, _seed=True):
     out = _sink(target, out)
     must_configure = target.config.update or target.config.run_cmake_configure
@@ -393,6 +399,14 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         current_sanitizers = target.config.sanitize or ''
         previous_sanitizers = target.dep.get_enabled_sanitizers()
         if current_sanitizers != previous_sanitizers:
+            must_configure = True
+
+    # Debug and release share one build dir, so only the cache says which one it holds. A single-config
+    # generator bakes the type in, so without this `mama build debug` silently rebuilds release.
+    if not must_configure:
+        recorded = cached_build_type(target.build_dir())
+        if recorded and recorded != target.cmake_build_type:
+            _note(target, out, f'build type changed {recorded} -> {target.cmake_build_type}, reconfiguring')
             must_configure = True
 
     # Wipe, never soft-reconfigure, a build dir whose toolchain has since MOVED: cmake keeps stale

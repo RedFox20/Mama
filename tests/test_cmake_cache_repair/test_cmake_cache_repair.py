@@ -6,10 +6,11 @@ from unittest.mock import patch
 from testutils import make_configured_target, write_cmake_cache, write_build_file, run_config_capturing
 from mama.buildsys.cmake import configure as cc
 
-COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=Release\n'
-NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_BUILD_TYPE:STRING=Release\n'
-TRUNCATED = '# This is the CMakeCache file.\nCMAKE_BUILD_TYPE:STRING=Release\n'  # killed before the generator line
-VS = 'CMAKE_GENERATOR:INTERNAL=Visual Studio 18 2026\nCMAKE_BUILD_TYPE:STRING=Release\n'
+# mama's release build type is RelWithDebInfo, and a differing cache forces a reconfigure
+COMPLETE = 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles\nCMAKE_BUILD_TYPE:STRING=RelWithDebInfo\n'
+NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_BUILD_TYPE:STRING=RelWithDebInfo\n'
+TRUNCATED = '# This is the CMakeCache file.\nCMAKE_BUILD_TYPE:STRING=RelWithDebInfo\n'  # killed before the generator line
+VS = 'CMAKE_GENERATOR:INTERNAL=Visual Studio 18 2026\nCMAKE_BUILD_TYPE:STRING=RelWithDebInfo\n'
 
 
 def test_is_cmake_cache_valid(tmp_path):

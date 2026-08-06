@@ -117,13 +117,16 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 A shared dir means two builds clobber each other's cache and libraries.
 
 **Debug and release deliberately share one build dir.** The name carries no build-type token, so
-`mama build debug` reuses the dir `mama build` used. It runs no configure either, because a build-type
-flip does not force one, so the cmake cache keeps the older `CMAKE_BUILD_TYPE`. See `docs/BUGS.md`.
-The artifactory archive name does carry `release` or `debug`, so the two packages never collide on the
-server.
+`mama build debug` reuses the dir `mama build` used. A build-type flip forces a reconfigure, because a
+single-config generator bakes `CMAKE_BUILD_TYPE` into the cache. The run then names every package that
+holds the other type, and it builds anyway. The artifactory archive name does carry `release` or
+`debug`, so the two packages never collide on the server.
 
 **Why:** mama lets a project mix release and debug packages, so the build type belongs to the package
-name and not to the tree. A sanitizer is the opposite case. `-asan` and `-tsan` each get their own
+name and not to the tree. A developer often needs one target in debug to read a stack trace, and a
+rebuild of every dep to get it costs more than that. So the mix warns, and never fails.
+
+A sanitizer is the opposite case. `-asan` and `-tsan` each get their own
 tree, because a sanitizer build that shares a tree with a plain one reports false positives.
 
 The variant suffix is spelled in exactly one place, `build_names.build_variant_suffix`. The build dir

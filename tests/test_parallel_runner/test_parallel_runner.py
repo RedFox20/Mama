@@ -24,7 +24,7 @@ class _T(FakeBuildTarget):
 class _D:
     def __init__(self, name, config, children=()):
         self.name = name; self.config = config; self._children = list(children); self.already_executed = False
-        self.is_root = False; self.load_action = 'check'
+        self.is_root = False; self.load_action = 'check'; self.build_dir = ''  # no cache on disk
         self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
     def get_children(self): return self._children
     def is_root_or_config_target(self): return False
@@ -34,7 +34,7 @@ def _graph(monkeypatch, fail_child=False):
     monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
     cfg = SimpleNamespace(jobs=2, verbose=False, test=False, workspaces_root=None, buildstats=False,
-                          name=lambda: 'linux')
+                          print=False, debug=False, name=lambda: 'linux')
     ev, lock = [], threading.Lock()
     child = _D('child', cfg); parent = _D('parent', cfg, [child])
     for d in (child, parent): d.target = _T(d, ev, lock)
@@ -145,7 +145,8 @@ def test_reserve_weight_is_zero_for_custom_build_root_else_reserved_cores():
 
 
 def test_build_summary_counts_only_real_builds(capsys):
-    d = lambda **k: SimpleNamespace(**k)
+    cfg = SimpleNamespace(print=False, debug=False)
+    d = lambda **k: SimpleNamespace(config=cfg, build_dir='', **k)
     deps = [d(should_rebuild=True, from_artifactory=False, nothing_to_build=False),    # compiled
             d(should_rebuild=True, from_artifactory=True, nothing_to_build=False),     # artifactory fetch
             d(should_rebuild=False, from_artifactory=False, nothing_to_build=False),   # up to date

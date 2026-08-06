@@ -781,9 +781,28 @@ def _print_build_summary(deps, elapsed: float):
     """End-of-session line: how many targets actually compiled (cached/artifactory ones excluded)."""
     built = sum(1 for d in deps if d.should_rebuild and not d.from_artifactory and not d.nothing_to_build)
     console(f'Built {built} target(s) in {get_time_str(elapsed)}', color=Color.GREEN)
+    _warn_on_mixed_build_types(deps)
+
+
+def _warn_on_mixed_build_types(deps):
+    """Name every package built in another build type than this run.
+
+    The mix is allowed on purpose. One target in debug reads a stack trace, and a rebuild of the whole
+    tree to get it costs more than that."""
+    from .buildsys.cmake.configure import cached_build_type
+    config = deps[0].config if deps else None
+    if not config or not config.print: return
+    wanted = 'Debug' if config.debug else 'RelWithDebInfo'
+    others = [(d.name, t) for d in deps for t in (cached_build_type(d.build_dir),) if t and t != wanted]
+    if not others: return
+    warning(f'  This build is {wanted}, and {len(others)} package(s) hold another build type:')
+    for name, kind in others[:_MIXED_TYPE_LIMIT]:
+        warning(f'    {name: <22} {kind}')
+    if len(others) > _MIXED_TYPE_LIMIT: warning(f'    ... (+{len(others) - _MIXED_TYPE_LIMIT} more)')
 
 
 _DIAG_LIMIT = 8  # compiler warnings/errors surfaced per target in the post-build summary
+_MIXED_TYPE_LIMIT = 8  # packages named in the mixed build-type warning
 
 
 def _print_diagnostics(display, deps, failed_name=None):

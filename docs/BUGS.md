@@ -12,7 +12,7 @@ this list links to it.
   source dir that only a checkout holds, which reloads clean, so this bites the `include` spelling.
   A fetched package needs no re-rooting at all. Pinned by `tests/test_papa_roundtrip/`.
 
-- [ ] **`mama build debug` after `mama build` builds release, and says nothing.**
+- [x] **`mama build debug` after `mama build` builds release, and says nothing.**
   Debug and release share one build dir on purpose, but a build-type flip does not force a configure.
   `must_configure` at `buildsys/cmake/configure.py:390` reads only `update` and `run_cmake_configure`,
   and `debug` sets neither. `run_config` then returns early on the existing cache, which still holds

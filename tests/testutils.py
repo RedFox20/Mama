@@ -53,6 +53,7 @@ class FakeUnifiedDep:
         self._child_specs = child_specs; self._shared = shared_children
         self._children = []; self.already_executed = False
         self.is_root = False; self.load_action = 'check'; self.artifactory_archive = ''
+        self.build_dir = ''  # no cache on disk, so the mixed build-type check finds nothing
         self.target = FakeUnifiedTarget(self, ev, lock)
     def load(self):
         with self._lock: self._ev.append(('load', self.name))
@@ -95,7 +96,7 @@ def make_walk_config(**overrides):
 
 def make_unified_config(**overrides):
     """The BuildConfig fields execute_unified and its display/scheduler touch."""
-    cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(),
+    cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(), print=False, debug=False,
                           workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
                           rebuild=False, update=False, clean=False, target=None, name=lambda: 'linux')
     for k, v in overrides.items(): setattr(cfg, k, v)
