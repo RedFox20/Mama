@@ -5,30 +5,15 @@ import contextlib
 import subprocess
 from unittest.mock import Mock, patch
 
+from testutils import make_git_and_mock_dep
+
 from mama.types.git import Git
 from mama import artifactory as art, mamafile_version
 
 
 def _make_dep(branch='main', mamafile_field=''):
-    config = Mock()
-    config.artifactory_ftp = 'ftp.example.com'
-    config.verbose = False
-    config.print = False
-    config.is_network_available.return_value = True
-    config.update_stats = Mock()
-    config.target_matches.return_value = False
-
-    git = Git(name='libfoo', url='https://example.com/libfoo.git',
-              branch=branch, tag='', mamafile=mamafile_field,
-              shallow=True, args=[])
-    dep = Mock()
-    dep.name = 'libfoo'
-    dep.config = config
-    dep.dep_source = git
-    dep.target_args = []
-    dep.from_artifactory = False
-    dep.write_shim_marker = Mock()
-    dep.mamafile = None  # no parent-repo mamafile override (the common case)
+    git, dep = make_git_and_mock_dep(url='https://example.com/libfoo.git', branch=branch,
+                                     mamafile=mamafile_field, artifactory_ftp='ftp.example.com')
     return dep, git
 
 

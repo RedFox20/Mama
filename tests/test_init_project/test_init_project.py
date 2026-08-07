@@ -1,5 +1,4 @@
 """Pins the mama init file-generation path."""
-import os
 from unittest.mock import Mock
 from mama.init_project import mama_init_project
 

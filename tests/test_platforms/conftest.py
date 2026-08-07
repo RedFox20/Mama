@@ -2,7 +2,7 @@
 import os
 import pytest
 
-from testutils import is_linux, is_windows
+from testutils import is_linux, is_windows, touch_file as _touch
 from mama.utils.paths import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
@@ -13,11 +13,6 @@ from mama.platforms.registry import platform_named
 # every env var android toolchain discovery reads, in the order it reads them
 _ANDROID_ENVS = ('ANDROID_NDK_LATEST_HOME', 'ANDROID_NDK_HOME', 'ANDROID_NDK_ROOT', 'ANDROID_NDK',
                  'ANDROID_HOME', 'ANDROID_SDK_ROOT')
-
-
-def _touch(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f: f.write('')
 
 
 def make_ndk_tree(root, ndk_version='27.3.13750724') -> str:

@@ -1,6 +1,5 @@
 """Pins that sanitized/coverage builds do not repoint c_cpp_properties.json compileCommands."""
 import json, os
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 from mama.dependency_chain import _save_vscode_compile_commands, _find_matching_platform_config

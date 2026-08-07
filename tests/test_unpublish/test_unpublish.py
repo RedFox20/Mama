@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from testutils import make_package_target, stub_loaders
+from testutils import make_package_target, make_project_dir, stub_loaders, stub_runners
 
 from mama.main import mamabuild
 
@@ -435,11 +435,9 @@ def test_deps_only_cannot_combine_with_unpublish():
 
 def test_a_clean_run_still_reaches_the_unpublish(tmp_path):
     # `clean_only` returns before the usual call site, so a whole run has to prove that path calls it
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
-    with stub_loaders(lambda r: None), \
-         patch('mama.main.print_build_banner'), \
+    with stub_loaders(lambda r: None), stub_runners(), \
          patch('mama.artifactory_unpublish.unpublish_run') as run:
-        mamabuild(['clean', 'unpublish=prune-all'], source_dir=str(tmp_path))
+        mamabuild(['clean', 'unpublish=prune-all'], source_dir=make_project_dir(tmp_path))
     run.assert_called_once()
 
 

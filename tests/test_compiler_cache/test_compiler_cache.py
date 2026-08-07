@@ -3,7 +3,7 @@ probe-seeded Coordinator."""
 import contextlib, os, threading, time
 from types import SimpleNamespace
 import pytest
-from testutils import make_cmake_detection
+from testutils import make_cmake_detection, write_cmake_cache
 from mama.buildsys.cmake import compiler_cache as cc
 from mama.utils.paths import normalized_path, path_join
 
@@ -57,22 +57,26 @@ def test_inject_writes_only_toolchain_markers_never_project_settings(tmp_path):
 
 
 def _write_cache(build_dir, extra=''):
-    os.makedirs(build_dir, exist_ok=True)
-    text = 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_EXECUTABLE_FORMAT:INTERNAL=ELF\nBUILD_TESTS:BOOL=ON\n' + extra
-    open(os.path.join(build_dir, 'CMakeCache.txt'), 'w').write(text)
+    write_cmake_cache(build_dir, 'CMAKE_GENERATOR:INTERNAL=Ninja\nCMAKE_EXECUTABLE_FORMAT:INTERNAL=ELF\n'
+                                 'BUILD_TESTS:BOOL=ON\n' + extra)
+
+
+def _published_then_injected(tmp_path, cache_extra):
+    """Publish a seed from a build dir whose cache carries `cache_extra`, then inject it into a fresh
+    dir. Returns the CMakeCache.txt of that dir, which is what a seeded configure replays."""
+    build = str(tmp_path / 'A')
+    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
+    _write_cache(build, cache_extra)
+    seed = str(tmp_path / 'seed')
+    assert cc.publish(seed, bf, build_dir=build)
+    dst = str(tmp_path / 'B')
+    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
+    return open(os.path.join(dst, 'CMakeCache.txt')).read()
 
 
 def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
     # no CMAKE_EXECUTABLE_FORMAT -> seeded configure dies on every install-RPATH add_executable
-    build = str(tmp_path / 'A')
-    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
-    _write_cache(build, 'CMAKE_LIBRARY_ARCHITECTURE:INTERNAL=x86_64-linux-gnu\n')
-    seed = str(tmp_path / 'seed')
-    assert cc.publish(seed, bf, build_dir=build)
-
-    dst = str(tmp_path / 'B')
-    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
-    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
+    cache = _published_then_injected(tmp_path, 'CMAKE_LIBRARY_ARCHITECTURE:INTERNAL=x86_64-linux-gnu\n')
     assert 'CMAKE_EXECUTABLE_FORMAT:INTERNAL=ELF' in cache
     assert 'CMAKE_LIBRARY_ARCHITECTURE:INTERNAL=x86_64-linux-gnu' in cache
     assert 'BUILD_TESTS' not in cache  # toolchain facts only, no project settings leak
@@ -80,15 +84,8 @@ def test_seeded_cache_replays_the_abi_facts_the_probe_would_have_set(tmp_path):
 
 def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path):
     # A toolchain file names the compiler, so cmake caches none. Without the replay, ninja rules can end up compiling with "".
-    build = str(tmp_path / 'A')
-    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
-    _write_cache(build, 'CMAKE_TOOLCHAIN_FILE:FILEPATH=/opt/sdk/tc.cmake\n')
-    seed = str(tmp_path / 'seed')
-    assert cc.publish(seed, bf, build_dir=build)
-
-    dst = str(tmp_path / 'B')
-    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
-    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
+    cache = _published_then_injected(tmp_path, 'CMAKE_TOOLCHAIN_FILE:FILEPATH=/opt/sdk/tc.cmake\n')
+    bf = make_cmake_detection(os.path.join(str(tmp_path / 'A'), 'CMakeFiles', '4.2.3'))
     for lang in ('C', 'CXX'):
         assert f'CMAKE_{lang}_COMPILER:FILEPATH={cc.compiler_from_module(bf, lang)}' in cache
 
@@ -475,18 +472,10 @@ def test_an_sdk_move_changes_the_fingerprint(tmp_path, monkeypatch):
 
 def test_seed_replays_the_compiler_and_toolchain_so_cmake_never_resets_the_cache(tmp_path):
     # Without the -DCMAKE_C/CXX_COMPILER lines, cmake wipes the cache mid-configure and re-runs WITHOUT the toolchain file.
-    build = str(tmp_path / 'A')
-    bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
-    _write_cache(build,
+    cache = _published_then_injected(tmp_path,
         'CMAKE_C_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang\n'
         'CMAKE_CXX_COMPILER:STRING=/ndk/bin/aarch64-linux-android29-clang++\n'
         'CMAKE_TOOLCHAIN_FILE:FILEPATH=/ndk/build/cmake/android.toolchain.cmake\n')
-    seed = str(tmp_path / 'seed')
-    assert cc.publish(seed, bf, build_dir=build)
-
-    dst = str(tmp_path / 'B')
-    cc.inject(seed, dst, os.path.join(dst, 'CMakeFiles', '4.2.3'), src_dir=str(tmp_path / 'src'))
-    cache = open(os.path.join(dst, 'CMakeCache.txt')).read()
     assert '/ndk/bin/aarch64-linux-android29-clang' in cache
     assert '/ndk/bin/aarch64-linux-android29-clang++' in cache
     assert 'android.toolchain.cmake' in cache   # without this the re-run loses the cross toolchain

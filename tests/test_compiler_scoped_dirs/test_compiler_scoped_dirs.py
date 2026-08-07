@@ -1,13 +1,10 @@
 """Pins compiler-flip ordering: root locks + re-resolves, so no run scatters deps across linux/ and linux-clang/."""
 from mama.build_names import build_dir_name
-from mama.platforms.linux import Linux
-from testutils import make_mock_dep, platform_config
+from testutils import linux_config, make_mock_dep
 
 
 def _linux_cfg():
-    """A REAL linux config on any host: build_dir_name reads config.platform, so a Windows host would
-    otherwise name the dir windows-clang."""
-    return platform_config(Linux, arch='x64', print=False)
+    return linux_config(print=False)
 
 
 def test_a_late_prefer_clang_cannot_flip_a_locked_compiler():

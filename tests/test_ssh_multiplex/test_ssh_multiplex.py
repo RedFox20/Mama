@@ -56,10 +56,9 @@ class TestOptionsToAdd:
         assert opts == sm._SAFETY_OPTS, 'only the always-on safety opts when user has everything'
         assert we_own is False
 
-    def test_user_has_nothing(self, tmp_path, monkeypatch):
+    def test_user_has_nothing(self, monkeypatch):
         # pin the multiplex-enabled path. The native-Windows skip has its own tests.
         monkeypatch.setattr(sm.System, 'windows', False)
-        # avoid mkdir on the user's actual ~/.ssh/cm
         probe = {'controlmaster': 'no', 'controlpath': 'none'}
         opts, we_own = sm.options_to_add(probe)
         assert we_own is True
@@ -69,7 +68,7 @@ class TestOptionsToAdd:
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
         assert any(o.startswith('-oServerAliveCountMax=') for o in opts)
 
-    def test_user_has_keepalives_only(self, tmp_path, monkeypatch):
+    def test_user_has_keepalives_only(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         probe = {
             'controlmaster': 'no', 'controlpath': 'none',
@@ -93,7 +92,7 @@ class TestOptionsToAdd:
         assert not any(o.startswith('-oControlPath=') for o in opts)
         assert any(o.startswith('-oServerAliveInterval=') for o in opts)
 
-    def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
+    def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch):
         # Microsoft OpenSSH ControlMaster is unreliable, so native Windows skips multiplex entirely. Keepalives still help.
         monkeypatch.setattr(sm.System, 'windows', True)
         probe = {'controlmaster': 'no', 'controlpath': 'none',
@@ -182,7 +181,7 @@ class TestEnsureMasterIdempotent:
         assert len(probe_calls) == 1
         assert sm._warmed[('git', 'github.com', None)]['we_own_master'] is False
 
-    def test_starts_master_when_user_lacks_config(self, monkeypatch, tmp_path):
+    def test_starts_master_when_user_lacks_config(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -201,7 +200,7 @@ class TestEnsureMasterIdempotent:
         assert len(master_calls) == 1
         assert sm._warmed[('git', 'example.com', None)]['we_own_master'] is True
 
-    def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch, tmp_path):
+    def test_prewarm_failure_strips_multiplex_opts(self, monkeypatch):
         # When _open_master fails, Control* must leave opts, or N parallel fetches race to be the master and auth N times.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -220,7 +219,7 @@ class TestEnsureMasterIdempotent:
         # Keepalives are still useful and stay.
         assert any(o.startswith('-oServerAliveInterval=') for o in info['opts'])
 
-    def test_concurrent_ensure_probes_once(self, monkeypatch, tmp_path):
+    def test_concurrent_ensure_probes_once(self, monkeypatch):
         import threading
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -305,7 +304,7 @@ class TestWrapperMain:
         assert argv == ['ssh', *sm._SAFETY_OPTS, '-o', 'SendEnv=GIT_PROTOCOL', 'git@github.com',
                         "git-upload-pack 'foo/bar.git'"]
 
-    def test_adds_multiplex_when_user_has_nothing(self, monkeypatch, tmp_path):
+    def test_adds_multiplex_when_user_has_nothing(self, monkeypatch):
         from mama.utils import mama_ssh
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         empty = "controlmaster no\ncontrolpath none\nserveraliveinterval 0\n"
@@ -351,7 +350,7 @@ class TestMasterOwnership:
         monkeypatch.setattr(subprocess, 'run', lambda *a, **k: pytest.fail('must not start a second master'))
         assert sm._open_master('git', 'example.com', None, self._opts(tmp_path)) == sm._MASTER_ADOPTED
 
-    def test_an_adopted_master_is_never_ours_to_close(self, monkeypatch, tmp_path):
+    def test_an_adopted_master_is_never_ours_to_close(self, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
@@ -393,7 +392,7 @@ def test_the_fetch_semaphore_is_clamped_to_the_session_limit(monkeypatch):
     assert sm._fetch_semaphore._value == sm.DEFAULT_MAX_CONCURRENT_FETCHES
 
 
-def test_an_unwritable_control_dir_disables_multiplex_instead_of_raising(monkeypatch, tmp_path):
+def test_an_unwritable_control_dir_disables_multiplex_instead_of_raising(monkeypatch):
     """A CI container often runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh`
     gives Errno 13). Multiplexing is an optimization and must never be what fails a build."""
     monkeypatch.setattr(sm.System, 'windows', False)

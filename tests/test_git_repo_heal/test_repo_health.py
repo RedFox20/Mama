@@ -1,15 +1,11 @@
 """Pins repo_health_from_disk against real git: it must never disagree, only defer."""
-import os, subprocess
+import os
 from unittest.mock import patch
 import pytest
 
 from mama.types.git import repo_health_from_disk
 from mama.utils.fileio import remove_tree
-from testutils import make_mock_dep
-
-
-def _git(args, cwd):
-    return subprocess.run(['git', *args], cwd=str(cwd), capture_output=True, text=True)
+from testutils import git_run as _git, make_mock_dep
 
 
 def _repo(path, commit=True, init_args=()):

@@ -1,8 +1,7 @@
 """Pins local-dep modification detection: a local package tracked by an enclosing git repo
 must trigger a cmake build when its own subfolder has uncommitted edits, and stay fast otherwise."""
 from pathlib import Path
-from unittest.mock import Mock, patch
-from testutils import make_mock_local_dep, make_git_root_with_local_pkgs
+from testutils import make_git_root_with_local_pkgs, make_mock_local_dep, should_build_reasons
 
 
 def _root_repo_with_local_pkg(tmp_path):
@@ -40,16 +39,8 @@ def test_non_git_local_dir_is_treated_as_clean(tmp_path):
 
 
 def _should_build_reasons(dep):
-    conf = dep.config; conf.print = True
-    target = Mock(name='t'); target.name = dep.name; target.args = []; target.build_products = ['x']
-    dep.target = target
-    with patch.object(dep, 'find_first_missing_build_product', return_value=None), \
-         patch.object(dep, 'find_missing_dependency', return_value=None), \
-         patch.object(dep, 'update_mamafile_tag', return_value=False), \
-         patch.object(dep, 'update_cmakelists_tag', return_value=False), \
-         patch('mama.build_dependency.warning') as w:
-        built = dep._should_build(conf, target, is_target=False, git_changed=False, loaded_from_pkg=True)
-    return built, ' '.join(str(c) for c in w.call_args_list)
+    """Only the source check may answer here, so the reasons below it are silenced."""
+    return should_build_reasons(dep, build_products=['x'], isolate=True)
 
 
 def test_clean_subfolder_does_not_build(tmp_path):

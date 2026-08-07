@@ -3,7 +3,6 @@ import io
 import os
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from mama.utils.net import download_file
 from mama.utils.paths import normalized_path

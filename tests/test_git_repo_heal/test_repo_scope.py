@@ -6,7 +6,6 @@ lands on the enclosing checkout of the developer and destroys uncommitted work.
 import os
 import pytest
 
-from mama.types.git import Git
 from testutils import make_mock_dep, git_init_commit
 
 

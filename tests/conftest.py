@@ -9,8 +9,8 @@ sys.path.insert(0, _here)
 sys.path.insert(0, _repo_root)
 
 
-from testutils import (has_case_sensitive_fs, is_linux, make_example_remote,  # after the sys.path setup above
-                       set_repo_template_dir)
+from testutils import (git_init_commit, has_case_sensitive_fs, is_linux,  # after the sys.path setup above
+                       make_example_remote, set_repo_template_dir)
 
 
 def pytest_runtest_setup(item):
@@ -115,6 +115,36 @@ def _disarm_abort():
     yield
     from mama.utils import abort
     abort.clear()
+
+
+@pytest.fixture
+def source_repo(tmp_path):
+    """A git repo at tmp/dep on `master`, holding one committed source file. Several directories read
+    the same shape, so it lives here rather than once per directory."""
+    d = tmp_path / 'dep'
+    git_init_commit(d, branch='master', files={'lib.cpp': 'int f(){return 1;}\n'})
+    return str(d)
+
+
+@pytest.fixture
+def reset_progress_state():
+    """Drop the process-global progress state around a test. A bar left half drawn makes the next
+    console() insert a stray newline. The headless throttle also leaks its timestamp."""
+    from mama.utils import system
+    system._progress_active = False
+    if hasattr(system._progress_at, 'at'): del system._progress_at.at
+    yield
+    system._progress_active = False
+
+
+@pytest.fixture(autouse=True)
+def _fresh_user_cache():
+    """Drop the memo of the user cache dir around every test. Production reads MAMA_CACHE_DIR one time.
+    A test that sets that variable would otherwise read the value of the test before it."""
+    from mama.utils import paths
+    for fn in (paths.user_cache_dir, paths._cache_base): fn.cache_clear()
+    yield
+    for fn in (paths.user_cache_dir, paths._cache_base): fn.cache_clear()
 
 
 @pytest.fixture

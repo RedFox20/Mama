@@ -48,6 +48,17 @@ def _sched(**kw):
     return Scheduler(**kw)
 
 
+def _concurrency_settles_at(sched, probe, jobs, expect):
+    """Run `jobs` and assert the governor holds exactly `expect` of them at once, then release them.
+    The sleep gives a wrong extra launch time to happen, so the cap is proven and not merely sampled."""
+    t, _ = _run_bg(sched, jobs)
+    assert _wait_until(lambda: probe.cur == expect)
+    time.sleep(0.05)
+    assert probe.cur == expect
+    probe.gate.set(); t.join(2.0)
+    assert probe.max == expect
+
+
 def test_runs_all_jobs():
     ran = []
     jobs = [Job(i, BUILD, (lambda i=i: ran.append(i)), weight=1) for i in range(5)]
@@ -65,59 +76,34 @@ def test_cycle_detection_raises():
 def test_configure_governor_caps_concurrency():
     p = Probe()
     jobs = [Job(i, CONFIGURE, p.body) for i in range(5)]
-    sched = _sched(max_configure=2)
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)
-    time.sleep(0.05)              # give any erroneous 3rd a chance to start
-    assert p.cur == 2            # never exceeds the cap
-    p.gate.set(); t.join(2.0)
-    assert p.max == 2
+    _concurrency_settles_at(_sched(max_configure=2), p, jobs, 2)
 
 
 def test_build_governor_high_load_blocks_overprovision():
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]  # each fills half the budget
     sched = _sched(cpu_sampler=lambda: 100.0, core_budget=4, overprovision=2.0)  # busy
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 1)   # one fills the budget, busy CPU blocks over-provisioning
-    time.sleep(0.05)
-    assert p.cur == 1
-    p.gate.set(); t.join(2.0)
-    assert p.max == 1
+    _concurrency_settles_at(sched, p, jobs, 1)  # one fills the budget, and a busy CPU blocks over-provisioning
 
 
 def test_build_governor_low_load_overprovisions_past_budget():
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]
     sched = _sched(cpu_sampler=lambda: 0.0, core_budget=4, overprovision=2.0)  # idle -> overprovision
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)   # 4+4 = budget*2, a third (12) exceeds even that
-    time.sleep(0.05)
-    assert p.cur == 2
-    p.gate.set(); t.join(2.0)
-    assert p.max == 2
+    _concurrency_settles_at(sched, p, jobs, 2)  # 4+4 fills budget*2, and a third would exceed even that
 
 
 def test_build_governor_low_load_runs_many():
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=1) for i in range(4)]
-    sched = _sched(cpu_sampler=lambda: 0.0, core_budget=8)
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 4)
-    p.gate.set(); t.join(2.0)
-    assert p.max == 4
+    _concurrency_settles_at(_sched(cpu_sampler=lambda: 0.0, core_budget=8), p, jobs, 4)
 
 
 def test_build_governor_respects_core_budget():
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=4) for i in range(4)]  # 4 cores each
     sched = _sched(cpu_sampler=lambda: 0.0, core_budget=8, overprovision=1.0)
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)  # 4+4 = budget, a third (12) does not fit
-    time.sleep(0.05)
-    assert p.cur == 2
-    p.gate.set(); t.join(2.0)
-    assert p.max == 2
+    _concurrency_settles_at(sched, p, jobs, 2)  # 4+4 fills the budget, and a third does not fit
 
 
 def test_ungated_build_bypasses_cpu_and_budget_gate():
@@ -163,11 +149,7 @@ def test_many_small_leaf_builds_launch_in_parallel_under_busy_cpu():
     # small TU weights must fill the core budget concurrently even while the CPU sampler reads saturated
     p = Probe()
     jobs = [Job(i, BUILD, p.body, weight=2) for i in range(12)]
-    sched = _sched(cpu_sampler=lambda: 99.0, core_budget=16)  # 16/2 = 8 fit at once
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 8)
-    p.gate.set(); t.join(2.0)
-    assert p.max == 8
+    _concurrency_settles_at(_sched(cpu_sampler=lambda: 99.0, core_budget=16), p, jobs, 8)  # 16/2 fit at once
 
 
 def test_build_slot_barrier_blocks_until_budget_frees():
@@ -237,13 +219,7 @@ def test_failure_fires_abort_hook_once_to_kill_in_flight():
 def test_load_governor_caps_concurrency():
     p = Probe()
     jobs = [Job(i, LOAD, p.body) for i in range(5)]
-    sched = _sched(max_load=2)
-    t, _ = _run_bg(sched, jobs)
-    assert _wait_until(lambda: p.cur == 2)
-    time.sleep(0.05)
-    assert p.cur == 2            # capped at max_load
-    p.gate.set(); t.join(2.0)
-    assert p.max == 2
+    _concurrency_settles_at(_sched(max_load=2), p, jobs, 2)
 
 
 def test_dynamic_grow_runs_child_jobs_after_parent_load():

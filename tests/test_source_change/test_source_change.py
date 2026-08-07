@@ -1,8 +1,7 @@
 """Pins working-tree fingerprint detection: `mama build` must rebuild a git dep
 whose source was edited in place, without a full status check or reconfigure."""
 from pathlib import Path
-from unittest.mock import Mock, patch
-from testutils import git_init_commit, make_mock_dep
+from testutils import git_init_commit, make_mock_dep, should_build_reasons as _should_build_reasons
 from mama.utils.sub_process import execute_piped
 
 
@@ -58,19 +57,10 @@ def test_legacy_status_without_tree_line_treated_as_clean(tmp_path):
     assert not git.source_tree_changed(dep)  # clean tree vs legacy 4-line status
 
 
-def _should_build_reasons(dep, loaded_from_pkg):
-    conf = dep.config; conf.print = True
-    target = Mock(name='t'); target.name = dep.name; target.args = []; target.build_products = []
-    dep.target = target  # so the fall-through (no source change) path does not crash
-    with patch('mama.build_dependency.warning') as w:
-        built = dep._should_build(conf, target, is_target=False, git_changed=False, loaded_from_pkg=loaded_from_pkg)
-    return built, ' '.join(str(c) for c in w.call_args_list)
-
-
 def test_source_edit_rebuilds_git_dep_even_when_from_artifactory(tmp_path):
     # a prebuilt pkg can also have a source clone on disk, so from_artifactory must not skip the working-tree check
     dep = _git_dep_with_repo(tmp_path)
     dep.from_artifactory = True
     (Path(dep.src_dir) / 'lib.cpp').write_text('int f(){return 9;}\n')
-    built, reasons = _should_build_reasons(dep, loaded_from_pkg=True)
+    built, reasons = _should_build_reasons(dep)
     assert built and 'source modified' in reasons

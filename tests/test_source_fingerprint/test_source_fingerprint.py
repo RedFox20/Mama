@@ -1,16 +1,12 @@
 """Pins the cheap source walk that gates the git check on Windows, and the build-input filter that
 runs on every platform. A missed change here is a build that does not happen, so the scenarios below
 drive the real decision, not just the helper."""
-import os, subprocess
+import os
 from unittest.mock import patch
 import pytest
 
 from mama.utils import git_status as util
-from testutils import git_init_commit, make_mock_dep
-
-
-def _git(args, cwd):
-    return subprocess.run(['git', *args], cwd=str(cwd), capture_output=True)
+from testutils import git_init_commit, make_mock_dep, source_tree_changed as _changed
 
 
 @pytest.fixture
@@ -22,11 +18,6 @@ def dep(tmp_path):
     d.dep_source.save_status(d)          # what a successful build does
     util.forget_git_dir_fingerprint(src)
     return d
-
-
-def _changed(dep) -> bool:
-    util.forget_git_dir_fingerprint(dep.src_dir)
-    return dep.dep_source.source_tree_changed(dep)
 
 
 @pytest.mark.parametrize('windows', [True, False])

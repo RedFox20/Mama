@@ -4,37 +4,18 @@ import os
 from unittest.mock import patch
 import pytest
 
-from testutils import make_configured_target, write_cmake_cache, write_build_file
+from testutils import make_configured_target, run_config_capturing, write_dep_exports as _exports
 from mama.buildsys.cmake import configure as cc
-
-NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\n'
 
 
 def _updating_target(tmp_path, **overrides):
     """A target whose config asks for an update, which is what makes mama reconfigure at all."""
-    t, dep = make_configured_target(tmp_path, update=True, run_cmake_configure=False, **overrides)
-    return t, dep
+    return make_configured_target(tmp_path, update=True, run_cmake_configure=False, **overrides)
 
 
-def _configure(t, dep):
+def _configure(t, dep) -> bool:
     """Drive run_config with cmake stubbed. Returns True when it really configured."""
-    calls = []
-    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=lambda *a, **k: calls.append(1)), \
-         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
-         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
-         patch.object(dep, 'get_enabled_sanitizers', return_value=''):
-        coord.return_value.prepare.return_value = 'none'
-        coord.return_value.status.return_value = ('fp', False)
-        cc.run_config(t)
-        # the stub writes no build system, so stand in for what a real cmake leaves behind
-        write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir())
-    return bool(calls)
-
-
-def _exports(t, text):
-    """Write the file that names the include dirs and libs the dependencies export."""
-    with open(os.path.join(t.build_dir(), 'mama-dependencies.cmake'), 'w', encoding='utf-8') as f:
-        f.write(text)
+    return bool(run_config_capturing(t, dep, leave_build_dir=True))
 
 
 def test_an_unchanged_target_configures_once_and_then_skips(tmp_path):
@@ -88,11 +69,6 @@ def test_an_invalid_build_dir_is_never_skipped(tmp_path):
 
 def test_a_failed_configure_records_no_fingerprint(tmp_path):
     t, dep = _updating_target(tmp_path)
-    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=RuntimeError('cmake died')), \
-         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
-         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
-         patch.object(dep, 'get_enabled_sanitizers', return_value=''):
-        coord.return_value.prepare.return_value = 'none'
-        with pytest.raises(RuntimeError):
-            cc.run_config(t)
+    with pytest.raises(RuntimeError):
+        run_config_capturing(t, dep, raises=RuntimeError('cmake died'))
     assert cc._read_configure_fingerprint(t.build_dir()) == ''   # else the next run would skip a broken dir
