@@ -12,6 +12,17 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
+- [ ] **A `clean` run never unpublishes, and says nothing.** `main.py:377` returns for `clean_only()`
+  before the unpublish block at `main.py:443`, so `mama mylib clean unpublish=prune-all` exits reporting
+  success having deleted nothing. Either run the unpublish before that return, or refuse the combination
+  at parse time. Refusing is safer: the two commands want opposite things from the same dirs.
+
+- [ ] **A shim of another platform keeps serving a deleted package.** `local_copies` in
+  `artifactory_unpublish.py` reads `dep.build_dir`, which is one platform. An unpublish on a linux run
+  leaves `packages/<ws>/mylib/android/` holding a shim marker for an archive the server no longer has,
+  which is the failure the module exists to prevent. Walk every build dir under `dep_dir` instead, and
+  drop each whose marker names a deleted archive.
+
 - [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` failed once, and never again.**
   Seen one time under `-n8` on Linux. Nothing reproduced it since: 26 suite runs across both hosts and
   7300 direct runs of its two jobs, under 8-way and 32-core load. The hook cannot fire twice, because
