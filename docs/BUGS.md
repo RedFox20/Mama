@@ -12,12 +12,12 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-- [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` fails about one run in five.**
-  `tests/test_build_scheduler/test_build_scheduler.py:231` asserts `hook == ['a failed']` after running two
-  jobs that both raise, under a scheduler with a core budget of 8. Nothing stops job `b` from starting
-  before the abort of job `a` lands, so the hook can fire twice or name `b`. Decide which side is wrong
-  first. Either the scheduler must guarantee one abort hook per run, or the test must run the two jobs
-  with a budget of 1. Eight worker processes load the machine and make the race visible.
+- [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` failed once, and never again.**
+  Seen one time under `-n8`. It then passed 16 suite runs, and the two jobs it schedules produced
+  `a failed` in 2400 direct iterations under 8-way load. The traceback was not captured, so the failing
+  half is still unknown. The scheduler cannot fire the hook twice: `build_scheduler.py:302` computes
+  `first_failure` under the lock that `build_scheduler.py:304` sets `self._error` in. Capture the
+  traceback before changing anything. Relaxing the assertion without it would hide a real defect.
 
 - [ ] **`test_a_shape_only_git_can_settle_defers[gitdir file]` fails about one Windows run in ten.**
   `tests/test_git_repo_heal/test_repo_health.py:75` calls `shutil.move` on a `.git` dir that git wrote

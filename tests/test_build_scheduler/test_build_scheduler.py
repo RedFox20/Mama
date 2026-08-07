@@ -228,7 +228,9 @@ def test_failure_fires_abort_hook_once_to_kill_in_flight():
     hook = []
     def boom(): raise RuntimeError('kaboom')
     failed = _sched(abort_hook=hook.append).run([Job('a', BUILD, boom), Job('b', BUILD, boom)])
-    assert failed is not None and hook == ['a failed']  # once, and it names the job the user has to fix
+    # two asserts, not one `and`: a failure then names which half broke, and this one fires rarely
+    assert failed is not None
+    assert hook == ['a failed']  # once, and it names the job the user has to fix
 
 
 def test_load_governor_caps_concurrency():
