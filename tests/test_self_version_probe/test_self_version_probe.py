@@ -141,6 +141,26 @@ class TestFetchSelfVersionFromRemote:
         assert captured['label'] == 'PROBE'
 
 
+def test_the_probe_takes_one_fetch_slot_for_its_clone_and_none_for_the_git_show():
+    """The slot caps concurrent git fetches at 8. A `git show` that took one would halve that cap.
+    Every probe would then hold two slots, and only one of them talks to a remote."""
+    dep, git = _make_dep()
+    slots = []
+
+    @contextlib.contextmanager
+    def counting_slot():
+        slots.append(1)
+        yield
+
+    with patch('mama.types.git.ssh_multiplex.fetch_slot', side_effect=counting_slot), \
+         patch('mama.types.git.ssh_multiplex.ensure_master_for_url'), \
+         patch('mama.types.git.ssh_multiplex.pace_new_connection'), \
+         patch('mama.types.git.SubProcess.run', return_value=0), \
+         patch('mama.types.git.subprocess.run', return_value=Mock(returncode=0, stdout=b"self.version = '1.0'")):
+        assert git.fetch_self_version_from_remote(dep) == '1.0'
+    assert len(slots) == 1  # the blob-less clone alone
+
+
 class TestFilteredGitProgress:
     def test_progress_waits_five_ms_from_first_non_completion_report(self):
         lines = [
@@ -192,7 +212,7 @@ class TestShimProbeFallback:
         mock_version.assert_not_called()
 
     def test_hash_miss_falls_through_to_version_probe(self):
-        # First fetch is hash-based (miss); second uses self.version=1.0 (hit).
+        # The first fetch asks by hash and misses. The second asks by self.version=1.0 and hits.
         dep, _ = _make_dep()
         fetch_versions = []
         def fake_fetch(target):

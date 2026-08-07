@@ -100,7 +100,7 @@ raise RuntimeError(
     f'papa_deploy refused: {package_full_path} contains a mama_shim marker.'
 )
 
-# GOOD - doesn't fit 130 cols: continue on first line, align under `(`
+# GOOD - does not fit 130 cols: continue on first line, align under `(`
 raise RuntimeError(f'Target {dep.name} requires network to clone but network is unavailable.' + \
                    ' Check your connection or use a cached artifactory package.')
 
@@ -277,7 +277,9 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   whatever `parallel_max` asks for. `parallel_max` (default 20) sizes the scheduler's
   LOAD pool. Both are independent of the worker thread count.
 - The `SubProcess.run` calls of the shim probe also go through `fetch_slot`. Count
-  the slot acquisitions per probe: one for the clone, and one more for `git show`.
+  the slot acquisitions per probe: one for the clone, and one more for the ls-remote
+  that resolves the commit. The `git show` reads the clone the probe already made,
+  so it takes none.
 - `ensure_master_for_url` is idempotent and serialized per host.
 - **One thread owns each dep's load.** `load_dependency_chain` claims a dep before it loads
   it, so a shared dep loads once, walks its subtree once and draws one display line. A parent
