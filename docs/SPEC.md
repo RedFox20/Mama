@@ -101,19 +101,25 @@ One name for one thing. This file uses these and no synonyms.
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
 keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
 
-**`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
+**`build_dir_name` = `<platform dir><-arch marker><-clang><variant>`**, coarsest axis first.
 
 - The platform dir comes from the platform class, which maps each arch to its own name. The primary
   arch uses the bare name (`linux`, `windows`), and every other arch gets its own (`linux32`,
   `linuxarm`, `windows32`, `macosarm`).
+- The arch marker appears only when an `-march` pin renames the arch, because the platform dir already
+  separates the arches. `linux-x64v3`, `linuxarm-armv82a`.
 - `-clang` appears only on a Linux clang build. gcc keeps the bare name, so existing trees do not
   churn. Elsewhere the toolset or the SDK already fixes the compiler.
 - The variant is `build_variant_suffix`: `-cov` for coverage, then one token per sanitizer, then the
-  `-march` pin, then the dep args. Each token gets its own `-`. A plain build with no args adds nothing.
+  dep args. Each token gets its own `-`. A plain build with no args adds nothing.
 - Dep args are sorted, lowercased, de-duplicated and stripped to ASCII alphanumerics. `+` becomes
   `p`, so `C++20` is `cpp20`. `NEWMATH=1` is `newmath1`, distinct from `newmath2`.
-- The `-march` pin of the target arch is normalized the same way, behind a `march` prefix. `x86-64-v3`
-  is `marchx8664v3`. Only a pin from `set_target_march` appears, never the platform default.
+- The arch marker reads the same way. The pin `x86-64-v3` on `x64` reads `x64v3`, and
+  `armv8.2-a` on `arm64` reads `armv82a`. Only a pin from `set_target_march` renames the arch, never
+  the platform default. A bare `x86-64` pin reads `x64v1`, the psABI name for that level, so it cannot
+  collide with plain `x64`, whose real default is `-march=native`.
+- **Every marker opens with an arch name.** A pin that names a CPU, such as `haswell`, gets the arch in
+  front of it and reads `x64haswell`. That is what keeps `clean all` from deleting a foreign pinned tree.
 
 **Every `(platform, arch, variant)` pair gets its own build dir, and Linux also splits gcc from clang.**
 A shared dir means two builds clobber each other's cache and libraries.
@@ -376,7 +382,9 @@ source, so a changed child cannot change what it produces, and a shim never inhe
 the package to fetch. An upload names the type the `CMakeCache.txt` of the build dir records, because that
 is the type the artifacts carry. The two share one build dir, so a run that uploads after a debug build of
 another type would otherwise publish debug artifacts under the release name. A dir with no cache falls back
-to the type of the run. `variant` is the same suffix the build dir carries. For a git dep the version
+to the type of the run. `arch` is the arch marker, which an `-march` pin renames (`x64v3`, `armv82a`),
+because a pin already names the architecture and one axis gets one field. `variant` is the same suffix the
+build dir carries. For a git dep the version
 is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. A hex tag is a
 commit pin, so it counts as the hash. The name carries the first 7 characters of the hash, whatever
 length the resolver answered. A branch pin labels the hash and does not replace it. A branch moves, so
@@ -687,8 +695,8 @@ the type, the target and every variant axis. A fetched package holds no `CMakeCa
 is the only thing that names its build type, and the mixed-type warning reads it. A package written
 before the `O` record carries no attributes at all.
 
-An `-march` pin appears as `march=x86-64-v3`, its real value, where the build dir name and the archive
-name carry the file-safe `marchx8664v3`. The record is text, and a reader compares it against a CPU.
+An `-march` pin follows the arch as `march=x86-64-v3`, its real value. The build dir name and the archive
+name carry the merged marker `x64v3` instead. The record is text, and a reader compares it against a CPU.
 The parser splits the record on whitespace and searches it, so a new attribute needs no fixed place.
 
 A package built by a different compiler than the current build warns and does not fail.

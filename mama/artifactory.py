@@ -80,7 +80,7 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     # the triplet that makes the package name unique per platform
     platform, os_major, _ = target.config.get_distro_info()
     compiler = target.config.compiler_version()
-    arch = target.config.arch # eg 'x86', 'arm64'
+    arch = build_names.arch_marker(target.config) # eg 'x86', 'arm64', or 'x64v3' for a -march pin
     # The SAME suffix the dep's build dir carries, read from the dep: it holds the pre-parse consumer args.
     # The pre-clone shim probe and the upload then compose the same name.
     build_type = (build_type or ('release' if target.config.release else 'debug')) + target.dep.variant_suffix

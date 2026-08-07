@@ -458,12 +458,22 @@ The pin applies only when the run builds that arch, and it replaces whatever `-m
 would emit. An unknown arch name raises. A value that is not the `-march` value alone (`-march=x86-64-v3`,
 or two flags in one string) raises. MSVC has no `-march`, so the pin warns and does nothing there.
 
-A pinned build gets its own build dir and its own artifactory archive, both tagged `marchx8664v3`.
-Objects tuned for one instruction set can then never link into a build tuned for another, and a
-consumer can never download them over one. The first build after you add a pin rebuilds the tree.
+The pin renames the arch field of every name, because a `-march` value already says which architecture
+it is. So `x64` plus `x86-64-v3` reads `x64v3`, and `arm64` plus `armv8.2-a` reads `armv82a`. The bare
+`x86-64` baseline reads `x64v1`, its psABI level, so it never collides with an unpinned `x64`:
 
-The deployed `papa.txt` records the pin on its `O` line, next to the arch, as the real value:
-`O release linux x64 march=x86-64-v3`. Read it to check what a package was tuned for.
+```
+build dir       packages/mylib/linux-x64v3/
+archive         mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66
+papa.txt        O release linux x64 march=x86-64-v3
+```
+
+A pinned build therefore gets its own build dir and its own artifactory archive. Objects tuned for one
+instruction set can never link into a build tuned for another, and a consumer can never download them
+over one. The first build after you add a pin rebuilds the tree.
+
+The `papa.txt` `O` record keeps the real value next to the arch, not the merged marker, so you can
+compare a package against a CPU.
 
 ### CMake configuration
 ```py
@@ -761,6 +771,9 @@ Artifactory archives follow the naming format:
 {name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}[-variant]-{version}
 ```
 Example: `opencv-ubuntu-22-gcc11.3-x64-release-df76b66`.
+
+`{arch}` carries a `set_target_march` pin, which renames it (`x64v3`, `armv82a`). See
+[Pinning the instruction set](#pinning-the-instruction-set-set_target_march).
 
 `{version}` names the source this package was built from. Mama takes the first of these the dep has:
 

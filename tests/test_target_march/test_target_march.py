@@ -3,7 +3,7 @@ import pytest
 
 from testutils import make_archive_name_target, make_mock_dep, platform_config, platform_cxx_flags
 from mama import artifactory as art
-from mama.build_names import build_dir_name, build_variant_suffix, is_build_dir_of, object_attributes
+from mama.build_names import arch_marker, build_dir_name, build_variant_suffix, is_build_dir_of, object_attributes
 from mama.platforms.linux import Linux
 from mama.platforms.windows import Windows
 
@@ -52,28 +52,53 @@ def test_a_platform_with_no_march_emits_none(tmp_path):
     assert '-march' not in platform_cxx_flags(tmp_path, Windows, 'x64', target_march={'x64': 'x86-64-v3'})
 
 
-# --- the pin names the build ---
+# --- the pin merges into the arch field of a name ---
+
+@pytest.mark.parametrize('arch,march,marker', [
+    ('x64',   'x86-64-v3', 'x64v3'),    # the arch already says x86-64, so the level alone is left
+    ('x64',   'x86-64-v4', 'x64v4'),
+    ('x64',   'x86-64',    'x64v1'),    # the psABI calls the bare baseline level 1
+    ('arm64', 'armv8.2-a', 'armv82a'),
+    ('x64',   'haswell',   'x64haswell'),  # a CPU name says no arch, so the marker puts one in front
+    ('x86',   'pentium4',  'x86pentium4'),
+    ('x64',   '',          'x64'),
+])
+def test_the_marker_merges_the_arch_and_the_pin(arch, march, marker):
+    config = platform_config(Linux, arch)
+    if march: config.set_target_march(arch, march)
+    assert arch_marker(config) == marker
+
+
+@pytest.mark.parametrize('march', ['x86-64', 'x86-64-v2', 'x86-64-v3', 'x86-64-v4'])
+def test_no_x64_pin_ever_spells_the_unpinned_marker(march):
+    # an unpinned x64 build compiles -march=native, so a pin that shared its name would hide two ABIs
+    config = platform_config(Linux, 'x64')
+    config.set_target_march('x64', march)
+    assert arch_marker(config) != 'x64'
+
 
 def test_the_pin_names_the_build_dir():
     config = platform_config(Linux, 'x64')
     config.set_target_march('x64', 'x86-64-v3')
-    assert build_dir_name(config) == 'linux-marchx8664v3'
+    assert build_dir_name(config) == 'linux-x64v3'
 
 
 def test_the_pin_names_the_archive():
     name = art.artifactory_archive_name(make_archive_name_target(march='x86-64-v3'))
-    assert name == 'pkg-linux-24-gcc14-x64-release-marchx8664v3-abc1234'
+    assert name == 'pkg-linux-24-gcc14-x64v3-release-abc1234'
 
 
-def test_the_pin_sits_before_the_dep_args():
+def test_the_variant_keeps_only_its_own_axes():
+    # the pin left the variant when it merged into the arch, so a sanitizer and a dep arg read as before
     target = make_archive_name_target(sanitize='address', march='x86-64-v3', args=['LGPL'])
-    assert target.dep.variant_suffix == '-asan-marchx8664v3-lgpl'
+    assert target.dep.variant_suffix == '-asan-lgpl'
+    assert art.artifactory_archive_name(target) == 'pkg-linux-24-gcc14-x64v3-release-asan-lgpl-abc1234'
 
 
 def test_the_papa_object_record_names_the_real_march():
-    # the record is text, so it keeps the value a reader compares against a CPU, not the file-safe token
+    # the record is text, so it keeps the value a reader compares against a CPU, not the merged marker
     target = make_archive_name_target(march='x86-64-v3', sanitize='address', args=['LGPL'])
-    assert object_attributes(target) == 'release linux x64 asan march=x86-64-v3 lgpl'
+    assert object_attributes(target) == 'release linux x64 march=x86-64-v3 asan lgpl'
 
 
 def test_two_pins_of_one_commit_produce_two_names():
@@ -87,8 +112,12 @@ def test_an_unpinned_build_keeps_its_old_name():
     assert build_variant_suffix(config) == '' and build_dir_name(config) == 'linux'
 
 
-def test_a_baseline_clean_leaves_a_pinned_tree():
-    assert is_build_dir_of('linux-marchx8664v3', 'linux') is False
+@pytest.mark.parametrize('march,dir_name', [('x86-64-v3', 'linux-x64v3'), ('haswell', 'linux-x64haswell')])
+def test_a_baseline_clean_leaves_a_pinned_tree(march, dir_name):
+    config = platform_config(Linux, 'x64')
+    config.set_target_march('x64', march)
+    assert build_dir_name(config) == dir_name
+    assert is_build_dir_of(dir_name, 'linux') is False  # the unpinned run must not sweep it away
 
 
 def test_the_dirs_re_resolve_after_the_root_pins_the_march(tmp_path):
@@ -98,4 +127,4 @@ def test_the_dirs_re_resolve_after_the_root_pins_the_march(tmp_path):
     assert dep.build_dir.endswith('/linux')
     dep.config.target_march = {'x64': 'x86-64-v3'}
     dep._update_dep_name_and_dirs(dep.name)
-    assert dep.build_dir.endswith('/linux-marchx8664v3')
+    assert dep.build_dir.endswith('/linux-x64v3')
