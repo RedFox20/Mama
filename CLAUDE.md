@@ -53,6 +53,10 @@ unverifiable. Cut only a claim that pretends to describe the code and does not.
 `docs/BUGS.md` holds an open list and a closed list. Add an entry to Open when you find a bug you do
 not fix in the same change. The commit that fixes it compacts the entry and moves it to Closed.
 
+`docs/NEW_FEATURES.md` holds a planned list and an implemented list, and it works the same way. A
+feature agreed but not written goes to Planned. The commit that ships it moves the entry to Implemented.
+A defect goes to `docs/BUGS.md`, unless the repair adds a capability.
+
 ## Code style
 
 - **Line length: up to 130 columns.** Do not wrap a single expression unless it
