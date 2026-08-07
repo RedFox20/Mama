@@ -3,11 +3,17 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_stub_target
+from testutils import is_windows, make_stub_target
 from mama.platforms.linux import Linux
 from mama.platforms.windows import Windows
 from mama.utils import gdb, gtest, run
 from mama.utils.paths import normalized_path
+
+
+def _abs_program(name):
+    """An absolute program path the HOST accepts. Windows reads a path with no drive as relative, so
+    abspath re-roots '/usr/bin/x' onto the current drive."""
+    return f'C:/tools/{name}' if is_windows() else f'/usr/bin/{name}'
 
 
 def _target(tmp_path, platform_class=Linux):
@@ -48,8 +54,9 @@ def test_a_bare_command_runs_beside_the_program_it_names(tmp_path):
 @pytest.mark.parametrize('mode', ['cwd', 'root_dir'])
 def test_an_absolute_program_is_never_re_rooted(tmp_path, mode):
     target = _target(tmp_path)
-    _, exe, _ = _args(target, '/usr/bin/valgrind ./app', **{mode: target.build_dir()})
-    assert exe == '/usr/bin/valgrind'
+    program = _abs_program('valgrind')
+    _, exe, _ = _args(target, f'{program} ./app', **{mode: target.build_dir()})
+    assert exe == program
 
 
 @pytest.mark.parametrize('mode', ['cwd', 'root_dir'])
@@ -61,9 +68,10 @@ def test_a_dot_slash_program_resolves_against_the_named_dir(tmp_path, mode):
 
 def test_a_program_on_the_path_wins_over_a_local_one(tmp_path):
     target = _target(tmp_path)
-    with patch('mama.utils.run.shutil.which', return_value='/usr/bin/ctest'):
+    on_path = _abs_program('ctest')
+    with patch('mama.utils.run.shutil.which', return_value=on_path):
         _, exe, _ = run.get_cwd_exe_args(target, 'ctest -V', cwd=target.build_dir())
-    assert exe == '/usr/bin/ctest'
+    assert exe == on_path
 
 
 def test_a_path_holding_a_space_is_quoted_for_the_shell_split(tmp_path):
