@@ -333,11 +333,15 @@ class TestCtrlCTermination:
                 f'open("{pidfile}", "w").write(str(gc.pid)); time.sleep(60)\n')
         threading.Thread(target=lambda: SubProcess.run([PY, '-c', code], io_func=lambda p, l: None),
                          daemon=True).start()
-        end = time.monotonic() + 8
-        while time.monotonic() < end and not os.path.exists(pidfile): time.sleep(0.02)
-        gc_pid = int(open(pidfile).read())
+        # wait for a PARSEABLE pid, not just the file: the child writes it in a second step, and a
+        # loaded suite reads the empty file in between. Both budgets end early, so a wide one is free.
+        gc_pid, end = 0, time.monotonic() + 30
+        while time.monotonic() < end and not gc_pid:
+            try: gc_pid = int(open(pidfile).read())
+            except (OSError, ValueError): time.sleep(0.02)
+        assert gc_pid, 'the child never reported its grandchild pid'
         SubProcess.terminate_all('test')
-        end = time.monotonic() + 5
+        end = time.monotonic() + 30
         while time.monotonic() < end and psutil.pid_exists(gc_pid): time.sleep(0.02)
         alive = psutil.pid_exists(gc_pid)
         if alive:
