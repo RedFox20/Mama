@@ -202,6 +202,14 @@ def _can_unify(config: BuildConfig) -> bool:
             and not config.dirty and not config.mama_init)
 
 
+def run_unpublish(config: BuildConfig, deps):
+    """Delete the published archives this run selects. A run-level action, so it sits outside both
+    execution chains and every path that loads a tree reaches it."""
+    if not config.unpublish: return
+    from .artifactory_unpublish import in_scope, unpublish_run  # deferred: it pulls ftplib
+    unpublish_run([d.target for d in deps if in_scope(d.target)], config)
+
+
 def _targeted(config: BuildConfig) -> bool:
     """True when the run names one target, so both the load and the task chain scope to its subtree.
     `all` asks for the whole tree, and `deps_only` scopes itself to the deps of its own target."""
@@ -376,6 +384,9 @@ def mamabuild(args, source_dir=os.getcwd()):
         # or fails a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.
         if config.clean_only():
             if config.targets_all(): sweep_orphaned_build_dirs(root, config)  # deps with no source on disk
+            # The clean took the build dirs, and the cached zips live one level up in dep_dir, so an
+            # unpublish still finds and removes them. It runs here because this path returns.
+            run_unpublish(config, get_flat_deps(root))
             return
 
         # Only now is the tree loaded, so X's subtree is known: revive the deps X needs but that have
@@ -440,11 +451,7 @@ def mamabuild(args, source_dir=os.getcwd()):
         else:
             execute_task_chain_parallel(flat_deps_reverse)
 
-    if config.unpublish:
-        # A run-level action, so it sits outside both execution chains and each one reaches it.
-        # deferred: this pulls ftplib, and only an unpublish needs it
-        from .artifactory_unpublish import in_scope, unpublish_run
-        unpublish_run([d.target for d in flat_deps if in_scope(d.target)], config)
+    run_unpublish(config, flat_deps)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]

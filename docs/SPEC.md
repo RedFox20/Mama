@@ -718,7 +718,12 @@ though the dependency resolved. A docs-only or bundle-only target hits this by s
 | `prune-old[=N]` | every version except the newest N, default 20 |
 | `prune-all` | every version of the target |
 
-There is no bare `unpublish`. A version selector matches **everything after the build type**, so one
+There is no bare `unpublish`: it raises and names the four selectors. `deps_only` refuses to combine
+with it, because `deps_only` means act on the dependencies while the unpublish scope names the target,
+and a delete must not guess between them. A `clean` run does unpublish. The clean takes the build dirs,
+and the cached zips live one level up in `dep_dir`, so they are still there to remove.
+
+A version selector matches **everything after the build type**, so one
 selector reaches every platform, compiler and build type at once. A file whose name does not parse as
 this target's archive is never touched. A `version_suffix` is part of that tail, so `caf5158-2` and
 `caf5158` are two different versions, which is the point of the suffix.

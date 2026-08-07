@@ -5,7 +5,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from testutils import make_package_target
+from testutils import make_package_target, stub_loaders
+
+from mama.main import mamabuild
 
 import mama.artifactory_unpublish as up
 from mama.build_config import BuildConfig
@@ -405,6 +407,40 @@ def test_the_command_line_reads_every_selector(arg, selector, keep):
 def test_a_malformed_selector_is_refused(arg):
     with pytest.raises(RuntimeError):
         BuildConfig([arg])
+
+
+def test_a_bare_unpublish_names_the_selectors_it_wants(arg=None):
+    # it used to fall through to the target name and die with `target='unpublish' not found`
+    with pytest.raises(RuntimeError, match='unpublish needs a selector'):
+        BuildConfig(['unpublish'])
+
+
+def test_deps_only_cannot_combine_with_unpublish():
+    # deps_only means act on the dependencies, and the unpublish scope names the target. Rather than
+    # guess which one wins over a delete, refuse the pair.
+    with pytest.raises(RuntimeError, match='deps_only cannot combine with unpublish'):
+        BuildConfig(['deps_only', 'unpublish=prune-all'])
+
+
+def test_a_clean_run_still_reaches_the_unpublish(tmp_path):
+    # `clean_only` returns before the usual call site, so a whole run has to prove that path calls it
+    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
+    with stub_loaders(lambda r: None), \
+         patch('mama.main.print_build_banner'), \
+         patch('mama.artifactory_unpublish.unpublish_run') as run:
+        mamabuild(['clean', 'unpublish=prune-all'], source_dir=str(tmp_path))
+    run.assert_called_once()
+
+
+def test_a_run_that_never_loads_a_tree_still_refuses_a_bare_unpublish(tmp_path):
+    with pytest.raises(RuntimeError, match='unpublish needs a selector'):
+        BuildConfig(['clean', 'unpublish'])
+
+
+def test_a_run_that_does_not_unpublish_opens_no_ftp_session():
+    from mama import main
+    with patch('mama.artifactory_unpublish.unpublish_run', side_effect=AssertionError('must not run')):
+        main.run_unpublish(BuildConfig(['build']), [])
 
 
 @pytest.mark.parametrize('arg', ['yes', 'y'])

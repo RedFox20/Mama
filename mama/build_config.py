@@ -255,6 +255,11 @@ class BuildConfig:
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
+        # `deps_only` means act on the dependencies and not the target, and `in_scope` names the target.
+        # Rather than guess which one wins over a delete, refuse the pair.
+        if self.deps_only and self.unpublish:
+            raise RuntimeError('deps_only cannot combine with unpublish. Name the dependency to ' + \
+                               'unpublish instead, as `mama <dep> unpublish=<selector>`.')
         self.remember_user_target()  # before any command rewrites self.target
         self.check_platform()
         if self.buildstats and self.clang:
@@ -273,6 +278,9 @@ class BuildConfig:
             elif arg == 'yes' or arg == 'y': self.assume_yes = True
             # `unpublish=current|<version>|prune-old[=N]|prune-all` deletes published archives
             elif arg.startswith('unpublish='): self.set_unpublish(arg[10:])
+            elif arg == 'unpublish':
+                raise RuntimeError('unpublish needs a selector: unpublish=current, unpublish=<version>, ' + \
+                                   'unpublish=prune-old[=N] or unpublish=prune-all')
             elif arg == 'if_needed': self.if_needed = True
             elif arg == 'art':       self.force_artifactory = True
             elif arg == 'noart':     self.disable_artifactory = True
