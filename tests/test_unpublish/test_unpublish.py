@@ -7,7 +7,7 @@ import pytest
 
 from testutils import make_package_target, make_project_dir, stub_loaders, stub_runners
 
-from mama.main import mamabuild
+from mama.main import mamabuild, set_target_from_unused_args
 
 import mama.artifactory_unpublish as up
 from mama.build_config import BuildConfig
@@ -403,6 +403,14 @@ def test_the_scope_follows_the_target_the_user_typed(user_target, root_in, named
     assert up.in_scope(_scoped('root', True, user_target)) is root_in
     assert up.in_scope(_scoped('libfoo', False, user_target)) is named_in
     assert up.in_scope(_scoped('other', False, user_target)) is other_in
+
+
+def test_a_bare_target_name_reaches_the_scope():
+    # main.py deduces the bare word after the parse, so the constructor froze `user_target` too early
+    config = BuildConfig(['libfoo', 'unpublish=prune-all'])
+    set_target_from_unused_args(config)
+    assert config.user_target == 'libfoo'
+    assert up.in_scope(_scoped('libfoo', False, config.user_target)) is True
 
 
 def test_an_update_cannot_widen_the_unpublish_to_the_whole_tree():

@@ -23,6 +23,10 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Closed
 
+- **A bare target name never reached an unpublish.** The constructor froze `user_target`, and a bare word
+  only became the target afterwards, in the main deduction step. So the unpublish scope read `None` and
+  named the root, which publishes nothing. The deduction now freezes the user target itself.
+
 - **A multi-config generator offered three configurations that cannot link.** The configure named
   `CMAKE_BUILD_TYPE` alone, so Visual Studio and Xcode kept the cmake default set of four. Mama builds
   one type, so the other three reached the IDE with no dependency artifacts behind them. The configure

@@ -177,7 +177,8 @@ _RETIRED_ARGS = {'buildtimes': 'buildstats'}  # removed flags worth naming, so t
 
 def set_target_from_unused_args(config: BuildConfig):
     """An unrecognized bare word is the target name, so `mama rebuild ReCpp` works. An option-shaped arg
-    (`jobz=4`, `-foo`) can never be one, so it is a typo - fail here, not 20s later as 'target not found'."""
+    (`jobz=4`, `-foo`) can never be one, so it is a typo - fail here, not 20s later as 'target not found'.
+    The deduced name also becomes the user target, which is the scope an unpublish reads."""
     for arg in config.unused_args:
         if arg in _RETIRED_ARGS:  # else a removed flag reads as a target and fails with 'target not found'
             console(f"ERROR: '{arg}' was removed, use '{_RETIRED_ARGS[arg]}' instead")
@@ -190,6 +191,7 @@ def set_target_from_unused_args(config: BuildConfig):
             exit(-1)
         else:
             config.target = arg
+            config.remember_user_target()  # the constructor froze it before this deduction ran
 
 
 def _can_unify(config: BuildConfig) -> bool:

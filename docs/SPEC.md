@@ -808,7 +808,8 @@ spared everything.
 
 **The scope is the target the user typed, not `config.target`.** An `update` rewrites an empty target to
 `all`, and an unpublish that followed it would delete every version of every dep from a command line that
-named none.
+named none. A bare word counts as typed, so `mama ReCpp unpublish=prune-old` reaches the same target as
+`mama target=ReCpp unpublish=prune-old`.
 
 An `add_artifactory_pkg` dep refuses to unpublish, because it is read-only.
 
