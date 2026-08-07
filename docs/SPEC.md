@@ -101,23 +101,35 @@ One name for one thing. This file uses these and no synonyms.
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
 keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
 
-**`build_dir_name` = `<platform dir><-arch marker><-clang><variant>`**, coarsest axis first.
+**`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
 
 - The platform dir comes from the platform class, which maps each arch to its own name. The primary
   arch uses the bare name (`linux`, `windows`), and every other arch gets its own (`linux32`,
   `linuxarm`, `windows32`, `macosarm`).
-- The arch marker appears only when an `-march` pin renames the arch, because the platform dir already
-  separates the arches. `linux-x64v3`, `linuxarm-armv82a`.
 - `-clang` appears only on a Linux clang build. gcc keeps the bare name, so existing trees do not
   churn. Elsewhere the toolset or the SDK already fixes the compiler.
 - The variant is `build_variant_suffix`: `-cov` for coverage, then one token per sanitizer, then the
   dep args. Each token gets its own `-`. A plain build with no args adds nothing.
 - Dep args are sorted, lowercased, de-duplicated and stripped to ASCII alphanumerics. `+` becomes
   `p`, so `C++20` is `cpp20`. `NEWMATH=1` is `newmath1`, distinct from `newmath2`.
-- The arch marker reads the same way. The pin `x86-64-v3` on `x64` reads `x64v3`, and
-  `armv8.2-a` on `arm64` reads `armv82a`. Only a pin from `set_target_march` renames the arch, never
-  the platform default. A bare `x86-64` pin reads `x64v1`, the psABI name for that level, so it cannot
-  collide with plain `x64`, whose real default is `-march=native`.
+
+**An `-march` pin NEVER renames a build dir.** It renames the arch field of the artifactory archive
+name and nothing else. The root mamafile owns the pin, so it is constant for a checkout and two pins
+can never meet in one tree. A build dir is also a path a project hardcodes, in `cmake --install`, in
+CI and in its own cmake. Renaming it breaks every one of those at once.
+
+The one in-tree consumer is `host_build_dir`, which names the bare platform dir plus nothing else. The
+`mama <host> build` bootstrap child reads the same root mamafile, so it inherits every setting that
+mamafile makes. A pin in the dir name made the child build one path and `build_host_binary` probe
+another. The host tool then went missing while the child reported success.
+
+**A bare platform dir is still not the whole answer.** A root `prefer_clang()`, a dep arg, or an arm64
+Linux host each move the child to `linux-clang`, `linux-lgpl` or `linuxarm`. `host_build_dir`
+reproduces none of those, and `docs/BUGS.md` carries that open defect. Removing the pin removes only
+the axis that a mamafile sets on every build.
+
+**Why:** a warm tree hides that failure. A checkout built before the pin already holds the tool under
+the old name. Only a clean checkout fails, which means CI and not the developer who made the change.
 - **Every marker opens with an arch name.** A pin that names a CPU, such as `haswell`, gets the arch in
   front of it and reads `x64haswell`. That is what keeps `clean all` from deleting a foreign pinned tree.
 

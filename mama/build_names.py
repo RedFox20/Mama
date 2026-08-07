@@ -35,15 +35,15 @@ def _safe_token(raw: str) -> str:
 
 
 def arch_marker(config: BuildConfig) -> str:
-    """The arch field of a build name: the target arch, or the -march pin that replaces it.
+    """The arch field of an artifactory archive name: the target arch, or the -march pin that replaces it.
+    The build dir does NOT carry it, see build_dir_name.
 
     A -march value names the architecture itself, so the pin takes the field instead of repeating the
     axis. 'x64' plus 'x86-64-v3' reads 'x64v3', and 'arm64' plus 'armv8.2-a' reads 'armv82a'. An
     unpinned build keeps the bare arch, byte for byte, and no pin may ever spell that same marker.
 
     EVERY marker opens with an arch name. A pin that names a CPU instead of an architecture, such as
-    'haswell', gets the arch in front of it. That is what tells a foreign pinned build dir apart from a
-    dep-arg dir, so `clean all` cannot delete one, see is_build_dir_of."""
+    'haswell', gets the arch in front of it, because the field it fills has to name the arch."""
     march = config.target_march.get(config.arch)
     if not march: return config.arch
     if march.startswith(_MARCH_X64): march = 'x64' + (march[len(_MARCH_X64):] or '-v1')
@@ -126,24 +126,22 @@ def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
     that dir plus dep-arg tokens, because a dep the consumer added with args=[...] gets its own.
 
     `mama <platform> clean all` cleans ONE config, so a dir that carries another config's token (a
-    sanitizer, cov, clang, an arch marker) is not ours even though it starts with the same platform name.
-    A dep arg that happens to spell a config token reads as another config's dir and stays: a wrong delete
-    costs more than a leftover dir. Every arch marker opens with an arch name, which arch_marker
-    guarantees, so no pinned tree can read as a dep-arg dir."""
+    sanitizer, cov, clang) is not ours even though it starts with the same platform name. A dep arg that
+    happens to spell a config token reads as another config's dir and stays: a wrong delete costs more
+    than a leftover dir."""
     if dir_name == config_dir_name: return True
     if not dir_name.startswith(config_dir_name + '-'): return False
-    tokens = dir_name[len(config_dir_name) + 1:].split('-')
-    return not any(t in CONFIG_TOKENS or t.startswith(ARCHES) for t in tokens)
+    return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & CONFIG_TOKENS)
 
 
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:
-    """The build folder name: the platform dir, the arch marker, the compiler, then the variant, coarsest
-    axis first, eg 'linux', 'windows32', 'linux-x64v3', 'linux-clang-cov-asan-lgpl'. The platform maps
-    each arch to its own dir name. Its primary arch uses the bare platform name, and every other arch gets
-    a name of its own.
+    """The build folder name: the platform dir, the compiler, then the variant, coarsest axis first, eg
+    'linux', 'windows32', 'linux-clang-cov-asan-lgpl'. The platform maps each arch to its own dir name.
+    Its primary arch uses the bare platform name, and every other arch gets a name of its own.
 
-    The arch marker appears only when a -march pin renames the arch, because the platform dir already
-    separates the arches. So an unpinned tree keeps every name it had.
+    The -march pin does NOT appear here, only in the artifactory archive name. The root mamafile owns the
+    pin, so it is constant for a checkout and no two pins can meet in one tree. A build dir is also a path
+    a project hardcodes, and renaming it breaks every consumer of that path.
 
     '-clang' only on a linux clang build: a shared dir means one compiler clobbers the other and then g++
     links libc++ archives. gcc keeps the bare 'linux' so existing trees do not churn, and elsewhere the
@@ -154,6 +152,4 @@ def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) 
     every arch's dir."""
     if variant_suffix is None: variant_suffix = build_variant_suffix(config)
     if platform_dir is None: platform_dir = config.platform.build_dir_name() if config.platform else 'build'
-    marker = arch_marker(config)
-    pin = f'-{marker}' if marker != config.arch else ''
-    return platform_dir + pin + ('-clang' if (config.linux and config.clang) else '') + variant_suffix
+    return platform_dir + ('-clang' if (config.linux and config.clang) else '') + variant_suffix

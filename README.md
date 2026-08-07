@@ -15,14 +15,21 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
-**0.13.15** (2026-Aug-07)
-- feature: set_target_march pins the instruction set of a release build
-- feature: unpublish deletes published archives, and their local copies
-- feature: version_suffix renames a package on every platform at once
-- bugfix: a target that exports nothing no longer uploads an empty archive
-- bugfix: a failed artifactory download uses the cached archive instead
-- bugfix: noart builds every git dep from source, and a pkg dep is read-only
-- bugfix: a build no longer hangs when a pipe closes on a pending read
+**0.13.16** (2026-Aug-07)
+ There is no 0.13.15. It broke build dirs by adding -x64v3 suffix.
+ - feature: set_target_march pins the instruction set of a release build
+     config.set_target_march('x64', 'x86-64-v3')  in the root mamafile
+     the pin renames the archive, never the build dir:
+       build dir  packages/mylib/linux/
+       archive    mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66
+       papa.txt   O release linux x64 march=x86-64-v3
+     x86-64 -> x64v1    armv8.2-a -> armv82a    haswell -> x64haswell
+ - feature: unpublish deletes published archives, and their local copies
+ - feature: version_suffix renames a package on every platform at once
+ - bugfix: a target that exports nothing no longer uploads an empty archive
+ - bugfix: a failed artifactory download uses the cached archive instead
+ - bugfix: noart builds every git dep from source, and a pkg dep is read-only
+ - bugfix: a build no longer hangs when a pipe closes on a pending read
 
 **0.13.14** (2026-Aug-07)
 - feature: deploy_after_build deploys a target, and the build says where
@@ -463,22 +470,23 @@ The pin applies only when the run builds that arch, and it replaces whatever `-m
 would emit. An unknown arch name raises. A value that is not the `-march` value alone (`-march=x86-64-v3`,
 or two flags in one string) raises. MSVC has no `-march`, so the pin warns and does nothing there.
 
-The pin renames the arch field of every name, because a `-march` value already says which architecture
-it is. So `x64` plus `x86-64-v3` reads `x64v3`, and `arm64` plus `armv8.2-a` reads `armv82a`. The bare
-`x86-64` baseline reads `x64v1`, its psABI level, so it never collides with an unpinned `x64`:
+The pin renames the arch field of the artifactory archive, because a `-march` value already says which
+architecture it is. So `x64` plus `x86-64-v3` reads `x64v3`, and `arm64` plus `armv8.2-a` reads
+`armv82a`. The bare `x86-64` baseline reads `x64v1`, its psABI level, so it never collides with an
+unpinned `x64`:
 
 ```
-build dir       packages/mylib/linux-x64v3/
-archive         mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66
-papa.txt        O release linux x64 march=x86-64-v3
+build dir       packages/mylib/linux/                                    unchanged
+archive         mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66            renamed
+papa.txt        O release linux x64 march=x86-64-v3                      real value
 ```
 
-A pinned build therefore gets its own build dir and its own artifactory archive. Objects tuned for one
-instruction set can never link into a build tuned for another, and a consumer can never download them
-over one. The first build after you add a pin rebuilds the tree.
+**The build dir keeps its name.** A tuned package can never download over a baseline one, which is
+where the separation matters, and no path your project hardcodes moves. The `papa.txt` `O` record keeps
+the real value next to the arch, not the merged marker, so you can compare a package against a CPU.
 
-The `papa.txt` `O` record keeps the real value next to the arch, not the merged marker, so you can
-compare a package against a CPU.
+Because the tree does not split, changing or removing a pin leaves objects built with the old
+instruction set in place. Run `mama rebuild` when you change it.
 
 ### CMake configuration
 ```py

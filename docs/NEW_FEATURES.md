@@ -22,9 +22,9 @@ None.
   default is `-march=native`, which bakes the build machine's CPU into the binary. The root mamafile
   pins one value per target arch, and the pin replaces the platform default for the root and every
   dependency. It raises on an unknown arch and on a value that is not the `-march` value alone. The pin
-  renames the arch field of every name, `x64` plus `x86-64-v3` into `x64v3`. A pinned build then cannot
-  share a build dir or an archive name with a baseline one. The `O` record of papa.txt keeps the real
-  value next to the arch.
+  renames the arch field of the artifactory archive, `x64` plus `x86-64-v3` into `x64v3`, so a tuned
+  package cannot download over a baseline one. The build dir keeps its name, because a project hardcodes
+  that path. The `O` record of papa.txt keeps the real value next to the arch.
 
 - **A target that exports nothing no longer publishes an empty archive.** The packaging marks such a
   target `no_upload` on its own, so a docs or bundle target needs no declaration. `validate_archive`

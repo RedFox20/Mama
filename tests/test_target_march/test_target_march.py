@@ -1,9 +1,9 @@
-"""Pins config.set_target_march: the pin replaces the platform -march, and it names the build."""
+"""Pins config.set_target_march: the pin replaces the platform -march, and it names the archive alone."""
 import pytest
 
-from testutils import make_archive_name_target, make_mock_dep, platform_config, platform_cxx_flags
+from testutils import make_archive_name_target, make_configured_target, make_mock_dep, platform_config, platform_cxx_flags
 from mama import artifactory as art
-from mama.build_names import arch_marker, build_dir_name, build_variant_suffix, is_build_dir_of, object_attributes
+from mama.build_names import arch_marker, build_dir_name, build_variant_suffix, object_attributes
 from mama.platforms.linux import Linux
 from mama.platforms.windows import Windows
 
@@ -106,19 +106,29 @@ def test_an_unpinned_build_keeps_its_old_name():
     assert build_variant_suffix(config) == '' and build_dir_name(config) == 'linux'
 
 
-@pytest.mark.parametrize('march,dir_name', [('x86-64-v3', 'linux-x64v3'), ('haswell', 'linux-x64haswell')])
-def test_a_baseline_clean_leaves_a_pinned_tree(march, dir_name):
+@pytest.mark.parametrize('march', ['x86-64-v3', 'haswell', 'armv8.2-a'])
+def test_the_pin_never_renames_the_build_dir(march):
+    # a build dir is a path a project hardcodes, and renaming it breaks cmake --install, CI and
+    # host_build_dir, which names the bare platform dir the bootstrap child builds into
     config = platform_config(Linux, 'x64')
     config.set_target_march('x64', march)
-    assert build_dir_name(config) == dir_name
-    assert is_build_dir_of(dir_name, 'linux') is False  # the unpinned run must not sweep it away
+    assert build_dir_name(config) == 'linux'
 
 
-def test_the_dirs_re_resolve_after_the_root_pins_the_march(tmp_path):
-    # build_dir is computed at BuildTarget construction, before settings() reaches set_target_march
+def test_a_root_settings_pin_leaves_the_build_dir_alone(tmp_path):
     dep = make_mock_dep(tmp_path)
     dep._update_dep_name_and_dirs(dep.name)
     assert dep.build_dir.endswith('/linux')
-    dep.config.target_march = {'x64': 'x86-64-v3'}
+    dep.config.target_march = {'x64': 'x86-64-v3'}  # what set_target_march does in root settings()
     dep._update_dep_name_and_dirs(dep.name)
-    assert dep.build_dir.endswith('/linux-x64v3')
+    assert dep.build_dir.endswith('/linux')
+
+
+def test_a_pinned_host_build_dir_is_the_dir_the_bootstrap_child_builds_into(tmp_path):
+    # the bootstrap child inherits the pin from the root mamafile, and host_build_dir names the bare
+    # platform dir. A pin in the dir name made the child build one path and the probe read another.
+    target, dep = make_configured_target(tmp_path)
+    dep.config.target_march = {'x64': 'x86-64-v3'}
+    dep.config.host_platform_name.return_value = 'linux'
+    dep._update_dep_name_and_dirs(dep.name)
+    assert target.host_build_dir() == target.build_dir()

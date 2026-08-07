@@ -12,9 +12,22 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-None.
+- **`host_build_dir` names a bare platform dir the bootstrap child may not build into.**
+  `build_target.py:host_build_dir` joins the dep dir with `config.host_platform_name()`, which answers
+  `linux`, `windows` or `macos` and nothing else. The `mama <host> build` child reads the same root
+  mamafile. A root `prefer_clang()` sends it to `linux-clang`, a consumer dep arg to `linux-lgpl`, and
+  an arm64 Linux host to `linuxarm`. `build_host_binary` then probes a path the child never wrote
+  and reports the host tool as missing, although the child exited 0. A warm tree hides it, so only a
+  clean checkout fails. Fix: name the host dir through `build_names.build_dir_name` for a host config,
+  instead of the platform name alone.
 
 ## Closed
+
+- **An `-march` pin renamed every build dir and broke every consumer of that path.** The pin joined the
+  build dir name, so a pinned x64 linux tree moved to `linux-x64v3`. `host_build_dir` names the bare
+  platform dir, and the bootstrap child inherits the pin from the root mamafile, so the child built one
+  path and the host-binary probe read another. A warm tree hid it, so only a clean checkout failed. The
+  pin now renames the artifactory archive alone, which is where a tuned package has to stay apart.
 
 - **A shim of another platform kept serving a deleted package.** The local purge read one build dir, so
   an unpublish on a linux run left the android shim naming an archive the server no longer had. It now

@@ -85,12 +85,6 @@ def test_a_sanitizer_config_sweeps_its_own_args_dirs_only(tmp_path):
     ('linux-asan-lgpl',  'linux-asan', True),
     ('linux-asan-ubsan', 'linux-asan', False),
     ('linux',            'linux-asan', False),
-    # an -march pin renames the arch, and every marker opens with an arch name so it cannot read as a dep arg
-    ('linux-x64v3',      'linux',        False),
-    ('linux-x64haswell', 'linux',        False),
-    ('linux-x64v3',      'linux-x64v3',  True),
-    ('linux-x64v3-lgpl', 'linux-x64v3',  True),   # a dep arg under a pinned config is still ours
-    ('linux',            'linux-x64v3',  False),
 ])
 def test_which_dirs_belong_to_a_config(dir_name, config_dir, mine):
     assert is_build_dir_of(dir_name, config_dir) is mine

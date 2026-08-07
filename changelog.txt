@@ -1,11 +1,12 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-release: 0.13.15 (2026-Aug-07)
+release: 0.13.16 (2026-Aug-07)
+ There is no 0.13.15. It broke build dirs by adding -x64v3 suffix.
  - feature: set_target_march pins the instruction set of a release build
      config.set_target_march('x64', 'x86-64-v3')  in the root mamafile
-     the pin renames the arch field, so a tuned build gets its own package:
-       build dir  packages/mylib/linux-x64v3/
+     the pin renames the archive, never the build dir:
+       build dir  packages/mylib/linux/
        archive    mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66
        papa.txt   O release linux x64 march=x86-64-v3
      x86-64 -> x64v1    armv8.2-a -> armv82a    haswell -> x64haswell
