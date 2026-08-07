@@ -25,10 +25,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libc++-dev libc++abi-dev
 
+      # the dev extra, not a bare pytest: addopts asks for 8 workers, which pytest-xdist provides
       - name: Install dependencies
-        run: |
-          pip install -e .
-          pip install pytest
+        run: pip install -e ".[dev]"
 
       - name: Run tests
         run: pytest -v
