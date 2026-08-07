@@ -110,6 +110,12 @@ def _include_files(include:str, package_full_path:str) -> list:
 
 
 def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: str):
+    # A package with no include, no lib, no syslib and no asset holds one papa.txt and nothing else.
+    # A consumer that fetches it links nothing, and the run carries on as if the dep resolved.
+    if not (papa.includes or papa.libs or papa.syslibs or papa.assets):
+        raise RuntimeError(f'PAPA archive validation failed for {archive_path}: {papa.project_name} exports ' + \
+                           'nothing, so the archive holds only papa.txt. Call self.nothing_to_upload().')
+
     expected = Counter(['papa.txt'])
     empty_includes = []
     include_files = []

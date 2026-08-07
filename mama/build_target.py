@@ -1765,6 +1765,10 @@ class BuildTarget:
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
 
+        # A target that exports nothing has nothing to publish. Marking it here means a docs or bundle
+        # target needs no declaration, and the upload validation stays a backstop rather than the rule.
+        if not any(self._exports()): self.no_upload = True
+
         self.packaging_result = self._packaging_source()
         # A rebuild of a fetched package whose recipe now exports something else leaves a stale papa
         # file. Only a rebuild drops it: a plain build would delete the file its own shim cache needs.
