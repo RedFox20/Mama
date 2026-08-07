@@ -40,6 +40,9 @@ def print_usage():
     console('    configure  - force a cmake reconfigure, run configure(), then build')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
+    console('    unpublish=<what> - deletes published archives, then their local copies')
+    console('               current|<version>|prune-old[=N]|prune-all')
+    console('    yes        - answers the unpublish prompt, for a run with no terminal')
     console('    art        - always fetch pkgs from artifactory, failure will throw an error')
     console('    noart      - temporarily ignore artifactory pkgs fetch')
     console('    test       - run tests for main project or specific target')
@@ -436,6 +439,12 @@ def mamabuild(args, source_dir=os.getcwd()):
             execute_task_chain(flat_deps_reverse)
         else:
             execute_task_chain_parallel(flat_deps_reverse)
+
+    if config.unpublish:
+        # A run-level action, so it sits outside both execution chains and each one reaches it.
+        # deferred: this pulls ftplib, and only an unpublish needs it
+        from .artifactory_unpublish import in_scope, unpublish_run
+        unpublish_run([d.target for d in flat_deps if in_scope(d.target)], config)
 
     if config.list:
         flat_deps_names = [d.name for d in flat_deps]

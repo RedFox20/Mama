@@ -101,7 +101,7 @@ def make_walk_config(**overrides):
 def make_unified_config(**overrides):
     """The BuildConfig fields execute_unified and its display/scheduler touch."""
     cfg = SimpleNamespace(jobs=2, parallel_max=8, verbose=False, test=False, update_stats=Mock(), print=False, debug=False,
-                          deploy_stats=DeployStats(),
+                          deploy_stats=DeployStats(), unpublish='',
                           workspaces_root=None, buildstats=False, msvc=False, clang=False, gcc=True,
                           rebuild=False, update=False, clean=False, target=None, name=lambda: 'linux')
     for k, v in overrides.items(): setattr(cfg, k, v)
@@ -167,6 +167,9 @@ def make_mock_config(tmp_path, **overrides):
     cfg.cmake_toolchain_file = ''  # a toolchain-file build takes a different compiler path
     cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
+    cfg.unpublish = ''  # a Mock attribute is truthy, and a truthy one would unpublish in every test
+    cfg.unpublish_keep = None
+    cfg.assume_yes = False
     # platform: a REAL Linux instance, so option builders get real strings instead of Mocks
     cfg.msvc = False
     cfg.linux = True

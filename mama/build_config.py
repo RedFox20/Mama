@@ -138,6 +138,14 @@ class BuildConfig:
         self.upload  = False
         # for uploads only: upload only when the package is not on the server yet
         self.if_needed = False
+        # `unpublish=<selector>`: '' when the run does not unpublish. See artifactory_unpublish.select
+        self.unpublish = ''
+        self.unpublish_keep = None  # how many versions `prune-old` leaves. None takes the module default,
+                                    # so an explicit `prune-old=0` can still mean keep nothing
+        self.assume_yes = False  # `yes` on the command line answers the unpublish prompt
+        # The target the user typed. `update` rewrites self.target to `all` at main.py, and an unpublish
+        # that read that would delete every version of every dep in the graph.
+        self.user_target = None
         # `art`: artifactory download is mandatory, no source builds
         self.force_artifactory = False
         # `noart`: ignore artifactory for this run
@@ -247,6 +255,7 @@ class BuildConfig:
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
+        self.remember_user_target()  # before any command rewrites self.target
         self.check_platform()
         if self.buildstats and self.clang:
             self.run_cmake_configure = True  # Linux/Clang: the -ftime-trace compile flag must be (re)applied
@@ -261,6 +270,9 @@ class BuildConfig:
             elif arg == 'update':    self.update  = True
             elif arg == 'deploy':    self.deploy  = True
             elif arg == 'upload':    self.upload  = True
+            elif arg == 'yes' or arg == 'y': self.assume_yes = True
+            # `unpublish=current|<version>|prune-old[=N]|prune-all` deletes published archives
+            elif arg.startswith('unpublish='): self.set_unpublish(arg[10:])
             elif arg == 'if_needed': self.if_needed = True
             elif arg == 'art':       self.force_artifactory = True
             elif arg == 'noart':     self.disable_artifactory = True
@@ -456,6 +468,25 @@ class BuildConfig:
         if not self.distro:
             self.distro = self.platform.distro_version()
         return self.distro
+
+
+    def remember_user_target(self):
+        """Freeze the target the user named, before any command rewrites it."""
+        self.user_target = self.target
+
+
+    def set_unpublish(self, selector: str):
+        """Read `unpublish=<selector>`. `prune-old=N` carries its own count, and `current` becomes ''
+        here, because the version this checkout resolves to is only known once the target loads."""
+        selector, _, count = selector.partition('=')
+        if selector == 'prune-old' and count:
+            if not count.isdigit(): raise RuntimeError(f'unpublish=prune-old={count} needs a whole number')
+            self.unpublish_keep = int(count)
+        elif count:
+            raise RuntimeError(f'unpublish={selector} takes no `={count}`, only prune-old does')
+        if not selector:
+            raise RuntimeError('unpublish= needs current, a version, prune-old[=N] or prune-all')
+        self.unpublish = selector
 
 
     def set_arch(self, arch):
