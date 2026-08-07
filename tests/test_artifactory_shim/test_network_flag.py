@@ -1,90 +1,44 @@
-"""Reactive network-availability flag: classification + caching."""
+"""Reactive network-availability flag: which failures mean `the network is gone`, and the sticky config flag."""
 import socket
 import subprocess
-from unittest.mock import Mock
 from urllib.error import URLError, HTTPError
+
+import pytest
 
 from mama.utils.net import is_network_error
 from mama.build_config import BuildConfig
 
 
-def test_timeout_is_network_error():
-    e = subprocess.TimeoutExpired(cmd='git ls-remote', timeout=5)
-    assert is_network_error(e) is True
+@pytest.mark.parametrize('error', [
+    subprocess.TimeoutExpired(cmd='git ls-remote', timeout=5),
+    ConnectionRefusedError(),
+    socket.timeout('timed out'),
+    socket.gaierror('Name or service not known'),
+    URLError(reason=socket.timeout('timed out')),
+    RuntimeError('ssh: connect to host github.com: Connection timed out'),
+    RuntimeError('fatal: unable to access: Could not resolve host: github.com'),
+], ids=lambda e: type(e).__name__ + ':' + str(e)[:40])
+def test_a_transport_failure_marks_the_network_unavailable(error):
+    assert is_network_error(error) is True
 
 
-def test_connection_refused_is_network_error():
-    assert is_network_error(ConnectionRefusedError()) is True
+@pytest.mark.parametrize('error', [
+    HTTPError(url='http://x', code=401, msg='Unauthorized', hdrs=None, fp=None),
+    HTTPError(url='http://x', code=403, msg='Forbidden', hdrs=None, fp=None),
+    HTTPError(url='http://x', code=404, msg='Not Found', hdrs=None, fp=None),
+    RuntimeError('fatal: Permission denied (publickey)'),
+    RuntimeError('Host key verification failed.'),
+    RuntimeError('something unexpected happened'),   # ambiguous, so never assume the network is gone
+], ids=lambda e: type(e).__name__ + ':' + str(e)[:40])
+def test_the_server_answering_is_never_a_network_error(error):
+    # the server replied, so the network works. Marking it down would skip every later fetch of the run.
+    assert is_network_error(error) is False
 
 
-def test_socket_timeout_is_network_error():
-    assert is_network_error(socket.timeout('timed out')) is True
-
-
-def test_dns_failure_is_network_error():
-    assert is_network_error(socket.gaierror('Name or service not known')) is True
-
-
-def test_urlerror_with_socket_reason_is_network_error():
-    e = URLError(reason=socket.timeout('timed out'))
-    assert is_network_error(e) is True
-
-
-def test_http_401_is_not_network_error():
-    e = HTTPError(url='http://x', code=401, msg='Unauthorized', hdrs=None, fp=None)
-    assert is_network_error(e) is False
-
-
-def test_http_403_is_not_network_error():
-    e = HTTPError(url='http://x', code=403, msg='Forbidden', hdrs=None, fp=None)
-    assert is_network_error(e) is False
-
-
-def test_http_404_is_not_network_error():
-    e = HTTPError(url='http://x', code=404, msg='Not Found', hdrs=None, fp=None)
-    assert is_network_error(e) is False
-
-
-def test_permission_denied_in_message_is_not_network_error():
-    e = RuntimeError('fatal: Permission denied (publickey)')
-    assert is_network_error(e) is False
-
-
-def test_host_key_verification_failed_is_not_network_error():
-    e = RuntimeError('Host key verification failed.')
-    assert is_network_error(e) is False
-
-
-def test_connection_timed_out_in_message_is_network_error():
-    e = RuntimeError('ssh: connect to host github.com: Connection timed out')
-    assert is_network_error(e) is True
-
-
-def test_could_not_resolve_host_is_network_error():
-    e = RuntimeError("fatal: unable to access: Could not resolve host: github.com")
-    assert is_network_error(e) is True
-
-
-def test_ambiguous_error_is_not_network_error():
-    e = RuntimeError('something unexpected happened')
-    assert is_network_error(e) is False
-
-
-def test_config_network_available_by_default():
+def test_the_flag_starts_available_and_sticks_once_it_goes_down():
     config = BuildConfig(['build'])
+    config.print = False
     assert config.is_network_available() is True
-
-
-def test_config_mark_network_unavailable_sticks():
-    config = BuildConfig(['build'])
-    config.print = False
     config.mark_network_unavailable()
-    assert config.is_network_available() is False
-
-
-def test_config_mark_network_unavailable_is_idempotent():
-    config = BuildConfig(['build'])
-    config.print = False
-    config.mark_network_unavailable()
-    config.mark_network_unavailable()  # no crash, no duplicate messages
+    config.mark_network_unavailable()   # idempotent: no crash, no duplicate message
     assert config.is_network_available() is False

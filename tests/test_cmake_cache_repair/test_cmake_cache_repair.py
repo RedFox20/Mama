@@ -48,37 +48,28 @@ def test_a_visual_studio_dir_is_valid_with_either_solution_format(tmp_path):
     assert cc.is_cmake_cache_valid(d)
 
 
-def test_a_visual_studio_slnx_dir_skips_the_reconfigure(tmp_path):
-    # a .slnx that reads as a killed configure makes every `mama build` wipe the dir and pay a full rebuild
-    t, dep = make_configured_target(tmp_path)
-    write_cmake_cache(t.build_dir(), VS); write_build_file(t.build_dir(), 'Foo.slnx')
-    assert _run_config_recording(t, dep) == []
-    assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
-
-
 def test_unknown_generator_is_trusted_not_wiped(tmp_path):
     d = str(tmp_path / 'b')
     write_cmake_cache(d, 'CMAKE_GENERATOR:INTERNAL=Green Hills MULTI\n')
     assert cc.is_cmake_cache_valid(d)  # unknown build file name - let cmake decide, do not wipe blindly
 
 
-def test_cache_without_generated_build_file_is_repaired(tmp_path):
-    # A find_package failure leaves a COMPLETE cache but no build.ninja. A skipped reconfigure then dies on every later build.
-    t, dep = make_configured_target(tmp_path)
-    write_cmake_cache(t.build_dir(), COMPLETE)
-    assert _run_config_recording(t, dep) == ['conf']
-    assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
-
-
 def _run_config_recording(t, dep):
     return ['conf'] * len(run_config_capturing(t, dep))
 
 
-def test_truncated_cache_is_wiped_and_reconfigured(tmp_path):
+@pytest.mark.parametrize('cache, build_file, reconfigures', [
+    (COMPLETE, 'Makefile', False),  # nothing broken -> no needless reconfigure
+    (VS,       'Foo.slnx', False),  # a .slnx read as a killed configure costs a full rebuild every run
+    (COMPLETE, None,       True),   # a find_package failure leaves a complete cache and no build file
+    (TRUNCATED, None,      True),   # a cache that merely exists is not a configure that finished
+])
+def test_only_a_broken_build_dir_is_wiped_and_reconfigured(tmp_path, cache, build_file, reconfigures):
     t, dep = make_configured_target(tmp_path)
-    write_cmake_cache(t.build_dir(), TRUNCATED)
-    assert _run_config_recording(t, dep) == ['conf']   # did NOT skip on a cache that merely exists
-    assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))  # the bad cache was dropped
+    write_cmake_cache(t.build_dir(), cache)
+    if build_file: write_build_file(t.build_dir(), build_file)
+    assert _run_config_recording(t, dep) == (['conf'] if reconfigures else [])
+    assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt')) is not reconfigures
 
 
 def test_the_reconfigure_reason_reaches_the_target_log(tmp_path):
@@ -88,13 +79,6 @@ def test_the_reconfigure_reason_reaches_the_target_log(tmp_path):
     notes = []
     run_config_capturing(t, dep, out=notes.append)
     assert any('incomplete build dir' in n for n in notes)
-
-
-def test_complete_configure_still_skips_the_reconfigure(tmp_path):
-    t, dep = make_configured_target(tmp_path)
-    write_cmake_cache(t.build_dir(), COMPLETE); write_build_file(t.build_dir(), 'Makefile')
-    assert _run_config_recording(t, dep) == []  # nothing broken -> no needless reconfigure
-    assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt'))
 
 
 def _write_compiler_module(build_dir, ver='4.3.1', abi_done=True):

@@ -54,8 +54,9 @@ def test_a_touched_file_with_the_same_bytes_needs_no_build(dep):
     # the `git checkout` case: the walk sees a new mtime and the git layer overrules it
     os.utime(f'{dep.src_dir}/lib.cpp', None)
     with patch.object(util.System, 'windows', True):
-        assert _changed(dep) is True or True   # the walk fires
-        assert _changed(dep) is False          # ...and git says the content is unchanged
+        assert util.source_walk_moved(dep.src_dir, dep.build_dir)      # the cheap gate opens
+        assert _changed(dep) is False                                  # ...and git says the content is unchanged
+        assert not util.source_walk_moved(dep.src_dir, dep.build_dir)  # a proven-clean tree records the walk now
 
 
 @pytest.mark.parametrize('change', ['new header', 'deleted source', 'edited cmakelists'])

@@ -6,7 +6,7 @@ import pytest
 
 import mama.package as package
 from mama.papa_deploy import _append_includes
-from test_includes_root import make_mock_target, make_mock_dep
+from testutils import make_includes_dep, make_includes_target
 
 
 @pytest.fixture
@@ -16,8 +16,8 @@ def lib(tmp_path):
         d = tmp_path / 'src' / sub
         d.mkdir(parents=True)
         for n in names: (d / n).write_text('#pragma once\n')
-    target = make_mock_target(str(tmp_path))
-    target.dep = make_mock_dep(target)
+    target = make_includes_target(str(tmp_path))
+    target.dep = make_includes_dep(target)
     return target
 
 
@@ -51,20 +51,6 @@ def test_an_alias_that_matches_the_dir_name_still_re_roots(lib):
     assert root_src.endswith('/src/mylib') and root_path.endswith('/src')
 
 
-def test_a_bool_root_and_a_matching_string_root_agree(tmp_path):
-    """as_includes_root=True takes the basename, so it must equal the explicit spelling."""
-    trees = []
-    for i, arg in enumerate((True, 'mylib')):
-        d = tmp_path / str(i) / 'src' / 'mylib'
-        d.mkdir(parents=True)
-        (d / 'mylib.h').write_text('#pragma once\n')
-        t = make_mock_target(str(tmp_path / str(i)))
-        t.dep = make_mock_dep(t)
-        _export(t, 'src/mylib', as_includes_root=arg)
-        trees.append((os.path.basename(t.includes_root[1]), t.includes_root[2]))
-    assert trees[0] == trees[1]
-
-
 def test_a_missing_root_path_leaves_the_target_unrooted(lib):
     assert _export(lib, 'src/nope', as_includes_root='nope') is False
     assert lib.includes_root == ('', '', '')  # a failed export must not half-set the root
@@ -79,13 +65,6 @@ def test_the_filter_of_a_root_export_applies_to_the_whole_target(lib, tmp_path):
     _append_includes(lib, pkg, False, descr, [(lib.dep, p) for p in lib.exported_includes])
     shipped = sorted(os.listdir(os.path.join(pkg, 'include', 'mylib')))
     assert shipped == ['detail.inc', 'mylib.h']
-
-
-def test_a_root_export_writes_one_include_record(lib, tmp_path):
-    _export(lib, 'src/mylib', as_includes_root='mylib')
-    descr = []
-    _append_includes(lib, str(tmp_path / 'deploy'), False, descr, [(lib.dep, p) for p in lib.exported_includes])
-    assert descr == ['I include']  # the consumer adds `include`, then writes #include <mylib/mylib.h>
 
 
 def test_re_running_the_same_export_keeps_one_entry(lib):

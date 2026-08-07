@@ -250,23 +250,26 @@ def test_the_purge_leaves_a_build_dir_that_is_not_a_shim(tmp_path):
 
 # --- the whole command --------------------------------------------------------
 
-def _run(tmp_path, selector, listed, assume_yes=True, is_pkg=False, keep=None):
-    """Drive the whole run-level pass with the FTP session and the listing stubbed."""
-    target = _target_with_cache(tmp_path, listed)
-    config = target.config
+def _run(tmp_path, selector, listed, assume_yes=True, is_pkg=False, keep=None, ftp=None, extra_targets=0):
+    """Drive the whole run-level pass with the FTP session and the listing stubbed. `extra_targets`
+    adds more targets to the one run, so a test can pin what is per-run and what is per-target."""
+    targets = [_target_with_cache(tmp_path / str(i), listed) for i in range(1 + extra_targets)]
+    config = targets[0].config
     config.artifactory_ftp = 'files.example.com'
     config.unpublish, config.unpublish_keep, config.assume_yes = selector, keep, assume_yes
-    target.dep.dep_source.is_pkg = is_pkg
-    ftp = Mock()
-    with patch.object(up, 'connect', return_value=ftp), \
+    for target in targets:
+        target.config = config
+        target.dep.dep_source.is_pkg = is_pkg
+    ftp = ftp or Mock()
+    with patch.object(up, 'connect', return_value=ftp) as connect, \
          patch.object(up, 'list_archives', return_value=listed):
-        deleted = up.unpublish_run([target], config)
-    return deleted, ftp, target
+        deleted = up.unpublish_run(targets, config)
+    return deleted, ftp, targets[0], connect
 
 
 def test_a_confirmed_unpublish_deletes_every_matching_archive(tmp_path):
     listed = [_archive('caf5158'), _archive('caf5158', compiler='msvc14.51'), _archive('other')]
-    deleted, ftp, _ = _run(tmp_path, 'caf5158', listed)
+    deleted, ftp, _, _ = _run(tmp_path, 'caf5158', listed)
     assert deleted == 2
     names = sorted(c.args[0] for c in ftp.delete.call_args_list)
     assert names == sorted(f'{NAME}/{a.filename}' for a in listed[:2])
@@ -275,7 +278,7 @@ def test_a_confirmed_unpublish_deletes_every_matching_archive(tmp_path):
 def test_a_refused_prompt_deletes_nothing(tmp_path):
     listed = [_archive('caf5158')]
     with patch.object(up, '_confirm', return_value=False):
-        deleted, ftp, target = _run(tmp_path, 'caf5158', listed, assume_yes=False)
+        deleted, ftp, target, _ = _run(tmp_path, 'caf5158', listed, assume_yes=False)
     assert deleted == 0
     ftp.delete.assert_not_called()
     assert os.path.exists(os.path.join(target.dep.dep_dir, listed[0].filename))  # the cache stays too
@@ -283,13 +286,13 @@ def test_a_refused_prompt_deletes_nothing(tmp_path):
 
 def test_a_selector_that_matches_nothing_never_prompts(tmp_path):
     with patch.object(up, '_confirm', side_effect=AssertionError('must not prompt')):
-        deleted, ftp, _ = _run(tmp_path, 'nosuchversion', [_archive('caf5158')])
+        deleted, ftp, _, _ = _run(tmp_path, 'nosuchversion', [_archive('caf5158')])
     assert deleted == 0
     ftp.delete.assert_not_called()
 
 
 def test_a_package_dep_refuses_to_unpublish(tmp_path):
-    deleted, ftp, _ = _run(tmp_path, 'caf5158', [_archive('caf5158')], is_pkg=True)
+    deleted, ftp, _, _ = _run(tmp_path, 'caf5158', [_archive('caf5158')], is_pkg=True)
     assert deleted == 0
     ftp.delete.assert_not_called()
 
@@ -297,23 +300,17 @@ def test_a_package_dep_refuses_to_unpublish(tmp_path):
 def test_prune_old_with_a_keep_of_zero_deletes_every_version(tmp_path):
     # `0 or DEFAULT_KEEP` would silently keep 20, which is the opposite of what the user asked for
     listed = [_archive('a1'), _archive('b2')]
-    deleted, _, _ = _run(tmp_path, 'prune-old', listed, keep=0)
+    deleted, _, _, _ = _run(tmp_path, 'prune-old', listed, keep=0)
     assert deleted == 2
 
 
 def test_a_failed_delete_keeps_its_local_copy(tmp_path):
     # the zip is still on the server, so dropping the cache would re-download it for nothing
     listed = [_archive('caf5158')]
-    target = _target_with_cache(tmp_path, listed)
-    config = target.config
-    config.artifactory_ftp = 'files.example.com'
-    config.unpublish, config.unpublish_keep, config.assume_yes = 'caf5158', None, True
-    target.dep.dep_source.is_pkg = False
-    ftp = Mock()
-    ftp.delete.side_effect = RuntimeError('550 permission denied')
-    with patch.object(up, 'connect', return_value=ftp), \
-         patch.object(up, 'list_archives', return_value=listed):
-        assert up.unpublish_run([target], config) == 0
+    refusing = Mock()
+    refusing.delete.side_effect = RuntimeError('550 permission denied')
+    deleted, _, target, _ = _run(tmp_path, 'caf5158', listed, ftp=refusing)
+    assert deleted == 0
     assert os.path.exists(os.path.join(target.dep.dep_dir, listed[0].filename))
 
 
@@ -355,7 +352,7 @@ def test_a_prune_old_run_asks_for_the_current_version_and_spares_it(tmp_path):
     # the wiring, not just select(): prune-old must look the version up and pass it as protected
     listed = [_archive(f'v{i:02}', day=f'{i + 1:02}') for i in range(25)]
     with patch.object(up, 'current_version', return_value='v00') as current:
-        deleted, ftp, _ = _run(tmp_path, 'prune-old', listed)
+        deleted, ftp, _, _ = _run(tmp_path, 'prune-old', listed)
     current.assert_called()
     gone = [c.args[0] for c in ftp.delete.call_args_list]
     assert deleted == 4 and not any('release-v00.zip' in g for g in gone)
@@ -363,37 +360,15 @@ def test_a_prune_old_run_asks_for_the_current_version_and_spares_it(tmp_path):
 
 def test_a_prune_all_run_asks_for_no_protection(tmp_path):
     with patch.object(up, 'current_version', side_effect=AssertionError('must not protect')):
-        deleted, _, _ = _run(tmp_path, 'prune-all', [_archive('v1'), _archive('v2')])
+        deleted, _, _, _ = _run(tmp_path, 'prune-all', [_archive('v1'), _archive('v2')])
     assert deleted == 2
 
 
-def test_one_prompt_covers_every_target_of_the_run(tmp_path):
+def test_one_prompt_and_one_ftp_session_cover_the_whole_run(tmp_path):
     # `mama all unpublish=` would otherwise ask once per target, and nobody reads the thirtieth question
-    listed = [_archive('caf5158')]
-    a = _target_with_cache(tmp_path / 'a', listed)
-    b = _target_with_cache(tmp_path / 'b', listed)
-    config = a.config
-    config.artifactory_ftp = 'files.example.com'
-    config.unpublish, config.unpublish_keep, config.assume_yes = 'caf5158', 0, False
-    for t in (a, b): t.dep.dep_source.is_pkg = False
-    b.config = config
-    with patch.object(up, 'connect', return_value=Mock()), \
-         patch.object(up, 'list_archives', return_value=listed), \
-         patch.object(up, '_confirm', return_value=True) as confirm:
-        up.unpublish_run([a, b], config)
+    with patch.object(up, '_confirm', return_value=True) as confirm:
+        _, _, _, connect = _run(tmp_path, 'caf5158', [_archive('caf5158')], assume_yes=False, extra_targets=1)
     confirm.assert_called_once()
-
-
-def test_one_ftp_session_serves_the_whole_run(tmp_path):
-    listed = [_archive('caf5158')]
-    target = _target_with_cache(tmp_path, listed)
-    config = target.config
-    config.artifactory_ftp = 'files.example.com'
-    config.unpublish, config.unpublish_keep, config.assume_yes = 'caf5158', 0, True
-    target.dep.dep_source.is_pkg = False
-    with patch.object(up, 'connect', return_value=Mock()) as connect, \
-         patch.object(up, 'list_archives', return_value=listed):
-        up.unpublish_run([target, target], config)
     connect.assert_called_once()
 
 

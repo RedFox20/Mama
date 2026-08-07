@@ -39,149 +39,58 @@ def make_tree():
     return root, A, B, C, D
 
 
-# --- get_flat_deps ---
+# --- flattening: who is in the list, and in what order ---
 
-def test_get_flat_deps_includes_root():
+def test_get_flat_deps_leads_with_the_root_and_names_every_dep_once():
+    # parent-before-child is the Unix linker order, and a shared dep appears once
     root, A, B, C, D = make_tree()
     flat = get_flat_deps(root)
-    assert flat[0] is root
-    assert set(flat) == {root, A, B, C, D}
-
-
-# --- get_flat_child_deps ---
-
-def test_get_flat_child_deps_excludes_root():
-    root, A, B, C, D = make_tree()
-    children = get_flat_child_deps(root)
-    assert root not in children
-    assert set(children) == {A, B, C, D}
-
-
-def test_get_flat_child_deps_of_subtarget():
-    root, A, B, C, D = make_tree()
-    children = get_flat_child_deps(A)
-    assert set(children) == {C, D}
-    assert A not in children
-    assert B not in children
-    assert root not in children
-
-
-def test_get_flat_child_deps_of_leaf():
-    root, A, B, C, D = make_tree()
-    children = get_flat_child_deps(D)
-    assert children == []
-
-
-# --- dependency order ---
-
-def test_flat_deps_preserves_linker_order():
-    # parent-before-child is the Unix linker order
-    root, A, B, C, D = make_tree()
-    flat = get_flat_deps(root)
-    assert flat.index(A) < flat.index(C)
-    assert flat.index(A) < flat.index(D)
-    assert flat.index(B) < flat.index(D)
-
-
-def test_flat_child_deps_preserves_linker_order():
-    root, A, B, C, D = make_tree()
-    children = get_flat_child_deps(root)
-    assert children.index(A) < children.index(C)
-    assert children.index(A) < children.index(D)
-    assert children.index(B) < children.index(D)
-
-
-def test_flat_child_deps_subtarget_preserves_order():
-    root, A, B, C, D = make_tree()
-    children = get_flat_child_deps(A)
-    # C and D are both direct children of A. The mamafile declaration order must survive: C before D.
-    assert children == [C, D]
-
-
-def test_shared_dep_appears_once_at_correct_position():
-    root, A, B, C, D = make_tree()
-    flat = get_flat_deps(root)
+    assert flat[0] is root and set(flat) == {root, A, B, C, D}
     assert flat.count(D) == 1
-    assert flat.index(A) < flat.index(D)
-    assert flat.index(B) < flat.index(D)
+    assert flat.index(A) < flat.index(C) < flat.index(D) and flat.index(B) < flat.index(D)
 
 
-# --- deps_only: no target (existing behavior) ---
-
-def test_deps_only_no_target_removes_root():
+def test_get_flat_child_deps_drops_the_root_and_keeps_the_order():
     root, A, B, C, D = make_tree()
-    flat_deps = get_flat_deps(root)
-    flat_deps.remove(root)
-    flat_deps_reverse = list(reversed(flat_deps))
-    assert root not in flat_deps
-    assert root not in flat_deps_reverse
-    assert set(flat_deps) == {A, B, C, D}
+    children = get_flat_child_deps(root)
+    assert set(children) == {A, B, C, D}
+    assert children.index(A) < children.index(C) and children.index(B) < children.index(D)
+
+
+def test_get_flat_child_deps_of_a_subtarget_takes_its_subtree_alone():
+    # C and D are both direct children of A. The mamafile declaration order must survive: C before D.
+    root, A, B, C, D = make_tree()
+    assert get_flat_child_deps(A) == [C, D]
+    assert get_flat_child_deps(D) == []
 
 
 # --- deps_only: with target ---
 
-def test_get_deps_only_targets_filters_to_subtarget_deps():
+def test_get_deps_only_targets_takes_the_subtree_of_the_target_alone():
     root, A, B, C, D = make_tree()
-    config = make_config(build=True)
-    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
-    assert root not in flat_deps
-    assert A not in flat_deps
-    assert B not in flat_deps
-    assert set(flat_deps) == {C, D}
+    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', make_config(build=True))
+    assert flat_deps == [C, D]                   # the target itself, its parents and its siblings stay out
+    assert flat_deps_reverse == [D, C]           # leaves first, which is the build order
+    assert (C.should_rebuild, D.should_rebuild) == (True, True)
+    assert (A.should_rebuild, B.should_rebuild) == (False, False)
 
 
-def test_get_deps_only_targets_preserves_linker_order():
+def test_get_deps_only_targets_of_a_second_parent_takes_the_shared_dep_alone():
     root, A, B, C, D = make_tree()
-    config = make_config(build=True)
-    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
-    assert flat_deps == [C, D]
+    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'B', make_config(build=True))
+    assert flat_deps == flat_deps_reverse == [D]
+    assert D.should_rebuild is True and C.should_rebuild is False
 
 
-def test_get_deps_only_targets_reverse_is_build_order():
+@pytest.mark.parametrize('clean', [True, False])
+def test_get_deps_only_targets_cleans_the_deps_of_the_target_only_on_a_rebuild(clean):
     root, A, B, C, D = make_tree()
-    config = make_config(build=True)
-    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'A', config)
-    assert flat_deps_reverse == [D, C]
-
-
-def test_get_deps_only_targets_marks_should_rebuild():
-    root, A, B, C, D = make_tree()
-    config = make_config(build=True)
-    get_deps_only_targets(root, 'A', config)
-    assert C.should_rebuild is True
-    assert D.should_rebuild is True
-    assert A.should_rebuild is False
-    assert B.should_rebuild is False
-
-
-def test_get_deps_only_targets_cleans_on_rebuild():
-    root, A, B, C, D = make_tree()
-    config = make_config(build=True, clean=True)
-    get_deps_only_targets(root, 'A', config)
-    C.clean.assert_called_once()
-    C.create_build_dir_if_needed.assert_called_once()
-    D.clean.assert_called_once()
-    D.create_build_dir_if_needed.assert_called_once()
+    get_deps_only_targets(root, 'A', make_config(build=True, clean=clean))
+    for dep in (C, D):
+        assert dep.clean.called is clean
+        assert dep.create_build_dir_if_needed.called is clean
     A.clean.assert_not_called()
     B.clean.assert_not_called()
-
-
-def test_get_deps_only_targets_no_clean_on_build():
-    root, A, B, C, D = make_tree()
-    config = make_config(build=True, clean=False)
-    get_deps_only_targets(root, 'A', config)
-    C.clean.assert_not_called()
-    D.clean.assert_not_called()
-
-
-def test_get_deps_only_targets_B_only_gets_D():
-    root, A, B, C, D = make_tree()
-    config = make_config(build=True)
-    flat_deps, flat_deps_reverse = get_deps_only_targets(root, 'B', config)
-    assert flat_deps == [D]
-    assert flat_deps_reverse == [D]
-    assert D.should_rebuild is True
-    assert C.should_rebuild is False
 
 
 # --- find_dependency ---
