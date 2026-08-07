@@ -13,11 +13,11 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 ## Open
 
 - [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` failed once, and never again.**
-  Seen one time under `-n8`. It then passed 16 suite runs, and the two jobs it schedules produced
-  `a failed` in 2400 direct iterations under 8-way load. The traceback was not captured, so the failing
-  half is still unknown. The scheduler cannot fire the hook twice: `build_scheduler.py:302` computes
-  `first_failure` under the lock that `build_scheduler.py:304` sets `self._error` in. Capture the
-  traceback before changing anything. Relaxing the assertion without it would hide a real defect.
+  Seen one time under `-n8` on Linux. Nothing reproduced it since: 26 suite runs across both hosts and
+  7300 direct runs of its two jobs, under 8-way and 32-core load. The hook cannot fire twice, because
+  `build_scheduler.py:302` computes `first_failure` inside the lock that line 304 sets `self._error` in.
+  The assert is split now, so the next failure names its half. Capture that traceback before you change
+  anything, because relaxing the assert without it would hide a real defect.
 
 ## Closed
 
