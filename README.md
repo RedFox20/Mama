@@ -142,6 +142,8 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama configure tsan            CMake Reconfigure dependencies with thread sanitizer enabled
   mama wipe dep1                 Wipe target dependency completely and clone again.
   mama upload dep1               Deploys and uploads dependency to Artifactory server.
+  mama dep1 unpublish=current    Delete the published archives of this version, on every platform.
+  mama dep1 unpublish=prune-old  Delete every version except the newest 20.
   mama list                      List all mama dependencies on this project.
   mama dirty dep1                Mark a target for rebuild even if it was up to date.
   mama version                   Show the mama package version.
@@ -580,6 +582,23 @@ After the build, mama prints one line: `Deployed 2 includes, 3 libs to <dir>`.
     def settings(self):
         self.nothing_to_upload()   # `mama upload` skips this target and says so
 ```
+
+A target that exports no includes, no libs, no syslibs and no assets gets that mark on its own, so a
+docs-only or bundle-only target needs no declaration. An upload of such a package is refused either way,
+because an archive holding only `papa.txt` gives a consumer nothing to link.
+
+**Removing a published package.** `unpublish` deletes archives from the artifactory, then removes the
+local copies so this machine cannot keep serving what the server no longer has.
+
+```
+mama mylib unpublish=current       every archive of the version this checkout resolves to
+mama mylib unpublish=caf5158       every archive of one named version
+mama mylib unpublish=prune-old=30  every version except the newest 30, default 20
+mama mylib unpublish=prune-all     every version of this target
+```
+
+The run lists each archive with its upload date and size, then asks. A run with no terminal refuses,
+unless the command line also says `yes`.
 
 ## Mamafile examples
 

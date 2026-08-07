@@ -14,33 +14,16 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Planned
 
-- [ ] **A target that exports nothing uploads an empty archive.** This is a defect, and the repair adds
-  a capability, so it lives here. A docs-only or bundle-only target builds nothing and exports nothing,
-  yet `mama upload` still publishes an archive holding one `papa.txt`. That package is worthless. A
-  consumer that fetches it gets no headers and no libs, and the run continues as if the dependency
-  resolved.
-
-  Two halves:
-  1. **Refuse the upload.** `validate_archive` at `papa_upload.py:112` already seeds `expected` with
-     `papa.txt` and rejects an include dir that holds no files. It does not reject an archive whose only
-     entry IS `papa.txt`. Add that check, so no empty archive can reach the server by any route.
-  2. **Set `nothing_to_upload` automatically.** `_run_packaging` at `build_target.py:1768` knows what
-     the packaging produced. When a target exports no includes, no libs, no syslibs and no assets, mark
-     it. The refusal above then stays a backstop, not the thing users meet.
-
-  Today a mamafile has to say so by hand, which nobody discovers until a broken package ships:
-
-  ```py
-  def settings(self):
-      self.nothing_to_upload()
-  def package(self):
-      self.no_export_includes()
-      self.no_export_libs()
-  ```
-
-  Keep `nothing_to_upload()` working as an explicit override. A target may want it before the packaging
-  runs at all.
+None.
 
 ## Implemented
 
-None yet.
+- **A target that exports nothing no longer publishes an empty archive.** The packaging marks such a
+  target `no_upload` on its own, so a docs or bundle target needs no declaration. `validate_archive`
+  refuses an archive holding only `papa.txt` as a backstop. `nothing_to_upload()` still works by hand,
+  and the automatic mark never clears it.
+
+- **`unpublish=<selector>` deletes published archives.** `current`, an explicit version, `prune-old[=N]`
+  and `prune-all` each name a set. One selector reaches every platform and compiler, because the version
+  is the trailing field of the archive name. The run lists each archive with its date and size and asks
+  first, then removes the local cached zip and any shim that served one.

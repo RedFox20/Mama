@@ -24,7 +24,7 @@ an audit against the code cannot confirm it. Every other line is a claim the cod
 | 10 | [Rebuild decision](#10-rebuild-decision) | every reason a target builds |
 | 11 | [Configure decision](#11-configure-decision) | skip, wipe, fingerprints, the seed cache |
 | 12 | [Build and packaging](#12-build-and-packaging) | phases, custom build(), exports |
-| 13 | [Deploy and upload](#13-deploy-and-upload) | papa records, the upload guard |
+| 13 | [Deploy and upload](#13-deploy-and-upload) | papa records, the upload guard, unpublish |
 | 14 | [Test, start, open](#14-test-start-and-open) | the source requirement |
 | 15 | [Platforms](#15-platforms) | pointer to the platform architecture |
 | 16 | [Output](#16-output) | the live display, the build log, git filtering |
@@ -695,6 +695,58 @@ republished as if it were a source build.
 
 `upload` with `if_needed` skips when the archive already exists on the server. The upload validates
 the archive against `papa.txt` first, and rejects missing or unexpected content.
+
+**A target that exports nothing publishes nothing.** `_run_packaging` marks it `no_upload` when the
+packaging leaves no include, no lib, no syslib and no asset. `nothing_to_upload()` sets the same mark by
+hand, and the automatic one never clears it. `validate_archive` refuses the same empty package as a
+backstop, so no route publishes one.
+
+A syslib-only package is NOT empty. Its zip holds only `papa.txt`, and that file carries the `S` records
+a consumer links against, so it is worth publishing.
+
+**Why:** such a package is worthless. A consumer fetches it, links nothing, and the run carries on as
+though the dependency resolved. A docs-only or bundle-only target hits this by simply existing.
+
+### unpublish
+
+`unpublish=<selector>` deletes published archives of the target, then removes their local copies.
+
+| Selector | What it names |
+|---|---|
+| `current` | the version this checkout resolves to |
+| `<version>` | one version, on every platform and compiler |
+| `prune-old[=N]` | every version except the newest N, default 20 |
+| `prune-all` | every version of the target |
+
+There is no bare `unpublish`. A version selector matches **everything after the build type**, so one
+selector reaches every platform, compiler and build type at once. A file whose name does not parse as
+this target's archive is never touched. A `version_suffix` is part of that tail, so `caf5158-2` and
+`caf5158` are two different versions, which is the point of the suffix.
+
+**A version is as fresh as its freshest archive.** `prune-old` orders versions by the newest upload time
+among their archives, so a rebuild of an old commit keeps that version alive. Upload time is what the
+server knows. Nothing tries to order bare commit hashes.
+
+A variant such as `asan` sits between the build type and the version, and nothing in the name marks
+where it ends. So a variant build reads as a version of its own and keeps a separate history.
+
+**One prompt covers the whole run, not one per target.** `mama all unpublish=prune-old` asks a single
+question and opens a single FTP session. Thirty questions is thirty chances to stop reading them.
+
+**The prompt prints every archive with its date and size, oldest first.** A headless run cannot answer,
+so it refuses unless the command line also says `yes`. Refusing beats hanging a CI job on stdin.
+
+**A confirmed unpublish also drops the local copies:** the cached zip of every archive that really left
+the server, and the build dir of a shim whose marker names one of them. A shim of a version this run kept
+stays, and a zip whose delete failed keeps its cache, because the server still has it. The machine that
+cleans the server must not keep serving what it deleted, which the cached-zip fallback of section 8 would
+otherwise do.
+
+**The scope is the target the user typed, not `config.target`.** An `update` rewrites an empty target to
+`all`, and an unpublish that followed it would delete every version of every dep from a command line that
+named none.
+
+An `add_artifactory_pkg` dep refuses to unpublish, because it is read-only.
 
 ## 14 Test, start and open
 
