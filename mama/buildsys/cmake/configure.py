@@ -388,13 +388,20 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
 _MULTI_CONFIG_GENERATORS = ('visual studio', 'xcode', 'multi-config')
 
 
+def is_multi_config(generator:str) -> bool:
+    """True when the generator carries several configurations and picks one at build time. Accepts a
+    cache entry (`Xcode`) or the command line flag (`-G "Xcode"`)."""
+    gen = generator.lower()
+    return any(g in gen for g in _MULTI_CONFIG_GENERATORS)
+
+
 def cached_build_type(build_dir:str, single_config_only=False) -> str:
     """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache.
     single_config_only: answer '' for a multi-config generator, which picks the type at build time,
                         so its cache does not say what the artifacts in the dir are."""
     try: cache = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return ''
-    if single_config_only and any(g in cache_generator(cache).lower() for g in _MULTI_CONFIG_GENERATORS):
+    if single_config_only and is_multi_config(cache_generator(cache)):
         return ''
     return _cache_entry(cache, 'CMAKE_BUILD_TYPE')
 
@@ -442,7 +449,7 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)  # adopt/refresh the baseline
         return
 
-    type_flags = f'-DCMAKE_BUILD_TYPE={target.cmake_build_type}'
+    type_flags = _type_flags(target)
     options = target.cmake_opts + _default_options(target) + target.get_product_defines()
     cmake_defines = _opts_to_defines(options)
     generator = _generator(target)
@@ -536,6 +543,18 @@ def _generator(target:BuildTarget):
     if target.enable_unix_make:   return '-G "Unix Makefiles"'
     if config.msvc: return f'-G "{config.platform.generator_name()}" -A {config.platform.generator_arch()}'
     return _GENERATORS.get(config.platform.build_system, '')
+
+
+def _type_flags(target:BuildTarget) -> str:
+    """The build type on the cmake command line. A multi-config generator ignores CMAKE_BUILD_TYPE at
+    build time, so it also gets the configurations it may offer, the type of this target first.
+    The cmake default set holds two more that mama never builds, and a build of one cannot link."""
+    active = target.cmake_build_type
+    flags = f'-DCMAKE_BUILD_TYPE={active}'
+    if is_multi_config(_generator(target)):
+        other = 'RelWithDebInfo' if active == 'Debug' else 'Debug'
+        flags += f' -DCMAKE_CONFIGURATION_TYPES="{active};{other}"'
+    return flags
 
 
 def _make_program(target:BuildTarget) -> str:

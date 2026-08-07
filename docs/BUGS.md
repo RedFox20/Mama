@@ -12,15 +12,6 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-- **A multi-config generator offers three configurations that cannot link.**
-  `buildsys/cmake/configure.py:445` passes `CMAKE_BUILD_TYPE` alone, so a Visual Studio or Xcode
-  generator keeps the CMake default set of `Debug`, `Release`, `RelWithDebInfo` and `MinSizeRel`.
-  Mama configures and links one of them. The other three reach the IDE dropdown with no dependency
-  artifacts behind them, so a build of one cannot link. A consumer also has to read `CMAKE_BUILD_TYPE`
-  back out of `CMakeCache.txt` to learn what mama chose, because `cmake --install` needs `--config`
-  and `ctest` needs `--build-config`. Fix: pass `CMAKE_CONFIGURATION_TYPES` when
-  `_MULTI_CONFIG_GENERATORS` matches, defaulting to `RelWithDebInfo;Debug`.
-
 - **`host_build_dir` names a bare platform dir the bootstrap child may not build into.**
   `build_target.py:host_build_dir` joins the dep dir with `config.host_platform_name()`, which answers
   `linux`, `windows` or `macos` and nothing else. The `mama <host> build` child reads the same root
@@ -31,6 +22,11 @@ design options. The commit and its tests hold that detail, and a copy here goes 
   instead of the platform name alone.
 
 ## Closed
+
+- **A multi-config generator offered three configurations that cannot link.** The configure named
+  `CMAKE_BUILD_TYPE` alone, so Visual Studio and Xcode kept the cmake default set of four. Mama builds
+  one type, so the other three reached the IDE with no dependency artifacts behind them. The configure
+  now names `CMAKE_CONFIGURATION_TYPES` as well, the type of the run first and the other one second.
 
 - **An `-march` pin renamed every build dir and broke every consumer of that path.** The pin joined the
   build dir name, so a pinned x64 linux tree moved to `linux-x64v3`. `host_build_dir` names the bare

@@ -576,6 +576,14 @@ once per target for nothing. That fingerprint covers the toolchain, the build ty
 defines, the install prefix, the source dir and the exports of the dependencies. `mama configure` is the explicit override, and it
 never lands there.
 
+**A multi-config generator also gets the set of configurations it may offer.** Visual Studio, Xcode and
+Ninja Multi-Config read `CMAKE_CONFIGURATION_TYPES` and ignore `CMAKE_BUILD_TYPE` at build time. Mama
+names two: the type this target builds, then `Debug`, or `RelWithDebInfo` when the target builds
+`Debug`. The build itself still passes `--config` for the type of the target.
+
+**Why:** the cmake default set adds `Release` and `MinSizeRel`, which mama configures for no
+dependency. An IDE listed four configurations, and three of them could not link.
+
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per
