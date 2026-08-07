@@ -19,14 +19,11 @@ design options. The commit and its tests hold that detail, and a copy here goes 
   `first_failure` under the lock that `build_scheduler.py:304` sets `self._error` in. Capture the
   traceback before changing anything. Relaxing the assertion without it would hide a real defect.
 
-- [ ] **`test_a_shape_only_git_can_settle_defers[gitdir file]` fails about one Windows run in ten.**
-  `tests/test_git_repo_heal/test_repo_health.py:75` calls `shutil.move` on a `.git` dir that git wrote
-  a moment earlier. On Windows a move fails while any handle on the tree is open, and a virus scanner
-  holds one briefly. Seen once under `-n8`, then 13 clean runs, and the traceback was not captured.
-  Confirm the error is `PermissionError` before you fix it. The likely fix is a short retry around the
-  move, in a test helper. Linux never hits this, because a rename there ignores open handles.
-
 ## Closed
+
+- **A Windows test moved a `.git` dir that git had just written.** A rename there refuses while any
+  handle on the tree is open, so the `gitdir file` shape failed once under parallel workers. `git init
+  --separate-git-dir` now writes that shape itself, so no move happens at all.
 
 - **An offline `mama update` ended the run over a package it already had cached.** `update` skips the
   cached zip to fetch a fresher copy, and nothing used that zip when the download answered nothing.

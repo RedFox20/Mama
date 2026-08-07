@@ -1,5 +1,5 @@
 """Pins repo_health_from_disk against real git: it must never disagree, only defer."""
-import os, shutil, subprocess
+import os, subprocess
 from unittest.mock import patch
 import pytest
 
@@ -71,10 +71,9 @@ def test_a_shape_only_git_can_settle_defers(tmp_path, shape):
     elif shape == 'missing ref':
         _repo(d); (d / '.git' / 'HEAD').write_text('ref: refs/heads/gone\n')
     else:
-        _repo(d)
-        real = tmp_path / 'real_gitdir'
-        shutil.move(str(d / '.git'), str(real))
-        (d / '.git').write_text(f'gitdir: {real}\n')
+        # git writes the `.git` pointer file itself. Moving a `.git` dir that git just wrote fails on
+        # Windows, where a rename refuses while any handle on the tree is still open.
+        _repo(d, init_args=['--separate-git-dir', str(tmp_path / 'real_gitdir')])
     assert repo_health_from_disk(str(d)) is None
 
 
