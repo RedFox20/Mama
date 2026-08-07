@@ -1,6 +1,9 @@
 """Pins _get_hierarchical_libs: a shared dep contributes its libs ONCE (not once per path through the
 graph) and keeps Unix link order - every lib appears after everything that references it."""
+import shutil, subprocess
 from types import SimpleNamespace
+
+import pytest
 
 from mama import dependency_chain as dc
 from mama.platforms.linux import Linux
@@ -39,42 +42,25 @@ def test_syslibs_follow_the_static_libs():
     assert dc._get_hierarchical_libs(root) == ['libR.a', 'libC.a', 'dl', 'pthread']
 
 
-def test_deeper_shared_dep_sinks_below_every_user():
-    # A -> B -> D and A -> C -> D: D must trail both branches, not sit where it was first seen.
-    d = _dep('D', libs=['libD.a'])
-    b = _dep('B', libs=['libB.a'], children=[d])
-    c = _dep('C', libs=['libC.a'], children=[d])
-    root = _dep('R', libs=['libR.a'], children=[b, c])
-    libs = dc._get_hierarchical_libs(root)
-    assert libs == ['libR.a', 'libB.a', 'libC.a', 'libD.a']
-
-
 def test_non_library_exports_are_still_filtered_out():
     # _get_exported_libs keeps only linkable artifacts on linux-like targets
     root = _dep('R', libs=['libR.a', 'notes.txt', 'libR.so', 'libR.so.1.2.3'])
     assert dc._get_hierarchical_libs(root) == ['libR.a', 'libR.so', 'libR.so.1.2.3']
 
 
-def test_dep_shared_by_exe_and_a_lib_lands_after_both():
-    # The Unix trap: exe -> {libz, lib1} and lib1 -> libz. First-seen order 'libz lib1' makes ld drop libz members lib1 needs.
+@pytest.mark.parametrize('libz_first', [True, False], ids=['libz declared first', 'libz declared last'])
+def test_a_dep_shared_by_an_exe_and_a_lib_lands_after_both(libz_first):
+    # The Unix trap: exe -> {libz, lib1} and lib1 -> libz. First-seen order 'libz lib1' makes ld drop
+    # libz members lib1 needs, so the declaration order must not reach the link line.
     libz = _dep('libz', libs=['libz.a'])
     lib1 = _dep('lib1', libs=['lib1.a'], children=[libz])
-    exe = _dep('exe', libs=['exe.a'], children=[libz, lib1])   # libz declared FIRST: the risky order
-    assert dc._get_hierarchical_libs(exe) == ['exe.a', 'lib1.a', 'libz.a']
-
-
-def test_link_order_is_independent_of_declaration_order():
-    libz = _dep('libz', libs=['libz.a'])
-    lib1 = _dep('lib1', libs=['lib1.a'], children=[libz])
-    exe = _dep('exe', libs=['exe.a'], children=[lib1, libz])   # libz declared LAST
-    assert dc._get_hierarchical_libs(exe) == ['exe.a', 'lib1.a', 'libz.a']
+    order = [libz, lib1] if libz_first else [lib1, libz]
+    assert dc._get_hierarchical_libs(_dep('exe', libs=['exe.a'], children=order)) \
+        == ['exe.a', 'lib1.a', 'libz.a']
 
 
 # -- real-toolchain validation ------------------------------------------------
 # The unit tests above assert an ORDER. These build and link real static archives to prove GNU ld needs that order.
-import shutil, subprocess  # noqa: E402
-import pytest  # noqa: E402
-
 _CC = shutil.which('cc') or shutil.which('gcc')
 _needs_toolchain = pytest.mark.skipif(not (_CC and shutil.which('ar')),
                                       reason='needs a C toolchain (cc/gcc + ar) to build real archives')

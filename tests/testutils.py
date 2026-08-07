@@ -355,6 +355,36 @@ def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)
 
 
+def make_includes_target(source_dir, build_dir=None):
+    """Mock BuildTarget for the export_include and papa-deploy tests: the export lists, the includes
+    root and the two dirs a deploy reads. A REAL Linux platform, so the deploy gets real extensions."""
+    target = Mock()
+    target.source_dir.return_value = normalized_path(source_dir)
+    target.build_dir.return_value = normalized_path(build_dir or path_join(source_dir, 'build'))
+    target.exported_includes, target.exported_libs = [], []
+    target.exported_syslibs, target.exported_assets = [], []
+    target.includes_root = ('', '', '')
+    target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
+    target.name = 'TestLib'
+    target.config.platform = Linux(target.config)
+    target.config.verbose = target.config.print = False
+    target.config.target_march = {}       # a Mock dict answers .get() truthy and renames every build dir
+    target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
+    target.dep.build_dir = target.build_dir()
+    target.dep.variant_suffix = ''        # the papa `O` record appends it
+    return target
+
+
+def make_includes_dep(target, name='TestLib', children=None):
+    """Mock BuildDependency wrapping `target`, for the cmake-defines half of the same tests."""
+    dep = Mock()
+    dep.name = name
+    dep.target = target
+    dep.children = children or []
+    dep.get_children.return_value = dep.children
+    return dep
+
+
 def make_exporting_target(dep, includes, libs, version='abc1234'):
     """A BuildTarget that exports `includes` and `libs`, the way a mamafile package() leaves it."""
     from mama.build_target import BuildTarget
@@ -565,8 +595,7 @@ _REMOTE_FILES = {
     'README.md': 'Example remote for the mama git tests.\n',
 }
 # A pin test reads remote.h to learn which commit it got, and never opens a build artifact. This mamafile
-# turns the cmake configure and build of the dependency off, which costs about 2.5 seconds per clone on
-# Windows. test_papa_deploy links the real library, so it asks for a remote WITHOUT this file.
+# turns the cmake configure and build off, which costs about 2.5 seconds per clone on Windows.
 _REMOTE_MAMAFILE = 'import mama\n\nclass ExampleRemote(mama.BuildTarget):\n    def build(self):\n' \
                    '        self.nothing_to_build()\n'
 

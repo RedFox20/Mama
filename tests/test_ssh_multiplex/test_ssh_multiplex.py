@@ -10,75 +10,38 @@ import pytest
 from mama.utils import ssh_multiplex as sm
 
 
-class TestParseSshEndpoint:
-    def test_scp_form(self):
-        assert sm.parse_ssh_endpoint('git@github.com:foo/bar.git') == ('git', 'github.com', None)
-
-    def test_scp_form_user_other_than_git(self):
-        assert sm.parse_ssh_endpoint('alice@host.example:proj.git') == ('alice', 'host.example', None)
-
-    def test_scp_form_no_user(self):
-        assert sm.parse_ssh_endpoint('host.example:proj.git') == ('git', 'host.example', None)
-
-    def test_ssh_url_with_port(self):
-        assert sm.parse_ssh_endpoint('ssh://git@host:2222/foo/bar.git') == ('git', 'host', '2222')
-
-    def test_ssh_url_no_user(self):
-        assert sm.parse_ssh_endpoint('ssh://host/foo/bar.git') == ('git', 'host', None)
-
-    def test_https_rejected(self):
-        assert sm.parse_ssh_endpoint('https://github.com/foo/bar.git') is None
-
-    def test_http_rejected(self):
-        assert sm.parse_ssh_endpoint('http://github.com/foo/bar.git') is None
-
-    def test_file_url_rejected(self):
-        assert sm.parse_ssh_endpoint('file:///srv/repos/foo.git') is None
-
-    def test_local_path_rejected(self):
-        assert sm.parse_ssh_endpoint('/srv/repos/foo.git') is None
-
-    def test_relative_path_rejected(self):
-        # 'foo/bar.git' has no colon - not scp-style, no scheme.
-        assert sm.parse_ssh_endpoint('foo/bar.git') is None
-
-    def test_empty_url(self):
-        assert sm.parse_ssh_endpoint('') is None
-        assert sm.parse_ssh_endpoint(None) is None
-
-    def test_windows_path_rejected(self):
-        # a drive letter also reads as an scp-form host
-        assert sm.parse_ssh_endpoint('C:/foo/bar') is None
-        assert sm.parse_ssh_endpoint('D:\\repos\\proj') is None
-
-    def test_host_with_no_path_rejected(self):
-        assert sm.parse_ssh_endpoint('git@host:') is None
-
-    def test_bracketed_ipv6_rejected(self):
-        # git itself does not treat scp-form bracketed IPv6 as a URL
-        assert sm.parse_ssh_endpoint('git@[::1]:repo.git') is None
+@pytest.mark.parametrize('url, endpoint', [
+    ('git@github.com:foo/bar.git',        ('git', 'github.com', None)),
+    ('alice@host.example:proj.git',       ('alice', 'host.example', None)),
+    ('host.example:proj.git',             ('git', 'host.example', None)),   # scp form with no user
+    ('ssh://git@host:2222/foo/bar.git',   ('git', 'host', '2222')),
+    ('ssh://host/foo/bar.git',            ('git', 'host', None)),
+    ('https://github.com/foo/bar.git',    None),
+    ('http://github.com/foo/bar.git',     None),
+    ('file:///srv/repos/foo.git',         None),
+    ('/srv/repos/foo.git',                None),
+    ('foo/bar.git',                       None),   # no colon, so neither scp form nor a scheme
+    ('',                                  None),
+    (None,                                None),
+    ('C:/foo/bar',                        None),   # a drive letter also reads as an scp-form host
+    ('D:\\repos\\proj',                   None),
+    ('git@host:',                         None),   # a host with no path names no repository
+    ('git@[::1]:repo.git',                None),   # git itself refuses scp-form bracketed IPv6
+])
+def test_only_a_real_ssh_url_names_an_endpoint(url, endpoint):
+    assert sm.parse_ssh_endpoint(url) == endpoint
 
 
-class TestIsMultiplexConfigured:
-    def test_no_controlmaster_no_controlpath(self):
-        assert not sm.is_multiplex_configured({'controlmaster': 'no', 'controlpath': 'none'})
-
-    def test_controlmaster_auto_with_path(self):
-        assert sm.is_multiplex_configured({'controlmaster': 'auto', 'controlpath': '~/.ssh/cm/%C'})
-
-    def test_controlmaster_yes_with_path(self):
-        assert sm.is_multiplex_configured({'controlmaster': 'yes', 'controlpath': '/tmp/sock'})
-
-    def test_controlmaster_set_but_path_none(self):
-        # ControlPath=none means no socket -> not multiplexed even with master=auto.
-        assert not sm.is_multiplex_configured({'controlmaster': 'auto', 'controlpath': 'none'})
-
-    def test_path_set_but_no_master(self):
-        assert not sm.is_multiplex_configured({'controlmaster': 'no', 'controlpath': '/tmp/sock'})
-
-    def test_empty_probe(self):
-        # when ssh -G fails, the probe is empty and must read as "not configured"
-        assert not sm.is_multiplex_configured({})
+@pytest.mark.parametrize('probe, configured', [
+    ({'controlmaster': 'auto', 'controlpath': '~/.ssh/cm/%C'}, True),
+    ({'controlmaster': 'yes', 'controlpath': '/tmp/sock'},     True),
+    ({'controlmaster': 'no', 'controlpath': 'none'},           False),
+    ({'controlmaster': 'auto', 'controlpath': 'none'},         False),  # no socket, whatever the master says
+    ({'controlmaster': 'no', 'controlpath': '/tmp/sock'},      False),
+    ({},                                                       False),  # a failed `ssh -G` is not a config
+])
+def test_multiplex_needs_both_a_master_and_a_socket(probe, configured):
+    assert sm.is_multiplex_configured(probe) is configured
 
 
 class TestOptionsToAdd:
@@ -97,8 +60,6 @@ class TestOptionsToAdd:
         # pin the multiplex-enabled path. The native-Windows skip has its own tests.
         monkeypatch.setattr(sm.System, 'windows', False)
         # avoid mkdir on the user's actual ~/.ssh/cm
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none'}
         opts, we_own = sm.options_to_add(probe)
         assert we_own is True
@@ -110,8 +71,6 @@ class TestOptionsToAdd:
 
     def test_user_has_keepalives_only(self, tmp_path, monkeypatch):
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {
             'controlmaster': 'no', 'controlpath': 'none',
             'serveraliveinterval': '60', 'serveralivecountmax': '3',
@@ -137,8 +96,6 @@ class TestOptionsToAdd:
     def test_windows_skips_multiplex_keeps_keepalives(self, monkeypatch, tmp_path):
         # Microsoft OpenSSH ControlMaster is unreliable, so native Windows skips multiplex entirely. Keepalives still help.
         monkeypatch.setattr(sm.System, 'windows', True)
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         probe = {'controlmaster': 'no', 'controlpath': 'none',
                  'serveraliveinterval': '0'}
         opts, we_own = sm.options_to_add(probe)
@@ -229,8 +186,6 @@ class TestEnsureMasterIdempotent:
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
 
         monkeypatch.setattr(sm, 'probe_ssh_config',
                             lambda args, timeout=5.0: {})
@@ -250,8 +205,6 @@ class TestEnsureMasterIdempotent:
         # When _open_master fails, Control* must leave opts, or N parallel fetches race to be the master and auth N times.
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         monkeypatch.setattr(sm, 'probe_ssh_config',
                             lambda args, timeout=5.0: {})
         monkeypatch.setattr(sm, '_open_master',
@@ -271,8 +224,6 @@ class TestEnsureMasterIdempotent:
         import threading
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
 
         probe_count = [0]
         probe_lock = threading.Lock()
@@ -357,8 +308,6 @@ class TestWrapperMain:
     def test_adds_multiplex_when_user_has_nothing(self, monkeypatch, tmp_path):
         from mama.utils import mama_ssh
         monkeypatch.setattr(sm.System, 'windows', False)  # pin the multiplex-enabled path
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         empty = "controlmaster no\ncontrolpath none\nserveraliveinterval 0\n"
         monkeypatch.setattr(
             'subprocess.run',
@@ -381,6 +330,15 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv('GIT_SSH_COMMAND', raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _our_control_dir(monkeypatch, tmp_path):
+    """Keep every socket this file writes under tmp_path. The module resolves the real dir at import,
+    and a test that opens a master there would litter the home dir of the developer."""
+    control_dir = str(tmp_path / 'cm')
+    monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', control_dir)
+    monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', f'{control_dir}/%C')
+
+
 class TestMasterOwnership:
     """`ssh -O check` decides ownership. Getting it wrong makes mama `ssh -O exit` a master another
     parallel job owns, killing its fetches mid-transfer."""
@@ -397,8 +355,6 @@ class TestMasterOwnership:
         monkeypatch.setattr(sm.System, 'windows', False)
         monkeypatch.setattr(sm, '_warmed', {})
         monkeypatch.setattr(sm, '_per_host_locks', {})
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
-        monkeypatch.setattr(sm, '_OUR_CONTROL_PATH', str(tmp_path / 'cm' / '%C'))
         monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {})
         monkeypatch.setattr(sm, '_open_master', lambda u, h, p, o: sm._MASTER_ADOPTED)
 
@@ -412,7 +368,6 @@ class TestMasterOwnership:
         sock = tmp_path / 'cm' / 'deadbeef'
         sock.parent.mkdir(parents=True)
         sock.touch()
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, '_master_alive', lambda u, h, p, o: False)
         monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {'controlpath': str(sock)})
         monkeypatch.setattr(sm, '_wait_master_ready', lambda u, h, p, o: True)
@@ -424,7 +379,6 @@ class TestMasterOwnership:
         theirs = tmp_path / 'user' / 'sock'
         theirs.parent.mkdir(parents=True)
         theirs.touch()
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         monkeypatch.setattr(sm, 'probe_ssh_config', lambda args, timeout=5.0: {'controlpath': str(theirs)})
         sm._remove_stale_socket('git', 'example.com', None, self._opts(tmp_path))
         assert theirs.exists()  # a user-configured ControlPath is theirs to manage
@@ -443,7 +397,6 @@ def test_an_unwritable_control_dir_disables_multiplex_instead_of_raising(monkeyp
     """A CI container often runs as a uid that does not own $HOME (GitHub Actions: `/github/home/.ssh`
     gives Errno 13). Multiplexing is an optimization and must never be what fails a build."""
     monkeypatch.setattr(sm.System, 'windows', False)
-    monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
     def denied(*a, **k): raise PermissionError(13, 'Permission denied')
     monkeypatch.setattr(sm.os, 'makedirs', denied)
 
@@ -488,6 +441,5 @@ class TestControlDir:
 
     @pytest.mark.linux_host
     def test_the_dir_is_private(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(sm, '_OUR_CONTROL_DIR', str(tmp_path / 'cm'))
         assert sm._control_dir_usable()
         assert oct(os.stat(tmp_path / 'cm').st_mode)[-3:] == '700'
