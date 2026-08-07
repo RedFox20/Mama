@@ -283,8 +283,8 @@ A load resolves one dep. It gets the source or the package, then parses the mama
 
 | State | `build` | `update` | `build noart` |
 |---|---|---|---|
-| 1 valid shim | load `papa.txt` from disk. No network, no unzip, no ls-remote | ls-remote, then re-fetch and re-extract | ls-remote to check staleness, then load from disk |
-| 2 stale shim | not detected, and that is deliberate | the probe re-extracts and rewrites the marker on a hit. On a miss the marker goes and the dep clones | detected, marker dropped, clones and builds from source |
+| 1 valid shim | load `papa.txt` from disk. No network, no unzip, no ls-remote | ls-remote, then re-fetch and re-extract | marker dropped, clones and builds from source |
+| 2 stale shim | not detected, and that is deliberate | the probe re-extracts and rewrites the marker on a hit. On a miss the marker goes and the dep clones | marker dropped, clones and builds from source |
 | 3 real clone | a local repo-health check, no network | fetch or pull, and reset only when the status moved | same as `build` |
 | 4 empty | ls-remote, probe artifactory, else clone | same | clone |
 
@@ -401,8 +401,8 @@ A later run finds the marker and takes `try_load_cached_shim`, which prints `SHI
 Specifically not `SHIM FETCHED`, which would claim a fetch that did not happen, and not
 `Artifactory cache <path>`, which would claim a zip mama never touched.
 
-`check_staleness` gates the ls-remote inside the cached path. It is True under `noart` and False under
-a plain build. `update` skips the cached path entirely, so the regular probe re-extracts.
+`noart` never reaches the cached path. It forces the source clone instead, so the marker goes and the
+git path clones. `update` also skips the cached path, and its regular probe re-extracts.
 
 **The shim probe runs only when there is no working tree.** For an already-cloned dep the regular
 fetch and reset path is correct, and the probe would only re-clone into a tempdir for nothing.
@@ -440,7 +440,8 @@ direct comparison.
 `can_fetch_artifactory` refuses for the root and for a dep already checked. Then:
 
 - `noart` refuses, and it beats `art`. The post-clone probe says so, and the pre-clone shim probe
-  refuses silently, because it asks with printing off.
+  refuses silently, because it asks with printing off. `noart` also refuses a shim already on disk,
+  so every git dep builds from source.
 - A `rebuild` of the current target refuses, because the source build is the point. Verbose only.
 - A `clean` of the current target refuses, because the clean deletes the result. Verbose only.
 - `art` forces the fetch for every dep the two rules above did not already refuse. A miss on a git dep

@@ -67,15 +67,29 @@ class TestNoartShimCacheMisses:
 
 
 class TestNoartRouting:
-    def test_noart_routes_to_cached_shim_path(self, tmp_path):
-        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, disable_artifactory=True)
+    def _shim_load(self, tmp_path, **config):
+        """Drive the pre-clone shim path of a dep that already holds a cached shim."""
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, **config)
         fake_target = Mock(args=[], settings=Mock(), dependencies=Mock(), build_products=[])
-        with patch.object(BuildDependency, 'try_load_cached_shim', return_value=fake_target) as mock_cached, \
-             patch('mama.build_dependency.try_load_artifactory_shim') as mock_probe, \
+        with patch.object(BuildDependency, 'try_load_cached_shim', return_value=fake_target) as cached, \
+             patch('mama.build_dependency.try_load_artifactory_shim') as probe, \
+             patch.object(BuildDependency, '_git_checkout_if_needed', return_value=False), \
              patch.object(BuildDependency, '_load_target', return_value=fake_target), \
              patch.object(BuildDependency, '_should_build', return_value=False), \
              patch.object(BuildDependency, 'should_load_artifactory', return_value=False), \
              patch.object(BuildDependency, 'load_build_products'):
             dep._load()
-        mock_cached.assert_called_once()
-        mock_probe.assert_not_called()
+        return dep, cached, probe
+
+    def test_noart_refuses_the_cached_shim_and_drops_the_marker(self, tmp_path):
+        # noart means the artifactory contributes nothing, so the git path has to clone the source
+        dep, cached, probe = self._shim_load(tmp_path, disable_artifactory=True)
+        cached.assert_not_called()
+        probe.assert_not_called()
+        assert not dep.is_artifactory_shim()  # the marker went, so the checkout clones
+
+    def test_a_plain_build_still_takes_the_cached_shim(self, tmp_path):
+        dep, cached, probe = self._shim_load(tmp_path)
+        cached.assert_called_once()
+        probe.assert_not_called()
+        assert dep.is_artifactory_shim()

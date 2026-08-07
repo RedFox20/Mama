@@ -424,10 +424,14 @@ class BuildDependency:
 
 
     def _force_source_clone(self) -> bool:
-        """A `rebuild`, `unshallow` or `wipe` of THIS target must produce a real clone, even from a
-        cached shim. Only the git path honors a wipe, so a shim that loads here would skip it.
+        """This run must produce a real clone, even from a cached shim.
+
+        `noart` forces it for EVERY dep, because it refuses the artifactory and source is what remains.
+        A `rebuild`, `unshallow` or `wipe` forces it for the target it names. Only the git path honors a
+        wipe, so a shim that loads here would skip it.
         A plain `clean` does NOT force a clone. It reloads the package after the clean."""
         conf = self.config
+        if conf.disable_artifactory: return True
         return (conf.rebuild or conf.unshallow or conf.reclone) and self.is_current_target()
 
 
@@ -453,10 +457,10 @@ class BuildDependency:
             # suppress the post-clone probe so it cannot reload the package over the clone (also for an already-cloned target)
             self.did_check_artifactory = True
             return False
-        # Plain `mama build` trusts the cached shim. Under noart the ls-remote check still drops an
-        # upstream-advanced shim, so the caller clones instead. Under `update` the regular probe re-extracts.
+        # Plain `mama build` trusts the cached shim. Under `update` the regular probe re-extracts, and
+        # `noart` never arrives here, because it forces the source clone above.
         if self.is_artifactory_shim() and not self.config.update:
-            cached = self.try_load_cached_shim(check_staleness=self.config.disable_artifactory)
+            cached = self.try_load_cached_shim(check_staleness=False)
             if cached is not None:
                 self.target = cached
                 self.did_check_artifactory = True
