@@ -34,6 +34,27 @@ def test_the_version_a_name_carries(filename, expected):
     assert up.archive_version(NAME, filename) == expected
 
 
+@pytest.mark.parametrize('name', [
+    f'../../{NAME}-linux-ubuntu24-gcc13.3-x64-release-v1.zip',
+    f'/tmp/{NAME}-linux-ubuntu24-gcc13.3-x64-release-v1.zip',
+    f'..\\{NAME}-linux-ubuntu24-gcc13.3-x64-release-v1.zip',
+    f'{NAME}-linux-ubuntu24-gcc13.3-x64-release-v1.zip/../../x',
+])
+def test_a_server_name_that_is_a_path_is_never_selected(name):
+    # the local purge deletes by this name, so a hostile or broken server must not reach outside dep_dir
+    assert up.archive_version(NAME, name) == ''
+    assert up.select(NAME, [up.Archive(name, '20260807120000', 1)], 'prune-all') == []
+
+
+def test_the_local_purge_only_ever_touches_names_inside_the_dep_dir(tmp_path):
+    outside = tmp_path / 'victim.zip'
+    outside.write_text('precious')
+    target = _target_with_cache(tmp_path, [])
+    escape = up.Archive(f'../../{outside.name}', '20260807120000', 1)
+    assert up.purge_local(target, [escape]) == 0
+    assert outside.exists()
+
+
 def test_a_version_selector_takes_every_platform_and_no_neighbour():
     ours = [_archive('caf5158'), _archive('caf5158', compiler='msvc14.51', platform='windows')]
     others = [_archive('deadbee'), up.Archive('other-linux-ubuntu24-gcc13.3-x64-release-caf5158.zip', '1', 1)]
@@ -78,8 +99,11 @@ def test_a_version_is_as_fresh_as_its_freshest_archive():
 # --- the listing a human reads before confirming -------------------------------
 
 class _Named:
-    """A hashable stand-in for a target: describe_run keys its dict by target."""
-    def __init__(self, name): self.name = name
+    """A hashable stand-in for a target: describe_run keys its dict by target and reads its dep."""
+    def __init__(self, name):
+        self.name = name
+        self.dep = SimpleNamespace(dep_dir='/nowhere', build_dir='/nowhere/linux', src_dir='/nowhere/src',
+                                   is_artifactory_shim=lambda: False)
 
 
 def test_the_listing_carries_a_date_and_a_size():
@@ -160,6 +184,25 @@ def test_the_purge_keeps_a_shim_that_serves_a_version_this_run_kept(tmp_path):
     assert os.path.exists(target.dep.build_dir)
 
 
+def test_the_purge_never_removes_a_build_dir_that_is_also_the_source_tree(tmp_path):
+    # a dep named after a platform build dir has src_dir == build_dir, and a remove would take the
+    # working tree with every uncommitted change in it
+    archives = [_archive('caf5158')]
+    target = _target_with_cache(tmp_path, archives, shim=archives[0].filename[:-4])
+    target.dep.src_dir = target.dep.build_dir
+    up.purge_local(target, archives)
+    assert os.path.exists(target.dep.build_dir)
+
+
+def test_the_prompt_names_the_local_paths_it_will_delete(tmp_path):
+    # approving `delete these archives` must not silently take the unpacked headers and libs as well
+    archives = [_archive('caf5158')]
+    target = _target_with_cache(tmp_path, archives, shim=archives[0].filename[:-4])
+    text = up.describe_run({target: archives}, 'files.example.com')
+    assert 'local copies this also removes' in text
+    assert target.dep.build_dir in text and archives[0].filename in text
+
+
 def test_the_purge_leaves_a_build_dir_that_is_not_a_shim(tmp_path):
     archives = [_archive('caf5158')]
     target = _target_with_cache(tmp_path, archives)
@@ -236,11 +279,54 @@ def test_a_failed_delete_keeps_its_local_copy(tmp_path):
     assert os.path.exists(os.path.join(target.dep.dep_dir, listed[0].filename))
 
 
-def test_an_undated_version_is_never_the_first_pruned(tmp_path):
-    # a server that refuses MDTM reports no date, and '' would sort oldest and be deleted first
+def test_an_undated_version_is_left_out_of_the_prune_order(tmp_path):
+    # a server that refuses MDTM dates nothing, and such a version is neither pruned nor counted
     dated = _archive('dated', day='01')
     undated = up.Archive(f'{NAME}-linux-ubuntu24-gcc13.3-x64-release-undated.zip', '', 10)
-    assert up.newest_first(up.group_by_version(NAME, [dated, undated])) == ['undated', 'dated']
+    assert up.newest_first(up.group_by_version(NAME, [dated, undated])) == ['dated']
+
+
+def test_undated_versions_never_evict_the_dated_ones(tmp_path):
+    # sorting them newest filled the keep window with undated versions and pruned every real upload
+    undated = [up.Archive(f'{NAME}-linux-ubuntu24-gcc{i}-x64-release-u{i:02}.zip', '', 1) for i in range(20)]
+    dated = [_archive('v1', day='01'), _archive('v2', day='02'), _archive('v3', day='03')]
+    assert up.select(NAME, undated + dated, 'prune-old', keep=20) == []
+
+
+def test_a_prune_never_takes_the_version_this_checkout_needs(tmp_path):
+    # deleting it leaves the tree pointing at a package that exists nowhere
+    archives = [_archive(f'v{i:02}', day=f'{i + 1:02}') for i in range(25)]
+    doomed = up.select(NAME, archives, 'prune-old', keep=20, protect='v00')
+    assert 'v00' not in [up.archive_version(NAME, a.filename) for a in doomed]
+
+
+def test_prune_all_really_takes_everything(tmp_path):
+    # `all` means all: a user who typed it asked to wipe the target, current version included
+    archives = [_archive('v1', day='01'), _archive('v2', day='02')]
+    assert len(up.select(NAME, archives, 'prune-all')) == 2
+
+
+def test_a_version_that_spells_a_keyword_still_names_itself(tmp_path):
+    # a git tag may be called `prune-all`, and asking for it must not delete the whole history
+    keyword, other = _archive('prune-all', day='01'), _archive('other', day='02')
+    picked = up.select(NAME, [keyword, other], 'prune-all')
+    assert [a.filename for a in picked] == [keyword.filename]
+
+
+def test_a_prune_old_run_asks_for_the_current_version_and_spares_it(tmp_path):
+    # the wiring, not just select(): prune-old must look the version up and pass it as protected
+    listed = [_archive(f'v{i:02}', day=f'{i + 1:02}') for i in range(25)]
+    with patch.object(up, 'current_version', return_value='v00') as current:
+        deleted, ftp, _ = _run(tmp_path, 'prune-old', listed)
+    current.assert_called()
+    gone = [c.args[0] for c in ftp.delete.call_args_list]
+    assert deleted == 4 and not any('release-v00.zip' in g for g in gone)
+
+
+def test_a_prune_all_run_asks_for_no_protection(tmp_path):
+    with patch.object(up, 'current_version', side_effect=AssertionError('must not protect')):
+        deleted, _, _ = _run(tmp_path, 'prune-all', [_archive('v1'), _archive('v2')])
+    assert deleted == 2
 
 
 def test_one_prompt_covers_every_target_of_the_run(tmp_path):

@@ -9,7 +9,7 @@ import os
 
 from .artifactory import artifactory_ftp_login, artifactory_sanitize_url
 from .utils.fileio import remove_tree
-from .utils.paths import path_join, has_shim_marker
+from .utils.paths import path_join
 from .utils.progress import get_file_size_str
 from .utils.system import Color, console, error, is_headless, warning
 
@@ -23,6 +23,13 @@ _FIELDS_BEFORE_VERSION = 5
 _MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
 
 DEFAULT_KEEP = 20  # how many versions `prune-old` leaves behind
+
+
+def is_plain_filename(name: str) -> bool:
+    """True when `name` is one file name and not a path. A server names the archives this code deletes
+    locally, so a name carrying a separator or a `..` must never reach os.remove."""
+    return bool(name) and name not in ('.', '..') \
+        and '/' not in name and '\\' not in name and not os.path.isabs(name)
 
 
 class Archive:
@@ -47,6 +54,8 @@ def archive_version(target_name: str, filename: str) -> str:
 
     A variant token sits between the build type and the version, and nothing in the name marks where
     one ends. So a variant build reads as a version of its own, which keeps its history separate."""
+    # the server chose this name and the local purge deletes by it, so only a plain name is safe
+    if not is_plain_filename(filename): return ''
     stem = filename[:-4] if filename.endswith('.zip') else filename
     if not stem.startswith(f'{target_name}-'): return ''
     # a name with too few fields leaves nothing after the slice, which is the '' this promises
@@ -63,26 +72,35 @@ def group_by_version(target_name: str, archives: List[Archive]) -> dict:
     return groups
 
 
+def is_dated(archives: List[Archive]) -> bool:
+    """True when at least one archive of a version carries an upload time."""
+    return any(a.modify for a in archives)
+
+
 def newest_first(groups: dict) -> List[str]:
-    """Versions ordered by their newest upload. A version is as fresh as its freshest archive, so a
+    """The DATED versions, newest upload first. A version is as fresh as its freshest archive, so a
     rebuild of an old commit keeps that version alive.
 
-    A server that refuses MDTM reports no date at all. An undated version sorts newest, so a prune
-    never deletes what it cannot date."""
-    def freshness(version): return max(a.modify or '9' * 14 for a in groups[version])
-    return sorted(groups, key=freshness, reverse=True)
+    An undated version is left out entirely. A server that refuses MDTM dates nothing, and counting
+    those against the keep window would push every real version out of it."""
+    dated = {v: a for v, a in groups.items() if is_dated(a)}
+    return sorted(dated, key=lambda v: max(a.modify for a in dated[v]), reverse=True)
 
 
-def select(target_name: str, archives: List[Archive], selector: str, keep: int = DEFAULT_KEEP) -> List[Archive]:
+def select(target_name: str, archives: List[Archive], selector: str, keep: int = DEFAULT_KEEP,
+           protect: str = '') -> List[Archive]:
     """The archives one selector names.
-    selector: an explicit version, `prune-all` for every version, or `prune-old` for all but `keep`"""
-    if selector == 'prune-all':
-        return [a for a in archives if archive_version(target_name, a.filename)]
+    selector: an explicit version, `prune-all` for every version, or `prune-old` for all but `keep`
+    protect: a version to keep whatever the selector says. `prune-old` passes the current one"""
     groups = group_by_version(target_name, archives)
+    # a real version wins over a keyword: a git tag may spell `prune-all`, and that must name itself
+    if selector in groups: return groups[selector]
+    if selector == 'prune-all':
+        return [a for v, g in groups.items() if v != protect for a in g]
     if selector == 'prune-old':
-        doomed = newest_first(groups)[keep:]
+        doomed = [v for v in newest_first(groups)[keep:] if v != protect]
         return [a for v in doomed for a in groups[v]]
-    return groups.get(selector, [])
+    return []
 
 
 def connect(config):
@@ -100,7 +118,8 @@ def list_archives(ftp, target_name: str) -> List[Archive]:
     file, which is why the fallback is not the first choice."""
     try:
         return [Archive(name, facts.get('modify', ''), int(facts.get('size', 0)))
-                for name, facts in ftp.mlsd(target_name) if name.endswith('.zip')]
+                for name, facts in ftp.mlsd(target_name)
+                if name.endswith('.zip') and is_plain_filename(name)]
     except Exception:
         return _list_archives_without_mlsd(ftp, target_name)
 
@@ -135,6 +154,14 @@ def delete_archives(ftp, target_name: str, archives: List[Archive]) -> List[Arch
     return deleted
 
 
+def describe_local(doomed: dict) -> str:
+    """The local paths a confirmed run removes, so the prompt names them too. A build dir holds the
+    unpacked headers and libs, and approving `delete these archives` must not take it unannounced."""
+    paths = [p for target, archives in doomed.items() for p in local_copies(target, archives)]
+    if not paths: return ''
+    return '\n  local copies this also removes:\n' + '\n'.join(f'    {p}' for p in sorted(paths))
+
+
 def describe_run(doomed: dict, url: str) -> str:
     """The listing a user reads before confirming, over every target of the run.
 
@@ -146,17 +173,22 @@ def describe_run(doomed: dict, url: str) -> str:
              for a in sorted(every, key=lambda a: (a.modify, a.filename))]
     versions = sum(len(group_by_version(t.name, a)) for t, a in doomed.items())
     return '\n'.join(lines) + f'\n  {len(every)} archive(s), {versions} version(s), ' + \
-           f'{len(doomed)} target(s) on {url}'
+           f'{len(doomed)} target(s) on {url}' + describe_local(doomed)
 
 
 def local_copies(target: BuildTarget, archives: List[Archive]) -> List[str]:
     """The cached zip of each archive that this machine holds, plus the build dir of a shim that serves
     one of them. A shim of a version this run kept stays, because its package is still on the server."""
     dep = target.dep
-    names = {a.filename for a in archives}
+    # guarded here as well as in the selector: this function is the one that passes paths to os.remove
+    names = {a.filename for a in archives if is_plain_filename(a.filename)}
     paths = [p for p in (path_join(dep.dep_dir, n) for n in names) if os.path.exists(p)]
-    shim_archive = dep.read_shim_marker().get('archive', '') if has_shim_marker(dep.build_dir) else ''
-    if shim_archive and f'{shim_archive}.zip' in names: paths.append(dep.build_dir)
+    # A shim build dir holds no source, so removing it costs a re-fetch and nothing more. Two guards
+    # before that: a marker beside a real clone is stale, and a dep named after a platform build dir
+    # has src_dir == build_dir, where a remove would take the working tree and its uncommitted work.
+    if dep.is_artifactory_shim() and dep.build_dir != dep.src_dir:
+        shim_archive = dep.read_shim_marker().get('archive', '')
+        if shim_archive and f'{shim_archive}.zip' in names: paths.append(dep.build_dir)
     return paths
 
 
@@ -202,12 +234,17 @@ def in_scope(target) -> bool:
     return named.lower() == target.name.lower()
 
 
+def current_version(target) -> str:
+    """The version this checkout resolves to, or '' when nothing names one."""
+    from .artifactory import artifactory_archive_name  # local import: avoid a cycle
+    archive = artifactory_archive_name(target)
+    return archive_version(target.name, archive) if archive else ''
+
+
 def _resolve(target, selector: str) -> str:
     """`current` becomes the version this checkout names. Every other selector passes through."""
     if selector != 'current': return selector
-    from .artifactory import artifactory_archive_name  # local import: avoid a cycle
-    archive = artifactory_archive_name(target)
-    version = archive_version(target.name, archive) if archive else ''
+    version = current_version(target)
     if not version:
         raise RuntimeError(f'unpublish=current cannot name a version for {target.name}. ' + \
                            'Pass the version instead, as unpublish=<version>.')
@@ -232,7 +269,12 @@ def unpublish_run(targets, config) -> int:
             if target.dep.dep_source.is_pkg:
                 warning(f'  - Target {target.name: <16} UNPUBLISH skipped (artifactory pkg is read-only)')
                 continue
-            picked = select(target.name, list_archives(ftp, target.name), _resolve(target, config.unpublish), keep)
+            selector = _resolve(target, config.unpublish)
+            # `prune-old` is housekeeping, so it never takes the version this checkout needs: that
+            # would leave the tree naming a package that exists nowhere. `prune-all` takes everything,
+            # because a user who typed `all` asked for exactly that.
+            protect = current_version(target) if selector == 'prune-old' else ''
+            picked = select(target.name, list_archives(ftp, target.name), selector, keep, protect)
             if picked: doomed[target] = picked
         if not doomed:
             console(f'  Nothing to unpublish for `{config.unpublish}` on {url}')

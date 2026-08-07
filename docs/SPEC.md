@@ -727,17 +727,35 @@ this target's archive is never touched. A `version_suffix` is part of that tail,
 among their archives, so a rebuild of an old commit keeps that version alive. Upload time is what the
 server knows. Nothing tries to order bare commit hashes.
 
+**An undated version is neither pruned nor counted.** A server that refuses MDTM dates nothing, and
+counting those against the keep window would push every real version out of it.
+
+**`prune-old` never takes the version this checkout resolves to.** Housekeeping must not leave the tree
+naming a package that exists nowhere. `prune-all` does take it, because a user who typed `all` asked for
+exactly that.
+
+**A real version beats a keyword.** A git tag may spell `prune-all`, so a selector that matches a
+published version names that version and nothing else.
+
 A variant such as `asan` sits between the build type and the version, and nothing in the name marks
 where it ends. So a variant build reads as a version of its own and keeps a separate history.
 
 **One prompt covers the whole run, not one per target.** `mama all unpublish=prune-old` asks a single
 question and opens a single FTP session. Thirty questions is thirty chances to stop reading them.
 
-**The prompt prints every archive with its date and size, oldest first.** A headless run cannot answer,
-so it refuses unless the command line also says `yes`. Refusing beats hanging a CI job on stdin.
+**The prompt prints every archive with its date and size, oldest first, and names every local path the
+run will delete.** Approving a list of server archives must not silently take an unpacked build dir too.
+A headless run cannot answer, so it refuses unless the command line also says `yes`. Refusing beats
+hanging a CI job on stdin.
 
 **A confirmed unpublish also drops the local copies:** the cached zip of every archive that really left
-the server, and the build dir of a shim whose marker names one of them. A shim of a version this run kept
+the server, and the build dir of a shim whose marker names one of them. That build dir goes only when
+`is_artifactory_shim` agrees and it differs from `src_dir`, because a dep named after a platform build
+dir shares the two paths, and a remove there would take the working tree.
+
+**A file name the server supplies is never a path.** The local purge deletes by that name. A name
+holding a separator, a `..` or a drive is refused three times: at the listing, at the selector and at
+the purge itself. A shim of a version this run kept
 stays, and a zip whose delete failed keeps its cache, because the server still has it. The machine that
 cleans the server must not keep serving what it deleted, which the cached-zip fallback of section 8 would
 otherwise do.
