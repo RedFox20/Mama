@@ -109,9 +109,11 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 - `-clang` appears only on a Linux clang build. gcc keeps the bare name, so existing trees do not
   churn. Elsewhere the toolset or the SDK already fixes the compiler.
 - The variant is `build_variant_suffix`: `-cov` for coverage, then one token per sanitizer, then the
-  dep args. Each token gets its own `-`. A plain build with no args adds nothing.
+  `-march` pin, then the dep args. Each token gets its own `-`. A plain build with no args adds nothing.
 - Dep args are sorted, lowercased, de-duplicated and stripped to ASCII alphanumerics. `+` becomes
   `p`, so `C++20` is `cpp20`. `NEWMATH=1` is `newmath1`, distinct from `newmath2`.
+- The `-march` pin of the target arch is normalized the same way, behind a `march` prefix. `x86-64-v3`
+  is `marchx8664v3`. Only a pin from `set_target_march` appears, never the platform default.
 
 **Every `(platform, arch, variant)` pair gets its own build dir, and Linux also splits gcc from clang.**
 A shared dir means two builds clobber each other's cache and libraries.
@@ -672,7 +674,7 @@ deploys its runtime tree but publishes no archive is a normal shape.
 |---|---|
 | `P` | project name |
 | `C` | the compiler that built it |
-| `O` | what the objects are: build type, platform, arch, then the variant tokens |
+| `O` | what the objects are: build type, platform, arch, then the variant tokens and any `-march` pin |
 | `V` | the `version_suffix` a parent declared for one dependency |
 | `D` | a dependency source |
 | `I` | an exported include dir |
@@ -684,6 +686,10 @@ The `O` record reads `O debug linux x64 asan lgpl`. It answers what a consumer n
 the type, the target and every variant axis. A fetched package holds no `CMakeCache.txt`, so the record
 is the only thing that names its build type, and the mixed-type warning reads it. A package written
 before the `O` record carries no attributes at all.
+
+An `-march` pin appears as `march=x86-64-v3`, its real value, where the build dir name and the archive
+name carry the file-safe `marchx8664v3`. The record is text, and a reader compares it against a CPU.
+The parser splits the record on whitespace and searches it, so a new attribute needs no fixed place.
 
 A package built by a different compiler than the current build warns and does not fail.
 Compiler-scoped build dirs make a cross-family mismatch unreachable in practice. A compiler version
@@ -795,6 +801,28 @@ names: what it needs, it declares on `Platform` and reads back.
 
 See [docs/platforms.md](platforms.md) before you add a platform, add a compiler flag, or add a cmake
 option.
+
+### The instruction set
+
+A platform names the `-march` its target needs, or none at all. A native platform names `native` when
+the host arch IS the target arch, and the baseline of the arch otherwise. `native` compiles for the CPU
+of the build machine, and on a foreign arch it would compile host instructions. A cross platform names
+a fixed baseline (android, raspi, oclea, imx8mp) or nothing (xilinx, mips, ios). MSVC has no `-march`.
+
+`config.set_target_march(arch, march)` overrides that default for one target arch, and only for the
+run that builds that arch. It belongs in the ROOT mamafile `settings()`, which runs before any
+dependency loads. The root and every dependency then compile with the same instruction set. It raises
+on an unknown arch, and on a value that is not the `-march` value alone. A platform whose compiler has
+no `-march`, which today is only MSVC, warns and keeps its default.
+
+The pin REPLACES the platform default, so exactly one `-march` reaches the compiler. `config.flags`
+goes on the line as a raw string that mama never merges, so a `flags=-march=...` still puts a second
+one there. The first one is what `compile_commands.json` reports, and a shadowed pin misreports the
+build.
+
+**Why:** `-march=native` is the right default for a developer and the wrong one for a release. It bakes
+the build machine into the binary. The failure then appears as an illegal instruction on the older CPU
+of a user, far from the build that caused it.
 
 ## 16 Output
 

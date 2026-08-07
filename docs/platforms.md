@@ -68,6 +68,17 @@ tests are all parametrized over `PLATFORMS`.
 A platform that needs real behavior overrides a method instead of declaring an attribute. `Android`
 overrides the most (NDK discovery, ABI naming, its own make program). `Linux` overrides only a few.
 
+## The instruction set
+
+A platform declares its `-march` one of two ways, or declares none. A fixed value goes in `cpu_flags`,
+which the base class reads. A value that follows the arch overrides `default_march()`, as `Linux`,
+`Macos`, `Raspi` and `Android` do. `Xilinx`, `Mips` and `Ios` declare neither and get no `-march`.
+
+Neither one emits the flag. `Platform.get_cxx_flags` calls `march()`, which takes the project pin from
+`config.set_target_march()` when there is one, and `default_march()` otherwise. So exactly one `-march`
+reaches the compiler, and a platform never has to know about the pin. A platform whose compiler has no
+`-march` declares `supports_march = False` and gets none.
+
 ## Invariants the tests enforce
 
 1. No `if/elif` chain over platform names outside `mama/platforms/`. A consumer that needs

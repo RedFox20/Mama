@@ -200,12 +200,12 @@ class Android(Platform):
                          toolchain_file=self._toolchain_path(), extra_opts=ndk)
 
 
+    def default_march(self) -> str:
+        return 'armv7-a' if self.arch() == 'arm' else 'armv8-a'
+
+
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):
-        if self.arch() == 'arm':
-            add_flag('-march', 'armv7-a')
-            add_flag('-mfpu', 'neon')
-        else:
-            add_flag('-march', 'armv8-a')
+        if self.arch() == 'arm': add_flag('-mfpu', 'neon')
         super().get_cxx_flags(add_flag)
 
 

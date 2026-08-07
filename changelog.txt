@@ -2,6 +2,7 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - feature: set_target_march pins the instruction set of a release build
  - feature: unpublish deletes published archives, and their local copies
  - feature: version_suffix renames a package on every platform at once
  - bugfix: a target that exports nothing no longer uploads an empty archive

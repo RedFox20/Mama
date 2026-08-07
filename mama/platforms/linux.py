@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Callable
 from .platform import Platform, native_march
 from ..utils.system import console, Color
 
@@ -34,6 +33,5 @@ class Linux(Platform):
         return self.config.clang_stdlib if self.config.clang else ''
 
 
-    def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
-        add_flag('-march', native_march(self.arch()))
-        super().get_cxx_flags(add_flag)
+    def default_march(self) -> str:
+        return native_march(self.arch())

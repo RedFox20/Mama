@@ -441,6 +441,30 @@ self.add_platform_ld_flags(linux='-pthread')               # Per-platform linker
 self.add_platform_cxx_flags(imx8mp='-mcpu=cortex-a53', yocto_linux='-DEMBEDDED=1')
 ```
 
+### Pinning the instruction set: `set_target_march`
+
+A native build on the host arch compiles with `-march=native`, which bakes the CPU of the build
+machine into the binary. A release that has to run on other machines pins a baseline instead. Call it
+from the ROOT mamafile `settings()`, so the pin reaches every dependency:
+
+```py
+class MyApp(mama.BuildTarget):
+    def settings(self):
+        self.config.set_target_march('x64', 'x86-64-v3')     # AVX2 baseline, 2015 and newer
+        self.config.set_target_march('arm64', 'armv8.2-a')   # one pin per target arch
+```
+
+The pin applies only when the run builds that arch, and it replaces whatever `-march` the platform
+would emit. An unknown arch name raises. A value that is not the `-march` value alone (`-march=x86-64-v3`,
+or two flags in one string) raises. MSVC has no `-march`, so the pin warns and does nothing there.
+
+A pinned build gets its own build dir and its own artifactory archive, both tagged `marchx8664v3`.
+Objects tuned for one instruction set can then never link into a build tuned for another, and a
+consumer can never download them over one. The first build after you add a pin rebuilds the tree.
+
+The deployed `papa.txt` records the pin on its `O` line, next to the arch, as the real value:
+`O release linux x64 march=x86-64-v3`. Read it to check what a package was tuned for.
+
 ### CMake configuration
 ```py
 self.add_cmake_options('BUILD_SHARED_LIBS=ON', 'OPTION=VALUE')

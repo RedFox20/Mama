@@ -12,7 +12,7 @@ from mama.platforms.ios import Ios
 from mama.platforms.windows import Windows
 from mama.platforms.linux import Linux
 from mama.platforms.macos import Macos
-from mama.platforms.platform import Platform
+from mama.platforms.platform import ARCHES, Platform
 from mama.platforms.registry import platform_for_arg
 from .utils import git_status
 from .utils.archive import unzip
@@ -206,6 +206,7 @@ class BuildConfig:
         self.debug   = False
         # target architecture, see set_arch() for the valid names
         self.arch    = None
+        self.target_march = {}  # arch to -march, see set_target_march(). Empty means the platform default
         self.distro  = None  # distro information (name, major, minor)
         self.jobs    = BuildConfig._default_build_jobs()
         self.target  = None
@@ -498,10 +499,37 @@ class BuildConfig:
 
 
     def set_arch(self, arch):
-        arches = ['x86', 'x64', 'arm', 'arm64', 'mips', 'mipsel', 'mips64', 'mips64el']
-        if not arch in arches:
-            raise RuntimeError(f"Unrecognized architecture {arch}! Valid options are: {arches}")
+        if not arch in ARCHES:
+            raise RuntimeError(f"Unrecognized architecture {arch}! Valid options are: {list(ARCHES)}")
         self.arch = arch
+
+
+    def set_target_march(self, arch: str, march: str):
+        """Pin the compiler -march for one target arch, for the root target and every dependency.
+        Call it from the root mamafile settings(), before any dependency loads.
+
+        The platform default for a native build is `-march=native`, which bakes the CPU of the build
+        machine into the binary. A release that has to run on other machines pins a baseline instead.
+
+        The pin names the build. A pinned build gets its own build dir and its own artifactory archive.
+        Its objects can never link into a build tuned for another instruction set.
+
+        A platform whose compiler has no -march warns and keeps the default, so target_march only ever
+        holds a pin that reaches the compiler.
+        arch: a target arch name, see set_arch()
+        march: the -march value, for example 'x86-64-v3'. An empty value drops the pin
+        """
+        if arch not in ARCHES:
+            raise RuntimeError(f'set_target_march: unknown arch {arch}! Valid options are: {list(ARCHES)}')
+        march = march.strip()
+        if '=' in march or ' ' in march:
+            raise RuntimeError(f'set_target_march: {march} must be the value alone, as in x86-64-v3.')
+        if not march:
+            self.target_march.pop(arch, None)
+        elif self.platform and not self.platform.supports_march:
+            warning(f'{self.platform.name} has no -march. Ignoring set_target_march({arch}, {march}).')
+        else:
+            self.target_march[arch] = march
 
 
     def is_64bit_build(self):

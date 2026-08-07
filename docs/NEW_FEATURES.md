@@ -18,6 +18,13 @@ None.
 
 ## Implemented
 
+- **`config.set_target_march(arch, march)` pins the instruction set of a release build.** The native
+  default is `-march=native`, which bakes the build machine's CPU into the binary. The root mamafile
+  pins one value per target arch, and the pin replaces the platform default for the root and every
+  dependency. It raises on an unknown arch and on a value that is not the `-march` value alone. The pin
+  joins the variant suffix, so a pinned build cannot share a build dir or an archive name with a
+  baseline one. The `O` record of papa.txt names the pin next to the arch, as the real value.
+
 - **A target that exports nothing no longer publishes an empty archive.** The packaging marks such a
   target `no_upload` on its own, so a docs or bundle target needs no declaration. `validate_archive`
   refuses an archive holding only `papa.txt` as a backstop. `nothing_to_upload()` still works by hand,

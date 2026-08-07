@@ -12,7 +12,7 @@ from mama.build_names import build_dir_name
 
 
 def _raspi(arch='arm64', **over):
-    config = Mock(arch=arch, print=False, **over)
+    config = Mock(arch=arch, print=False, target_march={}, **over)
     config.append_env_path = lambda paths, env: None
     return Raspi(config)
 

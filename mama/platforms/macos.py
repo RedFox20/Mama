@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Callable
 import os
 from .platform import Platform, native_march
 
@@ -31,9 +30,8 @@ class Macos(Platform):
         return 'libc++'
 
 
-    def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
-        add_flag('-march', native_march(self.arch()))
-        super().get_cxx_flags(add_flag)
+    def default_march(self) -> str:
+        return native_march(self.arch())
 
 
     def inject_env(self):

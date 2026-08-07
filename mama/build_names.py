@@ -22,29 +22,41 @@ _SANITIZER_SHORT_NAMES = {
 }
 
 
+_MARCH_TOKEN_PREFIX = 'march'
+
+
+def _safe_token(raw: str) -> str:
+    """`raw` reduced to ASCII alphanumerics, with '+' spelled 'p'. '' when nothing survives. A token
+    becomes a file name on an FTP server, so isalnum() alone is not enough: it accepts any script."""
+    return ''.join(c for c in raw.lower().replace('+', 'p') if c.isalnum() and c.isascii())
+
+
 def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
     """Every axis that makes a build unique beyond the platform, the arch and the compiler: coverage, the
-    sanitizers, then the dep args. Coarsest axis first, each token with its own '-', and '' for a plain
-    build with no args, so an existing name stays byte-identical.
+    sanitizers, the -march pin, then the dep args. Coarsest axis first, each token with its own '-', and
+    '' for a plain build with no args, so an existing name stays byte-identical.
 
     THE one place that spells a variant. Both the build dir name and the archive name carry this string,
     so they cannot disagree. The compiler is NOT in here: the build dir names it as a token, and the
     archive name already has a field for its full version.
 
+    The -march pin of the target arch names the build. Objects tuned for one instruction set cannot
+    link into a build tuned for another. A consumer on an older CPU crashes on the first instruction
+    it does not have. 'x86-64-v3' becomes 'marchx8664v3'.
+
     Dep args come from the consumer's `add_git(..., args=[...])`, so mama knows them before the clone,
     the same way it knows the platform and the compiler. Sorted, lowercased, de-duplicated and stripped of
     punctuation, so the call order, the letter case and a repeated arg never change a name. A '+' becomes
     'p' ('C++20' -> 'cpp20'), and a key=value arg keeps both halves ('NEWMATH=1' -> 'newmath1', which
-    stays distinct from 'NEWMATH=2'). `isalnum() and isascii()`, not `isalnum()` alone: isalnum() answers
-    True for a letter in any script, and these tokens become a file name on an FTP server and on a
-    Windows disk."""
+    stays distinct from 'NEWMATH=2')."""
     tokens = ['cov'] if config.coverage else []
     if config.sanitize:
         tokens += [_SANITIZER_SHORT_NAMES.get(s, s) for s in
                    filter(None, (s.strip() for s in config.sanitize.split(',')))]
+    march = config.target_march.get(config.arch)
+    if march: tokens.append(_MARCH_TOKEN_PREFIX + _safe_token(march))
     if dep_args:
-        safe = {''.join(c for c in a.lower().replace('+', 'p') if c.isalnum() and c.isascii()) for a in dep_args}
-        tokens += sorted(filter(None, safe))
+        tokens += sorted(filter(None, {_safe_token(a) for a in dep_args}))
     return ''.join('-' + t for t in tokens)
 
 
@@ -65,9 +77,15 @@ def build_type_of(target) -> str:
 
 def object_attributes(target) -> str:
     """Every axis that decides whether a consumer can link these objects: the build type, the platform,
-    the arch, then the variant tokens. The `O` record of papa.txt carries them, space separated."""
+    the arch, then the variant tokens. The `O` record of papa.txt carries them, space separated.
+
+    An -march pin reads `march=x86-64-v3`, its real value, and keeps the place its token holds in the
+    name. A record is text, not a file name, and a reader compares this one against a CPU."""
     config = target.config
-    return f'{build_type_of(target)} {config.name()} {config.arch}' + target.dep.variant_suffix.replace('-', ' ')
+    march = config.target_march.get(config.arch)
+    pin_token = _MARCH_TOKEN_PREFIX + _safe_token(march) if march else ''
+    tokens = [f'march={march}' if t == pin_token else t for t in target.dep.variant_suffix.split('-') if t]
+    return ' '.join([f'{build_type_of(target)} {config.name()} {config.arch}'] + tokens)
 
 
 _UNSAFE_IN_VERSION = re.compile(r'[^A-Za-z0-9._-]+')
@@ -92,12 +110,13 @@ def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
     that dir plus dep-arg tokens, because a dep the consumer added with args=[...] gets its own.
 
     `mama <platform> clean all` cleans ONE config, so a dir that carries another config's token (a
-    sanitizer, cov, clang) is not ours even though it starts with the same platform name. A dep arg that
-    happens to spell a config token reads as another config's dir and stays: a wrong delete costs more
-    than a leftover dir."""
+    sanitizer, cov, clang, an -march pin) is not ours even though it starts with the same platform name. A
+    dep arg that happens to spell a config token reads as another config's dir and stays: a wrong delete
+    costs more than a leftover dir."""
     if dir_name == config_dir_name: return True
     if not dir_name.startswith(config_dir_name + '-'): return False
-    return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & CONFIG_TOKENS)
+    tokens = dir_name[len(config_dir_name) + 1:].split('-')
+    return not any(t in CONFIG_TOKENS or t.startswith(_MARCH_TOKEN_PREFIX) for t in tokens)
 
 
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:

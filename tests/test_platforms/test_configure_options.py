@@ -1,7 +1,7 @@
 """Pins the exact cmake configure options and compiler flags every platform emits."""
 import pytest
 
-from testutils import make_configured_target, set_mock_platform
+from testutils import platform_cxx_flags, platform_target
 from mama.buildsys.cmake import configure as cc
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
@@ -15,23 +15,9 @@ from mama.platforms.windows import Windows
 from mama.platforms.xilinx import Xilinx
 
 
-def _target_on(tmp_path, platform_class, arch=None, **overrides):
-    t, dep = make_configured_target(tmp_path, **overrides)
-    dep.config.arch = arch or platform_class.default_arch or 'x64'
-    dep.config.cmake_toolchain_file = ''
-    set_mock_platform(dep.config, platform_class)
-    return t, dep
-
-
 def _opts(tmp_path, platform_class, arch=None, **overrides):
-    t, _ = _target_on(tmp_path, platform_class, arch, **overrides)
+    t, _ = platform_target(tmp_path, platform_class, arch, **overrides)
     return cc._platform_opts(t)
-
-
-def _cxx_flags(tmp_path, platform_class, arch=None, **overrides):
-    t, _ = _target_on(tmp_path, platform_class, arch, **overrides)
-    cc._default_options(t)
-    return t.cmake_cxxflags
 
 
 # --- cross platforms name the target system, never the host ---
@@ -80,7 +66,7 @@ def test_android_armv7_switches_the_abi(tmp_path, fake_toolchains):
 
 def test_android_passes_the_make_program_exactly_once(tmp_path, fake_toolchains):
     """It used to come from the platform's own list AND the generic option builder."""
-    t, _ = _target_on(tmp_path, Android, 'arm64', ninja_path='/usr/bin/ninja', prefer_ninja=True)
+    t, _ = platform_target(tmp_path, Android, 'arm64', ninja_path='/usr/bin/ninja', prefer_ninja=True)
     names = [o.split('=')[0] for o in cc._default_options(t)]
     assert names.count('CMAKE_MAKE_PROGRAM') <= 1
 
@@ -122,24 +108,30 @@ def test_ios_builds_for_the_device_not_the_simulator(tmp_path):
     (Oclea, 'arm64', 'armv8-a'),   (Imx8mp, 'arm64', 'armv8-a'),
 ])
 def test_the_march_follows_the_target_arch(platform_class, arch, march, tmp_path, fake_toolchains):
-    assert _cxx_flags(tmp_path, platform_class, arch)['-march'] == march
+    assert platform_cxx_flags(tmp_path, platform_class, arch)['-march'] == march
+
+
+@pytest.mark.parametrize('platform_class', [Android, Oclea, Imx8mp, Raspi])
+def test_a_target_march_pin_beats_the_platform_default(platform_class, tmp_path, fake_toolchains):
+    flags = platform_cxx_flags(tmp_path, platform_class, 'arm64', target_march={'arm64': 'armv8.2-a'})
+    assert flags['-march'] == 'armv8.2-a'
 
 
 @pytest.mark.parametrize('platform_class,fpu', [(Android, 'neon'), (Raspi, 'neon-vfpv4')])
 def test_the_32bit_arm_build_declares_an_fpu(platform_class, fpu, tmp_path, fake_toolchains):
     """armv7-a alone declares no FPU, and a hard-float triple then refuses to compile at all."""
-    assert _cxx_flags(tmp_path, platform_class, 'arm')['-mfpu'] == fpu
+    assert platform_cxx_flags(tmp_path, platform_class, 'arm')['-mfpu'] == fpu
 
 
 @pytest.mark.linux_host
 def test_xilinx_matches_the_petalinux_sdk_flags(tmp_path, fake_toolchains):
-    flags = _cxx_flags(tmp_path, Xilinx)
+    flags = platform_cxx_flags(tmp_path, Xilinx)
     assert flags['-mcpu'] == 'cortex-a72.cortex-a53+crc' and flags['-mbranch-protection'] == 'standard'
 
 
 @pytest.mark.parametrize('platform_class', [Oclea, Imx8mp])
 def test_a_yocto_board_defines_itself_and_yocto_linux(platform_class, tmp_path, fake_toolchains):
-    flags = _cxx_flags(tmp_path, platform_class)
+    flags = platform_cxx_flags(tmp_path, platform_class)
     assert flags[f'-D{platform_class.name.upper()}'] == '1' and flags['-DYOCTO_LINUX'] == '1'
 
 
@@ -147,14 +139,14 @@ def test_a_yocto_board_defines_itself_and_yocto_linux(platform_class, tmp_path, 
 def test_a_yocto_board_drops_libraries_it_never_calls(tmp_path, fake_toolchains):
     """-Wl,--as-needed: an embedded binary that links unused libraries is bloated and can break
     at runtime on a resource-constrained device."""
-    t, _ = _target_on(tmp_path, Imx8mp)
+    t, _ = platform_target(tmp_path, Imx8mp)
     cc._default_options(t)
     assert '-Wl,--as-needed' in t.cmake_ldflags
 
 
 @pytest.mark.linux_host
 def test_mips_defines_itself(tmp_path, fake_toolchains):
-    assert _cxx_flags(tmp_path, Mips, 'mipsel')['-DMIPS'] == '1'
+    assert platform_cxx_flags(tmp_path, Mips, 'mipsel')['-DMIPS'] == '1'
 
 
 @pytest.mark.linux_host
@@ -168,19 +160,19 @@ def test_mips_names_the_cross_binutils_it_ships(tool, tmp_path, fake_toolchains)
 
 @pytest.mark.parametrize('platform_class,stdlib', [(Macos, 'libc++'), (Ios, 'libc++'), (Linux, '')])
 def test_only_the_apple_and_clang_platforms_pick_a_stdlib(platform_class, stdlib, tmp_path):
-    assert _cxx_flags(tmp_path, platform_class).get('-stdlib', '') == stdlib
+    assert platform_cxx_flags(tmp_path, platform_class).get('-stdlib', '') == stdlib
 
 
 def test_linux_clang_picks_libcxx_and_can_be_switched(tmp_path):
-    assert _cxx_flags(tmp_path, Linux, clang=True)['-stdlib'] == 'libc++'
-    assert _cxx_flags(tmp_path, Linux, clang=True, clang_stdlib='libstdc++')['-stdlib'] == 'libstdc++'
+    assert platform_cxx_flags(tmp_path, Linux, clang=True)['-stdlib'] == 'libc++'
+    assert platform_cxx_flags(tmp_path, Linux, clang=True, clang_stdlib='libstdc++')['-stdlib'] == 'libstdc++'
 
 
 def test_ios_pins_the_deployment_target(tmp_path):
-    flags = _cxx_flags(tmp_path, Ios, ios_version='16.0')
+    flags = platform_cxx_flags(tmp_path, Ios, ios_version='16.0')
     assert flags['-miphoneos-version-min'] == '16.0' and '-arch arm64' in flags
 
 
 def test_msvc_uses_its_own_flag_syntax(tmp_path):
-    flags = _cxx_flags(tmp_path, Windows)
+    flags = platform_cxx_flags(tmp_path, Windows)
     assert '/EHsc' in flags and '/MP' in flags and flags['-DWIN32'] == '1'

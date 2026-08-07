@@ -202,6 +202,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.arch = 'x64'
     cfg.release = True
     cfg.sanitize = None
+    cfg.target_march = {}  # a Mock dict would answer .get() with a truthy Mock and rename every build dir
     for k, v in overrides.items(): setattr(cfg, k, v)
     if not isinstance(getattr(cfg, 'platform', None), Platform):
         set_mock_platform(cfg, Linux)  # after overrides, so a test can pass its own platform=
@@ -225,6 +226,23 @@ def platform_config(platform_class, arch=None, **overrides):
     cfg.arch = arch or platform_class.default_arch or cfg.arch
     for k, v in overrides.items(): setattr(cfg, k, v)
     return cfg
+
+
+def platform_target(tmp_path, platform_class, arch=None, **overrides):
+    """A configure-ready (target, dep) on `platform_class` and `arch`, for the option-builder tests."""
+    target, dep = make_configured_target(tmp_path, **overrides)
+    dep.config.arch = arch or platform_class.default_arch or 'x64'
+    dep.config.cmake_toolchain_file = ''
+    set_mock_platform(dep.config, platform_class)
+    return target, dep
+
+
+def platform_cxx_flags(tmp_path, platform_class, arch=None, **overrides):
+    """The C++ flags `platform_class` puts on the cmake command line for `arch`."""
+    from mama.buildsys.cmake import configure as cc
+    target, _ = platform_target(tmp_path, platform_class, arch, **overrides)
+    cc._default_options(target)
+    return target.cmake_cxxflags
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -303,22 +321,26 @@ def plain_config(sanitize=None, coverage=None):
     cfg = BuildConfig.__new__(BuildConfig)
     cfg.sanitize = sanitize
     cfg.coverage = coverage
+    cfg.arch = None
+    cfg.target_march = {}
     return cfg
 
 
 def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64', build_dir='',
                              version='abc1234', args=(), git_tag='', git_branch='', is_git=None,
-                             version_suffix=''):
+                             version_suffix='', march=''):
     """Stub the BuildTarget surface artifactory_archive_name touches. compiler_version() and
     get_distro_info() read the host, so this answers with fixed values. `args` is what a consumer passed
     to add_git(..., args=[...]); the variant suffix comes from the same function a dep calls. Pass
     `git_tag` or `git_branch` for a REAL Git dep_source, the way add_git pins one. Pass `version=''` to
-    let the name composer resolve the version field itself. `is_git=True` builds an unpinned git dep."""
+    let the name composer resolve the version field itself. `is_git=True` builds an unpinned git dep.
+    `march` is what set_target_march pinned for `arch`."""
     from mama import build_names
     from mama.types.git import Git
     cfg = plain_config(sanitize, coverage)
     cfg.release = release
     cfg.arch = arch
+    if march: cfg.target_march = {arch: march}
     cfg.compiler_version = lambda: 'gcc14'
     cfg.get_distro_info = lambda: ('linux', '24', 'noble')
     cfg.name = lambda: 'linux'

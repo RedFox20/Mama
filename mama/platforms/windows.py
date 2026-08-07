@@ -103,6 +103,7 @@ class Windows(Platform):
     ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx. An older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False
+    supports_march = False  # MSVC has no -march. Its nearest flag, /arch:, names a different axis
 
     def _build_toolchain(self) -> Toolchain:
         # An x86 target needs the 32-bit host toolset. The toolset and the SDK pick the compiler, so mama names none.

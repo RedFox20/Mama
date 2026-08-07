@@ -14,6 +14,9 @@ SYSTEM_PROCESSORS = {
     'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el',
 }
 
+# Every arch name mama accepts, from the CLI and from a mamafile.
+ARCHES = tuple(SYSTEM_PROCESSORS)
+
 
 def host_arch() -> str:
     """The arch of the machine mama runs on. The default target arch for a native build."""
@@ -68,6 +71,7 @@ class Platform:
     ide_project_is_dir = False
     ide_open_command = ''
     supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of
+    supports_march = True      ## False where the compiler has no -march, so a target_march pin cannot apply
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -172,10 +176,23 @@ class Platform:
 
     ## --- flags ---
 
+    def default_march(self) -> str:
+        """-march for the current target arch when the project pins none. '' names no -march."""
+        return self.cpu_flags.get('-march', '')
+
+
+    def march(self) -> str:
+        """The -march this build compiles with: the project pin first, then the platform default."""
+        if not self.supports_march: return ''
+        return self.config.target_march.get(self.arch()) or self.default_march()
+
+
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
         """Add the compiler flags this platform always needs.
         add_flag: (flag, value) sink. It keeps an existing value, so a mamafile that set the flag wins
         """
+        march = self.march()
+        if march: add_flag('-march', march)  # first, so add_flag keeps it over a cpu_flags -march
         for flag, value in self.cpu_flags.items():
             add_flag(flag, value)
         for define, value in self.compile_defines.items():

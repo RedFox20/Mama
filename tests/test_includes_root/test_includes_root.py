@@ -27,6 +27,7 @@ def make_mock_target(source_dir, build_dir=None):
     target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
     target.dep.build_dir = target.build_dir()
     target.dep.variant_suffix = ''        # the papa `O` record appends it
+    target.config.target_march = {}       # ...and reads the -march pin of the target arch
     return target
 
 

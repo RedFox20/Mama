@@ -127,9 +127,12 @@ class Raspi(Platform):
                          find_root_program='NEVER')
 
 
+    def default_march(self) -> str:
+        return _MARCH[self.arch()]
+
+
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
         arch = self.arch()
-        add_flag('-march', _MARCH[arch])
         if arch in _FPU: add_flag('-mfpu', _FPU[arch])
         sysroot = self.get_sysroot()
         if sysroot: add_flag('--sysroot', sysroot)
