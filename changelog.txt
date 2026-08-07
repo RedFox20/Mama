@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.13.15 (2026-Aug-07)
  - feature: set_target_march pins the instruction set of a release build
      config.set_target_march('x64', 'x86-64-v3')  in the root mamafile
      the pin renames the arch field, so a tuned build gets its own package:
@@ -12,6 +12,9 @@ unreleased
  - feature: unpublish deletes published archives, and their local copies
  - feature: version_suffix renames a package on every platform at once
  - bugfix: a target that exports nothing no longer uploads an empty archive
+ - bugfix: a failed artifactory download uses the cached archive instead
+ - bugfix: noart builds every git dep from source, and a pkg dep is read-only
+ - bugfix: a build no longer hangs when a pipe closes on a pending read
 
 release: 0.13.14 (2026-Aug-07)
  - feature: deploy_after_build deploys a target, and the build says where

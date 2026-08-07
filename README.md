@@ -15,6 +15,15 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.13.15** (2026-Aug-07)
+- feature: set_target_march pins the instruction set of a release build
+- feature: unpublish deletes published archives, and their local copies
+- feature: version_suffix renames a package on every platform at once
+- bugfix: a target that exports nothing no longer uploads an empty archive
+- bugfix: a failed artifactory download uses the cached archive instead
+- bugfix: noart builds every git dep from source, and a pkg dep is read-only
+- bugfix: a build no longer hangs when a pipe closes on a pending read
+
 **0.13.14** (2026-Aug-07)
 - feature: deploy_after_build deploys a target, and the build says where
 - feature: nothing_to_upload() skips a target that publishes no package
@@ -36,10 +45,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 - bugfix: locks and compiler seeds live in packages/.mama, not beside each dep
 - bugfix: a project with no mamafile keeps its packages out of the home dir
 - perf: naming a target only skims mamafiles, and stops at the first match
-
-**0.13.12** (2026-Aug-05)
-- bugfix: a targeted rebuild no longer clones or fetches unrelated deps
-- bugfix: a committed .worktrees dir no longer fails the submodule init
 
 [Full changelog](https://github.com/RedFox20/Mama/blob/master/changelog.txt)
 
