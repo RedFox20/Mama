@@ -1,5 +1,9 @@
 
 class DepSource(object):
+    # A parent declares this on add_git/add_local/add_artifactory_pkg. It appends to the archive version,
+    # so a changed packaging recipe renames the package on every platform and compiler at once.
+    version_suffix = ''
+
     def __init__(self, name:str):
         self.name = name
         self.is_git = False

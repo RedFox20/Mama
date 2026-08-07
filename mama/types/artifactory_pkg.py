@@ -2,7 +2,7 @@ from .dep_source import DepSource
 
 class ArtifactoryPkg(DepSource):
     """For a BuildDependency whose source is an artifactory package."""
-    def __init__(self, name:str, version:str, fullname:str):
+    def __init__(self, name:str, version:str, fullname:str, version_suffix:str=''):
         super(ArtifactoryPkg, self).__init__(name)
         self.is_pkg = True
         if fullname:
@@ -11,6 +11,7 @@ class ArtifactoryPkg(DepSource):
         else:
             self.fullname = ''
             self.version = version  # version name of the archive to use
+        self.version_suffix = version_suffix
 
 
     def __str__(self):  return f'DepSource ArtifactoryPkg {self.name} {self.fullname if self.fullname else self.version}'

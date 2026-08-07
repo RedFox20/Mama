@@ -234,6 +234,10 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
+        # A `D` record ends in a variable-length arg list, so the suffix cannot ride along. Its own
+        # record keeps every older reader working, because an unknown record parses as nothing.
+        suffix = d.dep_source.version_suffix
+        if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
 
     # Delete the include tree the last deploy wrote. A header this target no longer exports must not
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
@@ -306,6 +310,8 @@ class PapaFileInfo:
         self.syslibs = []
         self.assets: List[Asset] = []
 
+        suffixes = {}  # dep name -> version_suffix, applied below once every `D` record is in
+
         def append_to(to:list, line):
             to.append(normalized_join(self.papa_dir, line[2:].strip()))
 
@@ -314,6 +320,9 @@ class PapaFileInfo:
             elif line.startswith('C '): self.compiler = line[2:].strip()
             elif line.startswith('O '): self.attributes = line[2:].split()
             elif line.startswith('D '): self.dependencies.append(make_dep_source(line[2:].strip()))
+            elif line.startswith('V '):
+                dep_name, _, suffix = line[2:].strip().partition(' ')
+                suffixes[dep_name] = suffix.strip()
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
@@ -322,3 +331,6 @@ class PapaFileInfo:
                 fullpath = normalized_join(self.papa_dir, relpath)
                 self.assets.append(Asset(relpath, fullpath, None))
 
+        # applied after the loop, because a `V` record may sit either side of the `D` record it names
+        for dep_source in self.dependencies:
+            if dep_source.name in suffixes: dep_source.version_suffix = suffixes[dep_source.name]

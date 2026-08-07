@@ -304,7 +304,8 @@ def plain_config(sanitize=None, coverage=None):
 
 
 def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch='x64', build_dir='',
-                             version='abc1234', args=(), git_tag='', git_branch='', is_git=None):
+                             version='abc1234', args=(), git_tag='', git_branch='', is_git=None,
+                             version_suffix=''):
     """Stub the BuildTarget surface artifactory_archive_name touches. compiler_version() and
     get_distro_info() read the host, so this answers with fixed values. `args` is what a consumer passed
     to add_git(..., args=[...]); the variant suffix comes from the same function a dep calls. Pass
@@ -323,6 +324,7 @@ def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch
                          mamafile=None, shallow=True, args=[])
     else:
         dep_source = SimpleNamespace(is_pkg=False, fullname=None, is_git=False, is_src=False)
+    dep_source.version_suffix = version_suffix  # what add_git(..., version_suffix=) put on the dep source
     dep = SimpleNamespace(is_root=False, dep_source=dep_source, target_args=list(args), build_dir=build_dir,
                           variant_suffix=build_names.build_variant_suffix(cfg, args))
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)

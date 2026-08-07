@@ -198,7 +198,8 @@ def repo_health_from_disk(src_dir: str):
 
 class Git(DepSource):
     """For a BuildDependency whose source is a git repository."""
-    def __init__(self, name:str, url:str, branch:str, tag:str, mamafile:str, shallow:bool, args:list):
+    def __init__(self, name:str, url:str, branch:str, tag:str, mamafile:str, shallow:bool, args:list,
+                 version_suffix:str=''):
         super(Git, self).__init__(name)
         if not url: raise RuntimeError("Git url must not be empty!")
         self.is_git = True
@@ -208,6 +209,7 @@ class Git(DepSource):
         self.mamafile = mamafile
         self.shallow = shallow
         self.args = args
+        self.version_suffix = version_suffix
 
         self.from_source = False  # True forces a source build instead of an artifactory package
         self.commit_hash = None  # the git commit hash of this DepSource

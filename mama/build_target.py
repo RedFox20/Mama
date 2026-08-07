@@ -253,7 +253,8 @@ class BuildTarget:
         self.config.set_artifactory_ftp(ftp_url=ftp_url, auth=auth)
 
 
-    def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[]) -> BuildDependency:
+    def add_local(self, name, source_dir, mamafile=None, always_build=False, args=[],
+                  version_suffix='') -> BuildDependency:
         """
         Add a local dependency. This can be a git submodule or a local folder
         that contains its own CMakeLists.txt.
@@ -266,6 +267,8 @@ class BuildTarget:
         - mamafile: [None] optional custom mamafile path
         - always_build: [False] always build this dependency, for chained sub-projects that do not depend on each other
         - args: [[]] extra arguments for the target mamafile, read back via `self.args`
+        - version_suffix: [''] appended to the archive version, so a changed packaging recipe renames
+          the package on every platform and compiler at once
         ```
         self.add_local('zlib', '3rdparty/zlib')
         self.add_local('zlib', '3rdparty/zlib', mamafile='mama/zlib.py')
@@ -274,11 +277,11 @@ class BuildTarget:
         """
         if self.dep.from_artifactory: # already loaded from artifactory?
             return self.get_dependency(name)
-        return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args))
+        return self.dep.add_child(LocalSource(name, source_dir, mamafile, always_build, args, version_suffix))
 
 
     def add_git(self, name, git_url, git_branch='', git_tag='', git_commit='',
-                mamafile=None, shallow=True, args=[]) -> BuildDependency:
+                mamafile=None, shallow=True, args=[], version_suffix='') -> BuildDependency:
         """
         Add a remote GIT dependency. Mama clones it and updates it during builds.
         Use `mama update` to force update the git repositories.
@@ -295,6 +298,8 @@ class BuildTarget:
         - mamafile: [None] optional custom mamafile path
         - shallow: [True] use a shallow clone
         - args: [[]] extra arguments for the child target, read back via `self.args`
+        - version_suffix: [''] appended to the archive version, so a changed packaging recipe renames
+          the package on every platform and compiler at once
         ```
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git')
         self.add_git('ReCpp', 'git@github.com:RedFox20/ReCpp.git', git_branch='master')
@@ -308,10 +313,10 @@ class BuildTarget:
         if git_tag == '' and git_commit != '':
             git_tag = git_commit
 
-        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, shallow, args))
+        return self.dep.add_child(Git(name, git_url, git_branch, git_tag, mamafile, shallow, args, version_suffix))
 
 
-    def add_artifactory_pkg(self, name, version='latest', fullname=None) -> BuildDependency:
+    def add_artifactory_pkg(self, name, version='latest', fullname=None, version_suffix='') -> BuildDependency:
         """
         Adds an Artifactory-only dependency. Mama downloads it from the artifactory URL.
 
@@ -320,15 +325,21 @@ class BuildTarget:
         - version: ['latest'] mama picks the matching remote package for this version
         - fullname: [None] use only this exact artifactory package as an override,
           for source-only packages and for platform-specific configuration
+        - version_suffix: [''] appended to the archive version, so a changed packaging recipe renames
+          the package. A `fullname` names one exact archive, so the two cannot be combined.
         ```
         self.add_artifactory_pkg('mylib', version='latest')
         self.add_artifactory_pkg('mylib', version='df76b66')
         self.add_artifactory_pkg('mylib', fullname='mylib-linux-x64-release-df76b66')
         ```
         """
+        if fullname and version_suffix:
+            raise RuntimeError(f'add_artifactory_pkg({name}) cannot take both fullname and version_suffix. ' + \
+                               'A fullname names one exact archive, so no suffix can rename it.')
         if self.dep.from_artifactory: # already loaded from artifactory?
             return self.get_dependency(name)
-        return self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname))
+        return self.dep.add_child(ArtifactoryPkg(name, version=version, fullname=fullname,
+                                                 version_suffix=version_suffix))
 
 
     def get_dependency(self, name: str) -> BuildDependency:

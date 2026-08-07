@@ -7,13 +7,15 @@ from ..utils.paths import path_join
 
 class LocalSource(DepSource):
     """For a BuildDependency whose source is a local directory."""
-    def __init__(self, name:str, rel_path:str, mamafile:str, always_build:bool, args:list):
+    def __init__(self, name:str, rel_path:str, mamafile:str, always_build:bool, args:list,
+                 version_suffix:str=''):
         super(LocalSource, self).__init__(name)
         self.is_src = True
         self.rel_path = rel_path
         self.mamafile = mamafile
         self.always_build = always_build
         self.args = args
+        self.version_suffix = version_suffix
 
     def __str__(self):
         return f'DepSource LocalSource {self.name} {self.rel_path} {self.mamafile} always_build={self.always_build}'

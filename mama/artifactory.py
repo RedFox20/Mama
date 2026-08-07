@@ -85,6 +85,11 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     # The pre-clone shim probe and the upload then compose the same name.
     build_type = (build_type or ('release' if target.config.release else 'debug')) + target.dep.variant_suffix
 
+    # The parent declares this, so it renames the package on every platform and compiler at once. A
+    # changed packaging recipe needs that: the version alone names the source, never the recipe.
+    suffix = target.dep.dep_source.version_suffix
+    if suffix: version = f'{version}-{build_names.sanitize_version(suffix)}'
+
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 
 

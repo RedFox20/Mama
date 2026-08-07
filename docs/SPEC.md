@@ -469,6 +469,27 @@ package the upload side never publishes. So mama refuses the pin, and warns once
 
 An unpinned **local** dep has no commit of its own, so mama names it by its source content.
 
+### version_suffix
+
+`add_git`, `add_local` and `add_artifactory_pkg` each take `version_suffix`. It appends to the resolved
+version, so `caf5158` becomes `caf5158-2`. The suffix always passes through `sanitize_version`, which the
+version itself only does on the tag and the branch paths.
+
+`add_artifactory_pkg` refuses `fullname` and `version_suffix` together. A `fullname` names one exact
+archive and returns before any version is composed, so a suffix beside it would go nowhere.
+
+**Why:** the archive name covers the source and the toolchain, and nothing in it covers the packaging
+recipe. Change `package()` in a mamafile and every already-published archive keeps serving the old
+content. One machine can only rebuild the variants it can compile, so the rest stay stale. A suffix
+renames the package on every platform and compiler at once, which is the only lever that reaches them.
+
+**The parent declares it, never the target.** A target-side field would be invisible to the pre-clone
+shim probe, so the download and the upload would name different archives.
+
+A `V <dep> <suffix>` record in `papa.txt` carries it to a consumer, because a `D` record ends in a
+variable-length arg list and cannot hold another field. Without that record a consumer of a package
+would resolve the child by its unsuffixed name. A reader that predates the record sees no suffix.
+
 The upload refuses to publish a name the download side cannot construct. A non-root local dep takes a
 different rule, because its source is on disk for both sides and its mamafile may compute the version.
 Only an uncommitted edit stops it, because no other machine can rebuild that tree.
@@ -652,6 +673,7 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `P` | project name |
 | `C` | the compiler that built it |
 | `O` | what the objects are: build type, platform, arch, then the variant tokens |
+| `V` | the `version_suffix` a parent declared for one dependency |
 | `D` | a dependency source |
 | `I` | an exported include dir |
 | `L` | an exported lib |
