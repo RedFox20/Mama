@@ -1784,6 +1784,12 @@ class BuildTarget:
         if not (for_all or no_targets or one_target):
             return # not going to deploy
 
+        # An `add_artifactory_pkg` dep is read-only and has no source, so this run built nothing to publish.
+        if self.dep.dep_source.is_pkg:
+            if self.config.print:
+                warning(f'  - Target {self.name: <16} DEPLOY/UPLOAD skipped (artifactory pkg is read-only)')
+            return
+
         # The shim is read-only. A re-deploy or re-upload must not overwrite its
         # papa.txt and unzipped tree. The artifactory already has the package.
         if self.dep.is_artifactory_shim():

@@ -21,6 +21,10 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Closed
 
+- **`noart` left an `add_artifactory_pkg` dep with no package.** The flag refused the fetch of every dep,
+  and a package dep has no source to clone instead, so it exported nothing. A package dep now ignores
+  `noart`, a rebuild and a clean, and it refuses a deploy or an upload.
+
 - **A deploy re-rooted an include tree that an archive already unpacked.** `as_includes_root` applied
   its alias to a fetched package too, so every republish nested the tree one level deeper.
   `_include_deploy` now copies an unpacked archive as it stands.

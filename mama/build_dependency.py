@@ -603,6 +603,9 @@ class BuildDependency:
     def can_fetch_artifactory(self, print: bool, which: str):
         if self.is_root or self.did_check_artifactory:
             return False
+        # An `add_artifactory_pkg` dep exists ONLY as a package. No flag can make it build from source,
+        # so `noart`, a rebuild and a clean must never refuse its fetch.
+        if self.dep_source.is_pkg: return True
 
         force_art = self.config.force_artifactory
         disable_art = self.config.disable_artifactory

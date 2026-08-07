@@ -442,6 +442,9 @@ direct comparison.
 - `noart` refuses, and it beats `art`. The post-clone probe says so, and the pre-clone shim probe
   refuses silently, because it asks with printing off. `noart` also refuses a shim already on disk,
   so every git dep builds from source.
+- **An `add_artifactory_pkg` dep ignores every flag.** It exists only as a package, so `noart`, a
+  rebuild and a clean cannot apply to it. It is read-only too, and it refuses a deploy and an upload.
+  A missing network still refuses the download, because no flag can conjure the package.
 - A `rebuild` of the current target refuses, because the source build is the point. Verbose only.
 - A `clean` of the current target refuses, because the clean deletes the result. Verbose only.
 - `art` forces the fetch for every dep the two rules above did not already refuse. A miss on a git dep
