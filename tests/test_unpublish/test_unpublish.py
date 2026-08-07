@@ -186,6 +186,42 @@ def test_the_purge_keeps_a_shim_that_serves_a_version_this_run_kept(tmp_path):
     assert os.path.exists(target.dep.build_dir)
 
 
+def _platform_shim(target, platform: str, archive_stem: str):
+    """A build dir for another platform, carrying a shim marker that names `archive_stem`."""
+    build_dir = os.path.join(target.dep.dep_dir, platform)
+    os.makedirs(build_dir, exist_ok=True)
+    open(os.path.join(build_dir, MAMA_SHIM_FILENAME), 'w').write(f'shim 1\narchive {archive_stem}\n')
+    return build_dir
+
+
+def test_the_purge_reaches_the_shim_of_every_platform(tmp_path):
+    # the run builds linux, and android holds a shim for the same archive. Leaving it there means the
+    # machine keeps naming a package the server no longer has.
+    deleted = _archive('caf5158')
+    target = _target_with_cache(tmp_path, [deleted])
+    android = _platform_shim(target, 'android', deleted.filename[:-4])
+    up.purge_local(target, [deleted])
+    assert not os.path.exists(android)
+
+
+def test_a_shim_of_another_platform_survives_when_its_archive_stays(tmp_path):
+    deleted = _archive('caf5158')
+    target = _target_with_cache(tmp_path, [deleted])
+    android = _platform_shim(target, 'android', _archive('kept').filename[:-4])
+    up.purge_local(target, [deleted])
+    assert os.path.exists(android)
+
+
+def test_the_purge_never_removes_a_dir_that_holds_a_clone(tmp_path):
+    # a `.git` inside means a working tree, whatever a stale marker beside it claims
+    deleted = _archive('caf5158')
+    target = _target_with_cache(tmp_path, [deleted])
+    cloned = _platform_shim(target, 'windows', deleted.filename[:-4])
+    os.makedirs(os.path.join(cloned, '.git'))
+    up.purge_local(target, [deleted])
+    assert os.path.exists(cloned)
+
+
 def test_the_purge_never_removes_a_build_dir_that_is_also_the_source_tree(tmp_path):
     # a dep named after a platform build dir has src_dir == build_dir, and a remove would take the
     # working tree with every uncommitted change in it

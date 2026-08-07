@@ -9,7 +9,7 @@ import os
 
 from .artifactory import artifactory_ftp_login, artifactory_sanitize_url
 from .utils.fileio import remove_tree
-from .utils.paths import path_join
+from .utils.paths import path_join, has_shim_marker
 from .utils.progress import get_file_size_str
 from .utils.system import Color, console, error, is_headless, warning
 
@@ -176,20 +176,34 @@ def describe_run(doomed: dict, url: str) -> str:
            f'{len(doomed)} target(s) on {url}' + describe_local(doomed)
 
 
+def shim_dirs_serving(dep, names: set) -> List[str]:
+    """Every build dir of this dep whose shim marker names one of `names`.
+
+    All of them, not only the one this run builds. A dep holds one build dir per platform, and a shim
+    left in another platform's dir would go on naming an archive the server no longer has."""
+    from .build_dependency import read_shim_marker_at  # local import: avoid a cycle
+    found = []
+    try: entries = sorted(os.listdir(dep.dep_dir))
+    except OSError: return found
+    for entry in entries:
+        build_dir = path_join(dep.dep_dir, entry)
+        # A shim build dir holds no source, so removing it costs a re-fetch and nothing more. Two
+        # guards: src_dir is the working tree, and a `.git` inside means a clone, not a shim.
+        if build_dir == dep.src_dir or not os.path.isdir(build_dir): continue
+        if os.path.exists(path_join(build_dir, '.git')) or not has_shim_marker(build_dir): continue
+        archive = read_shim_marker_at(build_dir).get('archive', '')
+        if archive and f'{archive}.zip' in names: found.append(build_dir)
+    return found
+
+
 def local_copies(target: BuildTarget, archives: List[Archive]) -> List[str]:
-    """The cached zip of each archive that this machine holds, plus the build dir of a shim that serves
+    """The cached zip of each archive that this machine holds, plus every build dir whose shim serves
     one of them. A shim of a version this run kept stays, because its package is still on the server."""
     dep = target.dep
     # guarded here as well as in the selector: this function is the one that passes paths to os.remove
     names = {a.filename for a in archives if is_plain_filename(a.filename)}
     paths = [p for p in (path_join(dep.dep_dir, n) for n in names) if os.path.exists(p)]
-    # A shim build dir holds no source, so removing it costs a re-fetch and nothing more. Two guards
-    # before that: a marker beside a real clone is stale, and a dep named after a platform build dir
-    # has src_dir == build_dir, where a remove would take the working tree and its uncommitted work.
-    if dep.is_artifactory_shim() and dep.build_dir != dep.src_dir:
-        shim_archive = dep.read_shim_marker().get('archive', '')
-        if shim_archive and f'{shim_archive}.zip' in names: paths.append(dep.build_dir)
-    return paths
+    return paths + shim_dirs_serving(dep, names)
 
 
 def purge_local(target: BuildTarget, archives: List[Archive]) -> int:

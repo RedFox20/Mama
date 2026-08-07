@@ -30,6 +30,23 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 ######################################################################################
 
 
+def read_shim_marker_at(build_dir: str) -> dict:
+    """Shim metadata from ANY build dir, or an empty dict when it holds no marker. A dep owns one build
+    dir, and an unpublish reads the dirs of the other platforms too.
+    Keys: name, url, branch, tag, hash, archive."""
+    result = {}
+    path = normalized_join(build_dir, MAMA_SHIM_FILENAME)
+    if not os.path.exists(path):
+        return result
+    for line in read_lines_from(path):
+        line = line.rstrip()
+        if not line or line == 'shim 1':
+            continue
+        key, _, value = line.partition(' ')
+        result[key] = value
+    return result
+
+
 class BuildDependency:
     def __init__(self, parent:BuildDependency, config:BuildConfig,
                  workspace:str, dep_source:DepSource):
@@ -269,17 +286,7 @@ class BuildDependency:
     def read_shim_marker(self) -> dict:
         """Return a dict of shim metadata, or an empty dict when there is no marker.
         Keys: name, url, branch, tag, hash, archive."""
-        result = {}
-        path = self.mama_shim_file()
-        if not os.path.exists(path):
-            return result
-        for line in read_lines_from(path):
-            line = line.rstrip()
-            if not line or line == 'shim 1':
-                continue
-            key, _, value = line.partition(' ')
-            result[key] = value
-        return result
+        return read_shim_marker_at(self.build_dir)
 
 
     def remove_shim_marker(self):

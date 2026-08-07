@@ -754,9 +754,10 @@ A headless run cannot answer, so it refuses unless the command line also says `y
 hanging a CI job on stdin.
 
 **A confirmed unpublish also drops the local copies:** the cached zip of every archive that really left
-the server, and the build dir of a shim whose marker names one of them. That build dir goes only when
-`is_artifactory_shim` agrees and it differs from `src_dir`, because a dep named after a platform build
-dir shares the two paths, and a remove there would take the working tree.
+the server, and EVERY build dir of that dep whose shim marker names one of them. Every platform, not
+only the one this run builds: a shim left in another platform's dir would go on naming an archive the
+server no longer has. A dir goes only when it holds no `.git` and differs from `src_dir`, because a dep
+named after a platform build dir shares the two paths, and a remove there would take the working tree.
 
 **A file name the server supplies is never a path.** The local purge deletes by that name. A name
 holding a separator, a `..` or a drive is refused three times: at the listing, at the selector and at

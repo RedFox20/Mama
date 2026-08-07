@@ -12,13 +12,13 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-- [ ] **A shim of another platform keeps serving a deleted package.** `local_copies` in
-  `artifactory_unpublish.py` reads `dep.build_dir`, which is one platform. An unpublish on a linux run
-  leaves `packages/<ws>/mylib/android/` holding a shim marker for an archive the server no longer has,
-  which is the failure the module exists to prevent. Walk every build dir under `dep_dir` instead, and
-  drop each whose marker names a deleted archive.
+None.
 
 ## Closed
+
+- **A shim of another platform kept serving a deleted package.** The local purge read one build dir, so
+  an unpublish on a linux run left the android shim naming an archive the server no longer had. It now
+  walks every build dir of the dep, and drops each whose marker names a deleted archive.
 
 - **A `clean` run never unpublished, and said nothing.** `clean_only` returns before the usual call
   site. That path now runs the unpublish itself, and the cached zips survive a clean because they live
