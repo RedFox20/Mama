@@ -4,14 +4,14 @@ import os
 
 import pytest
 
-from testutils import make_platform_target
+from testutils import make_stub_target
 from mama.platforms.linux import Linux
 from mama.platforms.oclea import Oclea
 from mama.utils.gnu_project import BuildProduct, GnuProject
 
 
 def _target(tmp_path, platform_class=Linux, jobs=8):
-    return make_platform_target(tmp_path, platform_class, jobs=jobs)
+    return make_stub_target(tmp_path, platform_class, jobs=jobs)
 
 
 def _project(tmp_path, products=(), platform_class=Linux, jobs=8, **kw):

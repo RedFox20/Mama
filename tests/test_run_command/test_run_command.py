@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_platform_target
+from testutils import make_stub_target
 from mama.platforms.linux import Linux
 from mama.platforms.windows import Windows
 from mama.utils import gdb, gtest, run
@@ -11,7 +11,7 @@ from mama.utils.paths import normalized_path
 
 
 def _target(tmp_path, platform_class=Linux):
-    return make_platform_target(tmp_path, platform_class, verbose=False)
+    return make_stub_target(tmp_path, platform_class, verbose=False)
 
 
 def _args(target, command, **kw):
