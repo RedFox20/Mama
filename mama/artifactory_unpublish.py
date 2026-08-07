@@ -265,6 +265,22 @@ def _resolve(target, selector: str) -> str:
     return version
 
 
+def _selector_label(config, keep: int) -> str:
+    """The selector to show the user. `prune-old` names the count it keeps, which the command line hides."""
+    return f'prune-old={keep}' if config.unpublish == 'prune-old' else config.unpublish
+
+
+def _report_no_match(listed: dict, selector: str, url: str):
+    """Say which target the run read and how many archives it holds. A bare `Nothing to unpublish`
+    hides both, so a wrong target name reads the same as a selector that matched no version."""
+    if not listed:
+        console(f'  Nothing to unpublish on {url}: the run reached no target')
+        return
+    console(f'  Nothing to unpublish on {url}: no archive matched `{selector}`')
+    for name, count in listed.items():
+        console(f'    {name: <16} {count} archive(s) published')
+
+
 def unpublish_run(targets, config) -> int:
     """Delete the archives this run selects, across every target it names, behind ONE prompt.
 
@@ -277,6 +293,7 @@ def unpublish_run(targets, config) -> int:
     keep = DEFAULT_KEEP if config.unpublish_keep is None else config.unpublish_keep
 
     doomed = {}  # target -> [archive], so the listing can group by target and the purge can follow
+    listed = {}  # target name -> how many archives the server holds, for the nothing-matched report
     ftp = connect(config)
     try:
         for target in targets:
@@ -288,10 +305,12 @@ def unpublish_run(targets, config) -> int:
             # would leave the tree naming a package that exists nowhere. `prune-all` takes everything,
             # because a user who typed `all` asked for exactly that.
             protect = current_version(target) if selector == 'prune-old' else ''
-            picked = select(target.name, list_archives(ftp, target.name), selector, keep, protect)
+            archives = list_archives(ftp, target.name)
+            listed[target.name] = len(archives)
+            picked = select(target.name, archives, selector, keep, protect)
             if picked: doomed[target] = picked
         if not doomed:
-            console(f'  Nothing to unpublish for `{config.unpublish}` on {url}')
+            _report_no_match(listed, _selector_label(config, keep), url)
             return 0
         if not _confirm(describe_run(doomed, url), config.assume_yes):
             console('  UNPUBLISH cancelled')

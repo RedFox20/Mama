@@ -291,10 +291,25 @@ def test_a_selector_that_matches_nothing_never_prompts(tmp_path):
     ftp.delete.assert_not_called()
 
 
+@pytest.mark.parametrize('selector, keep, label', [
+    ('nosuchversion', None, 'nosuchversion'),
+    ('prune-old', None, 'prune-old=20'),   # the command line hides the count, so the report names it
+    ('prune-old', 3, 'prune-old=3'),
+])
+def test_a_selector_that_matches_nothing_names_the_target_and_the_count(tmp_path, selector, keep, label):
+    with patch.object(up, 'console') as printed:
+        _run(tmp_path, selector, [_archive('caf5158')], keep=keep)
+    report = '\n'.join(c.args[0] for c in printed.call_args_list)
+    assert f'Nothing to unpublish on files.example.com: no archive matched `{label}`' in report
+    assert f'{NAME: <16} 1 archive(s) published' in report
+
+
 def test_a_package_dep_refuses_to_unpublish(tmp_path):
-    deleted, ftp, _, _ = _run(tmp_path, 'caf5158', [_archive('caf5158')], is_pkg=True)
+    with patch.object(up, 'console') as printed:
+        deleted, ftp, _, _ = _run(tmp_path, 'caf5158', [_archive('caf5158')], is_pkg=True)
     assert deleted == 0
     ftp.delete.assert_not_called()
+    assert 'the run reached no target' in printed.call_args[0][0]
 
 
 def test_prune_old_with_a_keep_of_zero_deletes_every_version(tmp_path):

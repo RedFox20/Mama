@@ -800,6 +800,12 @@ stays, and a zip whose delete failed keeps its cache, because the server still h
 cleans the server must not keep serving what it deleted, which the cached-zip fallback of section 8 would
 otherwise do.
 
+**A run that matches no archive names every target it listed and how many archives that target holds.**
+A `prune-old` report also names the count it keeps, which a bare `prune-old` leaves out.
+
+**Why:** a bare `Nothing to unpublish` reads the same for a wrong target name and for a selector that
+spared everything.
+
 **The scope is the target the user typed, not `config.target`.** An `update` rewrites an empty target to
 `all`, and an unpublish that followed it would delete every version of every dep from a command line that
 named none.
