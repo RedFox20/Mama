@@ -19,6 +19,13 @@ design options. The commit and its tests hold that detail, and a copy here goes 
   `build_dependency.py:507`. `load_dependency_chain` catches only `BuildError` at `dependency_chain.py:527`,
   so the run ends in a traceback. The cache-skip condition should name one target, not the whole tree.
 
+- [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` fails about one run in five.**
+  `tests/test_build_scheduler/test_build_scheduler.py:231` asserts `hook == ['a failed']` after running two
+  jobs that both raise, under a scheduler with a core budget of 8. Nothing stops job `b` from starting
+  before the abort of job `a` lands, so the hook can fire twice or name `b`. Decide which side is wrong
+  first. Either the scheduler must guarantee one abort hook per run, or the test must run the two jobs
+  with a budget of 1. Eight worker processes load the machine and make the race visible.
+
 - [ ] **`test_a_shape_only_git_can_settle_defers[gitdir file]` fails about one Windows run in ten.**
   `tests/test_git_repo_heal/test_repo_health.py:75` calls `shutil.move` on a `.git` dir that git wrote
   a moment earlier. On Windows a move fails while any handle on the tree is open, and a virus scanner
