@@ -12,6 +12,13 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
+- [ ] **An offline `mama update` kills the run over a package dep it already has cached.** `update` with
+  no named target sets `config.target = 'all'` at `main.py:315`, so `is_current_target()` answers True for
+  every dep. `artifactory.py:359` then skips the cached zip for every dep, not just one. Offline
+  `_fetch_package` returns None at `artifactory.py:303`, so an `add_artifactory_pkg` dep raises at
+  `build_dependency.py:507`. `load_dependency_chain` catches only `BuildError` at `dependency_chain.py:527`,
+  so the run ends in a traceback. The cache-skip condition should name one target, not the whole tree.
+
 - [ ] **`test_a_shape_only_git_can_settle_defers[gitdir file]` fails about one Windows run in ten.**
   `tests/test_git_repo_heal/test_repo_health.py:75` calls `shutil.move` on a `.git` dir that git wrote
   a moment earlier. On Windows a move fails while any handle on the tree is open, and a virus scanner
