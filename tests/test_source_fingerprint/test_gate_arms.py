@@ -9,22 +9,14 @@ from unittest.mock import patch
 import pytest
 
 from mama.utils import git_status as util
-from testutils import git_init_commit, make_mock_dep
-
-
-def _repo(dep):
-    git_init_commit(dep.src_dir, files={'lib.cpp': 'int f(){return 1;}\n'})
-    return dep
+from testutils import git_init_commit, make_mock_dep, source_tree_changed as _changed
 
 
 @pytest.fixture
 def dep(tmp_path):
-    return _repo(make_mock_dep(tmp_path, name='libfoo'))
-
-
-def _changed(dep) -> bool:
-    util.forget_git_dir_fingerprint(dep.src_dir)
-    return dep.dep_source.source_tree_changed(dep)
+    dep = make_mock_dep(tmp_path, name='libfoo')
+    git_init_commit(dep.src_dir, files={'lib.cpp': 'int f(){return 1;}\n'})
+    return dep
 
 
 def test_a_build_that_changes_nothing_arms_the_gate(dep):

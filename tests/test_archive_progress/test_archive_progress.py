@@ -6,17 +6,14 @@ from unittest.mock import Mock
 
 import pytest
 
-from mama.utils import system
 from mama.utils.progress import ProgressBar
 from mama.papa_upload import (_archive_entries, _write_archive, _write_file, _compress_level,
                               _archive_total_size)
 
 
 @pytest.fixture(autouse=True)
-def reset_progress_state(interactive_terminal):
-    # these pin the size-based redraw throttle, which only runs when a terminal can redraw in place
-    yield
-    system._progress_active = False  # a bar left mid-redraw makes the next test's console() insert \n
+def _redrawing_terminal(reset_progress_state, interactive_terminal):
+    """These pin the size-based redraw throttle, which only runs where a terminal can redraw in place."""
 
 
 def test_a_small_payload_draws_no_intermediate_redraws(capsys):

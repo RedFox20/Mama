@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from testutils import make_exporting_target, make_mock_dep, make_mock_shim_dep
+from testutils import deploy_pass_uploads, make_exporting_target, make_mock_dep, make_mock_shim_dep
 
 import mama.build_dependency as build_dependency
 from mama.build_dependency import BuildDependency
@@ -53,10 +53,7 @@ def test_the_cleaned_target_always_builds_once_its_marker_is_gone(tmp_path):
 
 def _uploads(dep) -> bool:
     """True when the deploy pass of this dep reaches papa_upload_to."""
-    target = make_exporting_target(dep, includes=[], libs=[])
-    with patch('mama.papa_upload.papa_upload_to') as upload, patch.object(type(target), 'deploy'):
-        target._execute_deploy_tasks()
-    return upload.called
+    return deploy_pass_uploads(make_exporting_target(dep, includes=[], libs=[]))
 
 
 def test_a_shim_still_refuses_to_upload(tmp_path):

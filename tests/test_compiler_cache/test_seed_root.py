@@ -1,16 +1,7 @@
 """Pins where the compiler seed lives: the workspace by default, the user cache under `globalcache`."""
-import pytest
-
 from mama.utils import paths as util
 from mama.buildsys.cmake import configure as cc
 from testutils import make_configured_target
-
-
-@pytest.fixture(autouse=True)
-def _fresh_cache():
-    util.user_cache_dir.cache_clear()
-    yield
-    util.user_cache_dir.cache_clear()  # the session cache dir must survive this file
 
 
 def test_the_seed_stays_in_the_workspace_by_default(tmp_path):

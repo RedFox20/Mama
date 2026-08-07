@@ -3,7 +3,7 @@ host build dir, then bootstrapping via a `mama <host> build` child on a miss - p
 import os, sys, pytest
 from unittest.mock import patch
 
-from testutils import executable_extension, make_configured_target
+from testutils import executable_extension, make_configured_target, touch_file as _touch
 from mama import build_config as bc
 from mama import build_target as bt
 
@@ -19,12 +19,6 @@ def _cross_target(tmp_path, name='android', host='linux'):
     dep.config.host_platform_name.return_value = host
     dep.config.root_source_dir = str(tmp_path)
     return t, dep
-
-
-def _touch(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    open(path, 'w').close()
-    return path
 
 
 # -- host_platform_name -------------------------------------------------------

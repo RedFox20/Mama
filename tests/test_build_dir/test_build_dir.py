@@ -1,18 +1,12 @@
 """Pins build dir names: sanitizer, coverage, compiler and dep-args suffixes."""
 import pytest
 from mama.build_names import build_dir_name
-from testutils import platform_config
-from mama.platforms.linux import Linux
+from testutils import linux_config, platform_config
 from mama.platforms.macos import Macos
 from mama.platforms.ios import Ios
 from mama.platforms.android import Android
 from mama.platforms.windows import Windows
 from mama.platforms.oclea import Oclea
-
-
-def linux_config():
-    """A BuildConfig pinned to linux/x64 so dir names are host-independent."""
-    return platform_config(Linux, 'x64')
 
 
 def test_no_sanitizer_dir_unchanged():

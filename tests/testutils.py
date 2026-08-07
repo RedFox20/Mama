@@ -1,3 +1,4 @@
+import contextlib
 import os
 import re
 import shutil
@@ -119,6 +120,28 @@ def stub_loaders(grow_tree):
     stack.enter_context(patch('mama.main.load_path_to_target', side_effect=grow_tree))
     stack.enter_context(patch('mama.dependency_chain.load_dependency_chain'))
     return stack
+
+
+@contextlib.contextmanager
+def stub_runners(*also, **side_effects):
+    """Every task runner a mamabuild run can reach, plus the banner, patched out. `also` names more
+    mama.main attributes to patch, and a keyword gives one of them a side effect. Yields the mocks by
+    name, so a test reads back which runner the run picked."""
+    from unittest.mock import patch
+    runners = ('execute_task_chain', 'execute_task_chain_parallel', 'execute_unified', 'print_build_banner')
+    with contextlib.ExitStack() as stack:
+        def stub(name):
+            effect = side_effects.get(name)
+            target = f'mama.main.{name}'
+            return stack.enter_context(patch(target, side_effect=effect) if effect else patch(target))
+        yield {name: stub(name) for name in dict.fromkeys((*runners, *also, *side_effects))}
+
+
+def make_project_dir(tmp_path, project='dummy') -> str:
+    """Write the CMakeLists.txt that mamabuild refuses to start without, and return the dir it made.
+    Pass the result straight to mamabuild(source_dir=...)."""
+    write_text_to(path_join(str(tmp_path), 'CMakeLists.txt'), f'project({project})\n')
+    return str(tmp_path)
 
 
 def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
@@ -302,15 +325,18 @@ def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
 
 
 def make_git_and_mock_dep(name='libfoo', url='git@example.com:foo/libfoo.git', branch='main', tag='',
-                          **config_overrides):
+                          mamafile=None, **config_overrides):
     """Git dep_source + a Mock dep, no disk: for tests that drive Git's own clone/fetch methods.
+    mamafile: the path the dep declares inside its own repository, which the version probe reads.
     Returns (git, dep)."""
     from mama.types.git import Git
-    git = Git(name=name, url=url, branch=branch, tag=tag, mamafile=None, shallow=True, args=[])
-    dep = Mock(is_artifactory_shim=lambda: False)
+    git = Git(name=name, url=url, branch=branch, tag=tag, mamafile=mamafile, shallow=True, args=[])
+    dep = Mock(is_artifactory_shim=lambda: False, dep_source=git, target_args=[], from_artifactory=False,
+               mamafile=None)   # dep.mamafile is the parent-repo override, and most deps declare none
     dep.name = name  # Mock(name=..) names the mock itself, not the attribute
     dep.src_dir = f'/packages/{name}'
     dep.config = Mock(print=False, verbose=False, update_stats=Mock(), deploy_stats=DeployStats(), **config_overrides)
+    dep.config.target_matches.return_value = False   # a Mock reads truthy, so every dep would be the target
     return git, dep
 
 
@@ -395,6 +421,60 @@ def make_includes_dep(target, name='TestLib', children=None):
     dep.children = children or []
     dep.get_children.return_value = dep.children
     return dep
+
+
+def archive_name_for(commit='abc1234', **kw) -> str:
+    """The artifactory archive name one target shape resolves to, with the commit lookup stubbed so an
+    unpinned git dep needs no clone. `kw` reaches make_archive_name_target."""
+    from unittest.mock import patch
+    from mama.artifactory import artifactory_archive_name
+    from mama.types.git import Git
+    with patch.object(Git, 'get_commit_hash', return_value=commit):
+        return artifactory_archive_name(make_archive_name_target(**kw))
+
+
+def linux_config(arch='x64', **overrides):
+    """A REAL BuildConfig on linux, whatever the host runs. build_dir_name reads config.platform, so a
+    Windows host would otherwise name the dir windows."""
+    return platform_config(Linux, arch=arch, **overrides)
+
+
+def touch_file(path) -> str:
+    """Create an empty file and every parent dir it needs. Returns the path, so a test can assert on it."""
+    os.makedirs(os.path.dirname(str(path)), exist_ok=True)
+    open(str(path), 'w', encoding='utf-8').close()
+    return str(path)
+
+
+def deploy_pass_uploads(target) -> bool:
+    """True when the deploy pass of this target reaches papa_upload_to. The deploy hook is stubbed, so
+    only the upload decision answers."""
+    from unittest.mock import patch
+    with patch('mama.papa_upload.papa_upload_to') as upload, patch.object(type(target), 'deploy'):
+        target._execute_deploy_tasks()
+    return upload.called
+
+
+_LATER_BUILD_REASONS = ('find_first_missing_build_product', 'find_missing_dependency',
+                        'update_mamafile_tag', 'update_cmakelists_tag')
+
+
+def should_build_reasons(dep, build_products=(), loaded_from_pkg=True, isolate=False):
+    """Run _should_build for a non-target dep and return (built, the warnings it printed). The reason
+    is what a user reads, so a test asserts on it and not only on the boolean.
+    isolate: silence every reason that ranks below the source check, so only the source can decide"""
+    from unittest.mock import Mock, patch
+    dep.config.print = True
+    target = Mock(build_products=list(build_products), args=[])
+    target.name = dep.name
+    dep.target = target  # the fall-through path reads it, so a mock config alone is not enough
+    with contextlib.ExitStack() as stack:
+        warned = stack.enter_context(patch('mama.build_dependency.warning'))
+        if isolate:
+            for name in _LATER_BUILD_REASONS: stack.enter_context(patch.object(dep, name, return_value=None))
+        built = dep._should_build(dep.config, target, is_target=False, git_changed=False,
+                                  loaded_from_pkg=loaded_from_pkg)
+    return built, ' '.join(str(call) for call in warned.call_args_list)
 
 
 def make_exporting_target(dep, includes, libs, version='abc1234'):
@@ -495,6 +575,20 @@ def git_init_commit(cwd, branch='', files=None):
         shutil.copytree(cwd, template)
 
 
+def git_run(args, cwd):
+    """One git command against `cwd`, captured. For a test that drives git itself, so it never asserts
+    against a copy of git rules. `SubProcess.run` would give the child a TTY nobody here reads."""
+    return subprocess.run(['git', *args], cwd=str(cwd), capture_output=True, text=True)
+
+
+def source_tree_changed(dep) -> bool:
+    """Ask whether a build input moved since the last build, with the per-run memo dropped first.
+    A test edits the tree itself, so the memo would answer with the state before the edit."""
+    from mama.utils.git_status import forget_git_dir_fingerprint
+    forget_git_dir_fingerprint(dep.src_dir)
+    return dep.dep_source.source_tree_changed(dep)
+
+
 def make_git_root_with_local_pkgs(tmp_path, count=1):
     """A git repo at `tmp_path/root` holding `count` committed local packages under `libs/`. Returns the
     list of BuildDependency, one per package, which share the one enclosing repo."""
@@ -524,21 +618,35 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     return dep.target, dep
 
 
-def run_config_capturing(target, dep, out=None):
+def run_config_capturing(target, dep, out=None, raises=None, leave_build_dir=False):
     """Drive cmake configure.run_config with the cmake call + seed coordinator stubbed. Returns the
     configure command lines it would have run, so a test can assert on the flags without a real cmake.
-    `out` is the target's output sink, which the scheduler passes and mamabuild.log records."""
+    out: the target output sink, which the scheduler passes and mamabuild.log records
+    raises: what the stubbed cmake call raises, for the failed-configure paths
+    leave_build_dir: write the cache and the build file a real cmake leaves, so the next call can skip"""
     from unittest.mock import patch
     from mama.buildsys.cmake import configure as cmake_configure
     cmds = []
-    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=lambda cmd, *a, **k: cmds.append(cmd)), \
+    def conf(cmd, *a, **k):
+        cmds.append(cmd)
+        if raises: raise raises
+    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=conf), \
          patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
          patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
          patch.object(dep, 'get_enabled_sanitizers', return_value=''):
         coord.return_value.prepare.return_value = 'none'
         coord.return_value.status.return_value = ('fp', False)
         cmake_configure.run_config(target, out=out)
+        if leave_build_dir:
+            write_cmake_cache(target.build_dir(), 'CMAKE_GENERATOR:INTERNAL=Ninja\n')
+            write_build_file(target.build_dir())
     return cmds
+
+
+def write_dep_exports(target, text):
+    """Write mama-dependencies.cmake, which names the include dirs and libs the dependencies export.
+    The configure fingerprint hashes it, so an edit here is what makes a parent reconfigure."""
+    write_text_to(path_join(target.build_dir(), 'mama-dependencies.cmake'), text)
 
 
 def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, partial=(), system='Windows'):

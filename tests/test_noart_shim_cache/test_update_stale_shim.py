@@ -1,6 +1,5 @@
 """Pins that `mama update` moves a shim forward when upstream advanced and no new package exists."""
 from unittest.mock import patch
-import pytest
 
 from testutils import make_mock_shim_dep
 

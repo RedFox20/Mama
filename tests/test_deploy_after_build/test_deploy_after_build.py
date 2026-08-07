@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_configured_target
+from testutils import deploy_pass_uploads as _uploaded, make_configured_target
 
 from mama.build_config import DeployStats
 import mama.dependency_chain as dc
@@ -59,12 +59,6 @@ def test_the_deploy_hook_runs_once_for_a_build_and_an_upload(tmp_path):
 
 
 # --- nothing_to_upload ------------------------------------------------------
-
-def _uploaded(target) -> bool:
-    with patch('mama.papa_upload.papa_upload_to') as upload, patch.object(type(target), 'deploy'):
-        target._execute_deploy_tasks()
-    return upload.called
-
 
 def test_an_upload_skips_a_target_that_declares_nothing_to_upload(tmp_path):
     # an application at the root builds no package, so `mama upload` must not demand a papa.txt of it

@@ -3,14 +3,10 @@
 A rebuilt dependency propagates a BUILD to everything above it, because a relink needs the new lib.
 It propagates a CONFIGURE only when its interface changed, because cmake learns nothing new otherwise.
 """
-import os
-from unittest.mock import Mock, patch
 import pytest
 
-from testutils import make_configured_target, make_mock_dep, write_cmake_cache, write_build_file
-from mama.buildsys.cmake import configure as cc
-
-NINJA = 'CMAKE_GENERATOR:INTERNAL=Ninja\n'
+from testutils import (make_configured_target, make_mock_dep, run_config_capturing,
+                       write_dep_exports as _exports)
 
 
 def _chain(tmp_path):
@@ -55,22 +51,8 @@ def _consumer(tmp_path):
     return t, dep
 
 
-def _exports(t, text):
-    with open(os.path.join(t.build_dir(), 'mama-dependencies.cmake'), 'w', encoding='utf-8') as f:
-        f.write(text)
-
-
 def _configure(t, dep) -> bool:
-    calls = []
-    with patch('mama.buildsys.cmake.configure._rerunnable_cmake_conf', side_effect=lambda *a, **k: calls.append(1)), \
-         patch('mama.buildsys.cmake.configure.compute_env', return_value={}), \
-         patch('mama.buildsys.cmake.configure._seed_coordinator') as coord, \
-         patch.object(dep, 'get_enabled_sanitizers', return_value=''):
-        coord.return_value.prepare.return_value = 'none'
-        coord.return_value.status.return_value = ('fp', False)
-        cc.run_config(t)
-        write_cmake_cache(t.build_dir(), NINJA); write_build_file(t.build_dir())
-    return bool(calls)
+    return bool(run_config_capturing(t, dep, leave_build_dir=True))
 
 
 def test_a_rebuilt_dependency_alone_needs_no_configure(tmp_path):

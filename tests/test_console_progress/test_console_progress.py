@@ -2,17 +2,7 @@
 import threading
 from types import SimpleNamespace
 
-import pytest
-
 from mama.utils import system
-
-
-@pytest.fixture
-def reset_progress_state():
-    system._progress_active = False
-    if hasattr(system._progress_at, 'at'): del system._progress_at.at  # else the headless throttle leaks between tests
-    yield
-    system._progress_active = False
 
 
 class TestProgressFinalization:

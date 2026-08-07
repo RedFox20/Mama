@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import pytest
-from testutils import stub_loaders
+from testutils import make_project_dir, stub_loaders
 from mama.main import _can_unify, print_package_exports, mamabuild
 
 
@@ -57,21 +57,19 @@ def test_the_listing_reads_clean_when_no_archive_is_known():
 
 def test_mamabuild_loads_the_root_then_opens_one_log_before_it_dispatches(tmp_path):
     # the root load names the workspace the log lives in, so the order is load, open, dispatch
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     order = []
     def open_log(*args): order.append('log'); return 'LOG'
     with stub_loaders(lambda r: None), patch('mama.main.print_build_banner'), \
          patch('mama.main.load_root', side_effect=lambda r: order.append('load')) as load, \
          patch('mama.main.open_run_log', side_effect=open_log) as opened, patch('mama.main.set_run_log') as wired, \
          patch('mama.main.execute_unified', side_effect=lambda *a, **k: order.append('dispatch')):
-        mamabuild(['build'], source_dir=str(tmp_path))
+        mamabuild(['build'], source_dir=make_project_dir(tmp_path))
     assert order == ['load', 'log', 'dispatch']
     assert load.call_count == 1 and opened.call_count == 1  # one run, one root load, one log
     wired.assert_called_once_with('LOG')  # console() logs the lines that no display owns
 
 
 def test_the_classic_path_closes_its_live_region_before_the_package_listing(tmp_path):
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     order = []
     @contextmanager
     def fake_region(config):
@@ -79,5 +77,5 @@ def test_the_classic_path_closes_its_live_region_before_the_package_listing(tmp_
     with patch('mama.main.load_display', fake_region), patch('mama.main.execute_task_chain_parallel'), \
          patch('mama.main.load_dependency_chain', side_effect=lambda r, d=None: order.append(('load', d))), \
          patch('mama.main.print_package_exports', side_effect=lambda d: order.append('listing')):
-        mamabuild(['list'], source_dir=str(tmp_path))
+        mamabuild(['list'], source_dir=make_project_dir(tmp_path))
     assert order == ['open', ('load', 'region'), 'close', 'listing']

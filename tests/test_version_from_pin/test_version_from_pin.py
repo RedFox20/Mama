@@ -7,7 +7,7 @@ import pytest
 from mama import artifactory as art
 from mama.build_names import sanitize_version
 from mama.types.git import Git
-from testutils import make_archive_name_target as _target
+from testutils import archive_name_for, make_archive_name_target as _target
 
 _HASH = 'df76b66'
 _PREFIX = 'pkg-linux-24-gcc14-x64-release-'
@@ -15,8 +15,7 @@ _PREFIX = 'pkg-linux-24-gcc14-x64-release-'
 
 def _name(**kw):
     """The archive name with the commit hash resolution stubbed, so no test touches the network."""
-    with patch.object(Git, 'get_commit_hash', return_value=_HASH):
-        return art.artifactory_archive_name(_target(version='', **kw))
+    return archive_name_for(commit=_HASH, version='', **kw)
 
 
 @pytest.mark.parametrize('raw, safe', [

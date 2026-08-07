@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import pytest
 from mama.main import mamabuild
-from testutils import make_mock_dep, make_tree_dep as _dep, stub_loaders
+from testutils import make_mock_dep, make_project_dir, make_tree_dep as _dep, stub_loaders, stub_runners
 from mama.dependency_chain import mark_unbuilt_target_deps
 
 
@@ -89,17 +89,12 @@ def _fake_tree_root():
 
 def _executed_deps(args, tmp_path):
     """Names handed to the task chain by `mamabuild`, with loading and execution stubbed out."""
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     root_children, _ = _fake_tree_root()
     seen = {}
     def capture(deps): seen['names'] = [d.name for d in deps]
     with stub_loaders(lambda r: setattr(r, 'children', root_children.children)), \
-         patch('mama.main.execute_task_chain', side_effect=capture), \
-         patch('mama.main.execute_task_chain_parallel', side_effect=capture), \
-         patch('mama.main.execute_unified'), \
-         patch('mama.main.open_project'), \
-         patch('mama.main.print_build_banner'):
-        mamabuild(args, source_dir=str(tmp_path))
+         stub_runners('open_project', execute_task_chain=capture, execute_task_chain_parallel=capture):
+        mamabuild(args, source_dir=make_project_dir(tmp_path))
     return seen.get('names', [])
 
 
@@ -128,15 +123,11 @@ def test_an_untargeted_build_still_runs_the_whole_tree(tmp_path):
 
 def _runner_used(args, tmp_path):
     """Which task runner mamabuild picked - the parallel one owns the live display."""
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     root_children, _ = _fake_tree_root()
-    with stub_loaders(lambda r: setattr(r, 'children', root_children.children)), \
-         patch('mama.main.execute_task_chain') as serial, \
-         patch('mama.main.execute_task_chain_parallel') as parallel, \
-         patch('mama.main.execute_unified'), \
-         patch('mama.main.print_build_banner'):
-        mamabuild(args, source_dir=str(tmp_path))
-    return 'serial' if serial.called else ('parallel' if parallel.called else 'none')
+    with stub_loaders(lambda r: setattr(r, 'children', root_children.children)), stub_runners() as ran:
+        mamabuild(args, source_dir=make_project_dir(tmp_path))
+    if ran['execute_task_chain'].called: return 'serial'
+    return 'parallel' if ran['execute_task_chain_parallel'].called else 'none'
 
 
 def test_a_single_target_build_still_uses_the_live_display(tmp_path):
@@ -150,14 +141,9 @@ def test_serial_flag_still_opts_out(tmp_path):
 
 def test_mamabuild_actually_revives_an_unbuilt_dep(tmp_path):
     # the unit tests above call mark_unbuilt_target_deps directly, so only driving mamabuild proves the wiring exists
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     protobuf = _dep('protobuf', usable=False)
-    rpc = _dep('rpclib', [protobuf])
-    with stub_loaders(lambda r: setattr(r, 'children', [rpc])), \
-         patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
-         patch('mama.main.execute_unified'), \
-         patch('mama.main.print_build_banner'):
-        mamabuild(['build', 'rpclib'], source_dir=str(tmp_path))
+    with stub_loaders(lambda r: setattr(r, 'children', [_dep('rpclib', [protobuf])])), stub_runners():
+        mamabuild(['build', 'rpclib'], source_dir=make_project_dir(tmp_path))
     assert protobuf.should_rebuild     # else rpclib compiles against an include dir that is not there
 
 

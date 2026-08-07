@@ -1,7 +1,7 @@
 """Pins that package() only runs when there is something to package, and that a re-loaded artifactory
 package does not re-add children it already added."""
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from testutils import make_mock_dep, make_package_target

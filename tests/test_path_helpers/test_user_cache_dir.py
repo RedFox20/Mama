@@ -5,15 +5,6 @@ import pytest
 from mama.utils import paths as util
 
 
-@pytest.fixture(autouse=True)
-def _fresh_cache():
-    """Production reads MAMA_CACHE_DIR once, so both helpers memoize. A test that changes the env has to
-    drop the memo, or it reads what the test before it set."""
-    util.user_cache_dir.cache_clear(); util._cache_base.cache_clear()
-    yield
-    util.user_cache_dir.cache_clear(); util._cache_base.cache_clear()
-
-
 def test_the_env_override_wins_and_takes_the_parts(monkeypatch):
     monkeypatch.setenv('MAMA_CACHE_DIR', 'D:\\ci\\cache')
     assert util.user_cache_dir('compiler_seed') == 'D:/ci/cache/compiler_seed'

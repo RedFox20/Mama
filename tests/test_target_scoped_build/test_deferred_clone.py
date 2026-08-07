@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import (FakeWalkDep, make_mock_dep, make_mock_shim_dep, make_tree_dep as _fake,
-                       make_walk_config, stub_loaders)
+from testutils import (FakeWalkDep, make_mock_dep, make_mock_shim_dep, make_project_dir,
+                       make_tree_dep as _fake, make_walk_config, stub_loaders, stub_runners)
 
 import mama.build_dependency as build_dependency
 import mama.dependency_chain as chain
@@ -200,41 +200,32 @@ def test_an_unknown_target_revives_nothing():
     assert outside.load_deferred
 
 
+def _revive_pass(tmp_path, args):
+    """The stage-two revive mock, after a whole targeted mamabuild run over a one-dep tree."""
+    with stub_loaders(lambda r: setattr(r, 'children', [_fake('X')])), \
+         stub_runners('revive_deferred_target_deps') as ran:
+        mamabuild(args, source_dir=make_project_dir(tmp_path))
+    return ran['revive_deferred_target_deps']
+
+
 def test_mamabuild_runs_the_revive_pass_for_a_targeted_build(tmp_path):
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
-    x = _fake('X')
-    with stub_loaders(lambda r: setattr(r, 'children', [x])), \
-         patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
-         patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'), \
-         patch('mama.main.revive_deferred_target_deps') as revive:
-        mamabuild(['build', 'X'], source_dir=str(tmp_path))
-    revive.assert_called_once()
+    _revive_pass(tmp_path, ['build', 'X']).assert_called_once()
 
 
 def test_a_clean_loads_its_target_before_it_returns(tmp_path):
     # a clean acts inside the load of the target, so stage two must run before the clean_only return
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
-    x = _fake('X')
-    with stub_loaders(lambda r: setattr(r, 'children', [x])), \
-         patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
-         patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'), \
-         patch('mama.main.revive_deferred_target_deps') as revive:
-        mamabuild(['clean', 'X'], source_dir=str(tmp_path))
-    revive.assert_called_once()
+    _revive_pass(tmp_path, ['clean', 'X']).assert_called_once()
 
 
 def test_the_target_may_hide_below_a_deferred_dep(tmp_path):
     # check_config_target revives deferred deps before it declares the name unknown
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')
     hidden = _fake('hidden')
     parent = _fake('parent', deferred=True)
     def uncover(scope, display=None):
         if hidden not in parent.children: parent.children.append(hidden)
     with patch('mama.main.load_path_to_target', side_effect=lambda r: setattr(r, 'children', [parent])), \
-         patch('mama.dependency_chain.load_dependency_chain', side_effect=uncover), \
-         patch('mama.main.execute_task_chain'), patch('mama.main.execute_task_chain_parallel'), \
-         patch('mama.main.execute_unified'), patch('mama.main.print_build_banner'):
-        mamabuild(['build', 'hidden'], source_dir=str(tmp_path))
+         patch('mama.dependency_chain.load_dependency_chain', side_effect=uncover), stub_runners():
+        mamabuild(['build', 'hidden'], source_dir=make_project_dir(tmp_path))
     assert parent.revived
 
 
@@ -255,7 +246,7 @@ def test_a_revive_drops_the_children_the_deferred_load_named(tmp_path):
     (tmp_path / 'mamadeps' / 'foo.py').write_text(
         "import mama\nclass foo(mama.BuildTarget):\n"
         "    def dependencies(self): self.add_git('grandchild', 'https://example.com/gc.git')\n")
-    (tmp_path / 'CMakeLists.txt').write_text('project(rt)\n')
+    make_project_dir(tmp_path, 'rt')
     (tmp_path / 'mamafile.py').write_text(
         "import mama\nclass rt(mama.BuildTarget):\n"
         "    def dependencies(self):\n"

@@ -1,11 +1,8 @@
 """Pins version_suffix: it renames the package on every platform, and an empty one changes nothing."""
-from unittest.mock import patch
-
 import pytest
 
-from testutils import make_archive_name_target, make_exporting_target, make_mock_dep, make_package_target
+from testutils import archive_name_for as _name, make_exporting_target, make_mock_dep, make_package_target
 
-from mama.artifactory import artifactory_archive_name
 from mama.papa_deploy import PapaFileInfo, papa_deploy_to
 from mama.types.artifactory_pkg import ArtifactoryPkg
 from mama.types.git import Git
@@ -19,12 +16,6 @@ SHAPES = [
     ('a branch and a commit', dict(version='', git_branch='main')),
     ('a bare commit',         dict(version='', is_git=True)),
 ]
-
-
-def _name(**kw) -> str:
-    """The archive name, with the commit resolution stubbed so an unpinned git dep needs no clone."""
-    with patch.object(Git, 'get_commit_hash', return_value='abc1234'):
-        return artifactory_archive_name(make_archive_name_target(**kw))
 
 
 @pytest.mark.parametrize('what, kw', SHAPES, ids=[s[0] for s in SHAPES])

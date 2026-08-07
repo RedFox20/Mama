@@ -1,16 +1,15 @@
 """Pins `mama clean` / `clean all`: cleans during load, then stops - no configure/build/package after."""
 from unittest.mock import Mock, patch
+from testutils import make_project_dir, stub_runners
 from mama.main import mamabuild
+
+_RUNNERS = ('execute_task_chain', 'execute_task_chain_parallel', 'execute_unified')
 
 
 def _run(args, tmp_path):
-    (tmp_path / 'CMakeLists.txt').write_text('project(dummy)\n')  # mamabuild refuses a dir with neither file
-    with patch('mama.main.load_dependency_chain') as load, \
-         patch('mama.main.execute_task_chain') as serial, \
-         patch('mama.main.execute_task_chain_parallel') as parallel, \
-         patch('mama.main.execute_unified') as unified:
-        mamabuild(args, source_dir=str(tmp_path))
-    return load.called, (serial.called or parallel.called or unified.called)
+    with patch('mama.main.load_dependency_chain') as load, stub_runners() as ran:
+        mamabuild(args, source_dir=make_project_dir(tmp_path))
+    return load.called, any(ran[name].called for name in _RUNNERS)
 
 
 def test_clean_all_stops_after_cleaning(tmp_path):

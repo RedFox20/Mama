@@ -1,14 +1,10 @@
 """Pins the git facts mama reads from disk instead of spawning a process: HEAD and a local tag.
 Each one used to cost a git process per dependency per update."""
-import os, subprocess
+import os
 import pytest
 
 from mama.types.git import read_head, has_local_ref
-from testutils import git_init_commit
-
-
-def _git(args, cwd):
-    return subprocess.run(['git', *args], cwd=str(cwd), capture_output=True, text=True)
+from testutils import git_run as _git
 
 
 def _file(repo, name):
@@ -16,11 +12,9 @@ def _file(repo, name):
 
 
 @pytest.fixture
-def repo(tmp_path):
-    d = tmp_path / 'dep'
-    git_init_commit(d, branch='master', files={'lib.cpp': 'int f(){return 1;}\n'})
-    _git(['tag', 'v1.0.0'], d)
-    return str(d)
+def repo(source_repo):
+    _git(['tag', 'v1.0.0'], source_repo)   # a local tag is the second fact mama reads off disk
+    return source_repo
 
 
 def test_head_reads_the_branch_and_agrees_with_symbolic_ref(repo):
