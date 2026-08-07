@@ -426,6 +426,12 @@ hash after a version pin would resurrect a stale archive.
 to `all`, so under it every dep re-downloads. Under `mama update <X>`, only X re-downloads and every
 other dep reuses its cached zip.
 
+**A download that answers nothing falls back to the cached zip the run skipped.** Only an `update` of the
+current target skips that zip, so only that path can reach the fallback. One archive name holds one
+package, so the copy on disk is the package the run wanted. An offline `mama update` therefore loads from
+the cache instead of ending the run. An `add_artifactory_pkg` dep raises only when no usable zip is left.
+A cached zip that fails to unzip is deleted, so the fallback never serves a corrupt package.
+
 ### A 404
 
 **A 404 for a git dep is normal.** It means no prebuilt package exists for the current commit. It must

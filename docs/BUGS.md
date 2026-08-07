@@ -12,13 +12,6 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-- [ ] **An offline `mama update` kills the run over a package dep it already has cached.** `update` with
-  no named target sets `config.target = 'all'` at `main.py:315`, so `is_current_target()` answers True for
-  every dep. `artifactory.py:359` then skips the cached zip for every dep, not just one. Offline
-  `_fetch_package` returns None at `artifactory.py:303`, so an `add_artifactory_pkg` dep raises at
-  `build_dependency.py:507`. `load_dependency_chain` catches only `BuildError` at `dependency_chain.py:527`,
-  so the run ends in a traceback. The cache-skip condition should name one target, not the whole tree.
-
 - [ ] **`test_failure_fires_abort_hook_once_to_kill_in_flight` fails about one run in five.**
   `tests/test_build_scheduler/test_build_scheduler.py:231` asserts `hook == ['a failed']` after running two
   jobs that both raise, under a scheduler with a core budget of 8. Nothing stops job `b` from starting
@@ -34,6 +27,10 @@ design options. The commit and its tests hold that detail, and a copy here goes 
   move, in a test helper. Linux never hits this, because a rename there ignores open handles.
 
 ## Closed
+
+- **An offline `mama update` ended the run over a package it already had cached.** `update` skips the
+  cached zip to fetch a fresher copy, and nothing used that zip when the download answered nothing.
+  A failed download now falls back to the cached archive of the same name.
 
 - **`noart` left an `add_artifactory_pkg` dep with no package.** The flag refused the fetch of every dep,
   and a package dep has no source to clone instead, so it exported nothing. A package dep now ignores

@@ -353,20 +353,32 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         return (False, None)
 
     cache_dir = target.dep.dep_dir
-    local_file = normalized_join(cache_dir, f'{archive}.zip')
+    cached = normalized_join(cache_dir, f'{archive}.zip')
+    have_cache = os.path.exists(cached)
+    tried_cache = False
 
     # use the cache, except when `mama update` runs on this target: then download the latest
-    if os.path.exists(local_file) and not (target.config.update and target.is_current_target()):
+    if have_cache and not (target.config.update and target.is_current_target()):
+        tried_cache = True
         if (target.is_current_target() or target.config.no_specific_target()) \
             and not target.config.test:
-            console(f'    Artifactory cache {local_file}')
-        success, deps = unzip_and_load_target(target, local_file)
+            console(f'    Artifactory cache {cached}')
+        success, deps = unzip_and_load_target(target, cached)
         if success:
             target.dep.artifactory_archive = archive
             return (success, deps)
 
     url = artifactory_sanitize_url(url)
-    local_file = _fetch_package(target, url, archive, cache_dir)
+    try:
+        local_file = _fetch_package(target, url, archive, cache_dir)
+    except Exception:
+        if not have_cache or tried_cache: raise  # no unused cache left, so the caller reports the failure
+        local_file = None
+    # An update skips the cache for a fresher copy. One archive name holds one package, so the zip on
+    # disk still answers when the download cannot.
+    if not local_file and have_cache and not tried_cache:
+        warning(f'  - Target {target.name: <16} Artifactory download failed, using the cached {archive}.zip')
+        local_file = cached
     if not local_file:
         return (False, None)
     console(f'  - {target.name: <16} Artifactory unzip {archive}')
