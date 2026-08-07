@@ -104,21 +104,26 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
-def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes):
+def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes) -> int:
+    """Deploy every exported include dir. Returns how many header files they hold, because one record
+    names a whole dir and the record count alone never says how much a package ships."""
     if not includes:
-        return # nothing to do
+        return 0 # nothing to do
     config = target.config
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
     suffixes = tuple(target.include_glob_filter)
     stems = _header_stems(includes, suffixes)
+    shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
 
     def is_header(path:str) -> bool:
+        nonlocal shipped
         name = os.path.basename(path)
-        if name.endswith(suffixes): return True
         # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
         # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
-        return '.' not in name and name.lower() in stems
+        header = name.endswith(suffixes) or ('.' not in name and name.lower() in stems)
+        if header: shipped += 1
+        return header
 
     # Two exported dirs whose names differ only by case, such as QCoro/ next to qcoro/, follow the
     # filesystem. Windows and macOS hold ONE dir for the pair, so the deploy merges them and records the
@@ -143,6 +148,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if src_dir != dst_dir:
             if config.verbose: console(f'    copy {src_dir}\n      -> {dst_dir}')
             copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)
+    return shipped
 
 
 def find_duplicate_trees(files:list) -> list:
@@ -233,7 +239,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
     remove_tree(f'{package_full_path}/include')
     includes = _gather_includes(target, r_includes)
-    _append_includes(target, package_full_path, detail_echo, descr, includes)
+    headers = _append_includes(target, package_full_path, detail_echo, descr, includes)
     _warn_about_duplicate_include_trees(target, package_full_path)
 
     build_dir = target.build_dir()
@@ -273,7 +279,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     config.deploy_stats.record(package_full_path, (len(includes), len(libs), len(syslibs), len(assets)))
     if config.print:
-        console(f'  PAPA Deployed: {len(includes)} includes, {len(libs)} libs, {len(syslibs)} syslibs, {len(assets)} assets')
+        console(f'  PAPA Deployed: {len(includes)} includes ({headers} files), {len(libs)} libs, ' + \
+                f'{len(syslibs)} syslibs, {len(assets)} assets')
 
 
 def make_dep_source(s:str) -> DepSource:

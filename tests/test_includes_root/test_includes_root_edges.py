@@ -94,3 +94,19 @@ def test_re_running_the_same_export_keeps_one_entry(lib):
     before = list(lib.exported_includes)
     _export(lib, 'src/mylib', as_includes_root='mylib')
     assert lib.exported_includes == before
+
+
+def test_the_deploy_reports_how_many_header_files_it_shipped(lib, tmp_path):
+    # one record names a whole dir, so the record count alone never says how much a package ships
+    lib.include_glob_filter = ['.h', '.inc']
+    _export(lib, 'src/mylib')
+    _export(lib, 'src/other')
+    descr = []
+    shipped = _append_includes(lib, str(tmp_path / 'deploy'), False, descr,
+                               [(lib.dep, p) for p in lib.exported_includes])
+    assert descr == ['I include/mylib', 'I include/other']
+    assert shipped == 3  # mylib.h, detail.inc, other.h
+
+
+def test_an_export_of_nothing_ships_no_files(lib, tmp_path):
+    assert _append_includes(lib, str(tmp_path / 'deploy'), False, [], []) == 0
