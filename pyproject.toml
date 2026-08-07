@@ -43,8 +43,9 @@ classifiers = [
 mama = "mama.main:__main__"
 
 [project.optional-dependencies]
-# pip install -e .[dev] - the suite needs pytest-xdist, because addopts below asks for workers
-dev = ["pytest", "pytest-xdist"]
+# pip install -e .[dev] - the suite needs pytest-xdist, because addopts below asks for workers.
+# pytest-cov answers `which module has no test`, with `pytest tests/ --cov=mama`.
+dev = ["pytest", "pytest-xdist", "pytest-cov"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
