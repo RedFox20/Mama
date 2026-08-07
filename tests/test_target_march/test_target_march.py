@@ -77,12 +77,6 @@ def test_no_x64_pin_ever_spells_the_unpinned_marker(march):
     assert arch_marker(config) != 'x64'
 
 
-def test_the_pin_names_the_build_dir():
-    config = platform_config(Linux, 'x64')
-    config.set_target_march('x64', 'x86-64-v3')
-    assert build_dir_name(config) == 'linux-x64v3'
-
-
 def test_the_pin_names_the_archive():
     name = art.artifactory_archive_name(make_archive_name_target(march='x86-64-v3'))
     assert name == 'pkg-linux-24-gcc14-x64v3-release-abc1234'

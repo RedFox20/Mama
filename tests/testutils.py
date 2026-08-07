@@ -381,10 +381,10 @@ def make_archive_name_target(*, sanitize=None, coverage=None, release=True, arch
     return SimpleNamespace(name='pkg', version=version, config=cfg, dep=dep)
 
 
-def make_platform_target(tmp_path, platform_class=Linux, **config):
+def make_stub_target(tmp_path, platform_class=Linux, **config):
     """The smallest BuildTarget stand-in a helper module reads: a REAL platform, the two dirs and
-    whatever config fields the caller names. Real dirs, so a helper that joins a subpath answers with
-    one. Nothing here touches disk, unlike make_configured_target, which builds a dep and a build dir."""
+    whatever config fields the caller names. Nothing here touches disk. Use platform_target instead
+    when the test needs a real dep and a real build dir."""
     cfg = SimpleNamespace(**config)
     cfg.platform = platform_class(cfg)
     source, build = normalized_path(f'{tmp_path}/src'), normalized_path(f'{tmp_path}/build')
