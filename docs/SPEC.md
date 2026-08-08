@@ -819,8 +819,11 @@ stays, and a zip whose delete failed keeps its cache, because the server still h
 cleans the server must not keep serving what it deleted, which the cached-zip fallback of section 8 would
 otherwise do.
 
-**A run that matches no archive names every target it listed and how many archives that target holds.**
-A `prune-old` report also names the count it keeps, which a bare `prune-old` leaves out.
+**A run that matches no archive names every target it listed, its archive count and its version count.**
+A `prune-old` report also names the count it keeps, which a bare `prune-old` leaves out. That selector
+keeps versions, and one version holds one archive per platform. An archive count alone therefore reads
+as far more than the selector spared. A run that reached no target says so, and a run whose targets are
+all read-only packages says that instead.
 
 **Why:** a bare `Nothing to unpublish` reads the same for a wrong target name and for a selector that
 spared everything.
