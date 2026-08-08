@@ -118,15 +118,34 @@ name and nothing else. The root mamafile owns the pin, so it is constant for a c
 can never meet in one tree. A build dir is also a path a project hardcodes, in `cmake --install`, in
 CI and in its own cmake. Renaming it breaks every one of those at once.
 
-The one in-tree consumer is `host_build_dir`, which names the bare platform dir plus nothing else. The
+The one in-tree consumer is `host_build_dir`, which named the bare platform dir plus nothing else. The
 `mama <host> build` bootstrap child reads the same root mamafile, so it inherits every setting that
 mamafile makes. A pin in the dir name made the child build one path and `build_host_binary` probe
 another. The host tool then went missing while the child reported success.
 
-**A bare platform dir is still not the whole answer.** A root `prefer_clang()`, a dep arg, or an arm64
-Linux host each move the child to `linux-clang`, `linux-lgpl` or `linuxarm`. `host_build_dir`
-reproduces none of those, and `docs/BUGS.md` carries that open defect. Removing the pin removes only
-the axis that a mamafile sets on every build.
+**`host_build_dir` names the dir through the same rules the child follows.** `host_build_dir_name`
+builds a host view of the config, then runs the two functions above on it. The host platform, the arch
+of this machine, the compiler this run resolved and the dep args all reach the name. So an
+`args=['LGPL']` dep and an arm64 Linux host land on `linux-lgpl` and `linuxarm` on both sides.
+
+**The host view names the arch of this machine, never the platform default.** macOS defaults to arm64,
+and an Intel Mac cannot run an arm64 tool. `build_host_binary` passes the same arch to the child, so the
+child cannot fall back to a default that names another machine.
+
+**The child never gets this run's coverage or sanitizer flag, so neither names the host dir.** A host
+tool is a tool. `build_host_binary` passes a compiler to the child only when the command line of this
+run named one, and only on a Linux host, where the build dir carries a compiler token. A mamafile
+preference belongs to the child's own config, and forcing it would build the tool with a compiler the
+project refused.
+
+**A build is the host build when the platform matches and the host can RUN the arch.** `Platform.host_runs`
+declares which arches each host can run. An x86 build of an x64 host is a host build, and Rosetta
+makes an x64 build one on Apple silicon. An arch the host cannot run is a cross build, whatever its
+platform says.
+
+**The tool search reads every host build dir of the dep and takes the newest hit.** The child resolves
+its own dep args, so a predicted name is a first guess and not a promise. The search opens only names
+that start with the host platform dir, so it can never answer with a binary of another arch.
 
 **Why:** a warm tree hides that failure. A checkout built before the pin already holds the tool under
 the old name. Only a clean checkout fails, which means CI and not the developer who made the change.

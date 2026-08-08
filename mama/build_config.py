@@ -198,6 +198,9 @@ class BuildConfig:
         self.cxx_version = '' # c++ compiler version, eg '8.3.0' for gcc 8.3.0
         # True when the command line named a compiler, eg `mama build gcc` or `mama build clang`
         self.compiler_cmd = False
+        # `clang` or `gcc` on the command line, which `compiler_cmd` cannot answer: the root settings()
+        # lock sets that one for every run. A host build child inherits this choice and no other.
+        self.compiler_from_args = False
         self.compiler_conflict_warned = False  # the "target prefers X but compiler locked to Y" note fires once, not per dep
         self.clang_stdlib = 'libc++'  # linux clang C++ stdlib, see use_gcc_stdlib_for_clang()
         self.fortran = ''
@@ -348,11 +351,11 @@ class BuildConfig:
             elif arg == 'clang':
                 self.gcc = False
                 self.clang = True
-                self.compiler_cmd = True
+                self.compiler_cmd = self.compiler_from_args = True
             elif arg == 'gcc':
                 self.gcc = True
                 self.clang = False
-                self.compiler_cmd = True
+                self.compiler_cmd = self.compiler_from_args = True
             elif arg == 'fortran': self.fortran = self.find_default_fortran_compiler()
             elif arg.startswith('fortran='): self.fortran = arg[8:]
             elif arg == 'release': self.set_build_config(release=True)

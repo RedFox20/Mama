@@ -5,6 +5,7 @@ unreleased
  - bugfix: Visual Studio and Xcode now offer only configurations that link
  - bugfix: an unpublish that matches nothing names the target and the count
  - bugfix: `mama <target> unpublish=...` now unpublishes that target
+ - bugfix: build_host_binary finds the host tool the bootstrap child built
 
 release: 0.13.16 (2026-Aug-07)
  There is no 0.13.15. It broke build dirs by adding -x64v3 suffix.

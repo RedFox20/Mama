@@ -4,7 +4,8 @@ the build dir name itself. ONE spelling for both, so a build and its uploaded pa
 from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
-from .platforms.platform import ARCHES
+from .platforms.platform import ARCHES, host_arch
+from .platforms.registry import platform_for_arg
 
 # `config` is duck-typed on purpose. These are naming rules, not configuration, so BuildConfig does not
 # carry them, and each function reads only the config fields it names.
@@ -153,3 +154,48 @@ def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) 
     if variant_suffix is None: variant_suffix = build_variant_suffix(config)
     if platform_dir is None: platform_dir = config.platform.build_dir_name() if config.platform else 'build'
     return platform_dir + ('-clang' if (config.linux and config.clang) else '') + variant_suffix
+
+
+class _HostConfigView:
+    """A config as the `mama <host> build` child resolves it: the host platform, the arch of this
+    machine and the compiler of this run. The child gets no coverage and no sanitizer flag."""
+    coverage = False
+    sanitize = None
+
+    def __init__(self, config: BuildConfig):
+        host = config.host_platform_name()
+        self.clang = config.clang
+        self.linux = host == 'linux'
+        platform_class = platform_for_arg(host)[0]
+        # The arch of this machine, never the platform default. macOS defaults to arm64, and an Intel
+        # Mac cannot run an arm64 tool. An arch the platform refuses leaves the choice to the platform.
+        arch = host_arch()
+        self.arch = arch if arch in platform_class.supported_arches else ''
+        self.platform = platform_class(self)
+
+
+def host_build_dir_name(config: BuildConfig, dep_args=()) -> str:
+    """The build dir name the `mama <host> build` child writes for this dep. It runs the same two
+    functions the child runs, so a host-tool probe can never read a dir the child never wrote."""
+    view = _HostConfigView(config)
+    return build_dir_name(view, build_variant_suffix(view, dep_args))
+
+
+def host_build_arch(config: BuildConfig) -> str:
+    """The arch a host build must name. The bootstrap child takes it as an argument, so the child
+    cannot fall back to a platform default that names another machine."""
+    return _HostConfigView(config).platform.arch()
+
+
+def host_platform_dir(config: BuildConfig) -> str:
+    """The platform dir of a host build, with no compiler and no variant token. Every host build dir of
+    a dep starts with it, so a search for a host tool starts here."""
+    return _HostConfigView(config).platform.build_dir_name()
+
+
+def is_host_build(config: BuildConfig) -> bool:
+    """True when this build already runs on this machine, so a host tool is the local build product.
+    The arch has to RUN here, not match: a 32-bit build of a 64-bit host is still a host build. The
+    variant stays out, because a sanitizer build runs the tools it built for itself."""
+    platform = config.platform
+    return type(platform) is type(_HostConfigView(config).platform) and platform.runs_on_host(platform.arch())

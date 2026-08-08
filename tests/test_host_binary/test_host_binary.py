@@ -3,17 +3,23 @@ host build dir, then bootstrapping via a `mama <host> build` child on a miss - p
 import os, sys, pytest
 from unittest.mock import patch
 
-from testutils import executable_extension, make_configured_target, touch_file as _touch
+from testutils import executable_extension, make_configured_target, set_mock_platform, touch_file as _touch
 from mama import build_config as bc
+from mama.utils.paths import path_join
 from mama import build_target as bt
+from mama.platforms.android import Android
+from mama.platforms.linux import Linux
+from mama.platforms.macos import Macos
+from mama.platforms.windows import Windows
 
 # build_host_binary names a host executable, so the host suffix belongs in the path a test writes
 PROTOC = f'bin/protoc{executable_extension()}'
 
 
-def _cross_target(tmp_path, name='android', host='linux'):
+def _cross_target(tmp_path, name='android', host='linux', platform=Android, **cfg):
     """A target cross-compiling for `name` with host `host`, so host_build_dir() is a distinct sibling."""
-    t, dep = make_configured_target(tmp_path)
+    t, dep = make_configured_target(tmp_path, **cfg)
+    set_mock_platform(dep.config, platform)
     dep.build_dir = f'{tmp_path}/packages/libfoo/{name}'.replace('\\', '/')
     dep.config.name.return_value = name
     dep.config.host_platform_name.return_value = host
@@ -40,6 +46,30 @@ def test_host_build_dir_is_a_sibling_named_after_the_host(tmp_path):
     assert t.host_build_dir('bin/protoc').endswith('/libfoo/linux/bin/protoc')
 
 
+def test_the_host_dir_names_the_compiler_the_child_will_use(tmp_path):
+    t, _ = _cross_target(tmp_path, clang=True, gcc=False)  # whatever this run resolved, the child repeats
+    assert t.host_build_dir().endswith('/linux-clang')
+
+
+def test_the_host_dir_names_the_dep_args(tmp_path):
+    t, dep = _cross_target(tmp_path)
+    dep.target_args = ['LGPL']  # an arg of add_git(), so the child's graph carries it too
+    assert t.host_build_dir().endswith('/linux-lgpl')
+
+
+def test_the_host_dir_keeps_the_sanitizer_and_the_coverage_out(tmp_path):
+    # the child gets neither flag, so a host tool is never built under one
+    t, dep = _cross_target(tmp_path, sanitize='address')
+    dep.config.coverage = True
+    assert t.host_build_dir().endswith('/linux')
+
+
+def test_the_host_dir_follows_the_host_arch(tmp_path):
+    t, _ = _cross_target(tmp_path)
+    with patch.object(bc.System, 'aarch64', True), patch.object(bc.System, 'x86_64', False):
+        assert t.host_build_dir().endswith('/linuxarm')
+
+
 # -- build_host_binary --------------------------------------------------------
 
 def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
@@ -50,6 +80,23 @@ def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
     with patch('mama.build_target.SubProcess.run') as run:
         assert t.build_host_binary('bin/protoc') == binary
         run.assert_not_called()
+
+
+def test_a_32_bit_build_of_a_64_bit_host_is_still_the_host(tmp_path):
+    # the host runs the x86 tool it just built, so a second host build would be waste
+    t, _ = _cross_target(tmp_path, name='linux32', platform=Linux, arch='x86')
+    binary = _touch(t.build_dir(PROTOC))
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == binary
+        run.assert_not_called()
+
+
+def test_a_build_for_an_arch_the_host_cannot_run_is_not_the_host(tmp_path):
+    t, _ = _cross_target(tmp_path, name='linuxarm', platform=Linux, arch='arm64')
+    _touch(t.build_dir(PROTOC))  # an arm64 tool, which this x64 host cannot execute
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
 
 
 def test_cross_hit_returns_the_host_binary_without_a_child(tmp_path):
@@ -68,8 +115,98 @@ def test_cross_miss_bootstraps_then_returns_the_produced_binary(tmp_path):
     with patch('mama.build_target.SubProcess.run', side_effect=fake_child) as run:
         assert t.build_host_binary('bin/protoc') == produced
     argv = run.call_args.args[0]
-    assert argv[0] == sys.executable and argv[-3:] == ['linux', 'build', 'target=libfoo']
+    assert argv[0] == sys.executable and argv[-4:] == ['linux', 'build', 'target=libfoo', 'arch=x64']
     assert run.call_args.kwargs['cwd'] == str(tmp_path)   # root project, so the child resolves the graph
+
+
+@pytest.mark.parametrize('clang, expect', [(False, 'gcc'), (True, 'clang')])
+def test_a_command_line_compiler_reaches_the_child_on_a_linux_host(tmp_path, clang, expect):
+    # the linux build dir names the compiler, and this flag beats the mamafile preference in the child
+    t, _ = _cross_target(tmp_path, clang=clang, gcc=not clang, compiler_from_args=True)
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        t.build_host_binary('bin/protoc')
+    assert run.call_args.args[0][-1] == expect
+
+
+def test_a_mamafile_compiler_preference_never_reaches_the_child(tmp_path):
+    # the root settings() lock sets compiler_cmd on every run, so only compiler_from_args names a choice
+    t, _ = _cross_target(tmp_path, clang=True, gcc=False, compiler_cmd=True)
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        t.build_host_binary('bin/protoc')
+    assert run.call_args.args[0][-1] == 'arch=x64'
+
+
+def test_an_intel_mac_names_its_own_arch_and_not_the_platform_default(tmp_path):
+    # macOS defaults to arm64, and an Intel Mac cannot run an arm64 tool
+    t, _ = _cross_target(tmp_path, host='macos')
+    with patch.object(bc.System, 'aarch64', False), patch.object(bc.System, 'x86_64', True), \
+         patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.host_build_dir().endswith('/macos')
+        t.build_host_binary('bin/protoc')
+    assert run.call_args.args[0][-1] == 'arch=x64'
+
+
+def test_the_child_gets_no_compiler_on_a_windows_host(tmp_path):
+    # `gcc` or `clang` deselects MSVC in the child, and a windows build dir names no compiler
+    t, _ = _cross_target(tmp_path, host='windows')
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        t.build_host_binary('bin/protoc')
+    assert run.call_args.args[0][-4:] == ['windows', 'build', 'target=libfoo', 'arch=x64']
+
+
+# -- the search over host build dirs -------------------------------------------
+
+def test_a_host_dir_the_child_named_differently_is_still_found(tmp_path):
+    # the child resolves its own dep args, so it can write a dir this process did not predict
+    t, dep = _cross_target(tmp_path)
+    dep.target_args = ['LGPL']  # predicts linux-lgpl
+    binary = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == binary
+        run.assert_not_called()
+
+
+def test_the_search_never_opens_the_source_dir(tmp_path):
+    # a dep named `linux-headers` keeps its source beside the build dirs, under the same prefix
+    t, dep = _cross_target(tmp_path)
+    dep.src_dir = path_join(os.path.dirname(dep.build_dir), 'linux-headers')
+    _touch(path_join(dep.src_dir, PROTOC))
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
+
+
+@pytest.mark.parametrize('platform, host, arch, runs', [
+    (Linux,   'x64',   'x86',   True),    # multilib
+    (Linux,   'x64',   'arm64', False),
+    (Linux,   'arm64', 'x64',   False),
+    (Macos,   'arm64', 'x64',   True),    # Rosetta 2
+    (Macos,   'x64',   'arm64', False),
+    (Windows, 'arm64', 'x86',   True),    # the arm64 emulator takes both
+    (Windows, 'x86',   'x64',   False),
+])
+def test_what_each_host_can_run(platform, host, arch, runs):
+    with patch('mama.platforms.platform.host_arch', return_value=host):
+        assert platform(None).runs_on_host(arch) is runs
+
+
+def test_the_search_never_leaves_the_host_arch(tmp_path):
+    # linux32 and linuxarm hold binaries of another arch, and only the host arch dir opens the name
+    t, dep = _cross_target(tmp_path)
+    for name in ('linux32', 'linuxarm'): _touch(path_join(os.path.dirname(dep.build_dir), name, PROTOC))
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
+
+
+def test_the_search_takes_the_newest_host_tool(tmp_path):
+    t, dep = _cross_target(tmp_path)
+    old = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-lgpl', PROTOC))
+    os.utime(old, (1, 1))
+    fresh = _touch(t.host_build_dir(PROTOC))
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == fresh
+        run.assert_not_called()
 
 
 def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp_path):

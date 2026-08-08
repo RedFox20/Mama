@@ -89,6 +89,15 @@ class Platform:
         return self.config.arch or self.get_default_arch()
 
 
+    ## Arches this platform can RUN, per host arch. An x64 host also runs an x86 build.
+    host_runs = {'x64': ('x64', 'x86'), 'x86': ('x86',), 'arm64': ('arm64',)}
+
+    def runs_on_host(self, arch: str) -> bool:
+        """True when this machine can run a binary this platform built for `arch`. A host tool only
+        has to run, so a 32-bit build on a 64-bit host counts as a host build."""
+        return arch in self.host_runs.get(host_arch(), ())
+
+
     def validate_arch(self, arch: str):
         """Raise when this platform cannot build for the arch. Called once, after arg parsing.
         arch: the target arch name from the CLI

@@ -12,6 +12,7 @@ class Macos(Platform):
     default_arch = 'arm64'
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}
+    host_runs = {'arm64': ('arm64', 'x64'), 'x64': ('x64',)}  # Rosetta 2 runs an x64 tool on Apple silicon
     syslib_is_framework = True
     ide_project_ext = ('.xcodeproj',)
     ide_project_is_dir = True

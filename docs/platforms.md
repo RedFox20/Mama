@@ -79,6 +79,13 @@ Neither one emits the flag. `Platform.get_cxx_flags` calls `march()`, which take
 reaches the compiler, and a platform never has to know about the pin. A platform whose compiler has no
 `-march` declares `supports_march = False` and gets none.
 
+## What the host can run
+
+`Platform.host_runs` maps a host arch to the arches that host can run. The base rule is that an x64
+host also runs an x86 build. `Macos` adds x64 on Apple silicon, through Rosetta, and `Windows` adds
+both x86 and x64 on an arm64 host. `build_names.is_host_build` reads it to decide whether a build is
+already a host build, so `build_host_binary` does not build the same tool twice.
+
 ## Invariants the tests enforce
 
 1. No `if/elif` chain over platform names outside `mama/platforms/`. A consumer that needs

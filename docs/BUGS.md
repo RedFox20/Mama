@@ -12,16 +12,16 @@ design options. The commit and its tests hold that detail, and a copy here goes 
 
 ## Open
 
-- **`host_build_dir` names a bare platform dir the bootstrap child may not build into.**
-  `build_target.py:host_build_dir` joins the dep dir with `config.host_platform_name()`, which answers
-  `linux`, `windows` or `macos` and nothing else. The `mama <host> build` child reads the same root
-  mamafile. A root `prefer_clang()` sends it to `linux-clang`, a consumer dep arg to `linux-lgpl`, and
-  an arm64 Linux host to `linuxarm`. `build_host_binary` then probes a path the child never wrote
-  and reports the host tool as missing, although the child exited 0. A warm tree hides it, so only a
-  clean checkout fails. Fix: name the host dir through `build_names.build_dir_name` for a host config,
-  instead of the platform name alone.
+None.
 
 ## Closed
+
+- **`host_build_dir` named a bare platform dir the bootstrap child never wrote.** A root
+  `prefer_clang()`, a dep arg or an arm64 Linux host each moved the child to `linux-clang`, `linux-lgpl`
+  or `linuxarm`, and the probe read `linux`. The host tool then went missing although the child exited
+  0. `host_build_dir_name` now names the dir through the rules the child follows, and the probe reads
+  every host build dir of the dep, because the child resolves its own dep args. A native build must
+  also name an arch this host can run.
 
 - **A bare target name never reached an unpublish.** The constructor froze `user_target`, and a bare word
   only became the target afterwards, in the main deduction step. So the unpublish scope read `None` and
