@@ -201,7 +201,8 @@ class BuildTarget:
         except OSError: return None
         # a dep named `linux-headers` puts its SOURCE dir beside the build dirs, and it matches the prefix
         source = os.path.basename(self.dep.src_dir) if self.dep.src_dir else ''
-        hosts = [n for n in names if n != source and (n == prefix or n.startswith(prefix + '-'))]
+        hosts = [n for n in names if n != source and (n == prefix or n.startswith(prefix + '-'))
+                 and not build_names.is_instrumented_dir(n)]
         found = [p for p in (path_join(dep_dir, n, relpath) for n in hosts) if os.path.exists(p)]
         return max(found, key=os.path.getmtime) if found else None
 

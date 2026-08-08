@@ -166,6 +166,16 @@ def test_a_host_dir_the_child_named_differently_is_still_found(tmp_path):
         run.assert_not_called()
 
 
+@pytest.mark.parametrize('dir_name', ['linux-asan', 'linux-cov', 'linux-clang-cov-lgpl'])
+def test_the_search_never_takes_an_instrumented_tool(tmp_path, dir_name):
+    # a host tool runs inside another build, where a sanitizer or gcov only costs time
+    t, dep = _cross_target(tmp_path)
+    _touch(path_join(os.path.dirname(dep.build_dir), dir_name, PROTOC))
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
+
+
 def test_the_search_never_opens_the_source_dir(tmp_path):
     # a dep named `linux-headers` keeps its source beside the build dirs, under the same prefix
     t, dep = _cross_target(tmp_path)

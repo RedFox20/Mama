@@ -135,6 +135,15 @@ def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
     return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & CONFIG_TOKENS)
 
 
+_INSTRUMENTED_TOKENS = CONFIG_TOKENS - {'clang'}
+
+
+def is_instrumented_dir(dir_name: str) -> bool:
+    """True when a build dir name carries a coverage or a sanitizer token. A host tool never comes from
+    one: it runs inside another build, where the instrumentation only costs time."""
+    return bool(set(dir_name.split('-')) & _INSTRUMENTED_TOKENS)
+
+
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:
     """The build folder name: the platform dir, the compiler, then the variant, coarsest axis first, eg
     'linux', 'windows32', 'linux-clang-cov-asan-lgpl'. The platform maps each arch to its own dir name.

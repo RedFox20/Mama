@@ -145,7 +145,8 @@ platform says.
 
 **The tool search reads every host build dir of the dep and takes the newest hit.** The child resolves
 its own dep args, so a predicted name is a first guess and not a promise. The search opens only names
-that start with the host platform dir, so it can never answer with a binary of another arch.
+that start with the host platform dir, so it can never answer with a binary of another arch. It skips a
+coverage or a sanitizer dir, and it skips the source dir of a dep whose name opens with the same word.
 
 **Why:** a warm tree hides that failure. A checkout built before the pin already holds the tool under
 the old name. Only a clean checkout fails, which means CI and not the developer who made the change.
