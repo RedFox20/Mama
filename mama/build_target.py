@@ -187,7 +187,7 @@ class BuildTarget:
         A host tool built by build_host_binary() lands here. The name follows the rules the bootstrap
         child follows, so the host arch, the compiler and the dep args all reach it."""
         host_name = build_names.host_build_dir_name(self.config, self.dep.target_args)
-        host_dir = path_join(os.path.dirname(self.dep.build_dir), host_name)
+        host_dir = path_join(self.dep.dep_dir, host_name)
         return path_join(host_dir, subpath) if subpath else host_dir
 
 
@@ -198,16 +198,20 @@ class BuildTarget:
         search never leaves the host arch, because only that platform dir opens the name."""
         exact = self.host_build_dir(relpath)
         if os.path.exists(exact): return exact
-        dep_dir = os.path.dirname(self.dep.build_dir)
-        prefix = build_names.host_platform_dir(self.config)
+        dep_dir = self.dep.dep_dir
+        prefix = build_names.host_view(self.config).platform.build_dir_name()
         try: names = os.listdir(dep_dir)
         except OSError: return None
         # a dep named `linux-headers` puts its SOURCE dir beside the build dirs, and it matches the prefix
         source = os.path.basename(self.dep.src_dir) if self.dep.src_dir else ''
-        hosts = [n for n in names if n != source and (n == prefix or n.startswith(prefix + '-'))
-                 and not build_names.is_instrumented_dir(n)]
-        found = [p for p in (path_join(dep_dir, n, relpath) for n in hosts) if os.path.exists(p)]
-        return max(found, key=os.path.getmtime) if found else None
+        found = []
+        for name in names:
+            if name == source or not build_names.is_build_dir_of(name, prefix, build_names.INSTRUMENTED_TOKENS):
+                continue
+            candidate = path_join(dep_dir, name, relpath)
+            try: found.append((os.stat(candidate).st_mtime, candidate))
+            except OSError: pass  # the dir holds no such tool
+        return max(found)[1] if found else None
 
 
     def build_host_binary(self, relpath, auto_build=True):
@@ -236,11 +240,12 @@ class BuildTarget:
             return None
         # sys.executable + the mama.main entry, because there is no __main__.py for `python -m mama`.
         # cwd is the root project, so the child resolves the same dependency graph.
-        child_args = [host, 'build', f'target={self.name}', f'arch={build_names.host_build_arch(self.config)}']
+        host_view = build_names.host_view(self.config)
+        child_args = [host, 'build', f'target={self.name}', f'arch={host_view.platform.arch()}']
         # Only a command line choice travels: a mamafile preference belongs to the child's own config,
         # and forcing it here would build a host tool with a compiler the project refused. Only a linux
-        # build dir names a compiler at all.
-        if host == 'linux' and self.config.compiler_from_args:
+        # build dir names a compiler at all, which is what the host view answers.
+        if host_view.linux and self.config.compiler_from_args:
             child_args.append('clang' if self.config.clang else 'gcc')
         child_cmd = 'mama ' + ' '.join(child_args)
         if self.config.print:

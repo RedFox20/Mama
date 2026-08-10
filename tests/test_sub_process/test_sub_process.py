@@ -333,7 +333,7 @@ class TestCtrlCTermination:
              patch.object(sub_process, '_kill_pid') as kill_pid:
             SubProcess.terminate_all('test', grace=0)
         walk.assert_called_once_with(111)  # read while the root lives, never after the kill
-        kill_pid.assert_called_once_with(222)
+        kill_pid.assert_called_once_with(222)  # the snapshot is the only list of the orphan left
 
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
         # Tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not just the spawned pid.

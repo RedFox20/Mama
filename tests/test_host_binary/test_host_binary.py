@@ -27,11 +27,30 @@ def _cross_target(tmp_path, name='android', host='linux', platform=Android, **cf
     """A target cross-compiling for `name` with host `host`, so host_build_dir() is a distinct sibling."""
     t, dep = make_configured_target(tmp_path, **cfg)
     set_mock_platform(dep.config, platform)
-    dep.build_dir = f'{tmp_path}/packages/libfoo/{name}'.replace('\\', '/')
-    dep.config.name.return_value = name
+    dep.dep_dir = f'{tmp_path}/packages/libfoo'.replace('\\', '/')
+    dep.build_dir = f'{dep.dep_dir}/{name}'
     dep.config.host_platform_name.return_value = host
     dep.config.root_source_dir = str(tmp_path)
     return t, dep
+
+
+def _sibling(dep, dir_name, relpath=None):
+    """A path inside another build dir of the same dep."""
+    return path_join(dep.dep_dir, dir_name, relpath or PROTOC)
+
+
+def _hit(t, expected):
+    """The tool answers from disk, so no child runs."""
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == expected
+        run.assert_not_called()
+
+
+def _miss(t):
+    """Nothing on disk answers, so the bootstrap child runs once and finds nothing either."""
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
 
 
 # -- host_platform_name -------------------------------------------------------
@@ -83,35 +102,24 @@ def test_native_build_returns_the_local_binary_without_a_child(tmp_path):
     t, dep = make_configured_target(tmp_path)  # build_dir ends in 'linux'
     dep.config.name.return_value = 'linux'
     dep.config.host_platform_name.return_value = 'linux'
-    binary = _touch(t.build_dir(PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary
-        run.assert_not_called()
+    _hit(t, _touch(t.build_dir(PROTOC)))
 
 
 def test_a_32_bit_build_of_a_64_bit_host_is_still_the_host(tmp_path):
     # the host runs the x86 tool it just built, so a second host build would be waste
     t, _ = _cross_target(tmp_path, name='linux32', platform=Linux, arch='x86')
-    binary = _touch(t.build_dir(PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary
-        run.assert_not_called()
+    _hit(t, _touch(t.build_dir(PROTOC)))
 
 
 def test_a_build_for_an_arch_the_host_cannot_run_is_not_the_host(tmp_path):
     t, _ = _cross_target(tmp_path, name='linuxarm', platform=Linux, arch='arm64')
     _touch(t.build_dir(PROTOC))  # an arm64 tool, which this x64 host cannot execute
-    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
-        assert t.build_host_binary('bin/protoc') is None
-        run.assert_called_once()
+    _miss(t)
 
 
 def test_cross_hit_returns_the_host_binary_without_a_child(tmp_path):
     t, dep = _cross_target(tmp_path)
-    binary = _touch(t.host_build_dir(PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary  # cheap check hit
-        run.assert_not_called()
+    _hit(t, _touch(t.host_build_dir(PROTOC)))  # cheap check hit
 
 
 def test_cross_miss_bootstraps_then_returns_the_produced_binary(tmp_path):
@@ -146,8 +154,7 @@ def test_a_mamafile_compiler_preference_never_reaches_the_child(tmp_path):
 def test_an_intel_mac_names_its_own_arch_and_not_the_platform_default(tmp_path):
     # macOS defaults to arm64, and an Intel Mac cannot run an arm64 tool
     t, _ = _cross_target(tmp_path, host='macos')
-    with patch.object(bc.System, 'aarch64', False), patch.object(bc.System, 'x86_64', True), \
-         patch('mama.build_target.SubProcess.run', return_value=1) as run:
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
         assert t.host_build_dir().endswith('/macos')
         t.build_host_binary('bin/protoc')
     assert run.call_args.args[0][-1] == 'arch=x64'
@@ -167,30 +174,19 @@ def test_a_host_dir_the_child_named_differently_is_still_found(tmp_path):
     # the child resolves its own dep args, so it can write a dir this process did not predict
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl
-    binary = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary
-        run.assert_not_called()
+    _hit(t, _touch(_sibling(dep, 'linux-clang')))
 
 
-@pytest.mark.parametrize('dir_name', ['linux-asan', 'linux-cov', 'linux-clang-cov-lgpl'])
-def test_the_search_never_takes_an_instrumented_tool(tmp_path, dir_name):
-    # a host tool runs inside another build, where a sanitizer or gcov only costs time
+@pytest.mark.parametrize('dirs', [
+    ['linux-asan'], ['linux-cov'], ['linux-clang-cov-lgpl'],  # instrumented objects, never a build tool
+    ['linux32', 'linuxarm'],                                  # another arch, which this host cannot run
+    ['linux-headers'],                                        # the source dir of a dep, not a build dir
+])
+def test_the_search_refuses_every_dir_that_is_not_a_host_build(tmp_path, dirs):
     t, dep = _cross_target(tmp_path)
-    _touch(path_join(os.path.dirname(dep.build_dir), dir_name, PROTOC))
-    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
-        assert t.build_host_binary('bin/protoc') is None
-        run.assert_called_once()
-
-
-def test_the_search_never_opens_the_source_dir(tmp_path):
-    # a dep named `linux-headers` keeps its source beside the build dirs, under the same prefix
-    t, dep = _cross_target(tmp_path)
-    dep.src_dir = path_join(os.path.dirname(dep.build_dir), 'linux-headers')
-    _touch(path_join(dep.src_dir, PROTOC))
-    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
-        assert t.build_host_binary('bin/protoc') is None
-        run.assert_called_once()
+    if dirs == ['linux-headers']: dep.src_dir = path_join(dep.dep_dir, 'linux-headers')
+    for name in dirs: _touch(_sibling(dep, name))
+    _miss(t)
 
 
 @pytest.mark.parametrize('platform, host, arch, runs', [
@@ -207,24 +203,11 @@ def test_what_each_host_can_run(platform, host, arch, runs):
         assert platform(None).runs_on_host(arch) is runs
 
 
-def test_the_search_never_leaves_the_host_arch(tmp_path):
-    # linux32 and linuxarm hold binaries of another arch, and only the host arch dir opens the name
-    t, dep = _cross_target(tmp_path)
-    for name in ('linux32', 'linuxarm'): _touch(path_join(os.path.dirname(dep.build_dir), name, PROTOC))
-    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
-        assert t.build_host_binary('bin/protoc') is None
-        run.assert_called_once()
-
-
 def test_the_search_takes_the_newest_host_tool(tmp_path):
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl, which nothing wrote
-    old = _touch(path_join(os.path.dirname(dep.build_dir), 'linux', PROTOC))
-    os.utime(old, (1, 1))
-    fresh = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == fresh
-        run.assert_not_called()
+    os.utime(_touch(_sibling(dep, 'linux')), (1, 1))
+    _hit(t, _touch(_sibling(dep, 'linux-clang')))
 
 
 def test_the_predicted_dir_answers_before_any_other(tmp_path):
@@ -232,20 +215,15 @@ def test_the_predicted_dir_answers_before_any_other(tmp_path):
     t, dep = _cross_target(tmp_path)
     exact = _touch(t.host_build_dir(PROTOC))
     os.utime(exact, (1, 1))  # older than the neighbour, and still the answer
-    _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == exact
-        run.assert_not_called()
+    _touch(_sibling(dep, 'linux-clang'))
+    _hit(t, exact)
 
 
 def test_a_dep_arg_that_spells_a_sanitizer_still_finds_its_tool(tmp_path):
     # `args=['ASAN']` names linux-asan with no instrumentation in it, and the predicted dir answers first
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['ASAN']
-    binary = _touch(t.host_build_dir(PROTOC))
-    with patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary
-        run.assert_not_called()
+    _hit(t, _touch(t.host_build_dir(PROTOC)))
 
 
 def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp_path):
@@ -259,15 +237,10 @@ def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp
     assert console.call_args.args[0].endswith('| * build J4  protoc  bld 2.1s')
 
 
-def test_cross_bootstrap_failure_returns_none(tmp_path):
-    t, dep = _cross_target(tmp_path)
-    with patch('mama.build_target.SubProcess.run', return_value=1):
-        assert t.build_host_binary('bin/protoc') is None   # non-zero exit, nothing produced
-
-
-def test_cross_miss_produced_nothing_returns_none(tmp_path):
-    t, dep = _cross_target(tmp_path)
-    with patch('mama.build_target.SubProcess.run', return_value=0):  # exit 0 but no binary on disk
+@pytest.mark.parametrize('status', [0, 1])  # exit 0 and no binary, or a failed child
+def test_a_bootstrap_that_produced_nothing_returns_none(tmp_path, status):
+    t, _ = _cross_target(tmp_path)
+    with patch('mama.build_target.SubProcess.run', return_value=status):
         assert t.build_host_binary('bin/protoc') is None
 
 
@@ -281,6 +254,5 @@ def test_auto_build_false_never_spawns_a_child(tmp_path):
 def test_windows_host_resolves_the_exe_suffix(tmp_path):
     t, dep = _cross_target(tmp_path)
     binary = _touch(t.host_build_dir('bin/protoc.exe'))
-    with patch.object(bt.System, 'windows', True), patch('mama.build_target.SubProcess.run') as run:
-        assert t.build_host_binary('bin/protoc') == binary   # 'bin/protoc' -> 'bin/protoc.exe'
-        run.assert_not_called()
+    with patch.object(bt.System, 'windows', True):
+        _hit(t, binary)   # 'bin/protoc' -> 'bin/protoc.exe'

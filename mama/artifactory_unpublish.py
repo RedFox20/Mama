@@ -270,14 +270,14 @@ def _selector_label(config, keep: int) -> str:
     return f'prune-old={keep}' if config.unpublish == 'prune-old' else config.unpublish
 
 
-def _report_no_match(listed: dict, selector: str, url: str, in_scope_count: int):
+def _report_no_match(listed: dict, selector: str, url: str, reached_a_target: bool):
     """Say which target the run read, and what it holds. A bare `Nothing to unpublish` hides both, so a
     wrong target name reads the same as a selector that matched no version.
 
     The count names versions as well as archives, because `prune-old` keeps versions. One version holds
     one archive per platform, so an archive count alone reads as far more than the selector spared."""
     if not listed:
-        reason = 'every target in scope is a read-only package' if in_scope_count else 'the run reached no target'
+        reason = 'every target in scope is a read-only package' if reached_a_target else 'the run reached no target'
         console(f'  Nothing to unpublish on {url}: {reason}')
         return
     console(f'  Nothing to unpublish on {url}: no archive matched `{selector}`')
@@ -315,7 +315,7 @@ def unpublish_run(targets, config) -> int:
             picked = select(target.name, archives, selector, keep, protect)
             if picked: doomed[target] = picked
         if not doomed:
-            _report_no_match(listed, _selector_label(config, keep), url, len(targets))
+            _report_no_match(listed, _selector_label(config, keep), url, bool(targets))
             return 0
         if not _confirm(describe_run(doomed, url), config.assume_yes):
             console('  UNPUBLISH cancelled')

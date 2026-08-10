@@ -33,13 +33,14 @@ def _descendants(pid) -> list:
         return []
 
 
-def _kill_pid(pid):
-    """Kill one pid, and ignore a pid that already left."""
+def _kill_pid(pid) -> bool:
+    """Kill one pid. False when it had already left, which the caller treats as a no-op."""
     try:
         import psutil
         psutil.Process(pid).kill()
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _kill_group(gid) -> bool:
@@ -50,21 +51,31 @@ def _kill_group(gid) -> bool:
     dependency, and it replaces a `taskkill /F /T` child that cost about 300ms per kill. Spawning a
     process to stop one is the wrong move anyway, because this runs precisely while mama aborts.
 
-    psutil imports here, not at the top of the module. It costs about 32ms, only a Windows kill
-    needs it, and a kill is rare."""
+    psutil imports inside the helpers, not at the top of the module. It costs about 32ms, only a
+    Windows kill needs it, and a kill is rare."""
+    if System.windows:
+        for pid in _descendants(gid): _kill_pid(pid)  # children first, so the root spawns no more
+        return _kill_pid(gid)
     try:
-        if System.windows:
-            import psutil
-            root = psutil.Process(gid)
-            for child in root.children(recursive=True):  # children first, so the root spawns no more
-                try: child.kill()
-                except psutil.Error: pass
-            root.kill()
-        else:
-            os.killpg(gid, signal.SIGKILL)
+        os.killpg(gid, signal.SIGKILL)
         return True
     except Exception:
         return False
+
+
+def _tree_snapshot(p) -> tuple:
+    """What a later sweep needs to kill this child and everything below it, read while the child lives.
+    UNIX answers its process group. Windows has no group, so it answers every descendant pid."""
+    gid = p.group_id()
+    return (gid, _descendants(gid)) if gid else (0, [])
+
+
+def _kill_snapshot(snapshot):
+    """Kill what a snapshot named. On Windows the recorded pids go first, because an orphan grandchild
+    outlives the root that could name it."""
+    gid, descendants = snapshot
+    for pid in descendants: _kill_pid(pid)
+    if gid: _kill_group(gid)
 
 
 @lru_cache(maxsize=None)
@@ -240,9 +251,9 @@ class SubProcess:
         with _procs_lock:
             abort.request(reason)
             procs = list(_live_procs)
-        # read each group id NOW, while its leader lives: getpgid() fails once the pid is gone, and stage 3 needs the group
-        groups = [g for g in (p.group_id() for p in procs) if g]
-        orphans = [pid for g in groups for pid in _descendants(g)]  # windows: no group survives the root
+        # read each tree NOW, while its leader lives: getpgid() fails once the pid is gone, and a
+        # windows tree has no group to walk it by once the root exits. Stage 3 sweeps this snapshot.
+        trees = [_tree_snapshot(p) for p in procs]
         for p in procs: p.interrupt()
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
@@ -253,12 +264,9 @@ class SubProcess:
         for p in procs:
             try: p.kill()
             except Exception: pass
-        # Sweep the groups too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run on
-        # with nobody left to stop it. A group whose members all exited is empty and this is a no-op.
-        for gid in groups: _kill_group(gid)
-        # On Windows that grandchild is now an orphan, and a dead root can no longer name its tree. The
-        # snapshot taken above is the only list of it left.
-        for pid in orphans: _kill_pid(pid)
+        # Sweep the trees too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run
+        # on with nobody left to stop it. A tree whose members all exited sweeps to nothing.
+        for tree in trees: _kill_snapshot(tree)
 
     @staticmethod
     def clear_abort():
