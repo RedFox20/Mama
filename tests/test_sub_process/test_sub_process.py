@@ -322,6 +322,19 @@ class TestCtrlCTermination:
         assert not t.is_alive()         # killed promptly, not blocked for the full 30s
         assert result.get('s', 0) != 0  # nonzero status from the kill
 
+    def test_a_windows_orphan_grandchild_dies_from_the_snapshot(self):
+        # the child obeys the console signal and the grandchild misses it, so no live root names the tree
+        from types import SimpleNamespace
+        from mama.utils import sub_process
+        child = SimpleNamespace(group_id=lambda: 111, interrupt=lambda: None, kill=lambda: None)
+        with patch.object(sub_process, '_live_procs', [child]), \
+             patch.object(sub_process, '_descendants', return_value=[222]) as walk, \
+             patch.object(sub_process, '_kill_group', return_value=True), \
+             patch.object(sub_process, '_kill_pid') as kill_pid:
+            SubProcess.terminate_all('test', grace=0)
+        walk.assert_called_once_with(111)  # read while the root lives, never after the kill
+        kill_pid.assert_called_once_with(222)
+
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
         # Tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not just the spawned pid.
         import threading, time

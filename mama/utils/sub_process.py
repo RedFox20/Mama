@@ -20,6 +20,28 @@ _procs_lock = threading.Lock()
 _live_procs = set()   # live SubProcess instances. terminate_all() stops every one of them
 
 
+def _descendants(pid) -> list:
+    """Every descendant pid of `pid` on Windows, and [] on UNIX, where a process group needs none.
+
+    Read this while the root still lives. A killed root leaves its grandchildren with no tree to walk,
+    and Windows has no process group to sweep them by."""
+    if not System.windows: return []
+    try:
+        import psutil
+        return [c.pid for c in psutil.Process(pid).children(recursive=True)]
+    except Exception:
+        return []
+
+
+def _kill_pid(pid):
+    """Kill one pid, and ignore a pid that already left."""
+    try:
+        import psutil
+        psutil.Process(pid).kill()
+    except Exception:
+        pass
+
+
 def _kill_group(gid) -> bool:
     """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows). True when the kill
     reached the root. False when it was already gone, which the caller treats as a no-op.
@@ -220,6 +242,7 @@ class SubProcess:
             procs = list(_live_procs)
         # read each group id NOW, while its leader lives: getpgid() fails once the pid is gone, and stage 3 needs the group
         groups = [g for g in (p.group_id() for p in procs) if g]
+        orphans = [pid for g in groups for pid in _descendants(g)]  # windows: no group survives the root
         for p in procs: p.interrupt()
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
@@ -233,6 +256,9 @@ class SubProcess:
         # Sweep the groups too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run on
         # with nobody left to stop it. A group whose members all exited is empty and this is a no-op.
         for gid in groups: _kill_group(gid)
+        # On Windows that grandchild is now an orphan, and a dead root can no longer name its tree. The
+        # snapshot taken above is the only list of it left.
+        for pid in orphans: _kill_pid(pid)
 
     @staticmethod
     def clear_abort():

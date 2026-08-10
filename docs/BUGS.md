@@ -16,6 +16,11 @@ None.
 
 ## Closed
 
+- **A Windows abort left a grandchild process running.** The final sweep walked the process tree from
+  the child pid, and a child that obeyed the console signal was already gone, so the walk found nothing.
+  A grandchild that missed the same signal then ran on with nobody left to stop it. The abort now reads
+  the descendant pids before it signals anything, and kills each one that outlived its parent.
+
 - **`host_build_dir` named a bare platform dir the bootstrap child never wrote.** A root
   `prefer_clang()`, a dep arg or an arm64 Linux host each moved the child to `linux-clang`, `linux-lgpl`
   or `linuxarm`, and the probe read `linux`. The host tool then went missing although the child exited
