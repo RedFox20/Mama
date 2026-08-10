@@ -191,13 +191,13 @@ class BuildTarget:
         return path_join(host_dir, subpath) if subpath else host_dir
 
 
-    def _host_binary_on_disk(self, relpath):
-        """The host tool this dep built, or None. The predicted dir answers first, because it names the
-        compiler and the dep args of THIS run. Only a miss widens the search to every other host build
-        dir, newest first, because the child resolves its own dep args and may name another one. The
-        search never leaves the host arch, because only that platform dir opens the name."""
-        exact = self.host_build_dir(relpath)
-        if os.path.exists(exact): return exact
+    def _host_binary_the_child_wrote(self, relpath):
+        """The newest host tool of this dep, over every host build dir, or None.
+
+        ONLY for the answer after a bootstrap. The child resolves its own dep args, so it may name a dir
+        this process did not predict. Before the bootstrap the predicted dir answers alone, because a dep
+        arg changes what a tool does, and a warm `linux-bar` must never serve a run that asked for
+        `linux-foo`. The search never leaves the host arch, because only that platform dir opens the name."""
         dep_dir = self.dep.dep_dir
         prefix = build_names.host_view(self.config).platform.build_dir_name()
         try: names = os.listdir(dep_dir)
@@ -233,8 +233,8 @@ class BuildTarget:
         if build_names.is_host_build(self.config):
             local = self.build_dir(relpath)  # already the host: the normal build produced it here
             return local if os.path.exists(local) else None
-        binary = self._host_binary_on_disk(relpath)
-        if binary:
+        binary = self.host_build_dir(relpath)  # the predicted dir alone: it names the args of THIS run
+        if os.path.exists(binary):
             return binary
         if not auto_build:
             return None
@@ -260,7 +260,7 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        return self._host_binary_on_disk(relpath)
+        return self._host_binary_the_child_wrote(relpath)
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):

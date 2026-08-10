@@ -53,6 +53,13 @@ def _miss(t):
         run.assert_called_once()
 
 
+def _bootstrapped(t, expected):
+    """The predicted dir answers nothing, so the child runs, and its own dir answers afterwards."""
+    with patch('mama.build_target.SubProcess.run', return_value=0) as run:
+        assert t.build_host_binary('bin/protoc') == expected
+        run.assert_called_once()
+
+
 # -- host_platform_name -------------------------------------------------------
 
 @pytest.mark.parametrize('windows,macos,expected', [
@@ -170,11 +177,20 @@ def test_the_child_gets_no_compiler_on_a_windows_host(tmp_path):
 
 # -- the search over host build dirs -------------------------------------------
 
-def test_a_host_dir_the_child_named_differently_is_still_found(tmp_path):
+def test_a_host_dir_the_child_named_differently_answers_after_the_bootstrap(tmp_path):
     # the child resolves its own dep args, so it can write a dir this process did not predict
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl
-    _hit(t, _touch(_sibling(dep, 'linux-clang')))
+    _bootstrapped(t, _touch(_sibling(dep, 'linux-clang')))
+
+
+def test_another_variant_never_answers_before_the_bootstrap(tmp_path):
+    # a dep arg changes what a tool does, so a warm linux-lgpl must not serve a run that asked for linux
+    t, dep = _cross_target(tmp_path)
+    _touch(_sibling(dep, 'linux-lgpl'))
+    with patch('mama.build_target.SubProcess.run', return_value=1) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()  # the child ran, rather than the neighbour answering
 
 
 @pytest.mark.parametrize('dirs', [
@@ -199,15 +215,24 @@ def test_the_search_refuses_every_dir_that_is_not_a_host_build(tmp_path, dirs):
     (Windows, 'x86',   'x64',   False),
 ])
 def test_what_each_host_can_run(platform, host, arch, runs):
-    with patch('mama.platforms.platform.host_arch', return_value=host):
+    with patch('mama.platforms.platform.host_arch', return_value=host), \
+         patch('mama.platforms.macos.host_arch', return_value=host), \
+         patch('mama.platforms.macos.rosetta_installed', return_value=True):
         assert platform(None).runs_on_host(arch) is runs
+
+
+def test_apple_silicon_without_rosetta_runs_no_x64_tool(tmp_path):
+    # Rosetta is an optional install, and the x64 tool cannot run without it
+    with patch('mama.platforms.macos.host_arch', return_value='arm64'), \
+         patch('mama.platforms.macos.rosetta_installed', return_value=False):
+        assert Macos(None).runs_on_host('x64') is False
 
 
 def test_the_search_takes_the_newest_host_tool(tmp_path):
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl, which nothing wrote
     os.utime(_touch(_sibling(dep, 'linux')), (1, 1))
-    _hit(t, _touch(_sibling(dep, 'linux-clang')))
+    _bootstrapped(t, _touch(_sibling(dep, 'linux-clang')))
 
 
 def test_the_predicted_dir_answers_before_any_other(tmp_path):
