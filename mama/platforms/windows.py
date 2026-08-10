@@ -100,7 +100,7 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
-    host_runs = {'x64': ('x64', 'x86'), 'x86': ('x86',), 'arm64': ('arm64', 'x64', 'x86')}  # arm64 emulates both
+    also_runs = {'x64': ('x86',), 'arm64': ('x64', 'x86')}  ## the arm64 emulator runs both
     ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx. An older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False

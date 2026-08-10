@@ -139,8 +139,8 @@ run named one, and only on a Linux host, where the build dir carries a compiler 
 preference belongs to the child's own config, and forcing it would build the tool with a compiler the
 project refused.
 
-**A build is the host build when the platform matches and the host can RUN the arch.** `Platform.host_runs`
-declares which arches each host can run. An x86 build of an x64 host is a host build, and Rosetta
+**A build is the host build when the platform matches and the host can RUN the arch.** `Platform.also_runs`
+declares what each host runs besides its own arch. An x86 build of an x64 host is a host build, and Rosetta
 makes an x64 build one on Apple silicon. An arch the host cannot run is a cross build, whatever its
 platform says.
 
