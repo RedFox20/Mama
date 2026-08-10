@@ -327,13 +327,14 @@ class TestCtrlCTermination:
         from types import SimpleNamespace
         from mama.utils import sub_process
         child = SimpleNamespace(group_id=lambda: 111, interrupt=lambda: None, kill=lambda: None)
+        grandchild = SimpleNamespace(pid=222)  # a psutil object, which refuses a pid another process reused
         with patch.object(sub_process, '_live_procs', [child]), \
-             patch.object(sub_process, '_descendants', return_value=[222]) as walk, \
+             patch.object(sub_process, '_descendants', return_value=[grandchild]) as walk, \
              patch.object(sub_process, '_kill_group', return_value=True), \
-             patch.object(sub_process, '_kill_pid') as kill_pid:
+             patch.object(sub_process, '_kill_proc') as kill_proc:
             SubProcess.terminate_all('test', grace=0)
         walk.assert_called_once_with(111)  # read while the root lives, never after the kill
-        kill_pid.assert_called_once_with(222)  # the snapshot is the only list of the orphan left
+        kill_proc.assert_called_once_with(grandchild)  # the snapshot is the only handle on the orphan
 
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
         # Tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not just the spawned pid.

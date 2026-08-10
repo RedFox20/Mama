@@ -21,24 +21,33 @@ _live_procs = set()   # live SubProcess instances. terminate_all() stops every o
 
 
 def _descendants(pid) -> list:
-    """Every descendant pid of `pid` on Windows, and [] on UNIX, where a process group needs none.
+    """Every descendant of `pid` on Windows, and [] on UNIX, where a process group needs none.
 
     Read this while the root still lives. A killed root leaves its grandchildren with no tree to walk,
-    and Windows has no process group to sweep them by."""
+    and Windows has no process group to sweep them by. It answers psutil objects, never bare pids: each
+    one carries the creation time, so a later kill cannot hit a process that reused the number."""
     if not System.windows: return []
     try:
         import psutil
-        return [c.pid for c in psutil.Process(pid).children(recursive=True)]
+        return psutil.Process(pid).children(recursive=True)
     except Exception:
         return []
+
+
+def _kill_proc(proc) -> bool:
+    """Kill one process. False when it had already left, which the caller treats as a no-op."""
+    try:
+        proc.kill()
+        return True
+    except Exception:
+        return False
 
 
 def _kill_pid(pid) -> bool:
     """Kill one pid. False when it had already left, which the caller treats as a no-op."""
     try:
         import psutil
-        psutil.Process(pid).kill()
-        return True
+        return _kill_proc(psutil.Process(pid))
     except Exception:
         return False
 
@@ -54,7 +63,7 @@ def _kill_group(gid) -> bool:
     psutil imports inside the helpers, not at the top of the module. It costs about 32ms, only a
     Windows kill needs it, and a kill is rare."""
     if System.windows:
-        for pid in _descendants(gid): _kill_pid(pid)  # children first, so the root spawns no more
+        for proc in _descendants(gid): _kill_proc(proc)  # children first, so the root spawns no more
         return _kill_pid(gid)
     try:
         os.killpg(gid, signal.SIGKILL)
@@ -74,7 +83,7 @@ def _kill_snapshot(snapshot):
     """Kill what a snapshot named. On Windows the recorded pids go first, because an orphan grandchild
     outlives the root that could name it."""
     gid, descendants = snapshot
-    for pid in descendants: _kill_pid(pid)
+    for proc in descendants: _kill_proc(proc)
     if gid: _kill_group(gid)
 
 
