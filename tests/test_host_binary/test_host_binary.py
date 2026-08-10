@@ -16,6 +16,13 @@ from mama.platforms.windows import Windows
 PROTOC = f'bin/protoc{executable_extension()}'
 
 
+@pytest.fixture(autouse=True)
+def an_x64_host():
+    """Every path here is an x64 host path, so an arm64 CI runner must not take another branch."""
+    with patch.object(bc.System, 'aarch64', False), patch.object(bc.System, 'x86_64', True):
+        yield
+
+
 def _cross_target(tmp_path, name='android', host='linux', platform=Android, **cfg):
     """A target cross-compiling for `name` with host `host`, so host_build_dir() is a distinct sibling."""
     t, dep = make_configured_target(tmp_path, **cfg)
@@ -211,11 +218,33 @@ def test_the_search_never_leaves_the_host_arch(tmp_path):
 
 def test_the_search_takes_the_newest_host_tool(tmp_path):
     t, dep = _cross_target(tmp_path)
-    old = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-lgpl', PROTOC))
+    dep.target_args = ['LGPL']  # predicts linux-lgpl, which nothing wrote
+    old = _touch(path_join(os.path.dirname(dep.build_dir), 'linux', PROTOC))
     os.utime(old, (1, 1))
-    fresh = _touch(t.host_build_dir(PROTOC))
+    fresh = _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
     with patch('mama.build_target.SubProcess.run') as run:
         assert t.build_host_binary('bin/protoc') == fresh
+        run.assert_not_called()
+
+
+def test_the_predicted_dir_answers_before_any_other(tmp_path):
+    # it names the compiler and the dep args of this run, so it holds the right variant
+    t, dep = _cross_target(tmp_path)
+    exact = _touch(t.host_build_dir(PROTOC))
+    os.utime(exact, (1, 1))  # older than the neighbour, and still the answer
+    _touch(path_join(os.path.dirname(dep.build_dir), 'linux-clang', PROTOC))
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == exact
+        run.assert_not_called()
+
+
+def test_a_dep_arg_that_spells_a_sanitizer_still_finds_its_tool(tmp_path):
+    # `args=['ASAN']` names linux-asan with no instrumentation in it, and the predicted dir answers first
+    t, dep = _cross_target(tmp_path)
+    dep.target_args = ['ASAN']
+    binary = _touch(t.host_build_dir(PROTOC))
+    with patch('mama.build_target.SubProcess.run') as run:
+        assert t.build_host_binary('bin/protoc') == binary
         run.assert_not_called()
 
 

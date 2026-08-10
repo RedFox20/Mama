@@ -192,9 +192,12 @@ class BuildTarget:
 
 
     def _host_binary_on_disk(self, relpath):
-        """The newest host tool on disk, over EVERY build dir a host build may have written, or None.
-        The child resolves its own dep args, so the predicted dir name is a first guess, not a promise.
-        The search never leaves the host arch, because only that platform dir opens the name."""
+        """The host tool this dep built, or None. The predicted dir answers first, because it names the
+        compiler and the dep args of THIS run. Only a miss widens the search to every other host build
+        dir, newest first, because the child resolves its own dep args and may name another one. The
+        search never leaves the host arch, because only that platform dir opens the name."""
+        exact = self.host_build_dir(relpath)
+        if os.path.exists(exact): return exact
         dep_dir = os.path.dirname(self.dep.build_dir)
         prefix = build_names.host_platform_dir(self.config)
         try: names = os.listdir(dep_dir)

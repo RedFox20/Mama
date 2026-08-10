@@ -125,8 +125,9 @@ another. The host tool then went missing while the child reported success.
 
 **`host_build_dir` names the dir through the same rules the child follows.** `host_build_dir_name`
 builds a host view of the config, then runs the two functions above on it. The host platform, the arch
-of this machine, the compiler this run resolved and the dep args all reach the name. So an
-`args=['LGPL']` dep and an arm64 Linux host land on `linux-lgpl` and `linuxarm` on both sides.
+of this machine, the compiler this run resolved and the dep args all reach the name, so an
+`args=['LGPL']` dep names `linux-lgpl` and an arm64 Linux host names `linuxarm`. The child resolves its
+own graph, so this name is what the child MOST LIKELY writes, and the search below covers the rest.
 
 **The host view names the arch of this machine, never the platform default.** macOS defaults to arm64,
 and an Intel Mac cannot run an arm64 tool. `build_host_binary` passes the same arch to the child, so the
@@ -143,8 +144,9 @@ declares which arches each host can run. An x86 build of an x64 host is a host b
 makes an x64 build one on Apple silicon. An arch the host cannot run is a cross build, whatever its
 platform says.
 
-**The tool search reads every host build dir of the dep and takes the newest hit.** The child resolves
-its own dep args, so a predicted name is a first guess and not a promise. The search opens only names
+**The predicted dir answers first, and only a miss reads the other host build dirs, newest first.**
+The predicted name carries the compiler and the dep args of this run, so it names the right variant
+when it exists. The child resolves its own dep args, so the name is a first guess and not a promise. The search opens only names
 that start with the host platform dir, so it can never answer with a binary of another arch. It skips a
 coverage or a sanitizer dir, and it skips the source dir of a dep whose name opens with the same word.
 
