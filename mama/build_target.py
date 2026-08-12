@@ -260,7 +260,9 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        return self._host_binary_the_child_wrote(relpath)
+        # the predicted dir first again: a dep arg may spell a token the widened search refuses, such
+        # as args=['ASAN'], and the child just wrote exactly that dir
+        return binary if os.path.exists(binary) else self._host_binary_the_child_wrote(relpath)
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):

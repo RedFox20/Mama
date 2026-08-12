@@ -251,6 +251,17 @@ def test_a_dep_arg_that_spells_a_sanitizer_still_finds_its_tool(tmp_path):
     _hit(t, _touch(t.host_build_dir(PROTOC)))
 
 
+def test_a_dep_arg_that_spells_a_sanitizer_finds_the_tool_its_child_wrote(tmp_path):
+    # the widened search refuses a linux-asan dir, so the predicted path has to answer after the child
+    t, dep = _cross_target(tmp_path)
+    dep.target_args = ['ASAN']
+    produced = t.host_build_dir(PROTOC)
+    def child(argv, cwd=None, **kw): return _touch(produced) and 0
+    with patch('mama.build_target.SubProcess.run', side_effect=child) as run:
+        assert t.build_host_binary('bin/protoc') == produced
+        run.assert_called_once()
+
+
 def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp_path):
     """An uncaptured child inherits stdout and draws its own live region over ours, tearing the
     parent's cursor math apart - every child line must come back through console()."""
