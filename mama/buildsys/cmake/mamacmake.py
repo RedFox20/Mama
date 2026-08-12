@@ -125,8 +125,7 @@ function(mama_target_modules target)
         message(STATUS "MAMA: C++20 modules off, using the exported headers")
         return()
     endif()
-    # mama passes -std=c++20 as a raw flag, and a CXX_MODULES file set reads target_compile_features
-    # instead. Without this line cmake refuses the target with "no C++ standard found".
+    # a module needs C++20, and the consumer mamafile does not have to force a standard of its own
     target_compile_features(${target} PUBLIC cxx_std_20)
     target_sources(${target} PUBLIC FILE_SET mama_modules TYPE CXX_MODULES
                    BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})

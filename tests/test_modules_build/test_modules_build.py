@@ -1,6 +1,7 @@
 """Pins a real module build across a mama dependency: the consumer compiles the exported .cppm,
 the packaged archive drops the module object, and an incapable toolchain keeps the headers."""
 import os
+import re
 from glob import glob
 
 import pytest
@@ -63,6 +64,14 @@ def _members(lib) -> str:
 def test_a_consumer_imports_the_exported_module(tmp_path):
     # the end-to-end proof, and the only test that catches a missing target_compile_features
     assert _run_consumer(_build(tmp_path)) == 'MODULES hello'
+
+
+def test_the_forced_standard_reaches_the_real_cmake_cache(tmp_path):
+    # the producer CMakeLists names no standard, so only enable_cxx20() can put one in the cache
+    project = _build(tmp_path)
+    cache = open(f'{_producer_build_dir(project)}/CMakeCache.txt').read()
+    # an untyped -D lands as UNINITIALIZED, the same as every other option mama passes
+    assert re.search(r'^CMAKE_CXX_STANDARD:\w+=20$', cache, re.M)
 
 
 def test_the_deployed_package_records_the_module_and_ships_it(tmp_path):

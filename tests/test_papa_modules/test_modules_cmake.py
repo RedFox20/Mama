@@ -20,7 +20,7 @@ def _defines(tmp_path, modules=None, includes=None) -> str:
 # --- the helper in mama.cmake -------------------------------------------------
 
 def test_the_helper_applies_the_standard_the_module_scanner_needs():
-    # mama passes -std=c++20 as a raw flag, and a CXX_MODULES file set reads target_compile_features
+    # a consumer mamafile that forces no standard still gets the C++20 a module needs
     assert 'target_compile_features(${target} PUBLIC cxx_std_20)' in _text()
 
 

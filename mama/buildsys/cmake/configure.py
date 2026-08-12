@@ -113,6 +113,32 @@ def _cmake_version_number(config) -> str:
     return v
 
 
+def _cmake_version(config) -> tuple:
+    """(major, minor) of the running cmake. (0, 0) when the probe failed, which enables nothing."""
+    parts = _cmake_version_number(config).split('.')
+    try: return (int(parts[0]), int(parts[1]))
+    except (ValueError, IndexError): return (0, 0)
+
+
+# The cmake release that learned each standard. An older cmake fails the configure on a number it
+# does not know, so mama passes the flag alone and leaves the cmake default in place.
+_CXX_STANDARD_MIN_CMAKE = {'11': (3,1), '14': (3,1), '17': (3,8), '20': (3,12), '23': (3,20), '26': (3,25)}
+
+
+def _cxx_standard_opts(target:BuildTarget) -> list:
+    """The cmake C++ standard, taken from the standard the mamafile forced. A raw `-std` flag tells
+    cmake nothing, so `target_compile_features` and a `CXX_MODULES` file set both fail without this.
+    A mamafile that names the standard through add_cmake_options() keeps its own value."""
+    std = target.cxx_standard()
+    if not std or not target.enable_cxx_build: return []
+    least = _CXX_STANDARD_MIN_CMAKE.get(std)
+    if not least or _cmake_version(target.config) < least: return []
+    forced = {o.split('=', 1)[0].strip() for o in target.cmake_opts}
+    # EXTENSIONS OFF keeps the flag cmake adds equal to the one the mamafile already asked for
+    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_STANDARD_REQUIRED': 'ON', 'CMAKE_CXX_EXTENSIONS': 'OFF'}
+    return [f'{k}={v}' for k, v in defaults.items() if k not in forced]
+
+
 def _build_files_dir(target:BuildTarget) -> str:
     return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
 
@@ -677,6 +703,8 @@ def _default_options(target:BuildTarget):
         named = _named_option(target.cmake_opts, _MSVC_RUNTIME)
         if named and named != _RELEASE_CRT:
             warning(f'  {target.name: <16} ignores {_MSVC_RUNTIME}={named}: mama links one CRT across the tree')
+
+    opt += _cxx_standard_opts(target)
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
 

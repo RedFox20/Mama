@@ -976,6 +976,18 @@ class BuildTarget:
         self.cmake_cxxflags['/std' if self.msvc else '-std'] = std
 
 
+    # newest first, because `c++latest` answers yes to every standard below it
+    _CXX_STANDARDS = ('26', '23', '20', '17', '14', '11')
+
+    def cxx_standard(self) -> str:
+        """The C++ standard this mamafile forced, as the number cmake wants, eg '20'.
+        Returns '' when the mamafile forced none, so the caller can leave the cmake default alone."""
+        if not self._get_cxx_std(): return ''
+        for std in self._CXX_STANDARDS:
+            if getattr(self, f'is_enabled_cxx{std}')(): return std
+        return ''
+
+
     def enable_cxx26(self):
         """ Enable C++26 standard """
         self._set_cxx_std('c++latest' if self.msvc else 'c++2b')
@@ -988,7 +1000,8 @@ class BuildTarget:
 
     def enable_cxx23(self):
         """ Enable C++23 standard """
-        self._set_cxx_std('/std:c++23preview' if self.msvc else 'c++2b')
+        # _set_cxx_std adds the `/std:` prefix, so the value carries the standard alone
+        self._set_cxx_std('c++23preview' if self.msvc else 'c++2b')
 
     def is_enabled_cxx23(self):
         if 'CXX23' in self.args: return True

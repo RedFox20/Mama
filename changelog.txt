@@ -3,6 +3,9 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
  - bugfix: a seeded compiler cache broke every clang C++20 module build
+ - feature: enable_cxxNN() now also sets CMAKE_CXX_STANDARD, so
+     target_compile_features() and C++20 modules work in a mamafile project
+ - bugfix: enable_cxx23() doubled the /std: prefix on MSVC
  - feature: export_modules() ships C++20 modules to a consumer
      self.export_modules('src/rpp', ['rpp-strview.cppm'])  in package()
      the consumer calls mama_target_modules(MyApp) in its CMakeLists

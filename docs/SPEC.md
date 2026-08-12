@@ -676,6 +676,18 @@ it would free a pointer on the wrong heap. CMP0091, NEW since cmake 3.15, moved 
 policy at OLD reads no runtime library at all, so the rewrite is what reaches it. A third-party project
 includes no `mama.cmake` at all, so the command line is the one route that reaches both.
 
+**A mamafile that forces a C++ standard also gives cmake that standard.** `enable_cxx20()` and its
+siblings write a raw `-std` flag. cmake never reads that flag, so it believes the project named no
+standard. Mama maps the flag back to a number and passes `CMAKE_CXX_STANDARD`, plus
+`CMAKE_CXX_STANDARD_REQUIRED=ON` and `CMAKE_CXX_EXTENSIONS=OFF`. A mamafile that names one of the
+three through `add_cmake_options()` keeps its own value, and a mamafile that forces no standard gets
+none of them. A cmake older than the release that learned the standard also gets none, because it
+fails the configure on a number it does not know.
+
+**Why:** `target_compile_features()` and a `CXX_MODULES` file set both read the cmake standard, not
+the compiler flags. Without this a C++20 project cannot use either, although every compile line
+already carries `-std=c++20`.
+
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per
