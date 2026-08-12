@@ -160,7 +160,7 @@ def no_cmake_writes(monkeypatch):
     """Silence the two disk writes every execute_unified run does. The scheduler fakes have no build
     dir, so mama.cmake and c_cpp_properties.json have nowhere to go."""
     from mama import dependency_chain as dc
-    monkeypatch.setattr(dc, '_save_mama_cmake_and_dependencies_cmake', lambda d: None)
+    monkeypatch.setattr(dc, '_save_cmake_files', lambda d: None)
     monkeypatch.setattr(dc, '_save_vscode_compile_commands', lambda d: None)
 
 

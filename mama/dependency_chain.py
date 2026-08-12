@@ -288,22 +288,17 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
     return deps
 
 
-def _get_mama_dependencies_cmake(root: BuildDependency, build:str):
-    if not root.get_children():
-        return ''
-    return f'include("{root.dep_dir}/{build}/mama-dependencies.cmake")'
+def _needs_mama_cmake(dep: BuildDependency) -> bool:
+    """True when a consumer can include the `<src_dir>/mama.cmake` proxy, so mama writes it. A leaf has
+    no dependency includes or libs to name, and a dep with no mamafile or CMakeLists.txt never includes it."""
+    return bool(dep.src_dir and dep.get_children()) and dep.mamafile_exists() and dep.cmakelists_exists()
 
 
-def _mama_cmake_path(root: BuildDependency):
-    if not root.src_dir: # an artifactory pkg has no src_dir
-        return f'{root.build_dir}/mama.cmake'
-    return f'{root.src_dir}/mama.cmake'
-
-
-def _save_mama_cmake_and_dependencies_cmake(root: BuildDependency):
+def _save_cmake_files(root: BuildDependency):
+    """`<build_dir>/mama-dependencies.cmake` for every dep, and the `<src_dir>/mama.cmake` proxy that
+    references it only for a dep that can include it."""
     _save_dependencies_cmake(root)
-    # the proxy `mysource/mama.cmake` references each mama-dependencies.cmake per platform
-    _save_mama_cmake(root)
+    if _needs_mama_cmake(root): _save_mama_cmake(root)
 
 
 def _get_compile_commands_path(dep: BuildDependency):
@@ -456,10 +451,9 @@ def _save_mama_cmake(root: BuildDependency):
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion often fails to detect macro paths
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
-        include = _get_mama_dependencies_cmake(root, build_dir)
-        return f'set(MAMA_BUILD "{build_dir}")' + (f'\n        {include}' if include else '')
+        return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(_mama_cmake_path(root), mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(f'{root.src_dir}/mama.cmake', mama_cmake_text(build_dir_defines))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):
@@ -557,9 +551,6 @@ def print_dependencies(root: BuildDependency):
 
 def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
     for dep in flat_deps_reverse:
-        if not os.path.exists(_mama_cmake_path(dep)):
-            _save_mama_cmake_and_dependencies_cmake(dep) # save a dummy mama.cmake before the build
-
         if dep.config.verbose:
             console(f'  - Execute Tasks: {dep.name}', color=Color.BLUE)
 
@@ -574,7 +565,7 @@ def execute_task_chain(flat_deps_reverse: List[BuildDependency]):
                 error(f"Critical Error: child '{c.name}' has not been executed before executing target '{dep.name}'")
                 raise RuntimeError(f"Child target not executed before target which requires it: {c.name}")
 
-        _save_mama_cmake_and_dependencies_cmake(dep)
+        _save_cmake_files(dep)
         dep.target._execute_tasks()
 
         # link compile_commands.json into .vscode/c_cpp_properties.json
@@ -629,7 +620,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
 
 
 def _configure_body(dep, sink):
-    _save_mama_cmake_and_dependencies_cmake(dep)  # children built -> their exports are ready
+    _save_cmake_files(dep)  # children built -> their exports are ready
     dep.target.configure_phase(out=sink)
 
 

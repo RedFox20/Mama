@@ -93,13 +93,28 @@ One name for one thing. This file uses these and no synonyms.
   .mama/compiler_seed/                  the cmake compiler-detection cache
   <name>/                               a dep dir
     <name>/                             src_dir, a git dep only
+      mama.cmake                        the proxy, for the deps that get one
     <build_dir_name>/                   one per platform, arch, compiler and variant
       CMakeCache.txt, papa.txt, mama_shim, git_status, mamafile_tag, mama_exported_libs
+      mama-dependencies.cmake           what the dependencies export
     <archive>.zip                        the cached artifactory package
 ```
 
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
 keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
+
+**Mama generates two cmake files, and only one of them reaches a source dir.**
+`<build_dir>/mama-dependencies.cmake` names every include dir and lib that this dep and the deps below
+it export, and mama writes one for every dep that has a build dir. `<src_dir>/mama.cmake` is the proxy
+a consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them,
+then includes that build dir's `mama-dependencies.cmake`.
+
+**Mama writes the proxy only for a dep that has a source dir, children, a mamafile and a
+`CMakeLists.txt`.** A leaf has no dependency includes or libs to name, and a dep with no mamafile or no
+`CMakeLists.txt` never includes the proxy.
+
+**Why:** the proxy is a generated file inside a checkout. A dep that does not use it pays with an
+untracked file for the life of the working tree.
 
 **`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
 
