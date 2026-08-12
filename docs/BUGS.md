@@ -13,6 +13,12 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A cross build whose root mamafile calls `prefer_clang()` bootstraps a host tool on every lookup.**
+  `prefer_clang` returns early when the target is not Linux, so the parent predicts `linux` while the
+  Linux child writes `linux-clang`. The tool is found after each bootstrap, but the predicted path never
+  appears, so the next run spawns the child again and `auto_build=False` answers None. Fix: let the child
+  report the dir it wrote, and read that report before predicting.
+
 - **A Windows abort can still miss a process spawned late in the grace window.** `terminate_all` reads
   each tree before the signal and once more after it, so a child that spawns a process seconds later and
   then exits leaves it with no live root to walk from. Reproduce with a child that sleeps 2 seconds,
