@@ -1,12 +1,22 @@
 from __future__ import annotations
 import os
+from functools import lru_cache
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
-from .platform import Platform
+from .platform import Platform, host_arch
 from .toolchain import Toolchain
 from mama.utils.fileio import find_executable_from_system
 from mama.utils.paths import path_join
 from mama.utils.system import System, console
 from mama.utils.sub_process import execute_piped
+
+
+@lru_cache(maxsize=1)
+def emulates_x64() -> bool:
+    """True on a Windows that runs an x64 binary on an arm64 host. Windows 11 added that emulator, at
+    build 22000. Windows 10 on arm runs an x86 binary and nothing wider."""
+    build = _os_version().split('.')
+    try: return int(build[2]) >= 22000
+    except (IndexError, ValueError): return False
 
 
 # Visual Studio install roots, newest first. Only the fallback for a machine with no vswhere.exe.
@@ -100,7 +110,7 @@ class Windows(Platform):
     build_system = 'visualstudio'
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
-    also_runs = {'x64': ('x86',), 'arm64': ('x64', 'x86')}  ## the arm64 emulator runs both
+    also_runs = {'x64': ('x86',), 'arm64': ('x64', 'x86')}  ## an arm64 host emulates both, see runs_on_host
     ide_project_ext = ('.slnx', '.sln')  # VS 18 (2026) writes the XML .slnx. An older toolset writes .sln
     ide_open_command = 'start'
     supports_coverage_report = False
@@ -109,6 +119,12 @@ class Windows(Platform):
     def _build_toolchain(self) -> Toolchain:
         # An x86 target needs the 32-bit host toolset. The toolset and the SDK pick the compiler, so mama names none.
         return Toolchain(system_name=self.system_name, host_toolset='x86' if self.arch() == 'x86' else '')
+
+
+    def runs_on_host(self, arch: str) -> bool:
+        """The arm64 x64 emulator is a Windows 11 feature, so an older arm64 host runs x86 alone."""
+        if arch == 'x64' and host_arch() == 'arm64': return emulates_x64()
+        return super().runs_on_host(arch)
 
 
     def distro_version(self) -> tuple:

@@ -83,7 +83,8 @@ reaches the compiler, and a platform never has to know about the pin. A platform
 
 `Platform.also_runs` maps a host arch to what that host runs BESIDES its own arch. The base rule is
 that an x64 host also runs an x86 build. `Macos` adds x64 on Apple silicon, through Rosetta, and it
-probes for that install. `Windows` adds both x86 and x64 on an arm64 host. `build_names.is_host_build` reads it to decide whether a build is
+probes for that install. `Windows` adds both x86 and x64 on an arm64 host, and it
+checks the Windows version, because the x64 emulator arrived in Windows 11. `build_names.is_host_build` reads it to decide whether a build is
 already a host build, so `build_host_binary` does not build the same tool twice.
 
 ## Invariants the tests enforce
