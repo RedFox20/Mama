@@ -79,12 +79,16 @@ def _tree_snapshot(p) -> tuple:
     return (gid, _descendants(gid)) if gid else (0, [])
 
 
-def _kill_snapshot(snapshot):
-    """Kill what a snapshot named. On Windows the recorded pids go first, because an orphan grandchild
-    outlives the root that could name it."""
-    gid, descendants = snapshot
-    for proc in descendants: _kill_proc(proc)
-    if gid: _kill_group(gid)
+def _kill_trees(trees):
+    """Kill every tree a snapshot named, each process once. On Windows the recorded processes go first,
+    because an orphan grandchild outlives the root that could name it."""
+    killed = set()
+    for gid, descendants in trees:
+        for proc in descendants:
+            if proc.pid not in killed:
+                killed.add(proc.pid)
+                _kill_proc(proc)
+        if gid: _kill_group(gid)
 
 
 @lru_cache(maxsize=None)
@@ -264,6 +268,9 @@ class SubProcess:
         # windows tree has no group to walk it by once the root exits. Stage 3 sweeps this snapshot.
         trees = [_tree_snapshot(p) for p in procs]
         for p in procs: p.interrupt()
+        # A child can spawn one more process while it reacts to the signal, then exit inside the grace
+        # window, which leaves that one with no live root to walk from. One more read catches it.
+        trees += [(0, _descendants(gid)) for gid, _ in trees if gid]
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
             with _procs_lock: waiting = bool(_live_procs)
@@ -275,7 +282,7 @@ class SubProcess:
             except Exception: pass
         # Sweep the trees too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run
         # on with nobody left to stop it. A tree whose members all exited sweeps to nothing.
-        for tree in trees: _kill_snapshot(tree)
+        _kill_trees(trees)
 
     @staticmethod
     def clear_abort():

@@ -13,7 +13,11 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
-None.
+- **A Windows abort can still miss a process spawned late in the grace window.** `terminate_all` reads
+  each tree before the signal and once more after it, so a child that spawns a process seconds later and
+  then exits leaves it with no live root to walk from. Reproduce with a child that sleeps 2 seconds,
+  spawns a grandchild, and exits before the 30 second grace ends. Fix: create every Windows child inside
+  a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
 

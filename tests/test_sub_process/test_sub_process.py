@@ -2,7 +2,7 @@
 import os
 import sys
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -333,7 +333,7 @@ class TestCtrlCTermination:
              patch.object(sub_process, '_kill_group', return_value=True), \
              patch.object(sub_process, '_kill_proc') as kill_proc:
             SubProcess.terminate_all('test', grace=0)
-        walk.assert_called_once_with(111)  # read while the root lives, never after the kill
+        assert walk.call_args_list == [call(111), call(111)]  # before the signal, and once after it
         kill_proc.assert_called_once_with(grandchild)  # the snapshot is the only handle on the orphan
 
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
