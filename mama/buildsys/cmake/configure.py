@@ -449,10 +449,10 @@ def run_config(target:BuildTarget, out=None, _seed=True):
         _record_toolchain_fingerprint(target.build_dir(), toolchain_fingerprint)  # adopt/refresh the baseline
         return
 
-    type_flags = _type_flags(target)
+    generator = _generator(target)
+    type_flags = _type_flags(target, generator)
     options = target.cmake_opts + _default_options(target) + target.get_product_defines()
     cmake_defines = _opts_to_defines(options)
-    generator = _generator(target)
     src_dir = _seed_src_dir(target)
     # Last, so cmake_opts can never override it by accident. Set target.cmake_install_prefix instead.
     install_prefix = f'-DCMAKE_INSTALL_PREFIX="{target.cmake_install_prefix}"'
@@ -545,13 +545,13 @@ def _generator(target:BuildTarget):
     return _GENERATORS.get(config.platform.build_system, '')
 
 
-def _type_flags(target:BuildTarget) -> str:
+def _type_flags(target:BuildTarget, generator:str) -> str:
     """The build type on the cmake command line. A multi-config generator ignores CMAKE_BUILD_TYPE at
     build time, so it also gets the configurations it may offer, the type of this target first.
     The cmake default set holds two more that mama never builds, and a build of one cannot link."""
     active = target.cmake_build_type
     flags = f'-DCMAKE_BUILD_TYPE={active}'
-    if is_multi_config(_generator(target)):
+    if is_multi_config(generator):
         other = 'RelWithDebInfo' if active == 'Debug' else 'Debug'
         flags += f' -DCMAKE_CONFIGURATION_TYPES="{active};{other}"'
     return flags

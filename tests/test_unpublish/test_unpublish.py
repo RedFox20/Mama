@@ -297,11 +297,13 @@ def test_a_selector_that_matches_nothing_never_prompts(tmp_path):
     ('prune-old', 3, 'prune-old=3'),
 ])
 def test_a_selector_that_matches_nothing_names_the_target_and_the_count(tmp_path, selector, keep, label):
+    # two archives of one version: `prune-old` keeps versions, so an archive count alone misreads
+    listed = [_archive('caf5158'), _archive('caf5158', platform='windows')]
     with patch.object(up, 'console') as printed:
-        _run(tmp_path, selector, [_archive('caf5158')], keep=keep)
+        _run(tmp_path, selector, listed, keep=keep)
     report = '\n'.join(c.args[0] for c in printed.call_args_list)
     assert f'Nothing to unpublish on files.example.com: no archive matched `{label}`' in report
-    assert f'{NAME: <16} 1 archive(s) published' in report
+    assert f'{NAME: <16} 2 archive(s) in 1 version(s)' in report
 
 
 def test_a_package_dep_refuses_to_unpublish(tmp_path):
@@ -309,6 +311,15 @@ def test_a_package_dep_refuses_to_unpublish(tmp_path):
         deleted, ftp, _, _ = _run(tmp_path, 'caf5158', [_archive('caf5158')], is_pkg=True)
     assert deleted == 0
     ftp.delete.assert_not_called()
+    # the run DID reach the target and refused it, so it must not report an empty scope
+    assert 'every target in scope is a read-only package' in printed.call_args[0][0]
+
+
+def test_a_run_that_reached_no_target_says_so(tmp_path):
+    config = _target_with_cache(tmp_path, []).config
+    config.artifactory_ftp, config.unpublish = 'files.example.com', 'prune-all'
+    with patch.object(up, 'connect'), patch.object(up, 'console') as printed:
+        assert up.unpublish_run([], config) == 0
     assert 'the run reached no target' in printed.call_args[0][0]
 
 

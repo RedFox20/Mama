@@ -20,6 +20,38 @@ _procs_lock = threading.Lock()
 _live_procs = set()   # live SubProcess instances. terminate_all() stops every one of them
 
 
+def _descendants(pid) -> list:
+    """Every descendant of `pid` on Windows, and [] on UNIX, where a process group needs none.
+
+    Read this while the root still lives. A killed root leaves its grandchildren with no tree to walk,
+    and Windows has no process group to sweep them by. It answers psutil objects, never bare pids: each
+    one carries the creation time, so a later kill cannot hit a process that reused the number."""
+    if not System.windows: return []
+    try:
+        import psutil
+        return psutil.Process(pid).children(recursive=True)
+    except Exception:
+        return []
+
+
+def _kill_proc(proc) -> bool:
+    """Kill one process. False when it had already left, which the caller treats as a no-op."""
+    try:
+        proc.kill()
+        return True
+    except Exception:
+        return False
+
+
+def _kill_pid(pid) -> bool:
+    """Kill one pid. False when it had already left, which the caller treats as a no-op."""
+    try:
+        import psutil
+        return _kill_proc(psutil.Process(pid))
+    except Exception:
+        return False
+
+
 def _kill_group(gid) -> bool:
     """Hard-kill a whole process group (UNIX) or a pid's process tree (Windows). True when the kill
     reached the root. False when it was already gone, which the caller treats as a no-op.
@@ -28,21 +60,35 @@ def _kill_group(gid) -> bool:
     dependency, and it replaces a `taskkill /F /T` child that cost about 300ms per kill. Spawning a
     process to stop one is the wrong move anyway, because this runs precisely while mama aborts.
 
-    psutil imports here, not at the top of the module. It costs about 32ms, only a Windows kill
-    needs it, and a kill is rare."""
+    psutil imports inside the helpers, not at the top of the module. It costs about 32ms, only a
+    Windows kill needs it, and a kill is rare."""
+    if System.windows:
+        for proc in _descendants(gid): _kill_proc(proc)  # children first, so the root spawns no more
+        return _kill_pid(gid)
     try:
-        if System.windows:
-            import psutil
-            root = psutil.Process(gid)
-            for child in root.children(recursive=True):  # children first, so the root spawns no more
-                try: child.kill()
-                except psutil.Error: pass
-            root.kill()
-        else:
-            os.killpg(gid, signal.SIGKILL)
+        os.killpg(gid, signal.SIGKILL)
         return True
     except Exception:
         return False
+
+
+def _tree_snapshot(p) -> tuple:
+    """What a later sweep needs to kill this child and everything below it, read while the child lives.
+    UNIX answers its process group. Windows has no group, so it answers every descendant pid."""
+    gid = p.group_id()
+    return (gid, _descendants(gid)) if gid else (0, [])
+
+
+def _kill_trees(trees):
+    """Kill every tree a snapshot named, each process once. On Windows the recorded processes go first,
+    because an orphan grandchild outlives the root that could name it."""
+    killed = set()
+    for gid, descendants in trees:
+        for proc in descendants:
+            if proc.pid not in killed:
+                killed.add(proc.pid)
+                _kill_proc(proc)
+        if gid: _kill_group(gid)
 
 
 @lru_cache(maxsize=None)
@@ -218,9 +264,13 @@ class SubProcess:
         with _procs_lock:
             abort.request(reason)
             procs = list(_live_procs)
-        # read each group id NOW, while its leader lives: getpgid() fails once the pid is gone, and stage 3 needs the group
-        groups = [g for g in (p.group_id() for p in procs) if g]
+        # read each tree NOW, while its leader lives: getpgid() fails once the pid is gone, and a
+        # windows tree has no group to walk it by once the root exits. Stage 3 sweeps this snapshot.
+        trees = [_tree_snapshot(p) for p in procs]
         for p in procs: p.interrupt()
+        # A child can spawn one more process while it reacts to the signal, then exit inside the grace
+        # window, which leaves that one with no live root to walk from. One more read catches it.
+        trees += [(0, _descendants(gid)) for gid, _ in trees if gid]
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
             with _procs_lock: waiting = bool(_live_procs)
@@ -230,9 +280,9 @@ class SubProcess:
         for p in procs:
             try: p.kill()
             except Exception: pass
-        # Sweep the groups too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run on
-        # with nobody left to stop it. A group whose members all exited is empty and this is a no-op.
-        for gid in groups: _kill_group(gid)
+        # Sweep the trees too: a GRANDCHILD can miss the group signal (mid-exec when it lands) and run
+        # on with nobody left to stop it. A tree whose members all exited sweeps to nothing.
+        _kill_trees(trees)
 
     @staticmethod
     def clear_abort():

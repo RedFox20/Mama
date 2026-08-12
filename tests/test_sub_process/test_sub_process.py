@@ -2,7 +2,7 @@
 import os
 import sys
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -321,6 +321,20 @@ class TestCtrlCTermination:
         t.join(10)
         assert not t.is_alive()         # killed promptly, not blocked for the full 30s
         assert result.get('s', 0) != 0  # nonzero status from the kill
+
+    def test_a_windows_orphan_grandchild_dies_from_the_snapshot(self):
+        # the child obeys the console signal and the grandchild misses it, so no live root names the tree
+        from types import SimpleNamespace
+        from mama.utils import sub_process
+        child = SimpleNamespace(group_id=lambda: 111, interrupt=lambda: None, kill=lambda: None)
+        grandchild = SimpleNamespace(pid=222)  # a psutil object, which refuses a pid another process reused
+        with patch.object(sub_process, '_live_procs', [child]), \
+             patch.object(sub_process, '_descendants', return_value=[grandchild]) as walk, \
+             patch.object(sub_process, '_kill_group', return_value=True), \
+             patch.object(sub_process, '_kill_proc') as kill_proc:
+            SubProcess.terminate_all('test', grace=0)
+        assert walk.call_args_list == [call(111), call(111)]  # before the signal, and once after it
+        kill_proc.assert_called_once_with(grandchild)  # the snapshot is the only handle on the orphan
 
     def test_kill_takes_down_the_grandchild_subtree(self, tmp_path):
         # Tree-kill: a killed cmake's ninja/compiler grandchildren must die too, not just the spawned pid.

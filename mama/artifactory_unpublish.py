@@ -270,15 +270,20 @@ def _selector_label(config, keep: int) -> str:
     return f'prune-old={keep}' if config.unpublish == 'prune-old' else config.unpublish
 
 
-def _report_no_match(listed: dict, selector: str, url: str):
-    """Say which target the run read and how many archives it holds. A bare `Nothing to unpublish`
-    hides both, so a wrong target name reads the same as a selector that matched no version."""
+def _report_no_match(listed: dict, selector: str, url: str, reached_a_target: bool):
+    """Say which target the run read, and what it holds. A bare `Nothing to unpublish` hides both, so a
+    wrong target name reads the same as a selector that matched no version.
+
+    The count names versions as well as archives, because `prune-old` keeps versions. One version holds
+    one archive per platform, so an archive count alone reads as far more than the selector spared."""
     if not listed:
-        console(f'  Nothing to unpublish on {url}: the run reached no target')
+        reason = 'every target in scope is a read-only package' if reached_a_target else 'the run reached no target'
+        console(f'  Nothing to unpublish on {url}: {reason}')
         return
     console(f'  Nothing to unpublish on {url}: no archive matched `{selector}`')
-    for name, count in listed.items():
-        console(f'    {name: <16} {count} archive(s) published')
+    for name, archives in listed.items():
+        versions = len(group_by_version(name, archives))
+        console(f'    {name: <16} {len(archives)} archive(s) in {versions} version(s)')
 
 
 def unpublish_run(targets, config) -> int:
@@ -293,7 +298,7 @@ def unpublish_run(targets, config) -> int:
     keep = DEFAULT_KEEP if config.unpublish_keep is None else config.unpublish_keep
 
     doomed = {}  # target -> [archive], so the listing can group by target and the purge can follow
-    listed = {}  # target name -> how many archives the server holds, for the nothing-matched report
+    listed = {}  # target name -> its archives on the server, for the nothing-matched report
     ftp = connect(config)
     try:
         for target in targets:
@@ -306,11 +311,11 @@ def unpublish_run(targets, config) -> int:
             # because a user who typed `all` asked for exactly that.
             protect = current_version(target) if selector == 'prune-old' else ''
             archives = list_archives(ftp, target.name)
-            listed[target.name] = len(archives)
+            listed[target.name] = archives
             picked = select(target.name, archives, selector, keep, protect)
             if picked: doomed[target] = picked
         if not doomed:
-            _report_no_match(listed, _selector_label(config, keep), url)
+            _report_no_match(listed, _selector_label(config, keep), url, bool(targets))
             return 0
         if not _confirm(describe_run(doomed, url), config.assume_yes):
             console('  UNPUBLISH cancelled')

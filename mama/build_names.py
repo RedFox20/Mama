@@ -4,7 +4,8 @@ the build dir name itself. ONE spelling for both, so a build and its uploaded pa
 from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
-from .platforms.platform import ARCHES
+from .platforms.platform import ARCHES, host_arch
+from .platforms.registry import platform_named
 
 # `config` is duck-typed on purpose. These are naming rules, not configuration, so BuildConfig does not
 # carry them, and each function reads only the config fields it names.
@@ -118,20 +119,26 @@ def sanitize_version(raw: str) -> str:
     return _UNSAFE_IN_VERSION.sub('-', raw).strip('-') if raw else ''
 
 
-CONFIG_TOKENS = frozenset(_SANITIZER_SHORT_NAMES.values()) | {'cov', 'clang'}
+# A build the compiler instrumented, which no other build may reuse. `clang` is not one of them: it
+# names a compiler, and its objects are ordinary.
+INSTRUMENTED_TOKENS = frozenset(_SANITIZER_SHORT_NAMES.values()) | {'cov'}
+CONFIG_TOKENS = INSTRUMENTED_TOKENS | {'clang'}
 
 
-def is_build_dir_of(dir_name: str, config_dir_name: str) -> bool:
+def is_build_dir_of(dir_name: str, config_dir_name: str, tokens=CONFIG_TOKENS) -> bool:
     """True when `dir_name` is a build dir of the config that names itself `config_dir_name`: that dir, or
     that dir plus dep-arg tokens, because a dep the consumer added with args=[...] gets its own.
 
     `mama <platform> clean all` cleans ONE config, so a dir that carries another config's token (a
     sanitizer, cov, clang) is not ours even though it starts with the same platform name. A dep arg that
     happens to spell a config token reads as another config's dir and stays: a wrong delete costs more
-    than a leftover dir."""
+    than a leftover dir.
+
+    `tokens` is the set that disqualifies a dir. A host-tool search passes INSTRUMENTED_TOKENS, because
+    it accepts any compiler but no instrumented objects."""
     if dir_name == config_dir_name: return True
     if not dir_name.startswith(config_dir_name + '-'): return False
-    return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & CONFIG_TOKENS)
+    return not (set(dir_name[len(config_dir_name) + 1:].split('-')) & tokens)
 
 
 def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) -> str:
@@ -153,3 +160,45 @@ def build_dir_name(config: BuildConfig, variant_suffix=None, platform_dir=None) 
     if variant_suffix is None: variant_suffix = build_variant_suffix(config)
     if platform_dir is None: platform_dir = config.platform.build_dir_name() if config.platform else 'build'
     return platform_dir + ('-clang' if (config.linux and config.clang) else '') + variant_suffix
+
+
+class _HostConfigView:
+    """A config as the `mama <host> build` child resolves it: the host platform, the arch of this
+    machine and the compiler of this run. The child gets no coverage and no sanitizer flag."""
+    coverage = False
+    sanitize = None
+
+    def __init__(self, config: BuildConfig):
+        host = config.host_platform_name()
+        self._config = config  # first: __getattr__ answers every field this view does not override
+        self.clang = config.clang
+        self.linux = host == 'linux'
+        platform_class = platform_named(host)
+        # The arch of this machine, never the platform default. macOS defaults to arm64, and an Intel
+        # Mac cannot run an arm64 tool. An arch the platform refuses leaves the choice to the platform.
+        arch = host_arch()
+        self.arch = arch if arch in platform_class.supported_arches else ''
+        self.platform = platform_class(self)
+
+    def __getattr__(self, name):
+        return getattr(self._config, name)  # a platform method must never trip over a missing field
+
+
+def host_view(config: BuildConfig) -> _HostConfigView:
+    """The config a `mama <host> build` child resolves, for a caller that needs more than one answer."""
+    return _HostConfigView(config)
+
+
+def host_build_dir_name(config: BuildConfig, dep_args=()) -> str:
+    """The build dir name the `mama <host> build` child writes for this dep. It runs the same two
+    functions the child runs, so a host-tool probe can never read a dir the child never wrote."""
+    view = _HostConfigView(config)
+    return build_dir_name(view, build_variant_suffix(view, dep_args))
+
+
+def is_host_build(config: BuildConfig) -> bool:
+    """True when this build already runs on this machine, so a host tool is the local build product.
+    The arch has to RUN here, not match: a 32-bit build of a 64-bit host is still a host build. The
+    variant stays out, because a sanitizer build runs the tools it built for itself."""
+    platform = config.platform
+    return type(platform) is type(_HostConfigView(config).platform) and platform.runs_on_host(platform.arch())

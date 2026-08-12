@@ -118,15 +118,43 @@ name and nothing else. The root mamafile owns the pin, so it is constant for a c
 can never meet in one tree. A build dir is also a path a project hardcodes, in `cmake --install`, in
 CI and in its own cmake. Renaming it breaks every one of those at once.
 
-The one in-tree consumer is `host_build_dir`, which names the bare platform dir plus nothing else. The
+The one in-tree consumer is `host_build_dir`, which named the bare platform dir plus nothing else. The
 `mama <host> build` bootstrap child reads the same root mamafile, so it inherits every setting that
 mamafile makes. A pin in the dir name made the child build one path and `build_host_binary` probe
 another. The host tool then went missing while the child reported success.
 
-**A bare platform dir is still not the whole answer.** A root `prefer_clang()`, a dep arg, or an arm64
-Linux host each move the child to `linux-clang`, `linux-lgpl` or `linuxarm`. `host_build_dir`
-reproduces none of those, and `docs/BUGS.md` carries that open defect. Removing the pin removes only
-the axis that a mamafile sets on every build.
+**`host_build_dir` names the dir through the same rules the child follows.** `host_build_dir_name`
+builds a host view of the config, then runs the two functions above on it. The host platform, the arch
+of this machine, the compiler this run resolved and the dep args all reach the name, so an
+`args=['LGPL']` dep names `linux-lgpl` and an arm64 Linux host names `linuxarm`. The child resolves its
+own graph, so this name is what the child MOST LIKELY writes, and the search below covers the rest.
+
+**The host view names the arch of this machine, never the platform default.** macOS defaults to arm64,
+and an Intel Mac cannot run an arm64 tool. `build_host_binary` passes the same arch to the child, so the
+child cannot fall back to a default that names another machine.
+
+**The child never gets this run's coverage or sanitizer flag, so neither names the host dir.** A host
+tool is a tool. `build_host_binary` passes a compiler to the child only when the command line of this
+run named one, and only on a Linux host, where the build dir carries a compiler token. A mamafile
+preference belongs to the child's own config, and forcing it would build the tool with a compiler the
+project refused.
+
+**A build is the host build when the platform matches and the host can RUN the arch.** `Platform.also_runs`
+declares what each host runs besides its own arch. An x86 build of an x64 host is a host build. An x64
+build is one on Apple silicon, but only on a Mac that has Rosetta 2, and one on an arm64 Windows, but
+only on Windows 11, which added that emulator. An arch the host cannot run is a cross build, whatever its
+platform says.
+
+**Before the bootstrap the predicted dir answers alone.** It carries the compiler and the dep args of
+this run, and a dep arg changes what a tool does. A warm `linux-lgpl` must never serve a run that asked
+for `linux`, so a neighbour never answers a probe.
+
+**After the bootstrap the predicted dir answers first, and then only a tool that child PRODUCED.** The
+child resolves its own dep args, so the predicted name is a first guess and not a promise. Mama reads
+every host build dir before the child runs and again after it, and takes the newest file that changed.
+An exit code of 0 does not prove that a tool a warm tree already held belongs to this request. The search opens only names
+that start with the host platform dir, so it can never answer with a binary of another arch. It skips a
+coverage or a sanitizer dir, and it skips the source dir of a dep whose name opens with the same word.
 
 **Why:** a warm tree hides that failure. A checkout built before the pin already holds the tool under
 the old name. Only a clean checkout fails, which means CI and not the developer who made the change.
@@ -800,8 +828,11 @@ stays, and a zip whose delete failed keeps its cache, because the server still h
 cleans the server must not keep serving what it deleted, which the cached-zip fallback of section 8 would
 otherwise do.
 
-**A run that matches no archive names every target it listed and how many archives that target holds.**
-A `prune-old` report also names the count it keeps, which a bare `prune-old` leaves out.
+**A run that matches no archive names every target it listed, its archive count and its version count.**
+A `prune-old` report also names the count it keeps, which a bare `prune-old` leaves out. That selector
+keeps versions, and one version holds one archive per platform. An archive count alone therefore reads
+as far more than the selector spared. A run that reached no target says so, and a run whose targets are
+all read-only packages says that instead.
 
 **Why:** a bare `Nothing to unpublish` reads the same for a wrong target name and for a selector that
 spared everything.

@@ -15,6 +15,7 @@ from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
 from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to
+from . import build_names
 # papa_upload is deferred to the one call site in papa_package(), see there
 import mama.buildsys.msbuild as msbuild
 from .utils.fileio import copy_if_needed, read_text_from
@@ -183,9 +184,34 @@ class BuildTarget:
 
     def host_build_dir(self, subpath=''):
         """This target's build dir for the HOST platform (.../<name>/<host>), a sibling of build_dir().
-        A host tool built by build_host_binary() lands here. Equals build_dir() on a native host build."""
-        host_dir = path_join(os.path.dirname(self.dep.build_dir), self.config.host_platform_name())
+        A host tool built by build_host_binary() lands here. The name follows the rules the bootstrap
+        child follows, so the host arch, the compiler and the dep args all reach it."""
+        host_name = build_names.host_build_dir_name(self.config, self.dep.target_args)
+        host_dir = path_join(self.dep.dep_dir, host_name)
         return path_join(host_dir, subpath) if subpath else host_dir
+
+
+    def _host_tools_on_disk(self, relpath) -> dict:
+        """{path: mtime} for this tool in every host build dir of the dep. The caller compares two of
+        these across a bootstrap, so only a file that child produced can answer.
+
+        The predicted dir alone answers a warm probe. A dep arg changes what a tool does, so a warm
+        `linux-bar` must never serve a run that asked for `linux-foo`. The scan never leaves the host
+        arch, because only that platform dir opens the name."""
+        dep_dir = self.dep.dep_dir
+        prefix = build_names.host_view(self.config).platform.build_dir_name()
+        try: names = os.listdir(dep_dir)
+        except OSError: return {}
+        # a dep named `linux-headers` puts its SOURCE dir beside the build dirs, and it matches the prefix
+        source = os.path.basename(self.dep.src_dir) if self.dep.src_dir else ''
+        found = {}
+        for name in names:
+            if name == source or not build_names.is_build_dir_of(name, prefix, build_names.INSTRUMENTED_TOKENS):
+                continue
+            candidate = path_join(dep_dir, name, relpath)
+            try: found[candidate] = os.stat(candidate).st_mtime
+            except OSError: pass  # the dir holds no such tool
+        return found
 
 
     def build_host_binary(self, relpath, auto_build=True):
@@ -204,19 +230,28 @@ class BuildTarget:
         if System.windows and not os.path.splitext(relpath)[1]:
             relpath += '.exe'  # host tools are executables, add the suffix once for every caller
         host = self.config.host_platform_name()
-        if self.config.name() == host:
+        if build_names.is_host_build(self.config):
             local = self.build_dir(relpath)  # already the host: the normal build produced it here
             return local if os.path.exists(local) else None
-        binary = self.host_build_dir(relpath)
+        binary = self.host_build_dir(relpath)  # the predicted dir alone: it names the args of THIS run
         if os.path.exists(binary):
             return binary
         if not auto_build:
             return None
-        if self.config.print:
-            console(f'  - {self.name: <16} bootstrapping host binary: mama {host} build target={self.name}', color=Color.BLUE)
+        before = self._host_tools_on_disk(relpath)  # what the child inherits, so its own work stands out
         # sys.executable + the mama.main entry, because there is no __main__.py for `python -m mama`.
         # cwd is the root project, so the child resolves the same dependency graph.
-        argv = [sys.executable, '-c', 'from mama.main import __main__; __main__()', host, 'build', f'target={self.name}']
+        host_view = build_names.host_view(self.config)
+        child_args = [host, 'build', f'target={self.name}', f'arch={host_view.platform.arch()}']
+        # Only a command line choice travels: a mamafile preference belongs to the child's own config,
+        # and forcing it here would build a host tool with a compiler the project refused. Only a linux
+        # build dir names a compiler at all, which is what the host view answers.
+        if host_view.linux and self.config.compiler_from_args:
+            child_args.append('clang' if self.config.clang else 'gcc')
+        child_cmd = 'mama ' + ' '.join(child_args)
+        if self.config.print:
+            console(f'  - {self.name: <16} bootstrapping host binary: {child_cmd}', color=Color.BLUE)
+        argv = [sys.executable, '-c', 'from mama.main import __main__; __main__()'] + child_args
         # io_func is MANDATORY: an inherited pty lets the child draw its own live region over ours.
         # Captured, the output feeds this target's display line, log and failure replay.
         def child_output(p, line: str):
@@ -224,9 +259,14 @@ class BuildTarget:
             if line: console(f'  {self.name: <16} | {line}')
         status = SubProcess.run(argv, cwd=self.config.root_source_dir or os.getcwd(), io_func=child_output)
         if status != 0:
-            warning(f'  - {self.name: <16} host binary bootstrap failed (mama {host} build target={self.name} exited {status})')
+            warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        return binary if os.path.exists(binary) else None
+        # The predicted dir first: a dep arg may spell a token the scan refuses, such as args=['ASAN'],
+        # and the child just wrote exactly that dir. Otherwise take what the child produced, and NOTHING
+        # a warm tree already held: an exit code of 0 does not prove this tool belongs to this request.
+        if os.path.exists(binary): return binary
+        fresh = [p for p, mtime in self._host_tools_on_disk(relpath).items() if before.get(p) != mtime]
+        return max(fresh, key=os.path.getmtime) if fresh else None
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):

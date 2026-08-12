@@ -194,6 +194,8 @@ def make_mock_config(tmp_path, **overrides):
     cfg.unpublish_keep = None
     cfg.assume_yes = False
     # platform: a REAL Linux instance, so option builders get real strings instead of Mocks
+    # a Mock attribute is truthy, and both of these would then read as an explicit compiler choice
+    cfg.compiler_cmd = cfg.compiler_from_args = False
     cfg.msvc = False
     cfg.linux = True
     cfg.macos = False
