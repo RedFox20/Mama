@@ -19,11 +19,14 @@ _MANIFEST = 'seed.json'
 # The ABI probe writes its result to the CACHE only, and seeding skips the probe, so without the
 # replay every install-RPATH executable fails. The compiler and toolchain entries must match the -D
 # options mama passes, or cmake wipes the cache MID-CONFIGURE and re-detects a cross build as the host.
+# clang-scan-deps is a find_program result of compiler detection, and a C++20 module target reads it.
+# Without the replay the scan command runs "" and every module build fails with "Permission denied".
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
-                      'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
+                      'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE',
+                      'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS')
 
 # Bumped when the seed shape changes. is_valid rejects an older format, so the probe runs again.
-_SEED_FORMAT = 3
+_SEED_FORMAT = 4
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds. The fingerprint is the real gate. This TTL is only a backstop.
 
 

@@ -90,6 +90,13 @@ def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path
         assert f'CMAKE_{lang}_COMPILER:FILEPATH={cc.compiler_from_module(bf, lang)}' in cache
 
 
+def test_seeded_cache_replays_the_module_scanner_the_probe_found(tmp_path):
+    # clang-scan-deps is a find_program result of detection, and seeding skips detection. Without the
+    # replay every C++20 module target runs the scan command "" and the build fails.
+    cache = _published_then_injected(tmp_path, 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18\n')
+    assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18' in cache
+
+
 def test_a_cached_compiler_wins_over_the_compiler_module(tmp_path):
     build = str(tmp_path / 'A')
     bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
