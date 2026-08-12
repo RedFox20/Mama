@@ -20,7 +20,7 @@ from . import build_names
 import mama.buildsys.msbuild as msbuild
 from .utils.fileio import copy_if_needed, read_text_from
 from .utils.errors import BuildError
-from .utils.net import download_and_unzip, download_file
+from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_and_unzip, download_file
 from .utils.paths import glob_with_extensions, normalized_join, path_join
 from .utils.progress import get_time_str
 from .utils.versions import version_at_least
@@ -1062,26 +1062,30 @@ class BuildTarget:
             if self.config.verbose: console(f'copy_deployed_folder {src} --> {dst}')
 
 
-    def download_file(self, remote_url: str, local_dir: str, force=False):
+    def download_file(self, remote_url: str, local_dir: str, force=False, timeout=REQUIRED_DOWNLOAD_TIMEOUT):
         """
-        Downloads a file if it does not already exist.
+        Downloads a file if it does not already exist. A failed download raises BuildError, which
+        names the url and the reason, such as a timeout or an HTTP status.
         - remote_url: URL to download from
         - local_dir: destination folder
         - force: [False] download even when the file exists
+        - timeout: [15] seconds of server silence that end the download
         ```
             self.download_file('http://example.com/file1', 'bin')
             # --> 'bin/file1'
         ```
         """
-        return download_file(remote_url, local_dir, force)
+        return download_file(remote_url, local_dir, force, timeout=timeout)
 
 
-    def download_and_unzip(self, remote_zip: str, extract_dir: str, unless_file_exists=None):
+    def download_and_unzip(self, remote_zip: str, extract_dir: str, unless_file_exists=None,
+                           timeout=REQUIRED_DOWNLOAD_TIMEOUT):
         """
         Downloads and unzips an archive if it does not already exist.
         - remote_zip: URL of the archive
         - extract_dir: destination folder for extraction
         - unless_file_exists: [None] if this file exists, skip the download and unzip steps
+        - timeout: [15] seconds of server silence that end the download
         ```
             self.download_and_unzip('http://example.com/archive.zip',
                                     'bin', 'bin/unzipped_file.txt')
@@ -1089,7 +1093,7 @@ class BuildTarget:
             # --> None    on failure
         ```
         """
-        return download_and_unzip(remote_zip, extract_dir, unless_file_exists)
+        return download_and_unzip(remote_zip, extract_dir, unless_file_exists, timeout)
 
 
     def visibility_hidden(self, hidden=True):
@@ -1644,9 +1648,11 @@ class BuildTarget:
             self._execute_deploy_tasks()
             self._execute_run_tasks()
         except Exception as err:
-            import traceback
             console(f'  [BUILD FAILED]  {self.dep.name}  \n{err}\n\n')
-            traceback.print_exc()
+            # a BuildError already reports the cause, and a trace through mama internals only buries it
+            if self.config.verbose or not isinstance(err, BuildError):
+                import traceback
+                traceback.print_exc()
             exit(-1) # exit without further stack trace
 
 

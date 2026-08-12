@@ -15,7 +15,8 @@ from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
 from .utils.archive import try_unzip
-from .utils.net import download_file, is_network_error
+from .utils.errors import BuildError
+from .utils.net import try_download_file
 from .utils.paths import normalized_join
 from .papa_deploy import PapaFileInfo
 
@@ -308,25 +309,26 @@ def _fetch_package(target:BuildTarget, url, archive, cache_dir):
     if not target.config.is_network_available():
         return None
     remote_file = f'http://{url}/{target.name}/{archive}.zip'
-    try:
-        return download_file(remote_file, cache_dir, force=True,
-                             message=f'  - {target.name: <16} Artifactory fetch {url}/{archive} ',
-                             name=target.name)
-    except Exception as e:
-        if is_network_error(e):
-            target.config.mark_network_unavailable()
-        if target.config.verbose or target.config.force_artifactory:
-            error(f'    Artifactory fetch failed with {e} {url}/{archive}.zip')
+    local_file, err = try_download_file(remote_file, cache_dir, force=True,
+                                        message=f'  - {target.name: <16} Artifactory fetch {url}/{archive} ',
+                                        name=target.name)
+    if not err:
+        return local_file
 
-        d:DepSource = target.dep.dep_source
-        # this is an artifactory pkg, so the url MUST exist
-        if d.is_pkg:
-            raise RuntimeError(f'Artifactory package {d} did not exist at {url}')
+    if err.network:
+        target.config.mark_network_unavailable()
+    if target.config.verbose or target.config.force_artifactory:
+        error(f'    Artifactory fetch failed: {err.reason} {url}/{archive}.zip')
 
-        # A 404 for a git dep is NORMAL: no prebuilt archive exists for this commit. Do NOT wipe git_status.
-        # check_status detects real SCM changes by direct comparison, and a wiped status forces a false full rebuild.
+    d:DepSource = target.dep.dep_source
+    # this is an artifactory pkg, so the url MUST exist
+    if d.is_pkg:
+        raise BuildError(f'Artifactory package {d} did not exist at {url}: {err.reason}')
 
-        return None
+    # A 404 for a git dep is NORMAL: no prebuilt archive exists for this commit. Do NOT wipe git_status.
+    # check_status detects real SCM changes by direct comparison, and a wiped status forces a false full rebuild.
+
+    return None
 
 
 def unzip_and_load_target(target:BuildTarget, local_file:str) -> Tuple[bool, list]:

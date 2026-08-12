@@ -16,10 +16,11 @@ from mama.platforms.platform import ARCHES, Platform
 from mama.platforms.registry import platform_for_arg
 from .utils import git_status
 from .utils.archive import unzip
+from .utils.errors import BuildError
 from .utils.fileio import find_executable_from_system
-from .utils.net import download_file
+from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_file
 from .utils.paths import normalized_path
-from .utils.system import System, console, Color, warning
+from .utils.system import System, console, Color, error, warning
 from .utils.sub_process import execute, execute_piped
 
 if System.linux:
@@ -973,7 +974,7 @@ class BuildConfig:
             ndk_dest = f'/opt/android-sdk/ndk'
 
         console(f'Downloading NDK {ndk_version}')
-        ndk_zip = download_file(ndk_url, tempfile.gettempdir())
+        ndk_zip = download_file(ndk_url, tempfile.gettempdir(), timeout=REQUIRED_DOWNLOAD_TIMEOUT)
 
         if System.windows or System.macos:
             os.makedirs(ndk_dest, exist_ok=True)
@@ -1022,12 +1023,16 @@ class BuildConfig:
 
 
     def run_convenient_installs(self):
-        for tool in self.convenient_install:
-            if tool.startswith('raspi-'): self.install_raspi(tool[6:])
-            elif 'clang-' in tool: self.install_clang(tool[6:])
-            elif 'gcc-' in tool: self.install_gcc(tool[4:])
-            elif 'msbuild' in tool: self.install_msbuild()
-            elif 'ndk-'    in tool: self.install_ndk(tool[4:])
+        try:
+            for tool in self.convenient_install:
+                if tool.startswith('raspi-'): self.install_raspi(tool[6:])
+                elif 'clang-' in tool: self.install_clang(tool[6:])
+                elif 'gcc-' in tool: self.install_gcc(tool[4:])
+                elif 'msbuild' in tool: self.install_msbuild()
+                elif 'ndk-'    in tool: self.install_ndk(tool[4:])
+        except BuildError as e:  # a failed download reports the reason, and a traceback buries it
+            error(str(e))
+            exit(-1)
 
 
     def libname(self, library):

@@ -3,8 +3,9 @@ from typing import TYPE_CHECKING
 import os
 import shlex
 from .archive import unzip
+from .errors import BuildError
 from .fileio import copy_if_needed
-from .net import download_file
+from .net import REQUIRED_DOWNLOAD_TIMEOUT, try_download_file
 from .paths import path_join
 import mama.utils.sub_process as proc
 from mama.utils.system import console, warning, Color
@@ -67,6 +68,8 @@ class GnuProject:
             raise RuntimeError('build_product must be a BuildProduct or a list of BuildProducts')
         self.install_dir_suffix = '-built'
         self.make_opts = '' # default options for make
+        # a source archive has no cached alternative, so it waits far longer than an artifactory fetch
+        self.download_timeout = REQUIRED_DOWNLOAD_TIMEOUT
         # the --host triple for a cross build, '' for a native one
         self.host = self.target.config.platform.gnu_host_triple()
 
@@ -175,10 +178,9 @@ class GnuProject:
             proc.execute_echo(build_root, f'git clone {self.git} {source}')
         else:
             url = self.url.replace('{{project}}', self.name_with_version)
-            try:
-                local_file = download_file(url, local_dir=build_root)
-            except Exception as e:
-                raise Exception(f'Failed to download {url}: {e}')
+            local_file, err = try_download_file(url, local_dir=build_root, timeout=self.download_timeout)
+            if err:
+                raise BuildError(f'{self.name} {self.version}: {err}')
 
             console(f'>>> Extracting to {source}', color=Color.GREEN)
             os.makedirs(source, exist_ok=True)
@@ -194,10 +196,10 @@ class GnuProject:
 
         if autogen_file:
             if not os.path.exists(autogen_file):
-                raise Exception(f'Checkout failed, no autogen file at: {autogen_file}')
+                raise BuildError(f'{self.name} checkout failed, no autogen file at: {autogen_file}')
         else:
             if not os.path.exists(configure_file):
-                raise Exception(f'Checkout failed, no configure file at: {configure_file}')
+                raise BuildError(f'{self.name} checkout failed, no configure file at: {configure_file}')
 
 
     def configure_env(self):

@@ -13,6 +13,13 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
+  answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
+  (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later
+  fetch and clone. The docstring above it promises False for an auth failure. Reproduce by pointing
+  `artifactory_ftp` at a host with a self-signed certificate. Fix: test `ssl.SSLError` before the
+  `OSError` arm and answer False.
+
 - **A cross build whose root mamafile calls `prefer_clang()` bootstraps a host tool on every lookup.**
   `prefer_clang` returns early when the target is not Linux, so the parent predicts `linux` while the
   Linux child writes `linux-clang`. The tool is found after each bootstrap, but the predicted path never

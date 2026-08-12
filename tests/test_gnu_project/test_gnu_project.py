@@ -1,13 +1,16 @@
 """Pins the gnu_project() helper a mamafile drives: its dirs, the path variables, and what decides
 whether it builds, deploys or skips."""
 import os
+from unittest.mock import patch
 
 import pytest
 
 from testutils import make_stub_target
 from mama.platforms.linux import Linux
 from mama.platforms.oclea import Oclea
+from mama.utils.errors import BuildError
 from mama.utils.gnu_project import BuildProduct, GnuProject
+from mama.utils.net import REQUIRED_DOWNLOAD_TIMEOUT, DownloadError
 
 
 def _target(tmp_path, platform_class=Linux, jobs=8):
@@ -136,3 +139,36 @@ def test_a_single_threaded_make_asks_for_no_job_flag(tmp_path):
     # install and configure are serial steps, and a parallel `make install` races on the same files
     assert _project(tmp_path)._get_make_opts('', multithreaded=False).split() == []
     assert _project(tmp_path)._get_make_opts('install', multithreaded=False).split() == ['install']
+
+
+# --- the source checkout ------------------------------------------------------
+
+def test_a_failed_download_reports_the_url_and_the_reason(tmp_path):
+    # the report has to name the archive and what failed, not a stack trace through urllib
+    gmp = _project(tmp_path, url='https://gmplib.org/download/gmp/{{project}}.tar.xz')
+    failure = (None, DownloadError('https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz',
+                                   'the server sent no data for 5 seconds', network=True))
+    with patch('mama.utils.gnu_project.try_download_file', return_value=failure), \
+         pytest.raises(BuildError, match='gmp 6.2.1: Failed to download .*no data for 5 seconds'):
+        gmp.checkout_code()
+
+
+def test_a_source_archive_waits_far_longer_than_an_artifactory_fetch(tmp_path):
+    # a source archive has no cached alternative, so a slow mirror must not end the build in 5 seconds
+    gmp = _project(tmp_path, url='https://gmplib.org/download/gmp/{{project}}.tar.xz')
+    assert gmp.download_timeout == REQUIRED_DOWNLOAD_TIMEOUT
+    failure = (None, DownloadError('https://gmplib.org/x.tar.xz', 'the server sent no data for 15 seconds'))
+    with patch('mama.utils.gnu_project.try_download_file', return_value=failure) as download, \
+         pytest.raises(BuildError):
+        gmp.checkout_code()
+    assert download.call_args.kwargs['timeout'] == REQUIRED_DOWNLOAD_TIMEOUT
+
+
+def test_a_checkout_that_extracts_no_configure_script_names_the_missing_file(tmp_path):
+    gmp = _project(tmp_path, url='https://gmplib.org/download/gmp/{{project}}.tar.gz')
+    archive = tmp_path / 'build' / 'gmp-6.2.1.tar.gz'
+    os.makedirs(os.path.dirname(archive), exist_ok=True); archive.write_bytes(b'')
+    with patch('mama.utils.gnu_project.try_download_file', return_value=(str(archive), None)), \
+         patch('mama.utils.gnu_project.proc.execute_echo'):
+        with pytest.raises(BuildError, match='no configure file at'):
+            gmp.checkout_code()

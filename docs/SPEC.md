@@ -943,6 +943,29 @@ mark of the kernel out-of-memory killer.
 **Why:** a compiler the kernel kills writes no diagnostic at all. Without those two facts the run ends
 with an empty log and a number the reader cannot decode.
 
+**A download reports what failed, in one line.** Every download hands its caller a result and an error.
+A timeout, an HTTP status, a missing `Content-Length` and a truncated body each name themselves. A
+caller that cannot continue raises a `BuildError`, and mama prints that one line. The traceback prints
+only under `verbose`, and it holds mama frames alone, because the download raises no urllib exception.
+
+**A failed download keeps the cached file, and it leaves no partial one.** A transfer writes a `.part`
+file and renames it over the cached name only after the last byte. Every other end deletes the `.part`
+file, so a timeout, a truncated body and a stop signal all leave the cached archive whole. That archive
+is the one the artifactory fallback loads.
+
+**The timeout follows what the download is for.** A download mama can answer another way waits
+`DOWNLOAD_TIMEOUT`, which is 5 seconds. The artifactory fetch is that kind, because a cached package or
+a source build answers the same question. A file no cache can replace waits `REQUIRED_DOWNLOAD_TIMEOUT`,
+which is 15 seconds. A GNU source archive, an NDK zip and a mamafile `self.download_file` or
+`self.download_and_unzip` call are that kind. A `GnuProject` reads the wait back from
+`self.download_timeout`, so a mamafile can raise it for a slow mirror.
+
+**Why:** the timeout is the wait for the next byte, not a budget for the whole transfer, so a slow but
+live download never trips it. A dead network pays the wait once per fetch already in flight. The first
+failure marks the network unavailable, and every artifactory fetch that starts after it returns at once.
+Five seconds keeps that cost near the build time of a small target. A server that sends nothing for 15
+seconds has already dropped the request, so a longer wait buys no download.
+
 ### The build log
 
 **mamabuild opens one log per run**, under the workspace the root named, after the root load. Every

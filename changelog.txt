@@ -3,6 +3,10 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
  - feature: CI logs now report each stage as it starts, and never hide a dep
+ - feature: a source archive waits 15s, an artifactory fetch keeps its 5s
+     GnuProject.download_timeout raises the wait for one slow mirror
+ - bugfix: a failed download names the reason, instead of a urllib stack trace
+ - bugfix: a stopped download keeps the cached archive it was replacing
  - feature: a killed compiler names its signal, and buffered output still prints
  - feature: mama.cmake is written only for a dep that can include it
  - bugfix: Visual Studio and Xcode now offer only configurations that link
