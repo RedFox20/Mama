@@ -191,27 +191,27 @@ class BuildTarget:
         return path_join(host_dir, subpath) if subpath else host_dir
 
 
-    def _host_binary_the_child_wrote(self, relpath):
-        """The newest host tool of this dep, over every host build dir, or None.
+    def _host_tools_on_disk(self, relpath) -> dict:
+        """{path: mtime} for this tool in every host build dir of the dep. The caller compares two of
+        these across a bootstrap, so only a file that child produced can answer.
 
-        ONLY for the answer after a bootstrap. The child resolves its own dep args, so it may name a dir
-        this process did not predict. Before the bootstrap the predicted dir answers alone, because a dep
-        arg changes what a tool does, and a warm `linux-bar` must never serve a run that asked for
-        `linux-foo`. The search never leaves the host arch, because only that platform dir opens the name."""
+        The predicted dir alone answers a warm probe. A dep arg changes what a tool does, so a warm
+        `linux-bar` must never serve a run that asked for `linux-foo`. The scan never leaves the host
+        arch, because only that platform dir opens the name."""
         dep_dir = self.dep.dep_dir
         prefix = build_names.host_view(self.config).platform.build_dir_name()
         try: names = os.listdir(dep_dir)
-        except OSError: return None
+        except OSError: return {}
         # a dep named `linux-headers` puts its SOURCE dir beside the build dirs, and it matches the prefix
         source = os.path.basename(self.dep.src_dir) if self.dep.src_dir else ''
-        found = []
+        found = {}
         for name in names:
             if name == source or not build_names.is_build_dir_of(name, prefix, build_names.INSTRUMENTED_TOKENS):
                 continue
             candidate = path_join(dep_dir, name, relpath)
-            try: found.append((os.stat(candidate).st_mtime, candidate))
+            try: found[candidate] = os.stat(candidate).st_mtime
             except OSError: pass  # the dir holds no such tool
-        return max(found)[1] if found else None
+        return found
 
 
     def build_host_binary(self, relpath, auto_build=True):
@@ -238,6 +238,7 @@ class BuildTarget:
             return binary
         if not auto_build:
             return None
+        before = self._host_tools_on_disk(relpath)  # what the child inherits, so its own work stands out
         # sys.executable + the mama.main entry, because there is no __main__.py for `python -m mama`.
         # cwd is the root project, so the child resolves the same dependency graph.
         host_view = build_names.host_view(self.config)
@@ -260,9 +261,12 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        # the predicted dir first again: a dep arg may spell a token the widened search refuses, such
-        # as args=['ASAN'], and the child just wrote exactly that dir
-        return binary if os.path.exists(binary) else self._host_binary_the_child_wrote(relpath)
+        # The predicted dir first: a dep arg may spell a token the scan refuses, such as args=['ASAN'],
+        # and the child just wrote exactly that dir. Otherwise take what the child produced, and NOTHING
+        # a warm tree already held: an exit code of 0 does not prove this tool belongs to this request.
+        if os.path.exists(binary): return binary
+        fresh = [p for p, mtime in self._host_tools_on_disk(relpath).items() if before.get(p) != mtime]
+        return max(fresh, key=os.path.getmtime) if fresh else None
 
 
     def set_artifactory_ftp(self, ftp_url, auth='store'):

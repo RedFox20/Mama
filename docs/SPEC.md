@@ -140,16 +140,19 @@ preference belongs to the child's own config, and forcing it would build the too
 project refused.
 
 **A build is the host build when the platform matches and the host can RUN the arch.** `Platform.also_runs`
-declares what each host runs besides its own arch. An x86 build of an x64 host is a host build, and an
-x64 build is one on Apple silicon, but only on a Mac that has Rosetta 2. An arch the host cannot run is a cross build, whatever its
+declares what each host runs besides its own arch. An x86 build of an x64 host is a host build. An x64
+build is one on Apple silicon, but only on a Mac that has Rosetta 2, and one on an arm64 Windows, but
+only on Windows 11, which added that emulator. An arch the host cannot run is a cross build, whatever its
 platform says.
 
 **Before the bootstrap the predicted dir answers alone.** It carries the compiler and the dep args of
 this run, and a dep arg changes what a tool does. A warm `linux-lgpl` must never serve a run that asked
 for `linux`, so a neighbour never answers a probe.
 
-**After the bootstrap the search reads every host build dir of the dep and takes the newest hit.** The
-child resolves its own dep args, so the predicted name is a first guess and not a promise. The search opens only names
+**After the bootstrap the predicted dir answers first, and then only a tool that child PRODUCED.** The
+child resolves its own dep args, so the predicted name is a first guess and not a promise. Mama reads
+every host build dir before the child runs and again after it, and takes the newest file that changed.
+An exit code of 0 does not prove that a tool a warm tree already held belongs to this request. The search opens only names
 that start with the host platform dir, so it can never answer with a binary of another arch. It skips a
 coverage or a sanitizer dir, and it skips the source dir of a dep whose name opens with the same word.
 

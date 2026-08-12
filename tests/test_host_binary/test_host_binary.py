@@ -53,10 +53,11 @@ def _miss(t):
         run.assert_called_once()
 
 
-def _bootstrapped(t, expected):
-    """The predicted dir answers nothing, so the child runs, and its own dir answers afterwards."""
-    with patch('mama.build_target.SubProcess.run', return_value=0) as run:
-        assert t.build_host_binary('bin/protoc') == expected
+def _bootstrapped(t, produced):
+    """The predicted dir answers nothing, so the child runs and writes `produced`, which is the answer."""
+    def child(argv, cwd=None, **kw): return _touch(produced) and 0
+    with patch('mama.build_target.SubProcess.run', side_effect=child) as run:
+        assert t.build_host_binary('bin/protoc') == produced
         run.assert_called_once()
 
 
@@ -181,7 +182,17 @@ def test_a_host_dir_the_child_named_differently_answers_after_the_bootstrap(tmp_
     # the child resolves its own dep args, so it can write a dir this process did not predict
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl
-    _bootstrapped(t, _touch(_sibling(dep, 'linux-clang')))
+    _bootstrapped(t, _sibling(dep, 'linux-clang'))
+
+
+def test_a_tool_the_bootstrap_did_not_produce_never_answers(tmp_path):
+    # exit 0 does not prove the tool belongs to this request, and another variant answers a other one
+    t, dep = _cross_target(tmp_path)
+    dep.target_args = ['LGPL']            # predicts linux-lgpl
+    _touch(_sibling(dep, 'linux-bar'))    # a warm tree of another variant, which the child did not touch
+    with patch('mama.build_target.SubProcess.run', return_value=0) as run:
+        assert t.build_host_binary('bin/protoc') is None
+        run.assert_called_once()
 
 
 def test_another_variant_never_answers_before_the_bootstrap(tmp_path):
@@ -217,8 +228,18 @@ def test_the_search_refuses_every_dir_that_is_not_a_host_build(tmp_path, dirs):
 def test_what_each_host_can_run(platform, host, arch, runs):
     with patch('mama.platforms.platform.host_arch', return_value=host), \
          patch('mama.platforms.macos.host_arch', return_value=host), \
-         patch('mama.platforms.macos.rosetta_installed', return_value=True):
+         patch('mama.platforms.windows.host_arch', return_value=host), \
+         patch('mama.platforms.macos.rosetta_installed', return_value=True), \
+         patch('mama.platforms.windows.emulates_x64', return_value=True):
         assert platform(None).runs_on_host(arch) is runs
+
+
+def test_windows_10_on_arm64_runs_no_x64_tool(tmp_path):
+    # the arm64 x64 emulator arrived in Windows 11, and windows 10 on arm runs x86 alone
+    with patch('mama.platforms.windows.host_arch', return_value='arm64'), \
+         patch('mama.platforms.windows.emulates_x64', return_value=False):
+        assert Windows(None).runs_on_host('x64') is False
+        assert Windows(None).runs_on_host('x86') is True
 
 
 def test_apple_silicon_without_rosetta_runs_no_x64_tool(tmp_path):
@@ -228,11 +249,15 @@ def test_apple_silicon_without_rosetta_runs_no_x64_tool(tmp_path):
         assert Macos(None).runs_on_host('x64') is False
 
 
-def test_the_search_takes_the_newest_host_tool(tmp_path):
+def test_the_search_takes_the_newest_tool_the_child_produced(tmp_path):
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['LGPL']  # predicts linux-lgpl, which nothing wrote
-    os.utime(_touch(_sibling(dep, 'linux')), (1, 1))
-    _bootstrapped(t, _touch(_sibling(dep, 'linux-clang')))
+    fresh = _sibling(dep, 'linux-clang')
+    def child(argv, cwd=None, **kw):
+        os.utime(_touch(_sibling(dep, 'linux')), (1, 1))  # the child wrote both, this one long ago
+        return _touch(fresh) and 0
+    with patch('mama.build_target.SubProcess.run', side_effect=child):
+        assert t.build_host_binary('bin/protoc') == fresh
 
 
 def test_the_predicted_dir_answers_before_any_other(tmp_path):
@@ -255,11 +280,7 @@ def test_a_dep_arg_that_spells_a_sanitizer_finds_the_tool_its_child_wrote(tmp_pa
     # the widened search refuses a linux-asan dir, so the predicted path has to answer after the child
     t, dep = _cross_target(tmp_path)
     dep.target_args = ['ASAN']
-    produced = t.host_build_dir(PROTOC)
-    def child(argv, cwd=None, **kw): return _touch(produced) and 0
-    with patch('mama.build_target.SubProcess.run', side_effect=child) as run:
-        assert t.build_host_binary('bin/protoc') == produced
-        run.assert_called_once()
+    _bootstrapped(t, t.host_build_dir(PROTOC))
 
 
 def test_bootstrap_captures_the_child_instead_of_letting_it_own_the_terminal(tmp_path):
