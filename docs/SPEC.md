@@ -677,16 +677,28 @@ policy at OLD reads no runtime library at all, so the rewrite is what reaches it
 includes no `mama.cmake` at all, so the command line is the one route that reaches both.
 
 **A mamafile that forces a C++ standard also gives cmake that standard.** `enable_cxx20()` and its
-siblings write a raw `-std` flag. cmake never reads that flag, so it believes the project named no
-standard. Mama maps the flag back to a number and passes `CMAKE_CXX_STANDARD`, plus
-`CMAKE_CXX_STANDARD_REQUIRED=ON` and `CMAKE_CXX_EXTENSIONS=OFF`. A mamafile that names one of the
-three through `add_cmake_options()` keeps its own value, and a mamafile that forces no standard gets
-none of them. A cmake older than the release that learned the standard also gets none, because it
-fails the configure on a number it does not know.
+siblings write a compiler flag, `-std` or `/std`. cmake passes that flag through and never reads it,
+so cmake believes the project named no standard. Mama maps the flag back to a number and passes
+`CMAKE_CXX_STANDARD` and `CMAKE_CXX_EXTENSIONS=OFF`.
+
+The mapping reads the flag alone, never the build args. An arg the mamafile ignored therefore cannot
+steer cmake away from the flag the compiler gets. `c++latest` maps to no number, because it names no
+fixed standard. Four more cases get nothing:
+
+- a mamafile that forces no standard
+- a mamafile that named the same variable through `add_cmake_options()`, in any spelling
+- an operator who passed a standard through `flags=`
+- a cmake older than the release that learned that number
+
+Mama never passes `CMAKE_CXX_STANDARD_REQUIRED`. A compiler that cannot give the standard has to
+decay to the newest one it has, the way the flag alone already did. `REQUIRED` would turn that into a
+failed configure, and the gate above reads the cmake version, never the compiler version.
 
 **Why:** `target_compile_features()` and a `CXX_MODULES` file set both read the cmake standard, not
 the compiler flags. Without this a C++20 project cannot use either, although every compile line
-already carries `-std=c++20`.
+already carries `-std=c++20`. `EXTENSIONS=OFF` matters because cmake appends its own standard flag
+after `CMAKE_CXX_FLAGS`. The cmake default would append `-std=gnu++20` after the `-std=c++20` mama
+already passed, and silently turn on the extensions that flag leaves off.
 
 ### The compiler seed
 

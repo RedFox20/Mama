@@ -4,10 +4,8 @@ project(Producer CXX)
 add_library(Producer STATIC src/rpp/strview.cpp)
 target_include_directories(Producer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# The producer builds the module too, so its own archive holds the module initializer object.
-# The mama package drops that object, which is what the strip tests read.
-# No target_compile_features here on purpose: mama forces the standard through enable_cxx20(), and a
-# CXX_MODULES file set fails with "no C++ standard" unless cmake itself knows the standard.
+# This archive keeps the module initializer object, and the mama package drops it. No standard is named
+# here on purpose, so a CXX_MODULES file set proves that mama alone told cmake the standard.
 if(BUILD_WITH_MODULES)
     target_sources(Producer PUBLIC FILE_SET producer_modules TYPE CXX_MODULES
                    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/src FILES src/rpp/rpp-strview.cppm)

@@ -26,6 +26,16 @@ so cut every word that a reader of the fix does not need.
   plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
   the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
 
+- **`enable_cxx26()` asks for C++23 on GCC and Clang.** `build_target.py` writes `c++2b`, which is the
+  C++23 name. MSVC gets `c++latest`, so one mamafile asks for two different standards. Fix: write
+  `c++2c`, which GCC 14 and Clang 17 accept, and keep `c++2b` for an older compiler.
+
+- **A `-std` in `add_cxx_flags()` now steers `CMAKE_CXX_STANDARD`.** `cxx_standard()` reads the `-std`
+  key of `cmake_cxxflags`, and `add_cxx_flags('-std=c++17')` writes that same key. A plain compiler
+  flag therefore changes what mama tells cmake. That is the right answer for `-std=c++17`, and the
+  wrong one for a flag that names a standard mama has no min-cmake entry for. Fix: record which
+  standard `enable_cxxNN()` chose, and read that instead of parsing the flag back.
+
 - **A recursive package ships a child module the child package also ships.** `papa_deploy_to` writes a
   `D` record for every child (`papa_deploy.py:283`), and `_gather_modules(target, r_includes)` also
   writes an `M` record for that child's module. A consumer then loads the module source twice, and cmake
@@ -46,8 +56,8 @@ so cut every word that a reader of the fix does not need.
   optional scope argument, so a library that exports itself can ask for `PRIVATE`.
 
 - **Compiler discovery composes a suffixed path that a symlinked toolchain does not have.**
-  `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir, while it keeps
-  the suffix that named the link. `get_preferred_compiler_paths` then joins the two
+  `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir. It keeps the
+  suffix that named the link. `get_preferred_compiler_paths` then joins the two
   (`build_config.py:712`), so `/usr/bin/clang++-18 -> /usr/lib/llvm-18/bin/clang++` yields
   `/usr/lib/llvm-18/bin/clang++-18`, and cmake reports "not a full path to an existing compiler
   tool". Only a host whose suffixed compiler links to an unsuffixed name hits it, which is the

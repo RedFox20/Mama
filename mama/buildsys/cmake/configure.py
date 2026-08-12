@@ -125,17 +125,27 @@ def _cmake_version(config) -> tuple:
 _CXX_STANDARD_MIN_CMAKE = {'11': (3,1), '14': (3,1), '17': (3,8), '20': (3,12), '23': (3,20), '26': (3,25)}
 
 
+def _cmake_opt_key(opt:str) -> str:
+    """The cmake variable an option names, whatever spelling it uses: a `-D` prefix, or a `:TYPE`."""
+    key = re.split('[=:]', opt.strip(), 1)[0].strip()
+    return key[2:] if key.startswith('-D') else key
+
+
 def _cxx_standard_opts(target:BuildTarget) -> list:
     """The cmake C++ standard, taken from the standard the mamafile forced. A raw `-std` flag tells
     cmake nothing, so `target_compile_features` and a `CXX_MODULES` file set both fail without this.
-    A mamafile that names the standard through add_cmake_options() keeps its own value."""
+    A mamafile that names one of these through add_cmake_options() keeps its own value, and an
+    operator who passes a standard through `flags=` keeps that one."""
     std = target.cxx_standard()
     if not std or not target.enable_cxx_build: return []
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
     if not least or _cmake_version(target.config) < least: return []
-    forced = {o.split('=', 1)[0].strip() for o in target.cmake_opts}
-    # EXTENSIONS OFF keeps the flag cmake adds equal to the one the mamafile already asked for
-    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_STANDARD_REQUIRED': 'ON', 'CMAKE_CXX_EXTENSIONS': 'OFF'}
+    flags = target.config.flags or ''
+    if 'std=' in flags or 'std:' in flags: return []  # cmake appends its own flag last, and would win
+    forced = {_cmake_opt_key(o) for o in target.cmake_opts}
+    # EXTENSIONS OFF keeps the flag cmake adds equal to the one the mamafile already asked for. There
+    # is no REQUIRED: a compiler that cannot give this standard must decay, not fail the configure.
+    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_EXTENSIONS': 'OFF'}
     return [f'{k}={v}' for k, v in defaults.items() if k not in forced]
 
 

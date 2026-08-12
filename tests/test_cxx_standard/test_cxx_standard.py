@@ -32,10 +32,12 @@ def test_each_forced_standard_sets_the_cmake_standard(enable, expected, tmp_path
     assert _opts(tmp_path, monkeypatch, enable=enable)['CMAKE_CXX_STANDARD'] == expected
 
 
-def test_the_standard_is_required_and_the_extensions_are_off(tmp_path, monkeypatch):
-    # OFF keeps the flag cmake adds equal to the -std the mamafile already asked for
+def test_the_extensions_are_off_and_the_standard_is_never_required(tmp_path, monkeypatch):
+    # OFF keeps the flag cmake adds equal to the -std the mamafile asked for. REQUIRED would turn a
+    # compiler that cannot give the standard into a failed configure, where the flag alone decayed.
     opts = _opts(tmp_path, monkeypatch, enable='20')
-    assert opts['CMAKE_CXX_STANDARD_REQUIRED'] == 'ON' and opts['CMAKE_CXX_EXTENSIONS'] == 'OFF'
+    assert opts['CMAKE_CXX_EXTENSIONS'] == 'OFF'
+    assert 'CMAKE_CXX_STANDARD_REQUIRED' not in opts
 
 
 def test_the_raw_std_flag_still_reaches_the_compiler(tmp_path, monkeypatch):
@@ -73,13 +75,39 @@ def test_an_unreadable_cmake_version_sets_nothing(tmp_path, monkeypatch):
     assert 'CMAKE_CXX_STANDARD' not in _opts(tmp_path, monkeypatch, enable='20', cmake='unknown')
 
 
-def test_the_mamafile_keeps_the_standard_it_named_itself(tmp_path, monkeypatch):
-    # add_cmake_options comes first on the command line, so a default of ours would override it
+@pytest.mark.parametrize('spelling', ['CMAKE_CXX_STANDARD=17', 'CMAKE_CXX_STANDARD:STRING=17',
+                                      '-DCMAKE_CXX_STANDARD=17'])
+def test_the_mamafile_keeps_the_standard_it_named_itself(spelling, tmp_path, monkeypatch):
+    # add_cmake_options comes first on the command line, and cmake takes the last -D, so a default of
+    # ours would silently win. Every legal spelling of the name has to defer to it.
     target = _target(tmp_path, monkeypatch, enable='20')
-    target.add_cmake_options('CMAKE_CXX_STANDARD=17')
-    opts = _opts(tmp_path, monkeypatch, target=target)
-    assert opts['CMAKE_CXX_STANDARD'] == '17'
-    assert opts['CMAKE_CXX_STANDARD_REQUIRED'] == 'ON'  # the ones it did not name still apply
+    target.add_cmake_options(spelling)
+    added = cc._default_options(target)
+    assert not [o for o in added if o.startswith('CMAKE_CXX_STANDARD')]
+    assert 'CMAKE_CXX_EXTENSIONS=OFF' in added  # the ones it did not name still apply
+
+
+def test_an_operator_std_flag_keeps_the_cmake_default(tmp_path, monkeypatch):
+    # cmake appends its own -std after CMAKE_CXX_FLAGS, so our default would discard `flags=`
+    target = _target(tmp_path, monkeypatch, enable='20')
+    target.config.flags = '-std=c++17'
+    assert 'CMAKE_CXX_STANDARD' not in _opts(tmp_path, monkeypatch, target=target)
+
+
+def test_a_build_arg_never_outvotes_the_flag(tmp_path, monkeypatch):
+    # the flag is what reaches the compiler, so a CXX20 arg the mamafile ignored must not steer cmake
+    target = _target(tmp_path, monkeypatch)
+    target.args = ['CXX20']
+    target.enable_cxx17()
+    assert target.cxx_standard() == '17'
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '17'
+
+
+def test_cxx_latest_names_no_standard_so_cmake_keeps_its_own(tmp_path, monkeypatch):
+    # enable_cxx26 asks MSVC for c++latest, which is not a number cmake can be told
+    target = _target(tmp_path, monkeypatch, enable='26', platform=Windows, msvc=True, gcc=False)
+    assert target.cmake_cxxflags['/std'] == 'c++latest'
+    assert target.cxx_standard() == ''
 
 
 # --- the msvc spelling -------------------------------------------------------
