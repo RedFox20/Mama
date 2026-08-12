@@ -127,7 +127,7 @@ _CXX_STANDARD_MIN_CMAKE = {'11': (3,1), '14': (3,1), '17': (3,8), '20': (3,12), 
 
 def _cmake_opt_key(opt:str) -> str:
     """The cmake variable an option names, whatever spelling it uses: a `-D` prefix, or a `:TYPE`."""
-    key = re.split('[=:]', opt.strip(), 1)[0].strip()
+    key = re.split('[=:]', opt.strip(), maxsplit=1)[0].strip()
     return key[2:] if key.startswith('-D') else key
 
 

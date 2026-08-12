@@ -4,6 +4,7 @@ from unittest.mock import patch
 from testutils import make_includes_target, write_files
 
 from mama import package
+from mama.utils.paths import normalized_join
 
 
 MODULES = {'src/rpp/rpp-strview.cppm': 'export module rpp.strview;',
@@ -65,12 +66,22 @@ def test_module_base_dir_picks_the_longest_matching_export(tmp_path):
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
     module = target.exported_modules[0]
-    target.exported_includes = [f'{tmp_path}/src', f'{tmp_path}/src/rpp']
-    assert package.module_base_dir(target, module) == f'{tmp_path}/src/rpp'
+    target.exported_includes = [normalized_join(str(tmp_path), 'src'),
+                                normalized_join(str(tmp_path), 'src/rpp')]
+    assert package.module_base_dir(target, module) == normalized_join(str(tmp_path), 'src/rpp')
+
+
+def test_module_base_dir_reads_a_backslash_export_too(tmp_path):
+    # a mixed spelling used to match nothing, and the deploy then dropped the module with a warning
+    target = _target(tmp_path)
+    package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
+    backslash = normalized_join(str(tmp_path), 'src/rpp').replace('/', '\\')
+    target.exported_includes = [backslash]
+    assert package.module_base_dir(target, target.exported_modules[0]) == backslash
 
 
 def test_module_base_dir_is_empty_when_no_export_holds_the_module(tmp_path):
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
-    target.exported_includes = [f'{tmp_path}/include']
+    target.exported_includes = [normalized_join(str(tmp_path), 'include')]
     assert package.module_base_dir(target, target.exported_modules[0]) == ''

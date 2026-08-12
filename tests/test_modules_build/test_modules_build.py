@@ -5,8 +5,8 @@ import re
 from glob import glob
 
 import pytest
-from testutils import (executable_extension, init, mama_exec, module_capable_compiler,
-                       MODULE_TEST_MIN_CLANG, native_platform_name)
+from testutils import (executable_extension, init, is_windows, mama_exec, module_capable_compiler,
+                       MODULE_TEST_MIN_CLANG, native_platform_name, static_library_extension)
 
 from mama.utils.sub_process import execute_piped
 
@@ -56,9 +56,17 @@ def _run_consumer(project) -> str:
     return (execute_piped([exe]) or '').strip()
 
 
+def _producer_lib(root) -> str:
+    """The producer archive under `root`, named the way this platform's archiver writes it."""
+    ext = static_library_extension()
+    return f'{root}/Producer{ext}' if ext == '.lib' else f'{root}/libProducer{ext}'
+
+
 def _members(lib) -> str:
+    """The object members of a static library, through the archiver of this platform."""
     assert os.path.exists(lib), f'no archive at {lib}'
-    return execute_piped(['ar', 't', lib], throw=False) or ''
+    cmd = ['lib.exe', '/NOLOGO', '/LIST', lib] if is_windows() else ['ar', 't', lib]
+    return execute_piped(cmd, throw=False) or ''
 
 
 def test_a_consumer_imports_the_exported_module(tmp_path):
@@ -82,13 +90,13 @@ def test_the_deployed_package_records_the_module_and_ships_it(tmp_path):
 
 def test_the_packaged_archive_holds_no_module_object(tmp_path):
     _, deploy = _build_and_deploy(tmp_path)
-    assert 'rpp-strview.cppm.o' not in _members(f'{deploy}/libProducer.a')
+    assert not [m for m in _members(_producer_lib(deploy)).split() if 'rpp-strview' in m]
 
 
 def test_the_build_dir_archive_keeps_its_module_object(tmp_path):
     # the strip touches the packaged copy alone, so the producer's own build still links
     build, _ = _build_and_deploy(tmp_path)
-    assert 'rpp-strview.cppm.o' in _members(f'{build}/libProducer.a')
+    assert [m for m in _members(_producer_lib(build)).split() if 'rpp-strview' in m]
 
 
 @pytest.mark.linux_host
@@ -107,7 +115,7 @@ target_compile_features(wa PRIVATE cxx_std_20)
 target_include_directories(wa PRIVATE {deploy}/include)
 target_sources(wa PRIVATE FILE_SET CXX_MODULES BASE_DIRS {deploy}/include
                FILES {deploy}/include/rpp/rpp-strview.cppm)
-target_link_options(wa PRIVATE "-Wl,--whole-archive" "{deploy}/libProducer.a" "-Wl,--no-whole-archive")
+target_link_options(wa PRIVATE "-Wl,--whole-archive" "{_producer_lib(deploy)}" "-Wl,--no-whole-archive")
 ''')
     out = str(src / 'build')
     cxx = module_capable_compiler()['cxx']
@@ -118,7 +126,8 @@ target_link_options(wa PRIVATE "-Wl,--whole-archive" "{deploy}/libProducer.a" "-
     assert (execute_piped([f'{out}/wa']) or '').strip() == 'hello'
 
 
+@pytest.mark.linux_host
 def test_a_generator_without_module_support_falls_back_to_headers(tmp_path):
-    # requirement 4, and it needs no old compiler: cmake scans modules only under Ninja
+    # cmake scans modules under Ninja and Visual Studio, so only a make host loses them here
     project = _build(tmp_path, MAMA_TEST_MODULES='0', MAMA_TEST_NO_NINJA='1')
     assert _run_consumer(project) == 'HEADERS hello'

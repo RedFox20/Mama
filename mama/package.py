@@ -2,7 +2,8 @@ from __future__ import annotations
 from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console, System, warning
-from .utils.paths import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
+from .utils.paths import (normalized_path, normalized_join, forward_slashes,
+                          glob_with_name_match, glob_with_extensions)
 from .utils.errors import BuildError
 from .utils.sub_process import execute_piped, SubProcess
 from .types.asset import Asset
@@ -129,11 +130,13 @@ def module_suffixes(modules) -> tuple:
 
 def module_base_dir(target: BuildTarget, module: str) -> str:
     """The exported include dir that holds `module`, longest match first, or '' when none does.
-    Cmake needs every module of a file set to sit under one of its base dirs."""
+    Cmake needs every module of a file set to sit under one of its base dirs. The compare reads both
+    paths as forward slashes, because one backslash would drop the module with no error."""
+    fwd = forward_slashes(module)
     best = ''
     for include in target.exported_includes:
-        if module.startswith(include + '/') and len(include) > len(best):
-            best = include
+        if fwd.startswith(forward_slashes(include) + '/') and len(include) > len(best):
+            best = include  # the caller matches this against the export list, so keep its spelling
     return best
 
 

@@ -186,10 +186,11 @@ def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, m
         # the copy maps src_dir onto dst_dir, so the module follows the same pair. An includes root
         # ships one subdir of the export, so its src_dir is deeper than the exported include.
         src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
-        if not module.startswith(src_dir + '/'):
+        fwd = forward_slashes(module)  # one backslash here would drop the module with no error
+        if not fwd.startswith(forward_slashes(src_dir) + '/'):
             warning(f'export_modules skipped {module}: the include deploy did not carry it.')
             continue
-        deployed = dst_dir + module[len(src_dir):]
+        deployed = dst_dir + fwd[len(src_dir):]
         if not os.path.exists(deployed):
             warning(f'export_modules skipped {module}: the include filter did not ship it.')
             continue

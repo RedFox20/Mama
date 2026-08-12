@@ -1,6 +1,7 @@
 """Pins PapaFileInfo: parsing every record kind of papa.txt, including the optional compiler record."""
 from testutils import init
 from mama.papa_deploy import PapaFileInfo
+from mama.utils.paths import normalized_join
 
 
 def test_papa_parse(tmp_path):
@@ -47,7 +48,8 @@ def test_a_package_without_a_compiler_record_still_loads(tmp_path):
 def test_a_module_record_resolves_against_the_package_dir(tmp_path):
     papa = tmp_path / 'papa.txt'
     papa.write_text('P Example\nI include\nM include/rpp/rpp-strview.cppm\n')
-    assert PapaFileInfo(str(papa)).modules == [f'{tmp_path}/include/rpp/rpp-strview.cppm']
+    # normalized_join answers in forward slashes on every platform
+    assert PapaFileInfo(str(papa)).modules == [normalized_join(str(tmp_path), 'include/rpp/rpp-strview.cppm')]
 
 
 def test_an_unknown_record_kind_parses_as_nothing(tmp_path):
