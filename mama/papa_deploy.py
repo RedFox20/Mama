@@ -313,6 +313,12 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
             copy_if_needed(lib, outpath)
             # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.
             package.strip_module_objects(libtarget, outpath)
+        elif package.strips_module_objects(libtarget, outpath):
+            # An in-place deploy makes the package and the build artifact one file. The strip would
+            # take the objects the producer's own binaries link, so refuse instead of publishing both.
+            raise RuntimeError(f'papa_deploy refused: {outpath} is the build artifact itself, so the module ' + \
+                               'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
+                               'or pass strip_objects=False to export_modules().')
 
     syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:

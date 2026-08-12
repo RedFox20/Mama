@@ -119,3 +119,23 @@ def test_a_private_module_sharing_a_tail_path_with_an_exported_one_stays_out(tmp
     names = zipfile.ZipFile(archive).namelist()
     assert 'include/sub/api.cppm' in names
     assert 'include/private/sub/api.cppm' not in names
+
+
+def test_an_in_place_deploy_of_a_module_package_is_refused(tmp_path):
+    # the package and the build artifact are one file, so the strip would take what the producer links
+    from mama import papa_deploy
+    build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
+    with patch.object(type(target), 'children', lambda self: []):
+        with pytest.raises(RuntimeError, match='is the build artifact itself'):
+            papa_deploy.papa_deploy_to(target, build, r_includes=False, r_dylibs=False,
+                                       r_syslibs=False, r_assets=False)
+
+
+def test_an_in_place_deploy_without_the_strip_still_works(tmp_path):
+    from mama import papa_deploy
+    build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
+    target.strip_module_objects = False
+    with patch.object(type(target), 'children', lambda self: []):
+        papa_deploy.papa_deploy_to(target, build, r_includes=False, r_dylibs=False,
+                                   r_syslibs=False, r_assets=False)
+    assert os.path.exists(f'{build}/papa.txt')

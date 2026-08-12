@@ -177,14 +177,18 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     return sorted(set(found))
 
 
+def strips_module_objects(target: BuildTarget, lib: str) -> bool:
+    """True when this lib loses its module objects on the way into a package."""
+    return bool(target.strip_module_objects and target.exported_modules and is_a_static_library(lib))
+
+
 def strip_module_objects(target: BuildTarget, lib: str):
     """Removes the module objects from a packaged static library.
 
     A module interface unit emits a strong `initializer for module X` symbol. The consumer compiles
     the same source, so a whole-archive link finds two definitions and fails. The consumer always
     supplies that symbol, so the package does not need it."""
-    if not target.strip_module_objects or not target.exported_modules: return
-    if not is_a_static_library(lib): return
+    if not strips_module_objects(target, lib): return
     members = _module_object_members(target, lib)
     if not members: return
     # the arg list stays a list, because SubProcess splits a joined string on every space
