@@ -124,6 +124,7 @@ def scan_diagnostics(lines, limit=8):
 
 _ICON = {'run': '*', 'ok': '+', 'fail': 'x'}
 _ICON_COLOR = {'run': Color.BLUE, 'ok': Color.GREEN, 'fail': Color.RED}
+_START_ICON = '>'  # a non-terminal run opens each phase with this line, because nothing redraws it into view
 # Short tag per phase for the timing breakdown (lowercase stands out between the times):
 # git any git load, loc local source, art artifactory, cfg configure, bld build.
 _PHASE_TAG = {'check': 'git', 'clone': 'git', 'pulling': 'git', 'local': 'loc', 'artifactory': 'art',
@@ -221,7 +222,9 @@ class BuildDisplay:
             if t is None: t = self._tasks[id] = Task(id, kind, name, self._clock(), detail)
             else:         t.begin(kind, self._clock(), detail)
             if id not in self._active: self._active.append(id)
-        if self._isatty: self.render()  # render OUTSIDE the state lock (terminal I/O must not block feeders)
+        # OUTSIDE the state lock: terminal I/O must not block the feeders
+        if self._isatty: self.render()
+        else: self._writeln(f'{self._colored(_START_ICON, Color.BLUE)} {self._kind_field(kind, detail):<24}{name}')
         return t
 
     def relabel(self, id, kind: str):
@@ -255,8 +258,7 @@ class BuildDisplay:
 
     def finish_task(self, id, ok: bool, final: bool = True):
         # End the current phase. A non-final success stays DORMANT, the dep's last phase or any failure
-        # commits ONE merged summary. Every phase is recorded so the table shows all steps, but a dep
-        # whose every phase was instant (a pure cached no-op) is hidden.
+        # commits ONE merged summary. The task records every phase, so the table shows all steps.
         with self._lock:
             t = self._tasks.get(id)
             if t is None: return
@@ -265,15 +267,17 @@ class BuildDisplay:
             if id in self._active: self._active.remove(id)
             t.phases.append((t.elapsed(t.end), t.kind, t.detail))
             done = final or not ok                        # workflow over -> emit, else dormant until resume
-            show = done and (not ok or any(d >= self._reveal for d, _, _ in t.phases))  # hide a wholly-instant dep
             if done: self._log_task(t)  # full per-target output -> log, even for deps hidden from the live region
             if not self._isatty:
-                if show:
+                # a start line opened every phase of this dep, so each one closes, instant or not
+                if done:
                     self._writeln(self._summary_line(t))
                     if self._verbose or not ok:
                         for line in t.lines: self._writeln(line)
                 return
-            if show: self._pending.append(self._summary_line(t))
+            # a live region hides a dep that succeeded with every phase instant: a cached no-op is noise
+            if done and (not ok or any(d >= self._reveal for d, _, _ in t.phases)):
+                self._pending.append(self._summary_line(t))
         self.render(force=True)  # commit the summary + redraw the shrunken region, off the state lock
 
     # -- permanent output (above the live region) --------------------------

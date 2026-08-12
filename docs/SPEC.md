@@ -912,14 +912,18 @@ of a user, far from the build that caused it.
 Both schedulers draw one line per dep, redrawn in place on a terminal. A dep keeps one line across its
 whole workflow, so load, configure and build share it and the summary shows every phase.
 
-A dep that succeeded and whose every phase finished in under 0.1 seconds is hidden. A pure cached no-op
-is noise, and the package listing below names every dep anyway. A failure always shows.
+On a terminal, a dep that succeeded and whose every phase finished in under 0.1 seconds is hidden. A
+pure cached no-op is noise, and the package listing below names every dep anyway. A failure always shows.
 
 The root loads **outside** every display. Its `settings()` picks the toolchain, and a mis-picked one
 must never hide inside a live region.
 
-A non-terminal run (a pipe, or a CI runner) writes one summary line per dep instead, and dumps the
-full output of a failed dep.
+### A non-terminal run
+
+A pipe and a CI runner redraw nothing, so mama reports each stage as it happens. A `>` line opens every
+phase, and one summary line closes the dep when its last phase ends, or when any phase of it fails.
+That run hides no dep, because every dep it opened must also close. It dumps the full output of a
+failed dep, and of every dep under `verbose`.
 
 ### The build log
 

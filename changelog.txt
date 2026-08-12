@@ -2,6 +2,7 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - feature: CI logs now report each stage as it starts, and never hide a dep
  - feature: mama.cmake is written only for a dep that can include it
  - bugfix: Visual Studio and Xcode now offer only configurations that link
  - bugfix: an unpublish that matches nothing names the target and the count

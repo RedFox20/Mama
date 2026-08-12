@@ -23,6 +23,10 @@ from mama.utils.sub_process import execute_piped
 _ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')  # SGR colors + cursor moves
 def strip_ansi(s: str) -> str: return _ANSI.sub('', s)
 
+def summary_lines(text: str) -> list:
+    """The lines a non-tty BuildDisplay committed, without the `>` line that opens each phase."""
+    return [l for l in strip_ansi(text).splitlines() if l.strip() and not l.startswith('>')]
+
 
 class FakeBuildTarget:
     """Base for the runner-test target fakes: the build-weight stubs the parallel runners call on
@@ -49,6 +53,7 @@ class FakeUnifiedDep:
     """Dep half of the execute_unified fakes: load() discovers `child_specs` (name, grandchild-specs)
     at load time, so the scheduler grows the graph the way a real clone does. Pass `shared_children`
     instead to hand two parents the SAME instance and form a diamond."""
+    dep_source = SimpleNamespace(is_src=False)  # a git dep, so the opening load label resolves to 'clone'
     def __init__(self, name, config, ev, lock, child_specs=(), shared_children=None):
         self.name = name; self.config = config; self._ev = ev; self._lock = lock
         self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
@@ -66,12 +71,13 @@ class FakeUnifiedDep:
     def clean(self): self.target.clean()
     def create_build_dir_if_needed(self): pass
     def is_root_or_config_target(self): return False
-    def is_real_clone(self): return False  # load label resolves to 'clone'
+    def is_real_clone(self): return False
 
 
 class FakeWalkDep:
     """Dep for the load_dependency_chain walk tests. load() records its name and returns the children the
     test declared, so the log holds the walk order."""
+    dep_source = SimpleNamespace(is_src=False)  # a git dep, so the opening load label resolves to 'clone'
     def __init__(self, name, config, log, children=(), loaded=False, on_load=None):
         self.name = name; self.config = config; self._log = log; self._children = list(children)
         self.already_loaded = loaded; self.should_rebuild = False; self.is_root = False
@@ -87,7 +93,7 @@ class FakeWalkDep:
         return self.should_rebuild
     def get_children(self): return self._children
     def after_load(self): pass
-    def is_real_clone(self): return False  # the opening load label resolves to 'clone'
+    def is_real_clone(self): return False
 
 
 def make_walk_config(**overrides):

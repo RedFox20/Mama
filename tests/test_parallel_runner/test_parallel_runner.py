@@ -111,11 +111,15 @@ def test_stable_cpu_sampler_re_measures_only_per_window():
     clk['t'] = 1.2; assert s() == 90.0      # next window -> re-measures
 
 
+def _load_dep(is_src=False, real_clone=False):
+    return SimpleNamespace(is_real_clone=lambda: real_clone, dep_source=SimpleNamespace(is_src=is_src))
+
+
 def test_phase_label_load_opens_clone_when_fresh_else_check():
-    fresh = SimpleNamespace(is_real_clone=lambda: False)
-    existing = SimpleNamespace(is_real_clone=lambda: True)
+    fresh, existing = _load_dep(), _load_dep(real_clone=True)
     assert dc._phase_label(fresh, 'load') == 'clone' and dc._phase_label(existing, 'load') == 'check'
     assert dc._phase_label(fresh, 'configure') == 'configure'  # non-load kinds verbatim
+    assert dc._phase_label(_load_dep(is_src=True), 'load') == 'local'  # a local dir clones nothing
 
 
 def test_run_phase_relabels_load_to_actual_action(monkeypatch):

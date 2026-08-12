@@ -592,8 +592,9 @@ def _make_display(config):
 # Shared by the two parallel runners (execute_task_chain_parallel, execute_unified).
 def _phase_label(dep, kind) -> str:
     # 'load' opens optimistically (clone when no tree exists, else check), and _run_phase relabels it to what load() did
-    if kind == 'load': return 'clone' if not dep.is_real_clone() else 'check'
-    return kind
+    if kind != 'load': return kind
+    if dep.dep_source.is_src: return 'local'  # a local dir clones nothing, and CI reads that opening label
+    return 'clone' if not dep.is_real_clone() else 'check'
 
 
 def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):

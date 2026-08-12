@@ -1,20 +1,21 @@
 """Pins which deps the load walk enters, that one thread owns each load, and one live line per dep."""
 import io, threading, time
-from testutils import FakeWalkDep, make_walk_config
+from testutils import FakeWalkDep, make_walk_config, summary_lines
 from mama.dependency_chain import load_dependency_chain
 from mama.utils.build_display import BuildDisplay
 from mama.utils.system import console
 
 
 def _walk_with_display(root, **kw):
-    """Walk `root` under a non-tty display and return the lines it committed. reveal_delay=0 shows
-    every dep, because a fake load takes no time at all."""
+    """Walk `root` under a non-tty display and return the summary line it committed per dep. A non-tty
+    run also opens each phase with a `>` line, which these tests skip. reveal_delay=0 shows every dep,
+    because a fake load takes no time at all."""
     out = io.StringIO()
     display = BuildDisplay(out, isatty=False, term_size=lambda: (200, 24), clock=lambda: 0.0,
                            color=False, reveal_delay=0, **kw)
     load_dependency_chain(root, display)
     display.close()
-    return [line for line in out.getvalue().splitlines() if line.strip()]
+    return summary_lines(out.getvalue())
 
 
 def test_the_walk_enters_the_dep_it_starts_from_even_when_loaded():

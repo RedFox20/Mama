@@ -3,9 +3,10 @@ import io, re
 from types import SimpleNamespace
 from mama.utils import system
 from mama.utils.build_display import BuildDisplay, Task, _fmt_dur, scan_diagnostics
-from testutils import strip_ansi as strip
+from testutils import strip_ansi as strip, summary_lines
 
 def squeeze(s: str) -> str: return re.sub(r' +', ' ', strip(s))  # collapse fixed-width padding for breakdown asserts
+def summaries(out) -> str: return squeeze('\n'.join(summary_lines(out.getvalue())))
 
 
 class Clock:
@@ -20,12 +21,13 @@ def _disp(isatty, cols=80, rows=24, **kw):
     return d, out, clk
 
 
-def test_non_tty_emits_one_summary_line_per_slow_task():
+def test_non_tty_opens_each_phase_and_closes_it():
     d, out, clk = _disp(isatty=False)
     d.start_task(1, 'configure', 'foo'); clk.tick(2.0); d.finish_task(1, ok=True)
-    text = out.getvalue()
-    assert 'configure' in text and 'foo' in text and '2.0s' in text  # one finish summary, no start line
-    assert '\x1b[' not in text  # never emit ANSI when not a TTY
+    lines = squeeze(out.getvalue()).splitlines()
+    assert lines[0] == '> configure foo'  # CI redraws nothing, so each stage announces itself
+    assert '+ configure foo' in lines[1] and '2.0s' in lines[1]
+    assert '\x1b[' not in out.getvalue()  # never emit ANSI when not a TTY
 
 
 def test_elapsed_over_a_minute_uses_the_shared_mm_ss_formatter():
@@ -35,22 +37,29 @@ def test_elapsed_over_a_minute_uses_the_shared_mm_ss_formatter():
     assert '2m 44s' in text and '164' not in text  # get_time_str, not raw 164.3s
 
 
-def test_instant_success_tasks_are_hidden_failures_are_not():
-    d, out, clk = _disp(isatty=False)
+def test_a_live_region_hides_an_instant_success_but_never_a_failure():
+    d, out, clk = _disp(isatty=True)
     d.start_task(1, 'build', 'instant'); d.finish_task(1, ok=True)        # ~0.0s success -> hidden
     d.start_task(2, 'build', 'slow'); clk.tick(0.5); d.finish_task(2, ok=True)   # slow -> shown
     d.start_task(3, 'build', 'boom'); d.finish_task(3, ok=False)          # instant FAIL -> still shown
-    text = out.getvalue()
+    d.close()
+    text = strip(out.getvalue())
     assert 'instant' not in text and 'slow' in text and 'boom' in text
+
+
+def test_non_tty_closes_every_dep_it_opened_instant_or_not():
+    d, out, _ = _disp(isatty=False)
+    d.start_task(1, 'build', 'instant'); d.finish_task(1, ok=True)  # a start line opened it, so it closes
+    assert '+ build instant' in summaries(out)
 
 
 def test_phases_merge_into_one_summary_with_breakdown():
     d, out, clk = _disp(isatty=False)
     d.start_task('geo', 'pulling', 'geo'); clk.tick(3.7); d.finish_task('geo', ok=True, final=False)
-    assert out.getvalue() == ''   # an intermediate phase commits nothing - the dep is still working
+    assert summaries(out) == ''   # an intermediate phase commits nothing - the dep is still working
     d.start_task('geo', 'configure', 'geo'); clk.tick(0.3); d.finish_task('geo', ok=True, final=False)
     d.start_task('geo', 'build', 'geo', detail='J32'); clk.tick(0.5); d.finish_task('geo', ok=True, final=True)
-    text = squeeze(out.getvalue())
+    text = summaries(out)
     assert text.count('geo') == 1 and 'build J32' in text  # one merged line, kind = last phase that did work
     assert 'git 3.7s' in text and 'cfg 0.3s' in text and 'bld 0.5s' in text  # git pull, configure, build
 
