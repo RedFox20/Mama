@@ -2,6 +2,7 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - bugfix: `jobs=N` now caps ninja, which read the host core count in CI
  - feature: CI logs now report each stage as it starts, and never hide a dep
  - feature: a source archive waits 15s, an artifactory fetch keeps its 5s
      GnuProject.download_timeout raises the wait for one slow mirror

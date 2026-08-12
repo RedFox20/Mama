@@ -717,6 +717,8 @@ def _jobs(target:BuildTarget) -> int:
 
 def _mp_flags(target:BuildTarget):
     config:BuildConfig = target.config
+    # ninja with no flag reads the host core count, which a container CPU limit does not bound
+    if target.enable_ninja_build: return f'-j{_jobs(target)}' if target.enable_multiprocess_build else '-j1'
     if not target.enable_multiprocess_build: return ''
     jobs = _jobs(target)
     if config.msvc: return f'/maxcpucount:{jobs}'
@@ -726,10 +728,10 @@ def _mp_flags(target:BuildTarget):
 
 
 def _buildsys_flags(target:BuildTarget):
-    if target.enable_ninja_build: return '' # ninja does not need extra flags
     config:BuildConfig = target.config
     mpf = _mp_flags(target)
-    if config.msvc:
+    if target.enable_ninja_build: flags = mpf  # ninja takes -j alone, whatever the compiler
+    elif config.msvc:
         flags = f'/v:m {mpf} /nologo'
     elif config.platform.build_system == 'xcode' and not (target.enable_unix_make or config.verbose):
         flags = f'-quiet {mpf}'  # xcodebuild floods the output unless -quiet is set

@@ -659,6 +659,14 @@ its exports in dependency order.
 A mamafile that overrides `build()` runs whole in the build phase. It reserves its cores from inside
 `cmake_build()` instead of at launch, so the scheduler admits it without a reservation.
 
+**Build parallelism**: the native build tool takes an explicit job count, and a target that keeps
+`enable_multiprocess_build` always gets one. A dep takes the count its translation-unit probe sized,
+and `config.jobs` when the probe found none. The root always takes `config.jobs`. msbuild takes
+`/maxcpucount:N`, xcodebuild takes `-jobs N`, and make and ninja take `-jN`. A target that clears
+`enable_multiprocess_build` passes no job count, except under ninja, which takes `-j1`.
+**Why:** ninja with no flag reads the host core count. A container CPU limit does not bound that count.
+A CI build then starts far more compilers than the limit allows, and the OOM killer stops it.
+
 ### Packaging
 
 `_run_packaging` skips entirely when there is no build work AND no usable artifacts on disk. Wipe,
