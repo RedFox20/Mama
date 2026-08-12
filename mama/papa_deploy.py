@@ -51,9 +51,10 @@ def _gather_includes(target:BuildTarget, recurse):
     return _gather(target, recurse, includes, lambda t: t.exported_includes)
 
 
-def _gather_modules(target:BuildTarget, recurse):
-    modules = []
-    return _gather(target, recurse, modules, lambda t: t.exported_modules)
+def _gather_modules(target:BuildTarget):
+    """The modules of this target alone, never a child's. A child package writes its own `M` records,
+    and a consumer that compiles one module from two packages declares that module twice."""
+    return [(target, m) for m in package.exported_modules_with_base(target)]
 
 
 def _gather_libs(target:BuildTarget, recurse):
@@ -109,14 +110,10 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
-def _module_rel_paths(modules) -> set:
-    """The path of every gathered module, relative to the exported include dir that holds it. The copy
-    of one include tree can carry a module another target declared, so the relative path is the match."""
-    rels = set()
-    for modtarget, module in modules:
-        base = package.module_base_dir(modtarget, module)
-        if base: rels.add(module[len(base) + 1:])
-    return rels
+def _module_paths(modules) -> set:
+    """The exact path of every gathered module, forward-slashed. The copy predicate compares the whole
+    path, so a private module that ends with the same name as an exported one stays out."""
+    return {forward_slashes(m) for _, m in modules}
 
 
 def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes, modules=()) -> int:
@@ -129,7 +126,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
     module_sfx = package.module_suffixes(m for _, m in modules)
-    module_rels = _module_rel_paths(modules)
+    module_paths = _module_paths(modules)
     suffixes = tuple(target.include_glob_filter)
     stems = _header_stems(includes, suffixes + module_sfx)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
@@ -139,7 +136,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         name = os.path.basename(path)
         # a module source ships only when export_modules named it, so a private one beside it stays out
         if name.endswith(module_sfx) and not name.endswith(suffixes):
-            header = any(forward_slashes(path).endswith('/' + rel) for rel in module_rels)
+            header = forward_slashes(path) in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
             # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
@@ -293,7 +290,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
     remove_tree(f'{package_full_path}/include')
     # the modules come first, because the include copy needs their suffixes to carry them
-    modules = _gather_modules(target, r_includes)
+    modules = _gather_modules(target)
     includes = _gather_includes(target, r_includes)
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes, modules)
     _warn_about_duplicate_include_trees(target, package_full_path)

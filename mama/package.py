@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from .build_config import BuildConfig
 
 # Every spelling of a C++20 module interface unit. MSVC writes `.ixx`, the others write `.cppm`.
-MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.mpp')
+MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.c++m', '.mpp')
 
 
 def is_a_static_library(lib: str):
@@ -140,25 +140,41 @@ def module_base_dir(target: BuildTarget, module: str) -> str:
     return best
 
 
+def drop_nested_dirs(dirs) -> list:
+    """The given dirs, sorted, with every dir that sits inside another one removed. Cmake refuses a
+    file set whose base dirs contain each other, and the outer dir already holds them all."""
+    uniq = sorted({forward_slashes(d) for d in dirs if d})
+    return [d for d in uniq if not any(d.startswith(outer + '/') for outer in uniq if outer != d)]
+
+
 def module_base_dirs(target: BuildTarget) -> list:
-    """The exported include dirs that hold a module, with every nested dir dropped.
-    Cmake refuses a file set whose base dirs contain each other, and the outer dir holds them all."""
-    dirs = sorted(d for d in {module_base_dir(target, m) for m in target.exported_modules} if d)
-    return [d for d in dirs if not any(d.startswith(outer + '/') for outer in dirs if outer != d)]
+    """The exported include dirs that hold a module of this target, with every nested dir dropped."""
+    return drop_nested_dirs(module_base_dir(target, m) for m in target.exported_modules)
+
+
+def exported_modules_with_base(target: BuildTarget) -> list:
+    """The exported modules that an exported include dir holds. A module outside every include path
+    reaches no consumer, and cmake refuses a file set whose FILES sit under no base dir."""
+    return [m for m in target.exported_modules if module_base_dir(target, m)]
 
 
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
-    Reading the listing covers every object suffix, so no platform has to declare one."""
+    Reading the listing covers every object suffix, so no platform has to declare one.
+    A build system names the object after the source, with or without the module extension. The
+    exact name wins, so `foo.o` built from `foo.cpp` never answers for a `foo.cppm` beside it."""
     listing = execute_piped(target.config.platform.list_archive_members_cmd(lib), throw=False)
     if not listing: return []
-    stems = {os.path.basename(m) for m in target.exported_modules}
-    members = []
-    for member in listing.split():
-        name, ext = os.path.splitext(member)
-        if ext in ('.o', '.obj') and name in stems:
-            members.append(member)
-    return members
+    # one member per line, so a module file name that holds a space survives the parse
+    objects = [m for m in (ln.strip() for ln in listing.splitlines())
+               if os.path.splitext(m)[1] in ('.o', '.obj')]
+    found = []
+    for module in target.exported_modules:
+        base = os.path.basename(module)
+        hits = [o for o in objects if os.path.splitext(o)[0] == base]
+        if not hits: hits = [o for o in objects if os.path.splitext(o)[0] == os.path.splitext(base)[0]]
+        found += hits
+    return sorted(set(found))
 
 
 def strip_module_objects(target: BuildTarget, lib: str):

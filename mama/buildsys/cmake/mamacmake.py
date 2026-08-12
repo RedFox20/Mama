@@ -112,7 +112,10 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
         set(MAMA_MODULES_AVAILABLE TRUE)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})
-        set(MAMA_MODULES_AVAILABLE TRUE)
+        # cmake reads a clang import graph with clang-scan-deps, which a split install may not ship
+        if(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+            set(MAMA_MODULES_AVAILABLE TRUE)
+        endif()
     elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${MAMA_MODULES_MIN_MSVC})
         set(MAMA_MODULES_AVAILABLE TRUE)
     endif()
@@ -120,16 +123,23 @@ endif()
 
 # Adds the C++20 modules of every mama package to `target` and defines MAMA_HAS_MODULES=1 on it.
 # Call it once, after the target exists. A toolchain without module support adds nothing.
+#   mama_target_modules(MyApp)           PUBLIC, the default, for an executable or a leaf library
+#   mama_target_modules(MyLib PRIVATE)   for a library that installs itself through install(EXPORT),
+#                                        because cmake refuses to export an uninstalled file set
 function(mama_target_modules target)
+    set(scope PUBLIC)
+    if(ARGC GREATER 1)
+        set(scope "${ARGV1}")
+    endif()
     if(NOT MAMA_MODULES_AVAILABLE OR NOT MAMA_MODULES)
         message(STATUS "MAMA: C++20 modules off, using the exported headers")
         return()
     endif()
     # a module needs C++20, and the consumer mamafile does not have to force a standard of its own
-    target_compile_features(${target} PUBLIC cxx_std_20)
-    target_sources(${target} PUBLIC FILE_SET mama_modules TYPE CXX_MODULES
+    target_compile_features(${target} ${scope} cxx_std_20)
+    target_sources(${target} ${scope} FILE_SET mama_modules TYPE CXX_MODULES
                    BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})
-    target_compile_definitions(${target} PUBLIC MAMA_HAS_MODULES=1)
+    target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)
 endfunction()
 '''
 

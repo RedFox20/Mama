@@ -252,7 +252,7 @@ class BuildConfig:
         self._network_available = None  # None=untested, True/False=result
         self._announced = set()          # announce_once() keys already printed
         self._announce_lock = threading.Lock()
-        self._cmake_ver_num = None   # cached `cmake --version`, also the CMakeFiles/<ver> dir name
+        self._cmake_ver_num = {}     # cmake command -> version, also the CMakeFiles/<ver> dir name
         self._seed_coord = None      # compiler-seed Coordinator, built on first configure
         self._buildstats_start = None  # buildstats wall start, set only on a non-MSVC insights run
         self._timetrace_json = None    # vcperf trace path, set only on an MSVC insights run

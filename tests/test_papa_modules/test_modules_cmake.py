@@ -21,7 +21,7 @@ def _defines(tmp_path, modules=None, includes=None) -> str:
 
 def test_the_helper_applies_the_standard_the_module_scanner_needs():
     # a consumer mamafile that forces no standard still gets the C++20 a module needs
-    assert 'target_compile_features(${target} PUBLIC cxx_std_20)' in _text()
+    assert 'target_compile_features(${target} ${scope} cxx_std_20)' in _text()
 
 
 def test_the_helper_adds_the_modules_as_a_cxx_modules_file_set():
@@ -66,3 +66,36 @@ def test_a_dep_without_modules_emits_the_same_text_as_before(tmp_path):
     # an upgrade must reconfigure no existing project, and configure.py hashes this file
     text = _defines(tmp_path)
     assert '_MODULES' not in text
+
+
+# --- what the review found: nesting, scope and a module with no base dir ------
+
+def test_a_module_under_no_exported_include_reaches_no_cmake_variable(tmp_path):
+    # cmake refuses a file set whose FILES sit under no BASE_DIRS, so the module must not ship
+    text = _defines(tmp_path, [f'{tmp_path}/elsewhere/rpp-strview.cppm'])
+    assert '_MODULES' not in text
+
+
+def test_the_helper_takes_an_optional_scope():
+    # a library that installs itself through install(EXPORT) cannot carry a PUBLIC file set
+    text = _text()
+    assert 'set(scope PUBLIC)' in text and 'set(scope "${ARGV1}")' in text
+    assert 'FILE_SET mama_modules TYPE CXX_MODULES' in text
+
+
+def test_the_clang_path_needs_the_dependency_scanner():
+    # a split clang install ships no clang-scan-deps, and an empty scanner breaks every module build
+    assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS' in _text()
+
+
+def test_the_consolidated_base_dirs_drop_a_nesting_between_two_packages(tmp_path):
+    # each package is valid alone, and cmake refuses one file set whose base dirs contain each other
+    from mama import package
+    outer, inner = f'{tmp_path}/repo', f'{tmp_path}/repo/modules/foo/include'
+    assert package.drop_nested_dirs([inner, outer]) == [outer]
+
+
+def test_drop_nested_dirs_keeps_two_unrelated_roots(tmp_path):
+    a, b = f'{tmp_path}/one/include', f'{tmp_path}/two/include'
+    from mama import package
+    assert package.drop_nested_dirs([b, a]) == [a, b]

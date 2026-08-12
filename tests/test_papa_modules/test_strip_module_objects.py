@@ -89,5 +89,24 @@ def test_the_listing_goes_through_the_platform_too(tmp_path):
     assert listed.call_args[0][0] == target.config.platform.list_archive_members_cmd('/pkg/lib/libfoo.a')
 
 
+def test_a_member_name_with_a_space_survives_the_parse(tmp_path):
+    # the listing names one member per line, and splitting on whitespace tore such a name in two
+    run = _strip(_target(tmp_path, modules=('my module.cppm',)), listing='my module.cppm.o\nother.cpp.o\n')
+    assert 'my module.cppm.o' in run.call_args[0][0]
+
+
+def test_an_object_that_drops_the_source_extension_still_matches(tmp_path):
+    # not every build system embeds the module extension in the object name
+    run = _strip(_target(tmp_path), listing='rpp-strview.o\nsprint.cpp.o\n')
+    assert 'rpp-strview.o' in run.call_args[0][0]
+
+
+def test_the_exact_object_name_wins_over_the_bare_stem(tmp_path):
+    # a foo.o built from foo.cpp must not answer for the foo.cppm beside it
+    target = _target(tmp_path, modules=('rpp-strview.cppm',))
+    cmd = _strip(target, listing='rpp-strview.cppm.o\nrpp-strview.o\n').call_args[0][0]
+    assert 'rpp-strview.cppm.o' in cmd and 'rpp-strview.o' not in cmd
+
+
 def test_the_windows_listing_uses_the_lib_list_flag():
     assert Windows.list_archive_members_cmd(None, 'foo.lib') == ['lib.exe', '/NOLOGO', '/LIST', 'foo.lib']

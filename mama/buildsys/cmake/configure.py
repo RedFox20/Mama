@@ -102,20 +102,22 @@ def _opts_to_defines(opts:list[str]) -> str:
 _seed_lock = threading.Lock()
 
 
-def _cmake_version_number(config) -> str:
-    """Parsed cmake version (e.g. '4.2.3'), which is also the CMakeFiles/<ver> dir name. Cached."""
-    v = config._cmake_ver_num
-    if v is None:
-        out = execute_piped([config.cmake_command, '--version'], throw=False) or ''
+def _cmake_version_number(config, cmake_command=None) -> str:
+    """Parsed cmake version (e.g. '4.2.3'), which is also the CMakeFiles/<ver> dir name.
+    Cached per executable, because a target can select a cmake of its own."""
+    cmd = cmake_command or config.cmake_command
+    cache = config._cmake_ver_num
+    if not isinstance(cache, dict): cache = config._cmake_ver_num = {}
+    if cmd not in cache:
+        out = execute_piped([cmd, '--version'], throw=False) or ''
         nums = [ln.split()[-1] for ln in out.splitlines() if 'version' in ln.lower()]
-        v = nums[0] if nums else 'unknown'
-        config._cmake_ver_num = v
-    return v
+        cache[cmd] = nums[0] if nums else 'unknown'
+    return cache[cmd]
 
 
-def _cmake_version(config) -> tuple:
-    """(major, minor) of the running cmake. (0, 0) when the probe failed, which enables nothing."""
-    parts = _cmake_version_number(config).split('.')
+def _cmake_version(config, cmake_command=None) -> tuple:
+    """(major, minor) of that cmake. (0, 0) when the probe failed, which enables nothing."""
+    parts = _cmake_version_number(config, cmake_command).split('.')
     try: return (int(parts[0]), int(parts[1]))
     except (ValueError, IndexError): return (0, 0)
 
@@ -139,7 +141,7 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     std = target.cxx_standard()
     if not std or not target.enable_cxx_build: return []
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
-    if not least or _cmake_version(target.config) < least: return []
+    if not least or _cmake_version(target.config, target.cmake_command) < least: return []
     flags = target.config.flags or ''
     if 'std=' in flags or 'std:' in flags: return []  # cmake appends its own flag last, and would win
     forced = {_cmake_opt_key(o) for o in target.cmake_opts}
@@ -150,7 +152,7 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
 
 
 def _build_files_dir(target:BuildTarget) -> str:
-    return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
+    return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config, target.cmake_command)}')
 
 
 def _seed_src_dir(target:BuildTarget) -> str:
@@ -205,7 +207,7 @@ def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
     inputs = {
-        'cmake': _cmake_version_number(config), 'gen': _generator(target),
+        'cmake': _cmake_version_number(config, target.cmake_command), 'gen': _generator(target),
         'arch': config.arch, 'platform': build_names.build_dir_name(config),
         'cc': seedcache.compiler_stat(cc) if cc else {},
         'cxx': seedcache.compiler_stat(cxx) if cxx else {},
@@ -260,7 +262,7 @@ def _probe_toolchain(target:BuildTarget):
         if config.verbose: console(f'  seed probe: {cmd}', color=Color.BLUE)
         if SubProcess.run(cmd, tmp, env=compute_env(target), io_func=lambda p, line: None) != 0:
             yield None; return
-        files_dir = path_join(bld, f'CMakeFiles/{_cmake_version_number(config)}')
+        files_dir = path_join(bld, f'CMakeFiles/{_cmake_version_number(config, target.cmake_command)}')
         yield (bld, files_dir) if seedcache.covers_core_langs(seedcache.detected_langs(files_dir)) else None
 
 

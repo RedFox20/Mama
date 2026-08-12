@@ -854,6 +854,9 @@ name carry the merged marker `x64v3` instead. The record is text, and a reader c
 The parser splits the record on whitespace and searches it, so a new attribute needs no fixed place.
 
 An `M` record holds one package-relative path, inside the include tree an `I` record already names.
+**A deploy writes `M` records for the modules of its own target, never for a child's.** A recursive
+deploy still writes the `D` record that loads the child package, and that package carries its own
+modules. Two copies would make a consumer compile one module twice, which cmake refuses.
 A module that sits under no exported include path ships nothing, and the deploy says so. The upload
 refuses an `M` record whose file the include filter dropped, because the consumer would then compile
 a source the archive does not carry. A package written before the `M` record carries no module.

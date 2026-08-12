@@ -11,7 +11,7 @@ def _target(tmp_path, monkeypatch, enable=None, cmake='3.28.3', arch='x64', **cf
     monkeypatch.setattr(cc, '_set_compiler_paths', lambda t, o: None)
     target = make_mock_local_dep(tmp_path, src_dir=tmp_path).target
     target.config = platform_config(cfg.pop('platform', Linux), arch, **cfg)
-    target.config._cmake_ver_num = cmake
+    target.config._cmake_ver_num = {target.cmake_command: cmake}
     if enable: getattr(target, f'enable_cxx{enable}')()
     return target
 

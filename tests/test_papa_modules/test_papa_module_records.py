@@ -76,8 +76,9 @@ def test_a_module_outside_every_exported_include_warns_and_records_nothing(tmp_p
     assert not [l for l in _papa_lines(archive) if l.startswith('M ')]
 
 
-def test_a_recursive_deploy_carries_a_child_module_the_parent_filter_never_names(tmp_path):
-    # the deploy filter reads the gathered modules, so a child suffix reaches the copy too
+def test_a_recursive_deploy_writes_no_m_record_for_a_child_module(tmp_path):
+    # the parent writes a D record for the child, and the child package ships its own M record. Two
+    # copies would make a consumer compile one module twice, and cmake refuses the second declaration.
     from mama import papa_deploy
     build, parent = _built(tmp_path, ['include'], [], filter=['.h'])
     child_dep = make_mock_dep(tmp_path / 'child', name='libchild')
@@ -90,8 +91,8 @@ def test_a_recursive_deploy_carries_a_child_module_the_parent_filter_never_names
         papa_deploy.papa_deploy_to(parent, package, r_includes=True, r_dylibs=False,
                                    r_syslibs=False, r_assets=False)
     lines = open(f'{package}/papa.txt').read().splitlines()
-    assert [l for l in lines if l.startswith('M ')] == ['M include/rpp/rpp-strview.cppm']
-    assert os.path.exists(f'{package}/include/rpp/rpp-strview.cppm')
+    assert not [l for l in lines if l.startswith('M ')]
+    assert [l for l in lines if l.startswith('D ')], 'the child still arrives as a dependency'
 
 
 def test_an_m_record_the_archive_does_not_hold_fails_the_upload(tmp_path):
@@ -104,3 +105,17 @@ def test_an_m_record_the_archive_does_not_hold_fails_the_upload(tmp_path):
     papa.modules.append(f'{package}/include/rpp/rpp-gone.cppm')
     with pytest.raises(RuntimeError, match='include filter dropped'):
         validate_archive(package, papa, archive)
+
+
+def test_a_private_module_sharing_a_tail_path_with_an_exported_one_stays_out(tmp_path):
+    # `private/sub/api.cppm` ends with the same tail as the exported `sub/api.cppm`
+    dep = make_mock_dep(tmp_path / 'producer', name='libfoo')
+    build = dep.build_dir
+    write_files(build, {'include/sub/api.cppm': CPPM, 'include/private/sub/api.cppm': CPPM,
+                        'include/sub/api.h': '#pragma once\n', 'lib/libfoo.a': '\0'})
+    target = make_exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'],
+                                   modules=[f'{build}/include/sub/api.cppm'])
+    archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    names = zipfile.ZipFile(archive).namelist()
+    assert 'include/sub/api.cppm' in names
+    assert 'include/private/sub/api.cppm' not in names

@@ -432,7 +432,8 @@ set({name}_LIB {own_libs_list})
 set({name}_LIBS {all_libs_list})
 '''
     # A dep with no modules emits nothing here, so an upgrade reconfigures no existing project.
-    modules = dep.target.exported_modules
+    # A module under no exported include dir is dropped: cmake refuses a FILES entry with no base dir.
+    modules = package.exported_modules_with_base(dep.target)
     if modules:
         text += f'''# C++20 module sources a consumer compiles itself
 set({name}_MODULES {_get_cmake_path_list(modules)})
@@ -451,14 +452,17 @@ def _save_dependencies_cmake(root: BuildDependency):
 '''
     includes_def, package_text = _get_dependency_cmake_defines(root)
     includes_defs = [includes_def]
-    module_deps = [root.name] if root.target.exported_modules else []
+    module_deps = [root.name] if package.exported_modules_with_base(root.target) else []
+    module_bases = list(package.module_base_dirs(root.target))
     text += package_text
 
     root.flattened_deps = _get_flattened_deps(root)
     for dep in root.flattened_deps:
         includes_def, package_text = _get_dependency_cmake_defines(dep)
         includes_defs.append(includes_def)
-        if dep.target.exported_modules: module_deps.append(dep.name)
+        if package.exported_modules_with_base(dep.target):
+            module_deps.append(dep.name)
+            module_bases += package.module_base_dirs(dep.target)
         text += package_text
 
     includes = ' '.join(includes_defs)
@@ -470,7 +474,9 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 '''
     if module_deps:
         modules = ' '.join(f'${{{n}_MODULES}}' for n in module_deps)
-        bases = ' '.join(f'${{{n}_MODULES_BASE_DIRS}}' for n in module_deps)
+        # the consolidated bases are literal paths, because one package's base dir can sit inside
+        # another package's, and cmake refuses a file set whose base dirs contain each other
+        bases = _get_cmake_path_list(package.drop_nested_dirs(module_bases))
         text += \
 f'''set(MAMA_MODULES           ${{MAMA_MODULES}}           {modules})
 set(MAMA_MODULES_BASE_DIRS ${{MAMA_MODULES_BASE_DIRS}} {bases})
