@@ -68,6 +68,7 @@ source_group(src     FILES ${{PRIVATE_SOURCES}})
 
 add_executable({project_name} ${{PUBLIC_INTERFACE}} ${{PRIVATE_SOURCES}})
 target_link_libraries({project_name} ${{MAMA_LIBS}})
+mama_target_modules({project_name}) # no-op unless a package exports C++20 modules
 
 install(FILES ${{PUBLIC_INTERFACE}} DESTINATION include)
 install(TARGETS {project_name}

@@ -82,6 +82,44 @@ def platform_chain(build_dir_defines) -> str:
     return chain
 
 
+# A plain string, not part of the f-string below: every `${}` here would need a doubled brace.
+_MODULES_HELPER = '''
+# The least compiler version that builds an exported module. Lower one when a package states that its
+# modules build on an older compiler, because the safe default answers for any package.
+set(MAMA_MODULES_MIN_GNU   14   CACHE STRING "Least GCC version that builds exported C++20 modules")
+set(MAMA_MODULES_MIN_CLANG 21   CACHE STRING "Least Clang version that builds exported C++20 modules")
+set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exported C++20 modules")
+
+# C++20 modules need cmake 3.28, the Ninja or Visual Studio generator, and a compiler that reports
+# its import graph. A toolchain that misses one keeps the headers, so a build never fails on this.
+set(MAMA_MODULES_AVAILABLE FALSE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND CMAKE_GENERATOR MATCHES "Ninja|Visual Studio")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
+        set(MAMA_MODULES_AVAILABLE TRUE)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})
+        set(MAMA_MODULES_AVAILABLE TRUE)
+    elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${MAMA_MODULES_MIN_MSVC})
+        set(MAMA_MODULES_AVAILABLE TRUE)
+    endif()
+endif()
+
+# Adds the C++20 modules of every mama package to `target` and defines MAMA_HAS_MODULES=1 on it.
+# Call it once, after the target exists. A toolchain without module support adds nothing.
+function(mama_target_modules target)
+    if(NOT MAMA_MODULES_AVAILABLE OR NOT MAMA_MODULES)
+        message(STATUS "MAMA: C++20 modules off, using the exported headers")
+        return()
+    endif()
+    # mama passes -std=c++20 as a raw flag, and a CXX_MODULES file set reads target_compile_features
+    # instead. Without this line cmake refuses the target with "no C++ standard found".
+    target_compile_features(${target} PUBLIC cxx_std_20)
+    target_sources(${target} PUBLIC FILE_SET mama_modules TYPE CXX_MODULES
+                   BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})
+    target_compile_definitions(${target} PUBLIC MAMA_HAS_MODULES=1)
+endfunction()
+'''
+
+
 def mama_cmake_text(build_dir_defines) -> str:
     """The `mysource/mama.cmake` proxy a consumer's CMakeLists includes. It detects the platform and
     the arch the way cmake sees them, then includes that build dir's mama-dependencies.cmake."""
@@ -119,4 +157,4 @@ if(MSVC)
         set(CMAKE_CXX_FLAGS${{MODE}} "${{TMP}}" CACHE STRING "" FORCE)
     endforeach(MODE)
 endif()
-'''
+{_MODULES_HELPER}'''

@@ -10,6 +10,7 @@ from mama.utils.archive import try_unzip
 # A build output with payload suffixes a plain header filter would drop.
 BUILD_FILES = ['include/foo/foo.h', 'include/foo/foo.hpp', 'include/foo/detail.inc',
                'include/foo/table.txt', 'include/foo/readme.md',
+               'include/foo/foo.cppm',
                'src/api.h', 'src/detail.inc', 'lib/libfoo.a', 'bin/tool']
 
 
@@ -72,6 +73,11 @@ def _root_over_include(self):
     # the pathological shape: the rooted dir name is one the archive also has
     self.export_include('include', build_dir=True, as_includes_root='foo', includes_filter=['.h', '.inc'])
 
+def _modules(self):
+    # a fetched package must keep its M records, so the 5th export category survives the reload
+    self.export_include('include', build_dir=True)
+    self.export_modules('include/foo', ['foo.cppm'], build_dir=True)
+
 def _everything(self):
     self.export_include('include', build_dir=True, includes_filter=['.h', '.hpp', '.inc', '.txt'])
     self.export_libs('lib', ['.a'], build_dir=True)
@@ -81,7 +87,7 @@ def _everything(self):
 STYLES = {'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
           'source_root_payload': _source_root_payload, 'root_over_include': _root_over_include,
           'includes_root': _includes_root, 'libs_only': _libs_only, 'syslibs': _syslibs,
-          'assets': _assets, 'everything': _everything}
+          'assets': _assets, 'modules': _modules, 'everything': _everything}
 
 
 def _deploy(root, recipe, *, fetched_from=None, shape='shim', source_of=None):

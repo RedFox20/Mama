@@ -51,6 +51,11 @@ def _gather_includes(target:BuildTarget, recurse):
     return _gather(target, recurse, includes, lambda t: t.exported_includes)
 
 
+def _gather_modules(target:BuildTarget, recurse):
+    modules = []
+    return _gather(target, recurse, modules, lambda t: t.exported_modules)
+
+
 def _gather_libs(target:BuildTarget, recurse):
     libs = [(target,l) for l in target.exported_libs]
 
@@ -112,7 +117,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     config = target.config
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
-    suffixes = tuple(target.include_glob_filter)
+    # A module ships inside the include tree, so the union carries it whatever order the hook used.
+    suffixes = tuple(target.include_glob_filter) + package.module_suffixes(target)
     stems = _header_stems(includes, suffixes)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
 
@@ -148,6 +154,33 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if src_dir != dst_dir:
             if config.verbose: console(f'    copy {src_dir}\n      -> {dst_dir}')
             copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)
+    return shipped
+
+
+def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, modules) -> int:
+    """Record every exported module. It copies nothing, because the include deploy already shipped the
+    file. Two copies of one module would double the archive and give a consumer an ambiguous source."""
+    includes_root = package_full_path + '/include'
+    shipped = 0
+    for modtarget, module in modules:
+        base = package.module_base_dir(modtarget, module)
+        if not base:
+            warning(f'export_modules skipped {module}: no exported include path holds it.')
+            continue
+        # the copy maps src_dir onto dst_dir, so the module follows the same pair. An includes root
+        # ships one subdir of the export, so its src_dir is deeper than the exported include.
+        src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
+        if not module.startswith(src_dir + '/'):
+            warning(f'export_modules skipped {module}: the include deploy did not carry it.')
+            continue
+        deployed = dst_dir + module[len(src_dir):]
+        if not os.path.exists(deployed):
+            warning(f'export_modules skipped {module}: the include filter did not ship it.')
+            continue
+        record = f'M {os.path.relpath(deployed, package_full_path)}'.replace('\\', '/')
+        descr.append(record)
+        shipped += 1
+        if detail_echo: console(f'    M ({modtarget.name+")": <16}  {record[2:]}')
     return shipped
 
 
@@ -245,6 +278,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     includes = _gather_includes(target, r_includes)
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes)
     _warn_about_duplicate_include_trees(target, package_full_path)
+    modules = _gather_modules(target, r_includes)
+    shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
 
     build_dir = target.build_dir()
     source_dir = target.source_dir()
@@ -261,6 +296,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         if lib != outpath:
             if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
             copy_if_needed(lib, outpath)
+            # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.
+            package.strip_module_objects(libtarget, outpath)
 
     syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:
@@ -283,7 +320,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     config.deploy_stats.record(package_full_path, (len(includes), len(libs), len(syslibs), len(assets)))
     if config.print:
-        console(f'  PAPA Deployed: {len(includes)} includes ({headers} files), {len(libs)} libs, ' + \
+        mods = f', {shipped_modules} modules' if shipped_modules else ''
+        console(f'  PAPA Deployed: {len(includes)} includes ({headers} files){mods}, {len(libs)} libs, ' + \
                 f'{len(syslibs)} syslibs, {len(assets)} assets')
 
 
@@ -308,6 +346,7 @@ class PapaFileInfo:
         self.includes = []
         self.libs = []
         self.syslibs = []
+        self.modules = [] # C++20 module sources. [] predates the M record
         self.assets: List[Asset] = []
 
         suffixes = {}  # dep name -> version_suffix, applied below once every `D` record is in
@@ -326,6 +365,7 @@ class PapaFileInfo:
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
+            elif line.startswith('M '): append_to(self.modules, line)
             elif line.startswith('A '):
                 relpath = line[2:].strip()
                 fullpath = normalized_join(self.papa_dir, relpath)

@@ -246,6 +246,11 @@ class Platform:
         return ('.a', '.so')
 
 
+    def remove_from_archive_cmd(self, lib: str, members: list) -> list:
+        """The command that removes object members from a static library."""
+        return [f'{self.toolchain().tool_prefix}ar', 'd', lib, *members]
+
+
     def gnu_host_triple(self) -> str:
         """The --host value for a GNU configure script. '' for a native build."""
         return ''

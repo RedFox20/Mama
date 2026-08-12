@@ -722,10 +722,15 @@ A CI build then starts far more compilers than the limit allows, and the OOM kil
 upload, deploy and test walk the chain without building, so they would otherwise package artifacts
 never produced or just deleted.
 
-The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`
-and `export_asset`. When it exports no includes, the default include packaging runs. When it exports
-no libs and no syslibs, the default lib packaging runs. `no_export_includes()` and `no_export_libs()`
-opt out.
+The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
+`export_asset` and `export_modules`. When it exports no includes, the default include packaging runs.
+When it exports no libs and no syslibs, the default lib packaging runs. `no_export_includes()` and
+`no_export_libs()` opt out.
+
+`export_modules(path, [names])` names the C++20 module interface units of a package. It copies no
+file of its own. The include deploy carries them, because the deploy filter takes the union of
+`include_glob_filter` and the suffixes of the exported modules. So the hook order cannot drop a
+module, and one module ships exactly once.
 
 A failing `package()` names its target and stops the run. A `list` run builds nothing, so a
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
@@ -806,6 +811,7 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `V` | the `version_suffix` a parent declared for one dependency |
 | `D` | a dependency source |
 | `I` | an exported include dir |
+| `M` | an exported C++20 module source |
 | `L` | an exported lib |
 | `S` | an exported system lib |
 | `A` | an exported asset |
@@ -818,6 +824,19 @@ before the `O` record carries no attributes at all.
 An `-march` pin follows the arch as `march=x86-64-v3`, its real value. The build dir name and the archive
 name carry the merged marker `x64v3` instead. The record is text, and a reader compares it against a CPU.
 The parser splits the record on whitespace and searches it, so a new attribute needs no fixed place.
+
+An `M` record holds one package-relative path, inside the include tree an `I` record already names.
+A module that sits under no exported include path ships nothing, and the deploy says so. The upload
+refuses an `M` record whose file the include filter dropped, because the consumer would then compile
+a source the archive does not carry. A package written before the `M` record carries no module.
+
+**The packaged static library loses its module objects.** A module interface unit emits a strong
+`initializer for module X` symbol. The consumer compiles the same source, so a whole-archive link of
+an unstripped package finds two definitions. The strip reads the archive members and removes the
+ones a `.cppm` produced, through the archiver of the platform. It runs on the packaged copy alone,
+so the build dir keeps an archive the producer's own binaries link.
+`export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
+own module needs.
 
 A package built by a different compiler than the current build warns and does not fail.
 Compiler-scoped build dirs make a cross-family mismatch unreachable in practice. A compiler version

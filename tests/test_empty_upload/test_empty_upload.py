@@ -15,7 +15,8 @@ CATEGORIES = ('includes', 'libs', 'syslibs', 'assets')
 
 def _papa(**exports):
     """A PapaFileInfo stand-in carrying only what validate_archive reads before the zip."""
-    return SimpleNamespace(project_name='gcsmanual', **{c: exports.get(c, []) for c in CATEGORIES})
+    return SimpleNamespace(project_name='gcsmanual', modules=exports.get('modules', []),
+                           **{c: exports.get(c, []) for c in CATEGORIES})
 
 
 def test_an_archive_of_only_papa_txt_is_refused(tmp_path):

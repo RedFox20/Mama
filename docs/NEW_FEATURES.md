@@ -23,6 +23,17 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`export_modules(path, [names])` ships C++20 module interface units to a consumer.** A binary
+  module interface is not portable, so a package cannot ship one. The consumer compiles the sources
+  instead. The modules deploy inside the exported include tree, one `M` record each, and the module
+  reaches its own header from there. `mama-dependencies.cmake` sets `{name}_MODULES` and
+  `MAMA_MODULES`, and `mama.cmake` carries `mama_target_modules(<target>)`, which adds the file set
+  and the `cxx_std_20` feature the module scanner needs. A toolchain below cmake 3.28, Ninja, GCC 14,
+  Clang 21 or MSVC 19.34 keeps the headers and says so, so no build fails on this. The packaged
+  static library loses its module objects, because a consumer that compiles the same module defines
+  the same `initializer for module X` symbol. `strip_objects=False` keeps them, for a target whose
+  own sources import its own module.
+
 - **`config.set_target_march(arch, march)` pins the instruction set of a release build.** The native
   default is `-march=native`, which bakes the build machine's CPU into the binary. The root mamafile
   pins one value per target arch, and the pin replaces the platform default for the root and every

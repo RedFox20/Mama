@@ -42,3 +42,17 @@ def test_a_package_without_a_compiler_record_still_loads(tmp_path):
     papa.write_text('P Example\nI include\n')
     info = PapaFileInfo(str(papa))
     assert info.compiler is None and info.project_name == 'Example'
+
+
+def test_a_module_record_resolves_against_the_package_dir(tmp_path):
+    papa = tmp_path / 'papa.txt'
+    papa.write_text('P Example\nI include\nM include/rpp/rpp-strview.cppm\n')
+    assert PapaFileInfo(str(papa)).modules == [f'{tmp_path}/include/rpp/rpp-strview.cppm']
+
+
+def test_an_unknown_record_kind_parses_as_nothing(tmp_path):
+    # a new record must never break an older mama, so the parse loop skips what it does not know
+    papa = tmp_path / 'papa.txt'
+    papa.write_text('P Example\nZ something new\nI include\n')
+    info = PapaFileInfo(str(papa))
+    assert info.project_name == 'Example' and info.modules == [] and len(info.includes) == 1

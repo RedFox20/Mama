@@ -185,5 +185,9 @@ class Windows(Platform):
         return ('.lib',)
 
 
+    def remove_from_archive_cmd(self, lib: str, members: list) -> list:
+        return ['lib.exe', '/NOLOGO', lib, *[f'/REMOVE:{m}' for m in members]]
+
+
     def debugger(self) -> str:
         return ''  # no batch-mode debugger exists here, so the test exe runs directly

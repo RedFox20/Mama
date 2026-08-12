@@ -421,7 +421,7 @@ def _get_dependency_cmake_defines(dep: BuildDependency):
     # reference name_LIB if it equals name_LIBS
     if own_libs_list == all_libs_list:
         all_libs_list = f'${{{name}_LIB}}'
-    return f'${{{name}_INCLUDES}}', \
+    text = \
 f'''
 # Package {name}
 set({name}_INCLUDES {includes})
@@ -430,6 +430,14 @@ set({name}_LIB {own_libs_list})
 # includes {name} libs and all dependency libs
 set({name}_LIBS {all_libs_list})
 '''
+    # A dep with no modules emits nothing here, so an upgrade reconfigures no existing project.
+    modules = dep.target.exported_modules
+    if modules:
+        text += f'''# C++20 module sources a consumer compiles itself
+set({name}_MODULES {_get_cmake_path_list(modules)})
+set({name}_MODULES_BASE_DIRS {includes})
+'''
+    return f'${{{name}_INCLUDES}}', text
 
 
 def _save_dependencies_cmake(root: BuildDependency):
@@ -442,12 +450,14 @@ def _save_dependencies_cmake(root: BuildDependency):
 '''
     includes_def, package_text = _get_dependency_cmake_defines(root)
     includes_defs = [includes_def]
+    module_deps = [root.name] if root.target.exported_modules else []
     text += package_text
 
     root.flattened_deps = _get_flattened_deps(root)
     for dep in root.flattened_deps:
         includes_def, package_text = _get_dependency_cmake_defines(dep)
         includes_defs.append(includes_def)
+        if dep.target.exported_modules: module_deps.append(dep.name)
         text += package_text
 
     includes = ' '.join(includes_defs)
@@ -456,6 +466,13 @@ def _save_dependencies_cmake(root: BuildDependency):
 f'''
 set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})
 set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
+'''
+    if module_deps:
+        modules = ' '.join(f'${{{n}_MODULES}}' for n in module_deps)
+        bases = ' '.join(f'${{{n}_MODULES_BASE_DIRS}}' for n in module_deps)
+        text += \
+f'''set(MAMA_MODULES           ${{MAMA_MODULES}}           {modules})
+set(MAMA_MODULES_BASE_DIRS ${{MAMA_MODULES_BASE_DIRS}} {bases})
 '''
 
     save_file_if_contents_changed(outfile, text)

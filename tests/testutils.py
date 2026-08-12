@@ -299,7 +299,7 @@ def grep_mama_sources(needles, skip=()) -> list:
 def make_package_target(tmp_path, package=None, exports=None, dep_attrs=None, **config):
     """A BuildTarget wired to a mock dep, for the packaging tests.
     package: the mamafile hook, or None for a Mock that only records that it ran
-    exports: the (includes, libs, syslibs, assets) papa.txt would have loaded
+    exports: the (includes, libs, syslibs, assets[, modules]) papa.txt would have loaded
     dep_attrs: BuildDependency fields this test needs, eg from_artifactory"""
     from mama.build_target import BuildTarget
     dep = make_mock_dep(tmp_path, **config)
@@ -309,7 +309,8 @@ def make_package_target(tmp_path, package=None, exports=None, dep_attrs=None, **
     target = cls(name=dep.name, config=dep.config, dep=dep, args=[])
     dep.target = target
     if not package: target.package = Mock()
-    if exports: target._set_exports(tuple(list(x) for x in exports))
+    # a caller that names no modules still gets the full export tuple, so the categories stay optional
+    if exports: target._set_exports(tuple(list(x) for x in exports) + ([],) * (5 - len(exports)))
     return target
 
 
@@ -409,6 +410,8 @@ def make_includes_target(source_dir, build_dir=None):
     target.build_dir.return_value = normalized_path(build_dir or path_join(source_dir, 'build'))
     target.exported_includes, target.exported_libs = [], []
     target.exported_syslibs, target.exported_assets = [], []
+    target.exported_modules = []
+    target.strip_module_objects = True
     target.includes_root = ('', '', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
@@ -485,14 +488,39 @@ def should_build_reasons(dep, build_products=(), loaded_from_pkg=True, isolate=F
     return built, ' '.join(str(call) for call in warned.call_args_list)
 
 
-def make_exporting_target(dep, includes, libs, version='abc1234'):
+def make_exporting_target(dep, includes, libs, version='abc1234', modules=None):
     """A BuildTarget that exports `includes` and `libs`, the way a mamafile package() leaves it."""
     from mama.build_target import BuildTarget
     target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
     target.version = version
     target.exported_includes = includes
     target.exported_libs = libs
+    target.exported_modules = modules or []
     return target
+
+
+# The test fixture module is a thin facade, so it needs a lower clang than the shipped default. That
+# default answers for any package, and clang 16 already builds the shape this fixture uses.
+MODULE_TEST_MIN_CLANG = 16
+
+
+@lru_cache(maxsize=1)
+def module_capable_compiler() -> dict:
+    """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
+    Cmake scans the import graph only under Ninja, and only for a recent compiler. The paths are
+    explicit, because compiler discovery composes a suffixed path a symlinked toolchain does not have."""
+    if not shutil.which('ninja'): return {}
+    cmake = execute_piped(['cmake', '--version'], throw=False) or ''
+    version = re.search(r'(\d+)\.(\d+)', cmake)
+    if not version or (int(version.group(1)), int(version.group(2))) < (3, 28): return {}
+    for name, cc, cxx, least in (('clang', 'clang', 'clang++', MODULE_TEST_MIN_CLANG),
+                                 ('gcc', 'gcc', 'g++', 14)):
+        cxx_path = shutil.which(cxx)
+        if not cxx_path: continue
+        dumped = (execute_piped([cxx_path, '-dumpversion'], throw=False) or '').strip()
+        if dumped and int(dumped.split('.')[0]) >= least:
+            return {'name': name, 'cc': shutil.which(cc), 'cxx': cxx_path, 'version': dumped}
+    return {}
 
 
 def archive_papa_package(package_path, archive_path) -> str:

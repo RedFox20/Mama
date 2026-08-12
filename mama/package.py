@@ -3,11 +3,16 @@ from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console, System, warning
 from .utils.paths import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
+from .utils.sub_process import execute_piped, SubProcess
 from .types.asset import Asset
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
     from .build_config import BuildConfig
+
+# Every spelling of a C++20 module interface unit. MSVC writes `.ixx`, the others write `.cppm`.
+MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.mpp')
+
 
 def is_a_static_library(lib: str):
     if not lib: return False
@@ -96,6 +101,67 @@ def export_includes(target: BuildTarget, include_paths, build_dir: bool):
         for include_path in include_paths:
             added |= target.export_include(include_path, build_dir)
     return added
+
+
+def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bool):
+    module_path = target_root_path(target, module_path, build_dir=build_dir)
+    if modules is None:
+        found = sorted(glob_with_extensions(module_path, list(MODULE_EXTENSIONS)))
+    else:
+        found = [normalized_join(module_path, m) for m in modules]
+    added = False
+    for module in found:
+        if not os.path.exists(module):
+            warning(f'export_modules failed to find: {module}')
+            continue
+        if not module in target.exported_modules:
+            target.exported_modules.append(module)
+            added = True
+    return added
+
+
+def module_suffixes(target: BuildTarget) -> tuple:
+    """The distinct extensions of the exported modules, so the include deploy carries them too."""
+    return tuple({os.path.splitext(m)[1] for m in target.exported_modules})
+
+
+def module_base_dir(target: BuildTarget, module: str) -> str:
+    """The exported include dir that holds `module`, longest match first, or '' when none does.
+    Cmake needs every module of a file set to sit under one of its base dirs."""
+    best = ''
+    for include in target.exported_includes:
+        if module.startswith(include + '/') and len(include) > len(best):
+            best = include
+    return best
+
+
+def _module_object_members(target: BuildTarget, lib: str) -> list:
+    """The archive members that hold a module initializer, read from the archive itself.
+    Reading the listing covers every object suffix, so no platform has to declare one."""
+    listing = execute_piped([f'{target.config.platform.toolchain().tool_prefix}ar', 't', lib], throw=False)
+    if not listing: return []
+    stems = {os.path.basename(m) for m in target.exported_modules}
+    members = []
+    for member in listing.split():
+        name, ext = os.path.splitext(member)
+        if ext in ('.o', '.obj') and name in stems:
+            members.append(member)
+    return members
+
+
+def strip_module_objects(target: BuildTarget, lib: str):
+    """Removes the module objects from a packaged static library.
+
+    A module interface unit emits a strong `initializer for module X` symbol. The consumer compiles
+    the same source, so a whole-archive link finds two definitions and fails. The consumer always
+    supplies that symbol, so the package does not need it."""
+    if not target.strip_module_objects or not target.exported_modules: return
+    if not is_a_static_library(lib): return
+    members = _module_object_members(target, lib)
+    if not members: return
+    SubProcess.run(' '.join(target.config.platform.remove_from_archive_cmd(lib, members)))
+    if target.config.print:
+        warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}')
 
 
 def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):

@@ -3,6 +3,9 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
  - bugfix: a seeded compiler cache broke every clang C++20 module build
+ - feature: export_modules() ships C++20 modules to a consumer
+     self.export_modules('src/rpp', ['rpp-strview.cppm'])  in package()
+     the consumer calls mama_target_modules(MyApp) in its CMakeLists
 
 release: 0.13.17 (2026-Aug-18)
  - feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it

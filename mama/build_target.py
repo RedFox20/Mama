@@ -109,6 +109,8 @@ class BuildTarget:
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
+        self.exported_modules = [] # C++20 module interface units a consumer compiles itself
+        self.strip_module_objects = True # drop the module objects from the packaged static lib
         self.packaging_result = '' # result of the package() step
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._did_configure = False # guards configure() to run once across configure/build phases
@@ -623,6 +625,30 @@ class BuildTarget:
             self.include_glob_filter = includes_filter
         return package.export_includes(self, include_paths, build_dir=build_dir)
 
+
+
+    def export_modules(self, module_path, modules=None, build_dir=False, strip_objects=True):
+        """
+        Exports C++20 module interface units to consumers of this package.
+
+        A binary module interface is not portable, so a consumer compiles these sources itself.
+        The generated `mama.cmake` carries them, and `mama_target_modules(MyApp)` adds them to a
+        target. A toolchain without module support keeps the headers.
+        ```
+            self.export_include('src/rpp', includes_filter=['.h','.cppm'], as_includes_root=True)
+            self.export_modules('src/rpp', ['rpp-strview.cppm'])
+        ```
+        The modules deploy inside the exported include tree, so a module reaches its own header.
+        A module that sits under no exported include path cannot ship.
+
+        - module_path: the folder holding the module interface units
+        - modules: [None] the file names. None globs every known module extension under module_path
+        - build_dir: [False] resolve module_path against the build directory
+        - strip_objects: [True] remove the module objects from the packaged static library. Set it
+          to False when a source file of this target imports this target's own module.
+        """
+        self.strip_module_objects = strip_objects
+        return package.export_modules(self, module_path, modules, build_dir=build_dir)
 
 
     def export_lib(self, relative_path, src_dir=False, build_dir=True):
@@ -1770,11 +1796,13 @@ class BuildTarget:
 
 
     def _exports(self) -> tuple:
-        return (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets)
+        return (self.exported_includes, self.exported_libs, self.exported_syslibs,
+                self.exported_assets, self.exported_modules)
 
 
     def _set_exports(self, exports: tuple):
-        (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets) = exports
+        (self.exported_includes, self.exported_libs, self.exported_syslibs,
+         self.exported_assets, self.exported_modules) = exports
 
 
     def _packaging_source(self) -> str:
@@ -1798,7 +1826,7 @@ class BuildTarget:
         fetched = self.dep.from_artifactory
         loaded = self._exports()  # what artifactory_load_target read out of papa.txt
         if fetched:
-            self._set_exports(([], [], [], []))  # start empty, so the hook decides the whole export set
+            self._set_exports(([], [], [], [], []))  # start empty, so the hook decides the whole export set
 
         # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
         self._run_package_hook()
@@ -1943,11 +1971,12 @@ class BuildTarget:
     def print_exports(self, abs_paths=False):
         if not self.config.print:
             return
-        if not (self.exported_includes or self.exported_libs or self.exported_syslibs or self.exported_assets):
+        if not any(self._exports()):
             return
 
         console(f'  - Package {self.name}  ({self.packaging_result})')
         for include in self.exported_includes: self._print_ws_path('<I>', include, abs_paths)
+        for module in self.exported_modules:   self._print_ws_path('<M>', module, abs_paths)
         for library in self.exported_libs:     self._print_ws_path('[L]', library, abs_paths)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, abs_paths, check_exists=False)
         if self.config.deploy or self.config.upload:

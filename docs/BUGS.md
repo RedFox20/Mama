@@ -26,6 +26,22 @@ so cut every word that a reader of the fix does not need.
   plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
   the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
 
+- **Compiler discovery composes a suffixed path that a symlinked toolchain does not have.**
+  `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir, while it keeps
+  the suffix that named the link. `get_preferred_compiler_paths` then joins the two
+  (`build_config.py:712`), so `/usr/bin/clang++-18 -> /usr/lib/llvm-18/bin/clang++` yields
+  `/usr/lib/llvm-18/bin/clang++-18`, and cmake reports "not a full path to an existing compiler
+  tool". Only a host whose suffixed compiler links to an unsuffixed name hits it, which is the
+  normal Debian and Ubuntu LLVM layout. Fix: return the suffix that the RESOLVED path carries, or
+  return the resolved full path instead of the (dir, suffix) pair.
+
+- **A source-built dependency still exports the archive that holds its module objects.** The strip
+  runs on the packaged copy alone. A consumer of a published package therefore links one module
+  initializer. A consumer of a dependency mama built from source links the build dir archive, which
+  keeps the object. A whole-archive link there still finds two definitions. The build dir archive
+  must keep the object, because the producer's own binaries need it. Fix: export a stripped copy
+  beside it, and name that copy in `exported_libs`.
+
 - **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
   answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
   (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later
