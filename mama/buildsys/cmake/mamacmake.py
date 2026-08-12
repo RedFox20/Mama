@@ -93,7 +93,22 @@ set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exp
 # C++20 modules need cmake 3.28, the Ninja or Visual Studio generator, and a compiler that reports
 # its import graph. A toolchain that misses one keeps the headers, so a build never fails on this.
 set(MAMA_MODULES_AVAILABLE FALSE)
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND CMAKE_GENERATOR MATCHES "Ninja|Visual Studio")
+set(MAMA_MODULES_GENERATOR FALSE)
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    set(MAMA_MODULES_GENERATOR TRUE)
+elseif(CMAKE_GENERATOR MATCHES "Ninja")
+    # a Ninja generator writes a dyndep file, and only ninja 1.11 and newer read one.
+    # the cache entry keeps the probe at one spawn per build dir, never one per configure.
+    if(NOT DEFINED MAMA_NINJA_VERSION)
+        execute_process(COMMAND "${CMAKE_MAKE_PROGRAM}" --version ERROR_QUIET
+                        OUTPUT_VARIABLE MAMA_NINJA_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
+        set(MAMA_NINJA_VERSION "${MAMA_NINJA_VERSION}" CACHE INTERNAL "ninja version, probed once")
+    endif()
+    if(MAMA_NINJA_VERSION AND NOT MAMA_NINJA_VERSION VERSION_LESS 1.11)
+        set(MAMA_MODULES_GENERATOR TRUE)
+    endif()
+endif()
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
         set(MAMA_MODULES_AVAILABLE TRUE)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})

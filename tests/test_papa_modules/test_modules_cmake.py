@@ -9,9 +9,9 @@ def _text() -> str:
     return mama_cmake_text(lambda build_dir: f'set(MAMA_BUILD "{build_dir}")')
 
 
-def _defines(tmp_path, modules=None) -> str:
+def _defines(tmp_path, modules=None, includes=None) -> str:
     target = make_includes_target(str(tmp_path))
-    target.exported_includes = [f'{tmp_path}/include']
+    target.exported_includes = includes or [f'{tmp_path}/include']
     target.exported_modules = modules or []
     _, text = _get_dependency_cmake_defines(make_includes_dep(target))
     return text
@@ -33,7 +33,9 @@ def test_the_helper_adds_the_modules_as_a_cxx_modules_file_set():
 
 def test_the_guard_names_every_toolchain_requirement():
     text = _text()
-    for needle in ['VERSION_GREATER_EQUAL 3.28', 'Ninja|Visual Studio',
+    for needle in ['VERSION_GREATER_EQUAL 3.28', 'MATCHES "Visual Studio"', 'MATCHES "Ninja"',
+                   'MAMA_NINJA_VERSION VERSION_LESS 1.11',  # a dyndep file needs ninja 1.11
+                   'if(NOT DEFINED MAMA_NINJA_VERSION)',    # one spawn per build dir, not per configure
                    'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 21', 'MAMA_MODULES_MIN_MSVC  1934']:
         assert needle in text
 
@@ -50,6 +52,14 @@ def test_a_dep_with_modules_emits_its_module_list_and_base_dirs(tmp_path):
     text = _defines(tmp_path, [f'{tmp_path}/include/rpp/rpp-strview.cppm'])
     assert 'set(TestLib_MODULES' in text and 'rpp-strview.cppm' in text
     assert 'set(TestLib_MODULES_BASE_DIRS' in text
+
+
+def test_two_include_roots_that_nest_emit_one_base_dir(tmp_path):
+    # cmake refuses a file set whose base dirs contain each other, and the outer dir holds them all
+    text = _defines(tmp_path, [f'{tmp_path}/include/top.cppm', f'{tmp_path}/include/rpp/rpp-strview.cppm'],
+                    includes=[f'{tmp_path}/include', f'{tmp_path}/include/rpp'])
+    base = text.split('MODULES_BASE_DIRS', 1)[1]
+    assert f'"{tmp_path}/include"' in base and f'"{tmp_path}/include/rpp"' not in base
 
 
 def test_a_dep_without_modules_emits_the_same_text_as_before(tmp_path):

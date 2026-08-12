@@ -26,6 +26,25 @@ so cut every word that a reader of the fix does not need.
   plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
   the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
 
+- **A recursive package ships a child module the child package also ships.** `papa_deploy_to` writes a
+  `D` record for every child (`papa_deploy.py:283`), and `_gather_modules(target, r_includes)` also
+  writes an `M` record for that child's module. A consumer then loads the module source twice, and cmake
+  refuses two interface units that declare one module. Reproduce with `r_includes=True` over a child that
+  calls `export_modules`. Fix: record `M` for the modules of the deployed target alone, because the child
+  package delivers its own.
+
+- **The module strip removes every definition the interface unit compiled.** `strip_module_objects`
+  deletes the whole archive member (`package.py:170`). A module unit that defines a non-inline function
+  loses that definition too. A consumer whose toolchain cannot build modules never compiles the source,
+  so it links the stripped archive and finds the symbol undefined. Fix: name the constraint in the
+  `export_modules` docs, and warn when a stripped member defines more than the module initializer.
+
+- **A `PUBLIC` module file set breaks a consumer that installs and exports its own target.**
+  `mama_target_modules` adds the file set as `PUBLIC` (`mamacmake.py:117`). Cmake then refuses an
+  `install(TARGETS ... EXPORT ...)` that does not also install that file set. `PUBLIC` is correct for a
+  plain consumer, because `PRIVATE` makes each downstream target compile the module again. Fix: take an
+  optional scope argument, so a library that exports itself can ask for `PRIVATE`.
+
 - **Compiler discovery composes a suffixed path that a symlinked toolchain does not have.**
   `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir, while it keeps
   the suffix that named the link. `get_preferred_compiler_paths` then joins the two

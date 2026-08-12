@@ -3,6 +3,7 @@ from typing import List, TYPE_CHECKING
 import os
 from .utils.system import console, System, warning
 from .utils.paths import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
+from .utils.errors import BuildError
 from .utils.sub_process import execute_piped, SubProcess
 from .types.asset import Asset
 
@@ -136,6 +137,13 @@ def module_base_dir(target: BuildTarget, module: str) -> str:
     return best
 
 
+def module_base_dirs(target: BuildTarget) -> list:
+    """The exported include dirs that hold a module, with every nested dir dropped.
+    Cmake refuses a file set whose base dirs contain each other, and the outer dir holds them all."""
+    dirs = sorted(d for d in {module_base_dir(target, m) for m in target.exported_modules} if d)
+    return [d for d in dirs if not any(d.startswith(outer + '/') for outer in dirs if outer != d)]
+
+
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
     Reading the listing covers every object suffix, so no platform has to declare one."""
@@ -160,7 +168,9 @@ def strip_module_objects(target: BuildTarget, lib: str):
     if not is_a_static_library(lib): return
     members = _module_object_members(target, lib)
     if not members: return
-    SubProcess.run(' '.join(target.config.platform.remove_from_archive_cmd(lib, members)))
+    # the arg list stays a list, because SubProcess splits a joined string on every space
+    status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
+    if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
     if target.config.print:
         warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}')
 

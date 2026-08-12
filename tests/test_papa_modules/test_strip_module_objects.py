@@ -6,6 +6,7 @@ from testutils import make_includes_target
 
 from mama import package
 from mama.platforms.windows import Windows
+from mama.utils.errors import BuildError
 
 
 LISTING = 'strview.cpp.o\nrpp-strview.cppm.o\nsprint.cpp.o\n'
@@ -22,7 +23,7 @@ def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True):
 def _strip(target, lib='/pkg/lib/libfoo.a', listing=LISTING):
     """Run the strip with both subprocess primitives stubbed. Returns the SubProcess.run mock."""
     with patch('mama.package.execute_piped', return_value=listing), \
-         patch('mama.package.SubProcess.run') as run:
+         patch('mama.package.SubProcess.run', return_value=0) as run:
         package.strip_module_objects(target, lib)
     return run
 
@@ -66,11 +67,24 @@ def test_the_windows_command_uses_the_lib_remove_flag():
     assert cmd == ['lib.exe', '/NOLOGO', 'foo.lib', '/REMOVE:a.ixx.obj', '/REMOVE:b.ixx.obj']
 
 
+def test_the_command_keeps_its_arguments_apart(tmp_path):
+    # a joined string splits again on every space, so a lib path that holds one loses its arguments
+    cmd = _strip(_target(tmp_path), lib='/pkg/my libs/libfoo.a').call_args[0][0]
+    assert isinstance(cmd, list) and '/pkg/my libs/libfoo.a' in cmd
+
+
+def test_a_failed_removal_stops_the_package(tmp_path):
+    with patch('mama.package.execute_piped', return_value=LISTING), \
+         patch('mama.package.SubProcess.run', return_value=1):
+        with pytest.raises(BuildError):
+            package.strip_module_objects(_target(tmp_path), '/pkg/lib/libfoo.a')
+
+
 def test_the_listing_goes_through_the_platform_too(tmp_path):
     # a hardcoded `ar t` reads nothing on a toolchain with no ar, and the strip then silently skips
     target = _target(tmp_path)
     with patch('mama.package.execute_piped', return_value=LISTING) as listed, \
-         patch('mama.package.SubProcess.run'):
+         patch('mama.package.SubProcess.run', return_value=0):
         package.strip_module_objects(target, '/pkg/lib/libfoo.a')
     assert listed.call_args[0][0] == target.config.platform.list_archive_members_cmd('/pkg/lib/libfoo.a')
 

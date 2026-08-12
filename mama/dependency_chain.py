@@ -5,6 +5,7 @@ from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
+from . import package
 from .platforms.windows import msvc_toolset_version
 from .utils.errors import BuildError
 from .utils.fileio import read_text_from, write_text_to, save_file_if_contents_changed
@@ -435,7 +436,7 @@ set({name}_LIBS {all_libs_list})
     if modules:
         text += f'''# C++20 module sources a consumer compiles itself
 set({name}_MODULES {_get_cmake_path_list(modules)})
-set({name}_MODULES_BASE_DIRS {includes})
+set({name}_MODULES_BASE_DIRS {_get_cmake_path_list(package.module_base_dirs(dep.target))})
 '''
     return f'${{{name}_INCLUDES}}', text
 
