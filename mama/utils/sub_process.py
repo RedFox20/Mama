@@ -91,6 +91,17 @@ def _kill_trees(trees):
         if gid: _kill_group(gid)
 
 
+def exit_status_text(status) -> str:
+    """What a child exit status means, for a failure message. A negative status is a POSIX signal. A
+    compiler the kernel kills prints nothing, so the status is the only clue the reader gets."""
+    if status is None: return 'no exit status'
+    if status >= 0: return f'exit code {status}'
+    try: name = signal.Signals(-status).name
+    except ValueError: return f'killed by signal {-status}'
+    oom = ', usually the kernel out-of-memory killer' if name == 'SIGKILL' else ''
+    return f'killed by {name} ({-status}){oom}'
+
+
 @lru_cache(maxsize=None)
 def resolve_executable(name: str, cwd: str) -> str:
     """Absolute path of the program `name`, or '' when nothing on PATH matches. Memoized, because
@@ -501,7 +512,7 @@ def execute_echo(cwd, cmd, exit_on_fail=False, env=None, quiet=False):
             raise
     if exit_status != 0:
         if throw_on_fail:
-            raise RuntimeError(f'Execute {cmd} failed with error: {exit_status}')
+            raise RuntimeError(f'Execute {cmd} failed with {exit_status_text(exit_status)}')
         elif exit_on_fail:
             exit(exit_status)
 
@@ -512,7 +523,9 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None, out=None):
     cmd: command string
     echo: if True, also prints the output to console
     env: overrides the environment for the subprocess, default is os.environ
-    out: optional `(line) -> None` sink. When set, lines go there instead of the console"""
+    out: optional `(line) -> None` sink. When set, lines go there instead of the console
+    A child that never ran answers None, never a number. A negative status is a POSIX signal, and a
+    made-up -1 would read as SIGHUP."""
     lines = []  # list + join, NOT output += line: the latter is O(n^2) over a big build's output
     def handle_output(p:SubProcess, line:str):
         if out:    out(line)
@@ -523,4 +536,4 @@ def execute_piped_echo(cwd, cmd, echo=True, env=None, out=None):
         return (exit_status, '\n'.join(lines))
     except Exception as e:
         lines.append(str(e))
-        return (-1, '\n'.join(lines))
+        return (None, '\n'.join(lines))

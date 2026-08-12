@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import os, contextlib, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
-from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped
+from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
 from mama.utils.fileio import file_sha1, read_text_from, write_text_to
 from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
@@ -15,8 +15,15 @@ if TYPE_CHECKING:
     from mama.build_config import BuildConfig
 
 
+def _no_output_note(printed:bool) -> str:
+    """The note a failure message needs when the child wrote nothing before it died. Its exit status is
+    then the only evidence the reader has."""
+    return '' if printed else ', and the command printed no output'
+
+
 def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cmakecache:bool = False, env=None, out=None):
     rerun = False
+    printed = False
     if target.config.verbose: console(cmd)
 
     if delete_cmakecache:
@@ -24,7 +31,8 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
         os.remove(target.build_dir('CMakeCache.txt'))
 
     def handle_output(p:SubProcess, line:str):
-        nonlocal rerun, delete_cmakecache
+        nonlocal rerun, delete_cmakecache, printed
+        if line.strip(): printed = True
         if out: out(line)
         else:   console(line)  # NOT print: a raw write tears the live region's cursor math
         if line.startswith('CMake Error: The source'):
@@ -46,7 +54,8 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     if exit_status != 0:
         # BuildError, not Exception: the cmake output above already names the failure, so mama
         # reports a clean one-liner instead of a traceback through its internals.
-        raise BuildError(f'CMake configure failed for {target.name} (exit code {exit_status})')
+        raise BuildError(f'CMake configure failed for {target.name} ({exit_status_text(exit_status)}'
+                         f'{_no_output_note(printed)})')
     target.dep.save_enabled_sanitizers()
     target.dep.save_enabled_coverage()
 
@@ -523,7 +532,8 @@ def run_build(target:BuildTarget, install:bool, extraflags='', rerun=True, out=N
             run_config(target, out=out)
             run_build(target, install, extraflags, rerun=False, out=out)
         else:
-            raise BuildError(f'Build failed for {target.name} (exit code {status})')
+            note = _no_output_note(bool(output.strip()))
+            raise BuildError(f'Build failed for {target.name} ({exit_status_text(status)}{note})')
 
 
 def _unused_cli_flag(target:BuildTarget) -> str:

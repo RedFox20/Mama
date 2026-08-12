@@ -79,3 +79,16 @@ def test_the_classic_path_closes_its_live_region_before_the_package_listing(tmp_
          patch('mama.main.print_package_exports', side_effect=lambda d: order.append('listing')):
         mamabuild(['list'], source_dir=make_project_dir(tmp_path))
     assert order == ['open', ('load', 'region'), 'close', 'listing']
+
+
+def test_a_stop_signal_becomes_the_interrupt_mama_already_handles():
+    # the default SIGTERM action ends the process at once, and every buffered phase dies unread
+    import signal
+    from mama.main import install_stop_signals
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        install_stop_signals()
+        with pytest.raises(KeyboardInterrupt):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+    finally:
+        signal.signal(signal.SIGTERM, previous)

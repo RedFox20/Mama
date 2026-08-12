@@ -317,3 +317,12 @@ def test_pending_log_is_called_without_holding_the_scheduler_lock():
             Job('b', BUILD, lambda: None, deps=[], node=SimpleNamespace(name='b'))]
     sched.run(jobs)
     assert held and not any(held), 'pending_log ran while the scheduler lock was held'
+
+
+def test_a_stop_signal_carries_its_own_name_into_the_abort_reason():
+    # a CI job reads that reason, and 'Ctrl+C' is a lie when SIGTERM stopped the run
+    hook = []
+    def sampler(): raise KeyboardInterrupt('stopped by SIGTERM')
+    sched = _sched(cpu_sampler=sampler, abort_hook=hook.append)
+    failed = sched.run([Job('blocker', BUILD, lambda: None, weight=0)])
+    assert hook == ['stopped by SIGTERM'] and str(failed.error) == 'stopped by SIGTERM'

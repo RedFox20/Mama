@@ -312,6 +312,17 @@ class BuildDisplay:
         t = self._tasks.get(id)
         return scan_diagnostics(t.lines, limit) if t else ([], 0, 0)
 
+    def _flush_unfinished(self):
+        """Dump what a phase buffered but never committed. A crash, a signal or a killed compiler ends a
+        phase with no finish, and those last lines name the cause."""
+        for tid in list(self._active):
+            t = self._tasks.get(tid)
+            if t is None or not t.lines: continue
+            self._log_task(t)
+            head = self._kind_field(t.kind, t.detail)
+            self._writeln(f'{self._colored(_ICON["fail"], Color.RED)} {head:<24}{t.name:<22} stopped, last output:')
+            for line in t.lines[t.phase_start:]: self._writeln(line)
+
     # -- rendering ---------------------------------------------------------
 
     def render(self, force=False):
@@ -340,7 +351,9 @@ class BuildDisplay:
             self._render_lock.release()
 
     def close(self):
-        """Finalize: stop the CPU sampler, flush any pending permanent lines, drop the live region."""
+        """Finalize: stop the CPU sampler, flush any pending permanent lines, drop the live region.
+        Idempotent, so a signal handler and the run itself may both call it."""
+        if self._closed: return
         self._stop.set()
         if self._sampler is not None: self._sampler.join(timeout=1.0)  # join off-lock: sampler takes it
         # take the render lock too: a sampler render that outlives the join would redraw the region UNDER the final output
@@ -351,7 +364,8 @@ class BuildDisplay:
                 for line in self._pending: self._writeln(line)
                 self._pending.clear()
                 self._drawn = 0
-                self._flush()
+            self._flush_unfinished()
+            self._flush()
         # the log belongs to the run, not to this display: a later phase opens its own display and
         # writes to the same log. log_writer closes it when the process exits.
 
@@ -475,6 +489,7 @@ class BuildDisplay:
 
     def _writeln(self, text: str):
         self._out.write(text + _ERASE_EOL_LF if self._isatty else text + '\n')
+        if not self._isatty: self._flush()  # a killed CI process must not lose a block-buffered line
 
     def _flush(self):
         flush = getattr(self._out, 'flush', None)

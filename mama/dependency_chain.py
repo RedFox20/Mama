@@ -674,7 +674,7 @@ def _handle_failure(display, failed):
     """Replay the first failed job's captured output plus the reason, then RETURN so the caller still
     prints the aggregate diagnostics before the nonzero exit. A Ctrl+C abort exits at once."""
     if isinstance(failed.error, KeyboardInterrupt):
-        console('  [BUILD INTERRUPTED]  stopped by Ctrl+C', color=Color.RED)
+        console(f'  [BUILD INTERRUPTED]  {failed.error}', color=Color.RED)
         exit(-1)
     console(f'  [BUILD FAILED]  {failed.node.name}', color=Color.RED)
     if display.isatty:  # non-TTY already dumped the output on finish

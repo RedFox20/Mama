@@ -1,5 +1,5 @@
 #!/usr/bin/python3.10
-import sys, os
+import sys, os, signal
 
 from .types.local_source import LocalSource
 from .utils.system import Color, console, warning, set_run_log
@@ -278,6 +278,16 @@ def run_coverage_report(target: BuildTarget):
         console(f'ERROR: Coverage report failed: {e}', color=Color.RED)
 
 
+def install_stop_signals():
+    """Report a stop signal as the interrupt mama already handles. The default action of SIGTERM ends
+    the process at once, and the buffered output of every running phase dies with it. A CI cancel and a
+    job timeout both send it."""
+    def stop(signum, _frame): raise KeyboardInterrupt(f'stopped by {signal.Signals(signum).name}')
+    for name in ('SIGTERM', 'SIGHUP'):  # SIGHUP: no such signal on Windows
+        sig = getattr(signal, name, None)
+        if sig is not None: signal.signal(sig, stop)
+
+
 def mamabuild(args, source_dir=os.getcwd()):
     """Main entry point for MamaBuild. Parses the command line arguments and executes the requested actions.
     - args: list of command line arguments, without the script name, e.g. ['build', 'target=all', 'debug']
@@ -286,6 +296,7 @@ def mamabuild(args, source_dir=os.getcwd()):
     if sys.version_info < (3, 10):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
         exit(-1)
+    install_stop_signals()
 
     if len(args) == 0 or 'help' in args or '--help' in args:
         print_title()

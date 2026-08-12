@@ -7,7 +7,8 @@ from unittest.mock import Mock, call, patch
 import pytest
 
 from mama.utils import system
-from mama.utils.sub_process import SubProcess, execute_piped
+from testutils import is_windows
+from mama.utils.sub_process import SubProcess, execute_piped, exit_status_text
 
 
 PY = sys.executable
@@ -437,3 +438,17 @@ def test_close_hands_off_a_pipe_the_pump_may_still_be_reading(reader_alive, clos
         p.close()
     assert p.process.stdout.close.called is closes_inline
     assert thread.called is not closes_inline
+
+
+def test_exit_status_names_the_signal_that_killed_a_child():
+    assert exit_status_text(1) == 'exit code 1' and exit_status_text(None) == 'no exit status'
+    assert 'SIGSEGV' in exit_status_text(-11)  # a crashed compiler often prints nothing at all
+    if not is_windows():  # SIGKILL is POSIX only
+        assert 'SIGKILL' in exit_status_text(-9) and 'out-of-memory' in exit_status_text(-9)
+
+
+def test_a_child_that_never_ran_reports_no_status_not_a_fake_signal(monkeypatch):
+    from mama.utils import sub_process as sp
+    monkeypatch.setattr(sp.SubProcess, 'run', Mock(side_effect=OSError('cc not found in PATH')))
+    status, output = sp.execute_piped_echo('.', 'cc', echo=False)
+    assert status is None and 'not found in PATH' in output  # a made-up -1 would read as 'killed by SIGHUP'

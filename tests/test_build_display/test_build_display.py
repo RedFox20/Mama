@@ -136,6 +136,30 @@ def test_non_tty_failure_dumps_output_without_verbose():
     assert 'x build' in strip(text)       # fail icon in the summary
 
 
+def test_close_dumps_what_a_phase_that_never_finished_buffered():
+    # a killed compiler or a stop signal ends a phase with no finish, and only that buffer names the cause
+    d, out, _ = _disp(isatty=False)
+    d.start_task(1, 'build', 'bar'); d.feed(1, 'gcc: internal compiler error')
+    d.close()
+    text = strip(out.getvalue())
+    assert 'gcc: internal compiler error' in text and 'stopped, last output:' in text
+
+
+def test_close_is_idempotent():
+    # a stop signal and the run itself both close the display, and a second dump would duplicate output
+    d, out, _ = _disp(isatty=False)
+    d.start_task(1, 'build', 'bar'); d.feed(1, 'boom')
+    d.close(); d.close()
+    assert strip(out.getvalue()).count('boom') == 1
+
+
+def test_a_finished_phase_is_not_dumped_again_on_close():
+    d, out, clk = _disp(isatty=False)
+    d.start_task(1, 'build', 'bar'); d.feed(1, 'error: boom'); clk.tick(0.5); d.finish_task(1, ok=False)
+    d.close()
+    assert strip(out.getvalue()).count('error: boom') == 1
+
+
 def test_tty_region_shows_running_task():
     d, out, clk = _disp(isatty=True)
     d.start_task(1, 'configure', 'foo'); clk.tick(0.2); d.feed(1, 'Checking compiler')

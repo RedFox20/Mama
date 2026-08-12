@@ -35,10 +35,10 @@ class Job:
     def __repr__(self): return f'Job({self.kind} {self.key})'
 
 
-def _make_abort_job() -> Job:
-    """Synthetic failed job that run() returns after Ctrl+C, so the caller reports an interrupted build."""
+def _make_abort_job(reason: str) -> Job:
+    """Synthetic failed job that run() returns after an interrupt, so the caller reports a stopped build."""
     job = Job(('<interrupted>',), BUILD, run=(lambda: None), node=SimpleNamespace(name='<interrupted>'))
-    job.error = KeyboardInterrupt('build interrupted by Ctrl+C')
+    job.error = KeyboardInterrupt(reason)
     job.done = True
     return job
 
@@ -142,8 +142,8 @@ class Scheduler:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers) as ex:
             try:
                 self._run_loop(ex, jobs)
-            except KeyboardInterrupt:
-                self._abort()  # Ctrl+C: kill children + wake barriers so the pool drains fast
+            except KeyboardInterrupt as interrupt:  # kill children + wake barriers so the pool drains fast
+                self._abort(str(interrupt) or 'stopped by Ctrl+C')  # a stop signal names itself, Ctrl+C does not
         return self._error
 
     def _run_loop(self, ex, jobs: List[Job]):
@@ -184,14 +184,14 @@ class Scheduler:
                     # otherwise wait for a completion, a grow(), or a CPU re-sample
                     self._cond.wait(timeout=self._poll_interval)
 
-    def _abort(self):
-        """Ctrl+C: stop launching, set a synthetic interrupted error, wake barrier waiters, then kill
+    def _abort(self, reason: str):
+        """An interrupt: stop launching, set a synthetic interrupted error, wake barrier waiters, then kill
         in-flight children (outside the lock - kill() blocks up to ~1s each) so the pool drains fast."""
         with self._cond:
             self._aborted = True
-            if self._error is None: self._error = _make_abort_job()
+            if self._error is None: self._error = _make_abort_job(reason)
             self._cond.notify_all()
-        if self._abort_hook: self._abort_hook('stopped by Ctrl+C')
+        if self._abort_hook: self._abort_hook(reason)
 
     # -- governors ---------------------------------------------------------
 

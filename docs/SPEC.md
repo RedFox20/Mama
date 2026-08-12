@@ -925,6 +925,24 @@ phase, and one summary line closes the dep when its last phase ends, or when any
 That run hides no dep, because every dep it opened must also close. It dumps the full output of a
 failed dep, and of every dep under `verbose`.
 
+**A phase that never finished still reports.** Closing the display dumps what each open phase buffered,
+to the screen and to the log. A killed compiler and a stop signal both end a phase with no finish, and
+those buffered lines are the only evidence left. A non-terminal run also flushes each line as it writes
+it, because a killed process loses a block-buffered stream.
+
+**A stop signal reports as an interrupt.** `SIGTERM` and `SIGHUP` raise the `KeyboardInterrupt` mama
+already handles. A running build stops its children, and every exit path closes the display and drains
+the log. The interrupt carries the signal name, so the report reads `stopped by SIGTERM`, not `Ctrl+C`.
+The default action of `SIGTERM` ends the process at once and loses all of it. A CI cancel and a job
+timeout both send it.
+
+**A failed command names its exit status, and says when the child printed nothing.** A negative status
+is a POSIX signal, so mama names that signal, not the bare number. It reports `SIGKILL` as the usual
+mark of the kernel out-of-memory killer.
+
+**Why:** a compiler the kernel kills writes no diagnostic at all. Without those two facts the run ends
+with an empty log and a number the reader cannot decode.
+
 ### The build log
 
 **mamabuild opens one log per run**, under the workspace the root named, after the root load. Every
@@ -967,7 +985,7 @@ Parallel load is the default for every run, and `serial` opts out.
   dep dir, and a lock file unlinked while held stops excluding anything. A timed-out acquire still
   runs, unlocked, so the lock can never hang a build.
 
-**Abort**: Ctrl+C sets a process-wide flag. Every phase gate closes, so no new work starts. A live
+**Abort**: Ctrl+C, `SIGTERM` and `SIGHUP` all set a process-wide flag. Every phase gate closes, so no new work starts. A live
 child gets a grace period to stop on its own, and only a child that ignores the request gets killed.
 On a failed load, mama terminates the queued children before the exit, or the pool would run the
 entire queued backlog of clones first.
