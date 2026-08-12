@@ -106,6 +106,16 @@ def test_per_target_jobs_flow_into_j_flag_without_touching_config(tmp_path):
     assert cc._mp_flags(t) == '-j8'  # root ignores the per-target TU sizing, runs at full config.jobs
 
 
+def test_ninja_takes_an_explicit_job_count(tmp_path):
+    t, _ = _target(tmp_path)  # config.jobs = 8
+    t.enable_ninja_build = True
+    assert cc._buildsys_flags(t) == '-- -j8'  # ninja with no flag reads the host core count
+    t.config.msvc = True
+    assert cc._buildsys_flags(t) == '-- -j8'  # msbuild flags never reach ninja
+    t.enable_multiprocess_build = False
+    assert cc._buildsys_flags(t) == '-- -j1'  # ninja is parallel by default, so serial must say so
+
+
 def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
     # A _build_jobs left None makes every build reserve the whole budget and run one-at-a-time.
     t, dep = _target(tmp_path)  # config.jobs = 8

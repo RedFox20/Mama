@@ -20,6 +20,12 @@ so cut every word that a reader of the fix does not need.
   `artifactory_ftp` at a host with a self-signed certificate. Fix: test `ssl.SSLError` before the
   `OSError` arm and answer False.
 
+- **The default job count ignores a container CPU limit.** `_default_build_jobs` reads
+  `psutil.cpu_count()` (`mama/build_config.py:127`), which reports the host cores inside a
+  cgroup-limited container. A 3-CPU runner then defaults to 35 jobs and the OOM killer stops the build,
+  unless the run passes `jobs=N`. Fix: read the cgroup v2 quota from `/sys/fs/cgroup/cpu.max` on Linux,
+  and take the smaller of the two counts.
+
 - **A cross build whose root mamafile calls `prefer_clang()` bootstraps a host tool on every lookup.**
   `prefer_clang` returns early when the target is not Linux, so the parent predicts `linux` while the
   Linux child writes `linux-clang`. The tool is found after each bootstrap, but the predicted path never
