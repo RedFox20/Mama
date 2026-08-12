@@ -185,6 +185,10 @@ class Windows(Platform):
         return ('.lib',)
 
 
+    def list_archive_members_cmd(self, lib: str) -> list:
+        return ['lib.exe', '/NOLOGO', '/LIST', lib]
+
+
     def remove_from_archive_cmd(self, lib: str, members: list) -> list:
         return ['lib.exe', '/NOLOGO', lib, *[f'/REMOVE:{m}' for m in members]]
 

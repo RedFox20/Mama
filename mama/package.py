@@ -120,9 +120,10 @@ def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bo
     return added
 
 
-def module_suffixes(target: BuildTarget) -> tuple:
-    """The distinct extensions of the exported modules, so the include deploy carries them too."""
-    return tuple({os.path.splitext(m)[1] for m in target.exported_modules})
+def module_suffixes(modules) -> tuple:
+    """The distinct extensions of `modules`, so the include deploy carries them too.
+    It reads the gathered list, not one target, because a recursive deploy ships a child's modules."""
+    return tuple({os.path.splitext(m)[1] for m in modules})
 
 
 def module_base_dir(target: BuildTarget, module: str) -> str:
@@ -138,7 +139,7 @@ def module_base_dir(target: BuildTarget, module: str) -> str:
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
     Reading the listing covers every object suffix, so no platform has to declare one."""
-    listing = execute_piped([f'{target.config.platform.toolchain().tool_prefix}ar', 't', lib], throw=False)
+    listing = execute_piped(target.config.platform.list_archive_members_cmd(lib), throw=False)
     if not listing: return []
     stems = {os.path.basename(m) for m in target.exported_modules}
     members = []

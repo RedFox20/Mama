@@ -64,3 +64,16 @@ def test_the_cross_archiver_prefix_reaches_the_command(tmp_path):
 def test_the_windows_command_uses_the_lib_remove_flag():
     cmd = Windows.remove_from_archive_cmd(None, 'foo.lib', ['a.ixx.obj', 'b.ixx.obj'])
     assert cmd == ['lib.exe', '/NOLOGO', 'foo.lib', '/REMOVE:a.ixx.obj', '/REMOVE:b.ixx.obj']
+
+
+def test_the_listing_goes_through_the_platform_too(tmp_path):
+    # a hardcoded `ar t` reads nothing on a toolchain with no ar, and the strip then silently skips
+    target = _target(tmp_path)
+    with patch('mama.package.execute_piped', return_value=LISTING) as listed, \
+         patch('mama.package.SubProcess.run'):
+        package.strip_module_objects(target, '/pkg/lib/libfoo.a')
+    assert listed.call_args[0][0] == target.config.platform.list_archive_members_cmd('/pkg/lib/libfoo.a')
+
+
+def test_the_windows_listing_uses_the_lib_list_flag():
+    assert Windows.list_archive_members_cmd(None, 'foo.lib') == ['lib.exe', '/NOLOGO', '/LIST', 'foo.lib']

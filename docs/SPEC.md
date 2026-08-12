@@ -728,9 +728,13 @@ When it exports no libs and no syslibs, the default lib packaging runs. `no_expo
 `no_export_libs()` opt out.
 
 `export_modules(path, [names])` names the C++20 module interface units of a package. It copies no
-file of its own. The include deploy carries them, because the deploy filter takes the union of
-`include_glob_filter` and the suffixes of the exported modules. So the hook order cannot drop a
-module, and one module ships exactly once.
+file of its own. The include deploy carries them, because the deploy filter joins
+`include_glob_filter` with the suffixes of every gathered module. A recursive deploy gathers the
+modules of the children too, so a parent filter that names no module suffix still ships them. The
+hook order cannot drop a module, and one module ships exactly once.
+
+`strip_objects` sets a target-wide flag, and only an opt-out sticks. One
+`export_modules(..., strip_objects=False)` keeps the module objects, whatever a later call passes.
 
 A failing `package()` names its target and stops the run. A `list` run builds nothing, so a
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
@@ -832,9 +836,10 @@ a source the archive does not carry. A package written before the `M` record car
 
 **The packaged static library loses its module objects.** A module interface unit emits a strong
 `initializer for module X` symbol. The consumer compiles the same source, so a whole-archive link of
-an unstripped package finds two definitions. The strip reads the archive members and removes the
-ones a `.cppm` produced, through the archiver of the platform. It runs on the packaged copy alone,
-so the build dir keeps an archive the producer's own binaries link.
+an unstripped package finds two definitions. The strip reads the archive members and removes the ones
+named after an exported module. Both the listing and the removal go through the archiver of the
+platform, so a platform with no `ar` still reads its own archive. The strip runs on the packaged copy
+alone, so the build artifact stays intact and the producer's own binaries link.
 `export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
 own module needs.
 

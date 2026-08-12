@@ -109,7 +109,7 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
-def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes) -> int:
+def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes, modules=()) -> int:
     """Deploy every exported include dir. Returns how many header files they hold, because one record
     names a whole dir and the record count alone never says how much a package ships."""
     if not includes:
@@ -118,7 +118,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the union carries it whatever order the hook used.
-    suffixes = tuple(target.include_glob_filter) + package.module_suffixes(target)
+    suffixes = tuple(target.include_glob_filter) + package.module_suffixes(m for _, m in modules)
     stems = _header_stems(includes, suffixes)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
 
@@ -275,10 +275,11 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # Delete the include tree the last deploy wrote. A header this target no longer exports must not
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
     remove_tree(f'{package_full_path}/include')
-    includes = _gather_includes(target, r_includes)
-    headers = _append_includes(target, package_full_path, detail_echo, descr, includes)
-    _warn_about_duplicate_include_trees(target, package_full_path)
+    # the modules come first, because the include copy needs their suffixes to carry them
     modules = _gather_modules(target, r_includes)
+    includes = _gather_includes(target, r_includes)
+    headers = _append_includes(target, package_full_path, detail_echo, descr, includes, modules)
+    _warn_about_duplicate_include_trees(target, package_full_path)
     shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
 
     build_dir = target.build_dir()

@@ -645,9 +645,11 @@ class BuildTarget:
         - modules: [None] the file names. None globs every known module extension under module_path
         - build_dir: [False] resolve module_path against the build directory
         - strip_objects: [True] remove the module objects from the packaged static library. Set it
-          to False when a source file of this target imports this target's own module.
+          to False when a source file of this target imports this target's own module. The flag
+          applies to the whole target, and one False keeps the objects whatever a later call passes.
         """
-        self.strip_module_objects = strip_objects
+        # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
+        if not strip_objects: self.strip_module_objects = False
         return package.export_modules(self, module_path, modules, build_dir=build_dir)
 
 

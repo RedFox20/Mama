@@ -1,5 +1,7 @@
 """Pins the `M` records a deploy writes, and that the module ships once inside the include tree."""
+import os
 import zipfile
+from unittest.mock import patch
 
 import pytest
 from testutils import deploy_and_archive, make_exporting_target, make_mock_dep, write_files
@@ -65,6 +67,24 @@ def test_a_module_outside_every_exported_include_warns_and_records_nothing(tmp_p
     build, target = _built(tmp_path, ['include'], ['src/rpp/rpp-strview.cppm'])
     archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
     assert not [l for l in _papa_lines(archive) if l.startswith('M ')]
+
+
+def test_a_recursive_deploy_carries_a_child_module_the_parent_filter_never_names(tmp_path):
+    # the deploy filter reads the gathered modules, so a child suffix reaches the copy too
+    from mama import papa_deploy
+    build, parent = _built(tmp_path, ['include'], [], filter=['.h'])
+    child_dep = make_mock_dep(tmp_path / 'child', name='libchild')
+    write_files(child_dep.build_dir, FILES)
+    child_dep.target = make_exporting_target(child_dep, [f'{child_dep.build_dir}/include'], [],
+                                             modules=[f'{child_dep.build_dir}/include/rpp/rpp-strview.cppm'])
+    package = f'{build}/deploy/libfoo'
+    # the patch replaces the method on the class, so the child must answer with no children of its own
+    with patch.object(type(parent), 'children', lambda self: [child_dep] if self is parent else []):
+        papa_deploy.papa_deploy_to(parent, package, r_includes=True, r_dylibs=False,
+                                   r_syslibs=False, r_assets=False)
+    lines = open(f'{package}/papa.txt').read().splitlines()
+    assert [l for l in lines if l.startswith('M ')] == ['M include/rpp/rpp-strview.cppm']
+    assert os.path.exists(f'{package}/include/rpp/rpp-strview.cppm')
 
 
 def test_an_m_record_the_archive_does_not_hold_fails_the_upload(tmp_path):

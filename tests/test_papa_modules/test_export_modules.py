@@ -46,9 +46,19 @@ def test_recording_the_same_module_twice_keeps_one_entry(tmp_path):
 
 def test_module_suffixes_are_distinct_and_empty_without_modules(tmp_path):
     target = _target(tmp_path)
-    assert package.module_suffixes(target) == ()
+    assert package.module_suffixes([]) == ()
     package.export_modules(target, 'src/rpp', None, build_dir=False)
-    assert sorted(package.module_suffixes(target)) == ['.cppm', '.ixx']
+    assert sorted(package.module_suffixes(target.exported_modules)) == ['.cppm', '.ixx']
+
+
+def test_one_opt_out_keeps_the_module_objects_whatever_a_later_call_passes(tmp_path):
+    # the flag is target-wide, so a second export taking the default must not re-arm the strip
+    target = _target(tmp_path)
+    target.strip_module_objects = True
+    from mama.build_target import BuildTarget
+    BuildTarget.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], strip_objects=False)
+    BuildTarget.export_modules(target, 'src/rpp', ['rpp-debugging.ixx'])
+    assert target.strip_module_objects is False
 
 
 def test_module_base_dir_picks_the_longest_matching_export(tmp_path):
