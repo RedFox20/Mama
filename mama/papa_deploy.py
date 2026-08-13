@@ -110,6 +110,14 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
+def _same_file(a:str, b:str) -> bool:
+    """True when both paths name one file. A case-variant spelling, or a deploy dir reached through a
+    symlink, compares unequal as a string, and the strip would then edit the build artifact itself."""
+    if package.match_path(a) == package.match_path(b): return True
+    try: return os.path.samefile(a, b)
+    except OSError: return False  # one of them does not exist yet, so they are two files
+
+
 def _module_paths(modules) -> set:
     """The exact path of every gathered module, forward-slashed. The copy predicate compares the whole
     path, so a private module that ends with the same name as an exported one stays out."""
@@ -286,6 +294,14 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
 
+    # An in-place deploy makes the package and the build tree one thing. The strip would take the
+    # module objects the producer's own binaries link, so refuse before anything here removes a file.
+    if _same_file(package_full_path, target.build_dir()) and \
+       any(package.strips_module_objects(target, l) for l in target.exported_libs):
+        raise RuntimeError(f'papa_deploy refused: {package_full_path} is the build dir itself, so the module ' + \
+                           'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
+                           'or pass strip_objects=False to export_modules().')
+
     # Delete the include tree the last deploy wrote. A header this target no longer exports must not
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
     remove_tree(f'{package_full_path}/include')
@@ -308,7 +324,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         outpath = normalized_join(package_full_path, relpath)
         os.makedirs(os.path.dirname(outpath), exist_ok=True)
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
-        if lib != outpath:
+        if not _same_file(lib, outpath):
             if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
             copy_if_needed(lib, outpath)
             # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.
