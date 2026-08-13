@@ -8,6 +8,7 @@ import pytest
 from testutils import (executable_extension, init, is_windows, mama_exec, module_capable_compiler,
                        MODULE_TEST_MIN_CLANG, native_platform_name, static_library_extension)
 
+from mama.utils.paths import forward_slashes
 from mama.utils.sub_process import execute_piped
 
 
@@ -57,9 +58,15 @@ def _run_consumer(project) -> str:
 
 
 def _producer_lib(root) -> str:
-    """The producer archive under `root`, named the way this platform's archiver writes it."""
-    ext = static_library_extension()
-    return f'{root}/Producer{ext}' if ext == '.lib' else f'{root}/libProducer{ext}'
+    """The producer archive under `root`. A glob, because the name carries a `lib` prefix only on GNU,
+    and a multi-config generator writes it into a per-configuration subdir. The shallowest hit is the
+    build output, and the deeper ones are the copies that install and deploy made."""
+    hits = [forward_slashes(h)
+            for h in glob(f'{root}/**/*Producer{static_library_extension()}', recursive=True)]
+    deployed = forward_slashes(root) + '/deploy/'  # the packaged copy is a different archive
+    hits = sorted((h for h in hits if not h.startswith(deployed)), key=lambda h: h.count('/'))
+    assert hits, f'no producer archive under {root}'
+    return hits[0]
 
 
 def _members(lib) -> str:

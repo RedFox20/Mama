@@ -121,11 +121,8 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
     endif()
 endif()
 
-# Adds the C++20 modules of every mama package to `target` and defines MAMA_HAS_MODULES=1 on it.
-# Call it once, after the target exists. A toolchain without module support adds nothing.
-#   mama_target_modules(MyApp)           PUBLIC, the default, for an executable or a leaf library
-#   mama_target_modules(MyLib PRIVATE)   for a library that installs itself through install(EXPORT),
-#                                        because cmake refuses to export an uninstalled file set
+# Adds the C++20 modules of every mama package to `target`, once, after the target exists.
+# scope is PUBLIC by default. A library that installs itself through install(EXPORT) needs PRIVATE.
 function(mama_target_modules target)
     set(scope PUBLIC)
     if(ARGC GREATER 1)

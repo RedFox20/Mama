@@ -3,6 +3,7 @@ from testutils import make_includes_dep, make_includes_target
 
 from mama.buildsys.cmake.mamacmake import mama_cmake_text
 from mama.dependency_chain import _get_dependency_cmake_defines
+from mama.utils.paths import forward_slashes
 
 
 def _text() -> str:
@@ -56,10 +57,11 @@ def test_a_dep_with_modules_emits_its_module_list_and_base_dirs(tmp_path):
 
 def test_two_include_roots_that_nest_emit_one_base_dir(tmp_path):
     # cmake refuses a file set whose base dirs contain each other, and the outer dir holds them all
-    text = _defines(tmp_path, [f'{tmp_path}/include/top.cppm', f'{tmp_path}/include/rpp/rpp-strview.cppm'],
-                    includes=[f'{tmp_path}/include', f'{tmp_path}/include/rpp'])
+    root = forward_slashes(str(tmp_path))
+    text = _defines(tmp_path, [f'{root}/include/top.cppm', f'{root}/include/rpp/rpp-strview.cppm'],
+                    includes=[f'{root}/include', f'{root}/include/rpp'])
     base = text.split('MODULES_BASE_DIRS', 1)[1]
-    assert f'"{tmp_path}/include"' in base and f'"{tmp_path}/include/rpp"' not in base
+    assert f'"{root}/include"' in base and f'"{root}/include/rpp"' not in base
 
 
 def test_a_dep_without_modules_emits_the_same_text_as_before(tmp_path):
@@ -91,11 +93,13 @@ def test_the_clang_path_needs_the_dependency_scanner():
 def test_the_consolidated_base_dirs_drop_a_nesting_between_two_packages(tmp_path):
     # each package is valid alone, and cmake refuses one file set whose base dirs contain each other
     from mama import package
-    outer, inner = f'{tmp_path}/repo', f'{tmp_path}/repo/modules/foo/include'
+    root = forward_slashes(str(tmp_path))
+    outer, inner = f'{root}/repo', f'{root}/repo/modules/foo/include'
     assert package.drop_nested_dirs([inner, outer]) == [outer]
 
 
 def test_drop_nested_dirs_keeps_two_unrelated_roots(tmp_path):
-    a, b = f'{tmp_path}/one/include', f'{tmp_path}/two/include'
+    root = forward_slashes(str(tmp_path))
+    a, b = f'{root}/one/include', f'{root}/two/include'
     from mama import package
     assert package.drop_nested_dirs([b, a]) == [a, b]
