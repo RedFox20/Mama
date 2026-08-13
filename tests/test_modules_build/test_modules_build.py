@@ -2,6 +2,7 @@
 the packaged archive drops the module object, and an incapable toolchain keeps the headers."""
 import os
 import re
+import shutil
 from glob import glob
 
 import pytest
@@ -70,10 +71,14 @@ def _producer_lib(root) -> str:
 
 
 def _members(lib) -> str:
-    """The object members of a static library, through the archiver of this platform."""
+    """The object members of a static library, through the archiver of this platform. It skips when
+    that archiver answers nothing, because an empty listing passes a `not in` assert for free."""
     assert os.path.exists(lib), f'no archive at {lib}'
     cmd = ['lib.exe', '/NOLOGO', '/LIST', lib] if is_windows() else ['ar', 't', lib]
-    return execute_piped(cmd, throw=False) or ''
+    if not shutil.which(cmd[0]): pytest.skip(f'{cmd[0]} is not on PATH')
+    listing = execute_piped(cmd, throw=False)
+    if not listing: pytest.skip(f'{cmd[0]} listed no member of {lib}')
+    return listing
 
 
 def test_a_consumer_imports_the_exported_module(tmp_path):
