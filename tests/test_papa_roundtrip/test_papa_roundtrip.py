@@ -76,7 +76,8 @@ def _root_over_include(self):
 def _modules(self):
     # a fetched package must keep its M records, so the 5th export category survives the reload
     self.export_include('include', build_dir=True)
-    self.export_modules('include/foo', ['foo.cppm'], build_dir=True)
+    # strip_objects=False: this fixture writes a stub lib, and a real archiver cannot read it
+    self.export_modules('include/foo', ['foo.cppm'], build_dir=True, strip_objects=False)
 
 def _everything(self):
     self.export_include('include', build_dir=True, includes_filter=['.h', '.hpp', '.inc', '.txt'])

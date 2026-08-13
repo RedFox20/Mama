@@ -34,9 +34,10 @@ def test_the_helper_adds_the_modules_as_a_cxx_modules_file_set():
 
 def test_the_guard_names_every_toolchain_requirement():
     text = _text()
-    for needle in ['VERSION_GREATER_EQUAL 3.28', 'MATCHES "Visual Studio"', 'MATCHES "Ninja"',
+    for needle in ['VERSION_GREATER_EQUAL 3.28', 'MATCHES "^Visual Studio ([0-9]+)"', 'MATCHES "Ninja"',
                    'MAMA_NINJA_VERSION VERSION_LESS 1.11',  # a dyndep file needs ninja 1.11
                    'if(NOT DEFINED MAMA_NINJA_VERSION)',    # one spawn per build dir, not per configure
+                   'CMAKE_MATCH_1 GREATER_EQUAL 17',  # cmake scans modules for VS 2022 and newer only
                    'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 21', 'MAMA_MODULES_MIN_MSVC  1934']:
         assert needle in text
 

@@ -21,6 +21,7 @@ def _built(tmp_path, includes, modules, filter=None, as_root=False):
                                    modules=[f'{build}/{m}' for m in modules])
     if filter is not None: target.include_glob_filter = filter
     if as_root: target.includes_root = (f'{build}/src', f'{build}/src/rpp', 'rpp')
+    target.strip_module_objects = False  # these pin the records, and the fixture lib is not a real archive
     return build, target
 
 
@@ -115,6 +116,7 @@ def test_a_private_module_sharing_a_tail_path_with_an_exported_one_stays_out(tmp
                         'include/sub/api.h': '#pragma once\n', 'lib/libfoo.a': '\0'})
     target = make_exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'],
                                    modules=[f'{build}/include/sub/api.cppm'])
+    target.strip_module_objects = False  # the fixture lib is not a real archive
     archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
     names = zipfile.ZipFile(archive).namelist()
     assert 'include/sub/api.cppm' in names
@@ -125,6 +127,7 @@ def test_an_in_place_deploy_of_a_module_package_is_refused(tmp_path):
     # the package and the build artifact are one file, so the strip would take what the producer links
     from mama import papa_deploy
     build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
+    target.strip_module_objects = True  # the refusal fires before any archive is read
     with patch.object(type(target), 'children', lambda self: []):
         with pytest.raises(RuntimeError, match='is the build artifact itself'):
             papa_deploy.papa_deploy_to(target, build, r_includes=False, r_dylibs=False,

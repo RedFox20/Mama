@@ -94,8 +94,11 @@ set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exp
 # its import graph. A toolchain that misses one keeps the headers, so a build never fails on this.
 set(MAMA_MODULES_AVAILABLE FALSE)
 set(MAMA_MODULES_GENERATOR FALSE)
-if(CMAKE_GENERATOR MATCHES "Visual Studio")
-    set(MAMA_MODULES_GENERATOR TRUE)
+if(CMAKE_GENERATOR MATCHES "^Visual Studio ([0-9]+)")
+    # cmake scans a module graph for Visual Studio 17 2022 and newer, never for an older one
+    if(CMAKE_MATCH_1 GREATER_EQUAL 17)
+        set(MAMA_MODULES_GENERATOR TRUE)
+    endif()
 elseif(CMAKE_GENERATOR MATCHES "Ninja")
     # a Ninja generator writes a dyndep file, and only ninja 1.11 and newer read one.
     # the cache entry keeps the probe at one spawn per build dir, never one per configure.

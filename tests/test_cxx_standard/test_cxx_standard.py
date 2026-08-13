@@ -87,10 +87,16 @@ def test_the_mamafile_keeps_the_standard_it_named_itself(spelling, tmp_path, mon
     assert 'CMAKE_CXX_EXTENSIONS=OFF' in added  # the ones it did not name still apply
 
 
-def test_an_operator_std_flag_keeps_the_cmake_default(tmp_path, monkeypatch):
-    # cmake appends its own -std after CMAKE_CXX_FLAGS, so our default would discard `flags=`
+def test_an_operator_std_flag_becomes_the_cmake_standard(tmp_path, monkeypatch):
+    # cmake appends its own -std last, so naming the operator standard is what keeps the two equal
     target = _target(tmp_path, monkeypatch, enable='20')
-    target.config.flags = '-std=c++17'
+    target.config.flags = '-std=c++23'
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '23'
+
+
+def test_an_operator_std_cmake_cannot_name_keeps_the_default(tmp_path, monkeypatch):
+    target = _target(tmp_path, monkeypatch, enable='20')
+    target.config.flags = '-std=c++latest'
     assert 'CMAKE_CXX_STANDARD' not in _opts(tmp_path, monkeypatch, target=target)
 
 

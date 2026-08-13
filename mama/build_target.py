@@ -982,14 +982,18 @@ class BuildTarget:
                              'c++20':'20', 'c++2a':'20', 'c++23':'23', 'c++2b':'23',
                              'c++26':'26', 'c++2c':'26'}
 
+    @staticmethod
+    def cxx_standard_of(std_flag: str) -> str:
+        """The number cmake wants for a `-std` value, eg 'c++2a' gives '20'. '' when it names none."""
+        for flag, number in BuildTarget._CXX_STANDARD_OF_FLAG.items():
+            if std_flag.startswith(flag): return number
+        return ''
+
     def cxx_standard(self) -> str:
         """The C++ standard this mamafile forced, as the number cmake wants, eg '20'.
         It reads the flag alone, never the build args, because the flag is what reaches the compiler.
         Returns '' when the mamafile forced none, so the caller leaves the cmake default alone."""
-        std = self._get_cxx_std()
-        for flag, number in self._CXX_STANDARD_OF_FLAG.items():
-            if std.startswith(flag): return number
-        return ''
+        return BuildTarget.cxx_standard_of(self._get_cxx_std())
 
 
     def enable_cxx26(self):

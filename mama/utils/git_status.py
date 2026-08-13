@@ -41,7 +41,7 @@ _SKIP_PREFIX = ('cmake-build-',)  # the CLion family: cmake-build-debug, cmake-b
 # and `git status` rebuilds on all three today.
 _SRC_EXTS = {'.c', '.cc', '.cpp', '.cxx', '.c++', '.cu', '.m', '.mm',
              '.h', '.hh', '.hpp', '.hxx', '.inl', '.ipp', '.tpp',
-             '.ixx', '.cppm', '.ccm', '.cxxm', '.mpp',  # C++20 module interface units
+             '.ixx', '.cppm', '.ccm', '.cxxm', '.c++m', '.mpp',  # C++20 module interface units
              '.s', '.asm', '.rc', '.def', '.cmake', '.in', '.proto', '.f', '.f90'}
 _SRC_NAMES = {'cmakelists.txt', 'makefile', 'meson.build', 'mamafile.py'}
 

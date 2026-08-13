@@ -5,7 +5,7 @@ from .utils.system import console, System, warning
 from .utils.paths import (normalized_path, normalized_join, forward_slashes,
                           glob_with_name_match, glob_with_extensions)
 from .utils.errors import BuildError
-from .utils.sub_process import execute_piped, SubProcess
+from .utils.sub_process import execute_piped, execute_piped_echo, SubProcess
 from .types.asset import Asset
 
 if TYPE_CHECKING:
@@ -128,14 +128,20 @@ def module_suffixes(modules) -> tuple:
     return tuple({os.path.splitext(m)[1] for m in modules})
 
 
+def match_path(path: str) -> str:
+    """The spelling that compares two paths: forward slashes, and one case where the filesystem
+    ignores case. A raw compare drops a module whose export named the same dir another way."""
+    fwd = forward_slashes(path)
+    return fwd.lower() if System.windows else fwd
+
+
 def module_base_dir(target: BuildTarget, module: str) -> str:
     """The exported include dir that holds `module`, longest match first, or '' when none does.
-    Cmake needs every module of a file set to sit under one of its base dirs. The compare reads both
-    paths as forward slashes, because one backslash would drop the module with no error."""
-    fwd = forward_slashes(module)
+    Cmake needs every module of a file set to sit under one of its base dirs."""
+    fwd = match_path(module)
     best = ''
     for include in target.exported_includes:
-        if fwd.startswith(forward_slashes(include) + '/') and len(include) > len(best):
+        if fwd.startswith(match_path(include) + '/') and len(include) > len(best):
             best = include  # the caller matches this against the export list, so keep its spelling
     return best
 
@@ -144,7 +150,8 @@ def drop_nested_dirs(dirs) -> list:
     """The given dirs, sorted, with every dir that sits inside another one removed. Cmake refuses a
     file set whose base dirs contain each other, and the outer dir already holds them all."""
     uniq = sorted({forward_slashes(d) for d in dirs if d})
-    return [d for d in uniq if not any(d.startswith(outer + '/') for outer in uniq if outer != d)]
+    return [d for d in uniq
+            if not any(match_path(d).startswith(match_path(o) + '/') for o in uniq if o != d)]
 
 
 def module_base_dirs(target: BuildTarget) -> list:
@@ -158,28 +165,43 @@ def exported_modules_with_base(target: BuildTarget) -> list:
     return [m for m in target.exported_modules if module_base_dir(target, m)]
 
 
+def _archive_members(target: BuildTarget, lib: str) -> list:
+    """The object members of `lib`, one per line, through the archiver of this platform.
+    A failed listing raises, because treating it as an empty archive publishes the module objects."""
+    cmd = target.config.platform.list_archive_members_cmd(lib)
+    status, listing = execute_piped_echo(None, cmd, echo=False)
+    if status != 0:
+        raise BuildError(f'Failed to list {lib} with {cmd[0]}. The module objects cannot be removed.')
+    # one member per line, so a module file name that holds a space survives the parse
+    return [m for m in (ln.strip() for ln in listing.splitlines())
+            if os.path.splitext(m)[1] in ('.o', '.obj')]
+
+
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
-    Reading the listing covers every object suffix, so no platform has to declare one.
     A build system names the object after the source, with or without the module extension. The
-    exact name wins, so `foo.o` built from `foo.cpp` never answers for a `foo.cppm` beside it."""
-    listing = execute_piped(target.config.platform.list_archive_members_cmd(lib), throw=False)
-    if not listing: return []
-    # one member per line, so a module file name that holds a space survives the parse
-    objects = [m for m in (ln.strip() for ln in listing.splitlines())
-               if os.path.splitext(m)[1] in ('.o', '.obj')]
-    found = []
-    for module in target.exported_modules:
+    exact name wins, so a `foo.o` built from `foo.cpp` never answers for a `foo.cppm` beside it.
+    The result keeps every occurrence, because one archive can hold two members of the same name."""
+    objects = _archive_members(target, lib)
+    # a bare stem names an unrelated object just as easily, so that fallback needs a target that
+    # publishes one archive, where no second archive can hold the object it would delete
+    archives = [l for l in target.exported_libs if is_a_static_library(l)]
+    names = []
+    for module in exported_modules_with_base(target):
         base = os.path.basename(module)
         hits = [o for o in objects if os.path.splitext(o)[0] == base]
-        if not hits: hits = [o for o in objects if os.path.splitext(o)[0] == os.path.splitext(base)[0]]
-        found += hits
-    return sorted(set(found))
+        if not hits and len(archives) <= 1:
+            hits = [o for o in objects if os.path.splitext(o)[0] == os.path.splitext(base)[0]]
+        for h in hits:  # a comprehension cannot see its own additions, so two same-named members slip in
+            if h not in names: names.append(h)
+    # `ar d` drops one member per name it is given, so a repeated name needs repeating
+    return [n for n in names for _ in range(objects.count(n))]
 
 
 def strips_module_objects(target: BuildTarget, lib: str) -> bool:
     """True when this lib loses its module objects on the way into a package."""
-    return bool(target.strip_module_objects and target.exported_modules and is_a_static_library(lib))
+    return bool(target.strip_module_objects and exported_modules_with_base(target)
+                and is_a_static_library(lib))
 
 
 def strip_module_objects(target: BuildTarget, lib: str):

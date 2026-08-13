@@ -140,10 +140,14 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     operator who passes a standard through `flags=` keeps that one."""
     std = target.cxx_standard()
     if not std or not target.enable_cxx_build: return []
+    # cmake appends its own standard flag after CMAKE_CXX_FLAGS, so an operator standard that reaches
+    # cmake as nothing would lose to it. Name that one instead, and the two agree.
+    operator = re.search(r'[-/]std[=:](\S+)', target.config.flags or '')
+    if operator:
+        std = target.cxx_standard_of(operator.group(1))
+        if not std: return []  # a value with no cmake number, so leave the cmake default alone
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
     if not least or _cmake_version(target.config, target.cmake_command) < least: return []
-    flags = target.config.flags or ''
-    if 'std=' in flags or 'std:' in flags: return []  # cmake appends its own flag last, and would win
     forced = {_cmake_opt_key(o) for o in target.cmake_opts}
     # EXTENSIONS OFF keeps the flag cmake adds equal to the one the mamafile already asked for. There
     # is no REQUIRED: a compiler that cannot give this standard must decay, not fail the configure.
