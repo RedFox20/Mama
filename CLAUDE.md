@@ -248,9 +248,9 @@ one line. Nobody reads a changelog to learn which function moved.
    entries reach the project page. `tests/test_release_metadata/` fails when the README and
    `changelog.txt` disagree.
 4. Run both gates. Release only when both pass. The full suite is
-   `python -m pytest tests/`. The slow platform gate is
-   `python -m pytest tests/test_platform_configure -m slow`. The default run excludes the
-   slow gate, so a release that skips it ships a platform nobody configured.
+   `python -m pytest tests/`. The slow gate is `python -m pytest tests/ -m slow`, which
+   names the whole tree, so a slow test in a new dir runs too. The default run excludes the
+   slow gate, so a release that skips it ships a toolchain nobody configured.
 5. On Windows, run both gates again inside WSL. A Windows-only run has shipped a broken
    Linux build. The mirror lives at `~/Mama`. Clone it there when it is missing:
    `git clone git@github.com:RedFox20/Mama.git ~/Mama`. Sync it to the release commit
