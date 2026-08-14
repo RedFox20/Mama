@@ -868,8 +868,9 @@ an unstripped package finds two definitions. The strip reads the archive members
 named after a module the target compiled. That list holds the modules of every child package too,
 because a target that calls `mama_target_modules` compiles its dependency modules into its own
 archive. An archiver lists the path it stored, so each module takes the members that share the most
-trailing path components with it. A member that drops the module extension matches nothing, because a
-bare `foo.o` names a `foo.cpp` build just as well. Both the listing and the removal go through the
+trailing path components with it. MSVC drops the module extension from the object name, so a module
+that shares no component falls back to its bare name. A non-module source of that name in the target
+makes the name ambiguous, and that member stays. Both the listing and the removal go through the
 archiver of the platform, so a platform with no `ar` still reads its own archive. That platform
 resolves the archiver to a full path when the host keeps the tool off PATH. The strip runs on the
 packaged copy alone, so the build artifact stays intact and the producer's own binaries link.

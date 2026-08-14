@@ -19,6 +19,9 @@ MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.c++m', '.mpp')
 # The dir that holds the exported archive after the strip, beside the archive the build wrote.
 MODULE_STRIP_DIR = 'mama-nomodules'
 
+# Every non-module C++ source. An object named after one of these is not a module object.
+SOURCE_EXTENSIONS = ('.cpp', '.cc', '.cxx', '.c++', '.c')
+
 
 def is_a_static_library(lib: str):
     if not lib: return False
@@ -198,22 +201,37 @@ def _shared_tail(a: list, b: list) -> int:
     return n
 
 
+def _source_stems(target: BuildTarget) -> set:
+    """The names, without extension, of every non-module source under the source dir of this target."""
+    stems = set()
+    for root, _, files in os.walk(target.source_dir()):
+        for name in files:
+            stem, ext = os.path.splitext(name)
+            if ext.lower() in SOURCE_EXTENSIONS: stems.add(match_path(stem))
+    return stems
+
+
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
 
-    A build system names the object after the source and keeps the module extension, so the name
-    carries it. Each module takes the members that share the most trailing path components with it.
-    That answer drops an exported `pub/api.cppm` for the private `api.cppm` beside it, and it drops a
-    bare `foo.o`, which names a `foo.cpp` build just as well as a `foo.cppm` one.
+    Each module takes the members that share the most trailing path components with it. That answer
+    keeps an exported `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module
+    extension from the object name, so a module that shares no component falls back to its bare name.
+    A non-module source of that name in this target makes the name ambiguous, and the member stays.
     The result keeps every occurrence, because one archive can hold two members of the same name."""
     objects = _archive_members(target, lib)
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
-    names = []
+    names, stems = [], None
     for module in consumed_modules(target):
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
         best = max((n for _, n in scored), default=0)
+        if not best:
+            if stems is None: stems = _source_stems(target)  # one walk, and only when a name needs it
+            bare = match_path(os.path.splitext(module_parts[-1])[0])
+            if bare in stems: continue
+            scored, best = [(o, 1) for o, p in parts if p[-1] == bare], 1
         for o, n in scored:
             if n and n == best and o not in names: names.append(o)
     # `ar d` drops one member per name it is given, so a repeated name needs repeating

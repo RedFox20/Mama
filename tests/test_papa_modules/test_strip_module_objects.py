@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from testutils import make_includes_target
+from testutils import make_includes_target, write_files
 
 from mama import package
 from mama.platforms.windows import Windows
@@ -114,8 +114,16 @@ def test_a_member_name_with_a_space_survives_the_parse(tmp_path):
     assert 'my module.cppm.o' in run.call_args[0][0]
 
 
-def test_an_object_that_drops_the_module_extension_matches_nothing(tmp_path):
-    # a bare `foo.o` names a foo.cpp build too, and deleting that loses every definition it holds
+def test_an_object_that_drops_the_module_extension_still_matches(tmp_path):
+    # MSVC names it rpp-strview.obj, so a strip that needs the extension does nothing on Windows
+    run = _strip(_target(tmp_path), listing='Producer.dir/rpp-strview.obj\nstrview.cpp.obj\n')
+    assert run.call_args[0][0].count('Producer.dir/rpp-strview.obj') == 1
+    assert 'strview.cpp.obj' not in run.call_args[0][0]
+
+
+def test_a_bare_object_name_a_second_source_could_own_stays(tmp_path):
+    # a foo.o built from foo.cpp carries definitions, and the bare name cannot tell the two apart
+    write_files(tmp_path, {'src/rpp/rpp-strview.cpp': '// the same name, not a module'})
     assert not _strip(_target(tmp_path), listing='rpp-strview.o\nsprint.cpp.o\n').called
 
 

@@ -79,7 +79,8 @@ so cut every word that a reader of the fix does not need.
   version first. Fix: that gate reads the toolchain alone, and each package weighs its own floor.
 
 - **The module strip deleted an object no exported module named.** A bare name matched a private
-  module and a `foo.cpp` build alike. Fix: each module takes the members that share the most path.
+  module and a `foo.cpp` build alike. Fix: each module takes the members that share the most path,
+  and a bare name answers only when no non-module source of this target carries it.
 
 - **An intermediary archive kept the module objects of its child packages.** Fix: the strip reads the
   modules of every child too, and an archive that compiled none keeps its own path.
