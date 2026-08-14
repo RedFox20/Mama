@@ -75,6 +75,9 @@ so cut every word that a reader of the fix does not need.
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
 
+- **A seeded configure dropped every tool the binutils search found.** `ar`, `ranlib`, `nm` and
+  `clang-scan-deps` reached the build empty. Fix: the seed replays that closed set of cache keys.
+
 - **The module strip could not find the archiver of the Android NDK.** That toolchain names no tool
   prefix, so it asked for a bare `ar`. Fix: Android answers with the `llvm-ar` of its NDK.
 

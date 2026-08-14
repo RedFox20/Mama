@@ -708,6 +708,12 @@ seed id, and injects the result into each build dir that holds no cache of its o
 The seed **transplants compiler detection only, never project flags**, so a single-language project
 is not poisoned by the synthetic C plus C++ probe.
 
+Detection writes some of its answers to the cmake CACHE alone, and a seeded configure skips it, so the
+seed replays those lines from the cache of the probe. They are the ABI facts, the compiler and
+toolchain entries, and every tool the binutils search found, such as `ar`, `ranlib` and
+`clang-scan-deps`. The replay takes a closed set of keys, because one seed serves every target of a
+compiler config, and a `find_program` result of one project must not reach another.
+
 **Why:** that detection dominates a cold configure. `buildsys/cmake/compiler_cache.py` records the
 measurement it was written from: about 6.5 seconds down to about 1.7.
 

@@ -97,6 +97,29 @@ def test_seeded_cache_replays_the_module_scanner_the_probe_found(tmp_path):
     assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18' in cache
 
 
+# every tool the binutils search writes, in the two shapes it writes them
+_BINUTILS_CACHE = ''.join(f'CMAKE_{tool}:FILEPATH=/usr/bin/llvm-{tool.lower()}-18\n'
+                          for tool in ('AR', 'RANLIB', 'STRIP', 'LINKER', 'NM', 'OBJDUMP', 'OBJCOPY',
+                                       'READELF', 'ADDR2LINE', 'DLLTOOL', 'MT', 'INSTALL_NAME_TOOL')) \
+                + 'CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND\n' \
+                + 'CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/llvm-ar-18\n' \
+                + 'CMAKE_Fortran_COMPILER_RANLIB:FILEPATH=/usr/bin/llvm-ranlib-18\n'
+
+
+def test_seeded_cache_replays_every_tool_the_binutils_search_found(tmp_path):
+    # the search runs inside detection, so seeding skips it and each tool reaches the build empty
+    cache = _published_then_injected(tmp_path, _BINUTILS_CACHE)
+    for line in _BINUTILS_CACHE.splitlines():
+        assert line in cache
+
+
+def test_the_replay_takes_no_project_find_program_result(tmp_path):
+    # one seed serves every target of a compiler config, so a project's own tool must not travel
+    cache = _published_then_injected(tmp_path, 'CMAKE_CXX_CPPCHECK:FILEPATH=/usr/bin/cppcheck\n'
+                                               'MY_TOOL:FILEPATH=/usr/bin/mytool\n')
+    assert 'CPPCHECK' not in cache and 'MY_TOOL' not in cache
+
+
 def test_a_cached_compiler_wins_over_the_compiler_module(tmp_path):
     build = str(tmp_path / 'A')
     bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
