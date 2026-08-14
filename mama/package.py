@@ -5,6 +5,7 @@ from .utils.system import console, System, warning
 from .utils.paths import (normalized_path, normalized_join, forward_slashes,
                           glob_with_name_match, glob_with_extensions)
 from .utils.errors import BuildError
+from .utils.fileio import copy_if_needed
 from .utils.sub_process import execute_piped, execute_piped_echo, SubProcess
 from .types.asset import Asset
 
@@ -204,6 +205,22 @@ def strips_module_objects(target: BuildTarget, lib: str) -> bool:
                 and is_a_static_library(lib))
 
 
+def export_stripped_module_libs(target: BuildTarget):
+    """Point every exported static library at a copy that holds no module object.
+
+    A consumer that builds this target from source links `exported_libs` directly, and the build dir
+    archive must keep those objects for the binaries of this target. The copy keeps the file name, so
+    only the directory differs. A fetched package is already stripped, so it copies nothing."""
+    if target.dep.from_artifactory: return
+    for i, lib in enumerate(target.exported_libs):
+        if not isinstance(lib, str) or not strips_module_objects(target, lib): continue
+        out = normalized_join(os.path.dirname(lib), 'mama-nomodules/' + os.path.basename(lib))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        copy_if_needed(lib, out)
+        strip_module_objects(target, out)
+        target.exported_libs[i] = out
+
+
 def strip_module_objects(target: BuildTarget, lib: str):
     """Removes the module objects from a packaged static library.
 
@@ -216,8 +233,10 @@ def strip_module_objects(target: BuildTarget, lib: str):
     # the arg list stays a list, because SubProcess splits a joined string on every space
     status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
     if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
-    if target.config.print:
-        warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}')
+    # Always warn: this removes whole objects, so a module unit that defines a non-inline function
+    # loses that definition for a consumer whose toolchain builds no module.
+    warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}. ' + \
+            'An exported module must define nothing but its own interface.')
 
 
 def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):

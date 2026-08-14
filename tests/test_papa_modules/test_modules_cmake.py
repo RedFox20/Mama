@@ -104,3 +104,29 @@ def test_drop_nested_dirs_keeps_two_unrelated_roots(tmp_path):
     a, b = f'{root}/one/include', f'{root}/two/include'
     from mama import package
     assert package.drop_nested_dirs([b, a]) == [a, b]
+
+
+# --- a floor per package, so one lowered floor never enables a second package -
+
+def test_a_package_emits_the_floor_it_declared(tmp_path):
+    target = make_includes_target(str(tmp_path))
+    target.exported_includes = [f'{tmp_path}/include']
+    target.exported_modules = [f'{tmp_path}/include/rpp/rpp-strview.cppm']
+    target.module_min_compilers = {'CLANG': '16'}
+    _, text = _get_dependency_cmake_defines(make_includes_dep(target))
+    assert 'set(TestLib_MODULES_MIN_CLANG 16)' in text
+
+
+def test_the_helper_weighs_each_package_floor_on_its_own():
+    text = _text()
+    assert 'function(_mama_package_modules_ok package out)' in text
+    assert 'if(DEFINED ${package}_MODULES_MIN_${id})' in text          # the package floor wins
+    assert 'set(min_${id} ${MAMA_MODULES_MIN_${id}})' in text          # the global one is the default
+    assert 'foreach(package ${MAMA_MODULE_PACKAGES})' in text          # one verdict per package
+
+
+def test_a_package_that_fails_its_floor_keeps_its_headers():
+    # the file set takes the packages that passed, so one skipped package never blocks the rest
+    text = _text()
+    assert 'C++20 modules off, using its exported headers' in text
+    assert 'list(APPEND files ${${package}_MODULES})' in text

@@ -1,4 +1,5 @@
 """Pins which archive members the module strip removes, and every case where it runs nothing."""
+import os
 from unittest.mock import patch
 
 import pytest
@@ -138,3 +139,27 @@ def test_a_module_under_no_exported_include_is_never_stripped(tmp_path):
     target = _target(tmp_path)
     target.exported_includes = [f'{tmp_path}/elsewhere']
     assert not _strip(target).called
+
+
+# --- the exported lib a source-built consumer links ---------------------------
+
+def test_the_exported_lib_becomes_a_stripped_copy(tmp_path, monkeypatch):
+    # a consumer that builds this dep from source links exported_libs, not the packaged copy
+    lib = tmp_path / 'libfoo.a'
+    lib.write_bytes(b'\0')
+    target = _target(tmp_path, libs=(str(lib),))
+    target.dep.from_artifactory = False
+    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)), \
+         patch('mama.package.SubProcess.run', return_value=0) as run:
+        package.export_stripped_module_libs(target)
+    assert target.exported_libs[0].endswith('/mama-nomodules/libfoo.a')
+    assert os.path.exists(target.exported_libs[0]), 'the copy is a real file a consumer can link'
+    assert 'rpp-strview.cppm.o' in run.call_args[0][0]
+
+
+def test_the_build_dir_lib_is_never_replaced_for_a_fetched_package(tmp_path):
+    # the archive it unpacked is already stripped, so a second copy only costs time
+    target = _target(tmp_path)
+    target.dep.from_artifactory = True
+    package.export_stripped_module_libs(target)
+    assert target.exported_libs == ['/pkg/lib/libfoo.a']

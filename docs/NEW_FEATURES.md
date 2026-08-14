@@ -27,7 +27,7 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
   module interface is not portable, so a package cannot ship one. The consumer compiles the sources
   instead. The modules deploy inside the exported include tree, one `M` record each, and the module
   reaches its own header from there. `mama-dependencies.cmake` sets `{name}_MODULES` and
-  `MAMA_MODULES`, and `mama.cmake` carries `mama_target_modules(<target> [scope])`, which adds the file set
+  `MAMA_MODULE_PACKAGES`, and `mama.cmake` carries `mama_target_modules(<target> [scope])`, which adds the file set
   and the `cxx_std_20` feature the module scanner needs. A toolchain below cmake 3.28, Ninja, GCC 14,
   Clang 21 or MSVC 19.34 keeps the headers and says so, so no build fails on this. The packaged
   static library loses its module objects, because a consumer that compiles the same module defines

@@ -36,12 +36,6 @@ so cut every word that a reader of the fix does not need.
   wrong one for a flag that names a standard mama has no min-cmake entry for. Fix: record which
   standard `enable_cxxNN()` chose, and read that instead of parsing the flag back.
 
-- **The module strip removes every definition the interface unit compiled.** `strip_module_objects`
-  deletes the whole archive member (`package.py:170`). A module unit that defines a non-inline function
-  loses that definition too. A consumer whose toolchain cannot build modules never compiles the source,
-  so it links the stripped archive and finds the symbol undefined. Fix: name the constraint in the
-  `export_modules` docs, and warn when a stripped member defines more than the module initializer.
-
 - **Compiler discovery composes a suffixed path that a symlinked toolchain does not have.**
   `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir. It keeps the
   suffix that named the link. `get_preferred_compiler_paths` then joins the two
@@ -50,13 +44,6 @@ so cut every word that a reader of the fix does not need.
   tool". Only a host whose suffixed compiler links to an unsuffixed name hits it, which is the
   normal Debian and Ubuntu LLVM layout. Fix: return the suffix that the RESOLVED path carries, or
   return the resolved full path instead of the (dir, suffix) pair.
-
-- **A source-built dependency still exports the archive that holds its module objects.** The strip
-  runs on the packaged copy alone. A consumer of a published package therefore links one module
-  initializer. A consumer of a dependency mama built from source links the build dir archive, which
-  keeps the object. A whole-archive link there still finds two definitions. The build dir archive
-  must keep the object, because the producer's own binaries need it. Fix: export a stripped copy
-  beside it, and name that copy in `exported_libs`.
 
 - **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
   answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
@@ -87,6 +74,15 @@ so cut every word that a reader of the fix does not need.
 
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
+
+- **A source-built dependency exported the archive that still held its module objects.** Fix: the
+  packaging step points `exported_libs` at a stripped copy under `mama-nomodules/`.
+
+- **The module strip removed every definition the interface unit compiled.** Fix: the API states that
+  an exported module defines nothing but its interface, and every strip warns.
+
+- **One lowered compiler floor enabled every module package.** Fix: `export_modules` takes
+  `min_gnu`/`min_clang`/`min_msvc`, and the cmake helper weighs each package on its own floor.
 
 - **A recursive package shipped a child module the child package also shipped.** A consumer then
   declared one module twice. Fix: write `M` records for the deployed target alone.

@@ -412,6 +412,7 @@ def make_includes_target(source_dir, build_dir=None):
     target.exported_syslibs, target.exported_assets = [], []
     target.exported_modules = []
     target.strip_module_objects = True
+    target.module_min_compilers = {}
     target.includes_root = ('', '', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'

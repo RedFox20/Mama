@@ -840,6 +840,7 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `D` | a dependency source |
 | `I` | an exported include dir |
 | `M` | an exported C++20 module source |
+| `Q` | the least compiler version the exported modules need |
 | `L` | an exported lib |
 | `S` | an exported system lib |
 | `A` | an exported asset |
@@ -868,7 +869,19 @@ named after an exported module. Both the listing and the removal go through the 
 platform, so a platform with no `ar` still reads its own archive. The strip runs on the packaged copy
 alone, so the build artifact stays intact and the producer's own binaries link.
 `export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
-own module needs.
+own module needs. **An exported module must define nothing but its own interface**, because the strip
+removes whole objects. A unit that defines a non-inline function loses it for a consumer on the
+header fallback, so the deploy warns on every strip.
+
+**The exported library is the stripped one.** A consumer that builds this dependency from source
+links `exported_libs` directly, so the packaging step points it at a copy under `mama-nomodules/`
+that carries the same file name. The build dir keeps the original, because the binaries of that
+target need those objects. A fetched package is already stripped and copies nothing.
+
+`export_modules(..., min_gnu=, min_clang=, min_msvc=)` records the least compiler version THESE
+modules need, as a `Q` record. `mama_target_modules` weighs each package on its own floor, and falls
+back to the global `MAMA_MODULES_MIN_*` for a package that declared none. So one package with a lower
+floor never enables a second package the compiler cannot build, and each one keeps its own headers.
 
 A package built by a different compiler than the current build warns and does not fail.
 Compiler-scoped build dirs make a cross-family mismatch unreachable in practice. A compiler version

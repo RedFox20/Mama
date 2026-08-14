@@ -111,6 +111,7 @@ class BuildTarget:
         self.exported_assets: List[Asset] = [] # exported asset files
         self.exported_modules = [] # C++20 module interface units a consumer compiles itself
         self.strip_module_objects = True # drop the module objects from the packaged static lib
+        self.module_min_compilers = {} # compiler id -> least version that builds the exported modules
         self.packaging_result = '' # result of the package() step
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._did_configure = False # guards configure() to run once across configure/build phases
@@ -627,7 +628,8 @@ class BuildTarget:
 
 
 
-    def export_modules(self, module_path, modules=None, build_dir=False, strip_objects=True):
+    def export_modules(self, module_path, modules=None, build_dir=False, strip_objects=True,
+                       min_gnu='', min_clang='', min_msvc=''):
         """
         Exports C++20 module interface units to consumers of this package.
 
@@ -644,12 +646,20 @@ class BuildTarget:
         - module_path: the folder holding the module interface units
         - modules: [None] the file names. None globs every known module extension under module_path
         - build_dir: [False] resolve module_path against the build directory
-        - strip_objects: [True] remove the module objects from the packaged static library. Set it
-          to False when a source file of this target imports this target's own module. The flag
+        - strip_objects: [True] remove the module objects from the exported static library. The flag
           applies to the whole target, and one False keeps the objects whatever a later call passes.
+        - min_gnu, min_clang, min_msvc: [''] the least compiler version that builds THESE modules.
+          A consumer skips this package alone when its compiler is older, and keeps the headers.
+
+        **An exported module must define nothing but its own interface.** The strip removes whole
+        objects, so a module unit that defines a non-inline function loses that definition, and a
+        consumer whose toolchain builds no module then fails to link it. Pass `strip_objects=False`
+        for a unit that carries a definition. Its consumers then cannot whole-archive link.
         """
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False
+        for name, least in (('GNU', min_gnu), ('CLANG', min_clang), ('MSVC', min_msvc)):
+            if least: self.module_min_compilers[name] = str(least)
         return package.export_modules(self, module_path, modules, build_dir=build_dir)
 
 
@@ -1863,6 +1873,10 @@ class BuildTarget:
                 self.default_package_includes()
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
+
+        # A consumer links the exported lib whether it fetched this package or built it here, so the
+        # module objects come out before that path is published, not only on the way into a package.
+        package.export_stripped_module_libs(self)
 
         # A target that exports nothing has nothing to publish. Marking it here means a docs or bundle
         # target needs no declaration, and the upload validation stays a backstop rather than the rule.

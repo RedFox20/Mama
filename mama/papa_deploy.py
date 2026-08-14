@@ -119,9 +119,9 @@ def _same_file(a:str, b:str) -> bool:
 
 
 def _module_paths(modules) -> set:
-    """The exact path of every gathered module, forward-slashed. The copy predicate compares the whole
-    path, so a private module that ends with the same name as an exported one stays out."""
-    return {forward_slashes(m) for _, m in modules}
+    """The exact path of every gathered module, in the one spelling every path compare uses. The copy
+    predicate reads the whole path, so a private module whose name ends the same way stays out."""
+    return {package.match_path(m) for _, m in modules}
 
 
 def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes, modules=()) -> int:
@@ -144,7 +144,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         name = os.path.basename(path)
         # a module source ships only when export_modules named it, so a private one beside it stays out
         if name.endswith(module_sfx) and not name.endswith(suffixes):
-            header = forward_slashes(path) in module_paths
+            header = package.match_path(path) in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
             # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
@@ -192,7 +192,7 @@ def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, m
         # ships one subdir of the export, so its src_dir is deeper than the exported include.
         src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
         fwd = forward_slashes(module)  # one backslash here would drop the module with no error
-        if not fwd.startswith(forward_slashes(src_dir) + '/'):
+        if not package.match_path(module).startswith(package.match_path(src_dir) + '/'):
             warning(f'export_modules skipped {module}: the include deploy did not carry it.')
             continue
         deployed = dst_dir + fwd[len(src_dir):]
@@ -311,6 +311,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes, modules)
     _warn_about_duplicate_include_trees(target, package_full_path)
     shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
+    for compiler, least in sorted(target.module_min_compilers.items()):
+        descr.append(f'Q {compiler} {least}')  # the least compiler version these modules need
 
     build_dir = target.build_dir()
     source_dir = target.source_dir()
@@ -384,6 +386,7 @@ class PapaFileInfo:
         self.libs = []
         self.syslibs = []
         self.modules = [] # C++20 module sources. [] predates the M record
+        self.module_min_compilers = {} # compiler id -> least version. {} predates the Q record
         self.assets: List[Asset] = []
 
         suffixes = {}  # dep name -> version_suffix, applied below once every `D` record is in
@@ -403,6 +406,9 @@ class PapaFileInfo:
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
             elif line.startswith('M '): append_to(self.modules, line)
+            elif line.startswith('Q '):
+                compiler, _, least = line[2:].strip().partition(' ')
+                self.module_min_compilers[compiler] = least.strip()
             elif line.startswith('A '):
                 relpath = line[2:].strip()
                 fullpath = normalized_join(self.papa_dir, relpath)
