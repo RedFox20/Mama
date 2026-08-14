@@ -150,6 +150,33 @@ def test_the_windows_archiver_falls_back_to_the_path(tmp_path):
     assert _windows(bin_dir=f'{tmp_path}/absent/').archiver() == 'lib.exe'
 
 
+def _export_stripped(target):
+    """Run the export swap with both subprocess primitives stubbed."""
+    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)), \
+         patch('mama.package.SubProcess.run', return_value=0):
+        package.export_stripped_module_libs(target)
+
+
+def test_a_second_run_strips_the_archive_this_build_wrote(tmp_path):
+    # a recorded export names the copy, and reading its own dir nested one dir and republished run 1
+    lib = f'{tmp_path}/libfoo.a'
+    open(lib, 'w').write('first')
+    target = _target(tmp_path, libs=(lib,))
+    _export_stripped(target)
+    copy = target.exported_libs[0]
+    open(lib, 'w').write('rebuilt')  # the next build writes a new archive under the same name
+    _export_stripped(target)
+    assert target.exported_libs[0] == copy and copy.count('mama-nomodules') == 1
+    assert open(copy).read() == 'rebuilt'
+
+
+def test_a_recorded_export_whose_archive_is_gone_keeps_its_copy(tmp_path):
+    # a cleaned build dir leaves the recorded export with no source to read
+    target = _target(tmp_path, libs=(f'{tmp_path}/mama-nomodules/libfoo.a',))
+    _export_stripped(target)
+    assert target.exported_libs == [f'{tmp_path}/mama-nomodules/libfoo.a']
+
+
 def test_the_bare_stem_fallback_stays_off_when_the_target_exports_two_archives(tmp_path):
     # a foo.o in a second archive is an ordinary object, and deleting it loses its definitions
     target = _target(tmp_path, libs=('/pkg/lib/libfoo.a', '/pkg/lib/libbar.a'))

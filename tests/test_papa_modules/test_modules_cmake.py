@@ -1,9 +1,24 @@
 """Pins the module half of the generated cmake: the helper, its guard, and the per-package variables."""
+import shutil
+
+import pytest
 from testutils import make_includes_dep, make_includes_target
 
 from mama.buildsys.cmake.mamacmake import mama_cmake_text
 from mama.dependency_chain import _get_dependency_cmake_defines
 from mama.utils.paths import forward_slashes
+from mama.utils.sub_process import execute_piped_echo
+
+
+# Reads the floor of one package the way the helper does, with no compiler and no target.
+_PROBE = '''cmake_minimum_required(VERSION 3.20)
+project(T NONE)
+include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)
+set(CMAKE_CXX_COMPILER_ID GNU)
+set(CMAKE_CXX_COMPILER_VERSION 14)
+_mama_package_modules_ok(Producer ok)
+message(STATUS "MAMA_PROBE ok=${ok}")
+'''
 
 
 def _text() -> str:
@@ -120,13 +135,25 @@ def test_a_package_emits_the_floor_it_declared(tmp_path):
 def test_the_helper_weighs_each_package_floor_on_its_own():
     text = _text()
     assert 'function(_mama_package_modules_ok package out)' in text
-    assert 'if(DEFINED ${package}_MODULES_MIN_${id})' in text          # the package floor wins
+    assert 'set(min_${id} ${${package}_MODULES_MIN_${id}})' in text    # the package floor wins
     assert 'set(min_${id} ${MAMA_MODULES_MIN_${id}})' in text          # the global one is the default
     assert 'foreach(package ${MAMA_MODULE_PACKAGES})' in text          # one verdict per package
 
 
-def test_a_package_that_fails_its_floor_keeps_its_headers():
-    # the file set takes the packages that passed, so one skipped package never blocks the rest
+def test_a_package_that_fails_its_floor_keeps_every_header():
+    # MAMA_HAS_MODULES is one define, so a consumer cannot import one package and read another's headers
     text = _text()
-    assert 'C++20 modules off, using its exported headers' in text
-    assert 'list(APPEND files ${${package}_MODULES})' in text
+    assert 'so every package keeps its exported headers' in text
+    assert text.index('if(skipped)') < text.index('target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)')
+
+
+def test_an_empty_compiler_floor_refuses_instead_of_breaking_the_configure(tmp_path):
+    # real cmake, because a text assert cannot see an `if` whose right operand expanded to nothing
+    if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
+    (tmp_path / 'mama.cmake').write_text(_text())
+    (tmp_path / 'CMakeLists.txt').write_text(_PROBE)
+    cmd = ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build', '-DMAMA_MODULES_MIN_GNU=',
+           '-DProducer_MODULES_MIN_GNU=', str(tmp_path)]
+    status, out = execute_piped_echo(None, cmd, echo=False)
+    assert status == 0, out
+    assert 'MAMA_PROBE ok=FALSE' in out  # an empty floor refuses, a quoted one would pass every compiler

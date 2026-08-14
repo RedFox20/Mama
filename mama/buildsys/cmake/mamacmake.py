@@ -90,6 +90,13 @@ set(MAMA_MODULES_MIN_GNU   14   CACHE STRING "Least GCC version that builds expo
 set(MAMA_MODULES_MIN_CLANG 21   CACHE STRING "Least Clang version that builds exported C++20 modules")
 set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exported C++20 modules")
 
+# An empty floor must refuse, never pass. Unquoted it breaks the `if`, and quoted it compares TRUE.
+foreach(id GNU CLANG MSVC)
+    if(NOT MAMA_MODULES_MIN_${id})
+        set(MAMA_MODULES_MIN_${id} 999999)
+    endif()
+endforeach()
+
 # C++20 modules need cmake 3.28, the Ninja or Visual Studio generator, and a compiler that reports
 # its import graph. A toolchain that misses one keeps the headers, so a build never fails on this.
 set(MAMA_MODULES_AVAILABLE FALSE)
@@ -128,10 +135,9 @@ endif()
 function(_mama_package_modules_ok package out)
     set(${out} FALSE PARENT_SCOPE)
     foreach(id GNU CLANG MSVC)
-        if(DEFINED ${package}_MODULES_MIN_${id})
+        set(min_${id} ${MAMA_MODULES_MIN_${id}})
+        if(${package}_MODULES_MIN_${id})
             set(min_${id} ${${package}_MODULES_MIN_${id}})
-        else()
-            set(min_${id} ${MAMA_MODULES_MIN_${id}})
         endif()
     endforeach()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${min_GNU})
@@ -151,17 +157,24 @@ function(mama_target_modules target)
         set(scope "${ARGV1}")
     endif()
     set(files "")
+    set(skipped "")
     if(MAMA_MODULES_AVAILABLE)
-        # each package answers for its own modules, so one package with an older floor never lets a
-        # second package through, and a package this compiler cannot build keeps its headers
+        # each package answers for its own floor, so one package with an older floor never lets a
+        # second package through
         foreach(package ${MAMA_MODULE_PACKAGES})
             _mama_package_modules_ok(${package} ok)
             if(ok)
                 list(APPEND files ${${package}_MODULES})
             else()
-                message(STATUS "MAMA: ${package} C++20 modules off, using its exported headers")
+                list(APPEND skipped ${package})
             endif()
         endforeach()
+    endif()
+    # MAMA_HAS_MODULES is one define for the whole target, so a consumer cannot import one package and
+    # read the headers of another. One package this compiler refuses therefore keeps every header.
+    if(skipped)
+        message(STATUS "MAMA: ${skipped} C++20 modules off, so every package keeps its exported headers")
+        return()
     endif()
     if(NOT files)
         message(STATUS "MAMA: C++20 modules off, using the exported headers")

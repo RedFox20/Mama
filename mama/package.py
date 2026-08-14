@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 # Every spelling of a C++20 module interface unit. MSVC writes `.ixx`, the others write `.cppm`.
 MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.c++m', '.mpp')
 
+# The dir that holds the exported archive after the strip, beside the archive the build wrote.
+MODULE_STRIP_DIR = 'mama-nomodules'
+
 
 def is_a_static_library(lib: str):
     if not lib: return False
@@ -208,6 +211,13 @@ def strips_module_objects(target: BuildTarget, lib: str) -> bool:
                 and is_a_static_library(lib))
 
 
+def _unstripped_lib(lib: str) -> str:
+    """The archive a stripped copy came from, and `lib` itself for any other path.
+    A later run reads back the recorded export, which already names the copy."""
+    head, tail = os.path.split(os.path.dirname(lib))
+    return normalized_join(head, os.path.basename(lib)) if tail == MODULE_STRIP_DIR else lib
+
+
 def export_stripped_module_libs(target: BuildTarget):
     """Point every exported static library at a copy that holds no module object.
 
@@ -217,9 +227,12 @@ def export_stripped_module_libs(target: BuildTarget):
     if target.dep.from_artifactory: return
     for i, lib in enumerate(target.exported_libs):
         if not isinstance(lib, str) or not strips_module_objects(target, lib): continue
-        out = normalized_join(os.path.dirname(lib), 'mama-nomodules/' + os.path.basename(lib))
+        # read the archive this build wrote, never the copy an earlier run recorded as the export
+        src = _unstripped_lib(lib)
+        if not os.path.exists(src): continue
+        out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        copy_if_needed(lib, out)
+        copy_if_needed(src, out)
         strip_module_objects(target, out)
         target.exported_libs[i] = out
 

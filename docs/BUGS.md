@@ -75,6 +75,18 @@ so cut every word that a reader of the fix does not need.
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
 
+- **The second build published the archive of the first one.** The strip read its own recorded copy,
+  which nested one dir per run. Fix: it reads the archive the build wrote.
+
+- **An empty compiler floor broke the whole configure.** An unquoted empty operand left the `if` with
+  no right side. Fix: an empty floor refuses, and a package floor falls back to the global one.
+
+- **One skipped module package still defined `MAMA_HAS_MODULES`.** A consumer then imported a module
+  the file set never got. Fix: one refused package keeps the headers of every package.
+
+- **The Windows strip found neither `lib.exe` nor its archive members.** Only a developer prompt puts
+  the tool on PATH, and an archiver lists a full path. Fix: read the MSVC toolset and match the name.
+
 - **A source-built dependency exported the archive that still held its module objects.** Fix: the
   packaging step points `exported_libs` at a stripped copy under `mama-nomodules/`.
 
