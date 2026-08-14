@@ -246,14 +246,19 @@ class Platform:
         return ('.a', '.so')
 
 
+    def archiver(self) -> str:
+        """The archiver that edits a static library. A cross toolchain prefixes its own name."""
+        return f'{self.toolchain().tool_prefix}ar'
+
+
     def list_archive_members_cmd(self, lib: str) -> list:
         """The command that lists the object members of a static library, one name per line."""
-        return [f'{self.toolchain().tool_prefix}ar', 't', lib]
+        return [self.archiver(), 't', lib]
 
 
     def remove_from_archive_cmd(self, lib: str, members: list) -> list:
         """The command that removes object members from a static library."""
-        return [f'{self.toolchain().tool_prefix}ar', 'd', lib, *members]
+        return [self.archiver(), 'd', lib, *members]
 
 
     def gnu_host_triple(self) -> str:

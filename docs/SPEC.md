@@ -865,9 +865,11 @@ a source the archive does not carry. A package written before the `M` record car
 **The packaged static library loses its module objects.** A module interface unit emits a strong
 `initializer for module X` symbol. The consumer compiles the same source, so a whole-archive link of
 an unstripped package finds two definitions. The strip reads the archive members and removes the ones
-named after an exported module. Both the listing and the removal go through the archiver of the
-platform, so a platform with no `ar` still reads its own archive. The strip runs on the packaged copy
-alone, so the build artifact stays intact and the producer's own binaries link.
+named after an exported module. An archiver lists the path it stored, so the match reads the file
+name alone. Both the listing and the removal go through the archiver of the platform, so a platform
+with no `ar` still reads its own archive. That platform resolves the archiver to a full path when the
+host keeps the tool off PATH. The strip runs on the packaged copy alone, so the build artifact stays
+intact and the producer's own binaries link.
 `export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
 own module needs. **An exported module must define nothing but its own interface**, because the strip
 removes whole objects. A unit that defines a non-inline function loses it for a consumer on the

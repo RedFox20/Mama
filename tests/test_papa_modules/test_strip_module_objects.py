@@ -1,5 +1,6 @@
 """Pins which archive members the module strip removes, and every case where it runs nothing."""
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +12,7 @@ from mama.utils.errors import BuildError
 
 
 LISTING = 'strview.cpp.o\nrpp-strview.cppm.o\nsprint.cpp.o\n'
+LIB_EXE = 'C:/msvc/bin/Hostx64/x64/lib.exe'
 
 
 def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True, libs=('/pkg/lib/libfoo.a',)):
@@ -21,6 +23,14 @@ def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True, libs=('/pkg/lib
     target.strip_module_objects = strip
     target.config.print = False
     return target
+
+
+def _windows(archiver='', bin_dir='') -> Windows:
+    """A Windows platform that answers a fixed archiver, or reads a fixed MSVC toolset dir."""
+    platform = Windows(SimpleNamespace(verbose=False))
+    platform.msvc_bin64 = lambda: bin_dir
+    if archiver: platform.archiver = lambda: archiver
+    return platform
 
 
 def _strip(target, lib='/pkg/lib/libfoo.a', listing=LISTING, status=0):
@@ -66,8 +76,8 @@ def test_the_cross_archiver_prefix_reaches_the_command(tmp_path):
 
 
 def test_the_windows_command_uses_the_lib_remove_flag():
-    cmd = Windows.remove_from_archive_cmd(None, 'foo.lib', ['a.ixx.obj', 'b.ixx.obj'])
-    assert cmd == ['lib.exe', '/NOLOGO', 'foo.lib', '/REMOVE:a.ixx.obj', '/REMOVE:b.ixx.obj']
+    cmd = _windows(LIB_EXE).remove_from_archive_cmd('foo.lib', ['a.ixx.obj', 'b.ixx.obj'])
+    assert cmd == [LIB_EXE, '/NOLOGO', 'foo.lib', '/REMOVE:a.ixx.obj', '/REMOVE:b.ixx.obj']
 
 
 def test_the_command_keeps_its_arguments_apart(tmp_path):
@@ -117,8 +127,27 @@ def test_the_exact_object_name_wins_over_the_bare_stem(tmp_path):
     assert 'rpp-strview.cppm.o' in cmd and 'rpp-strview.o' not in cmd
 
 
+def test_a_listing_of_full_object_paths_still_matches(tmp_path):
+    # an archiver lists the path it stored, and a compare against that whole line matched nothing
+    obj = 'D:\\build\\Producer.dir\\RelWithDebInfo\\rpp-strview.cppm.obj'
+    run = _strip(_target(tmp_path), listing=f'{obj}\nD:\\build\\Producer.dir\\strview.cpp.obj\n')
+    assert obj in run.call_args[0][0]
+
+
 def test_the_windows_listing_uses_the_lib_list_flag():
-    assert Windows.list_archive_members_cmd(None, 'foo.lib') == ['lib.exe', '/NOLOGO', '/LIST', 'foo.lib']
+    assert _windows(LIB_EXE).list_archive_members_cmd('foo.lib') == [LIB_EXE, '/NOLOGO', '/LIST', 'foo.lib']
+
+
+def test_the_windows_archiver_reads_the_msvc_toolset(tmp_path):
+    # only a developer prompt puts lib.exe on PATH, and a bare name then fails every build that strips
+    bin_dir = f'{tmp_path}/bin/Hostx64/x64/'
+    os.makedirs(bin_dir); open(f'{bin_dir}lib.exe', 'w').close()
+    assert _windows(bin_dir=bin_dir).archiver() == f'{bin_dir}lib.exe'
+
+
+def test_the_windows_archiver_falls_back_to_the_path(tmp_path):
+    # a host toolset dir that holds no lib.exe leaves PATH as the one place left to look
+    assert _windows(bin_dir=f'{tmp_path}/absent/').archiver() == 'lib.exe'
 
 
 def test_the_bare_stem_fallback_stays_off_when_the_target_exports_two_archives(tmp_path):

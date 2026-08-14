@@ -4,11 +4,13 @@ import os
 import re
 import shutil
 from glob import glob
+from types import SimpleNamespace
 
 import pytest
 from testutils import (executable_extension, init, is_windows, mama_exec, module_capable_compiler,
                        MODULE_TEST_MIN_CLANG, native_platform_name, static_library_extension)
 
+from mama.platforms.windows import Windows
 from mama.utils.paths import forward_slashes
 from mama.utils.sub_process import execute_piped
 
@@ -74,7 +76,8 @@ def _members(lib) -> str:
     """The object members of a static library, through the archiver of this platform. It skips when
     that archiver answers nothing, because an empty listing passes a `not in` assert for free."""
     assert os.path.exists(lib), f'no archive at {lib}'
-    cmd = ['lib.exe', '/NOLOGO', '/LIST', lib] if is_windows() else ['ar', 't', lib]
+    # Windows keeps lib.exe off PATH, so it comes from the MSVC toolset, as the production strip reads it
+    cmd = Windows(SimpleNamespace(verbose=False)).list_archive_members_cmd(lib) if is_windows() else ['ar', 't', lib]
     if not shutil.which(cmd[0]): pytest.skip(f'{cmd[0]} is not on PATH')
     listing = execute_piped(cmd, throw=False)
     if not listing: pytest.skip(f'{cmd[0]} listed no member of {lib}')

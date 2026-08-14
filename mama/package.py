@@ -184,15 +184,18 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     exact name wins, so a `foo.o` built from `foo.cpp` never answers for a `foo.cppm` beside it.
     The result keeps every occurrence, because one archive can hold two members of the same name."""
     objects = _archive_members(target, lib)
+    # an archiver lists the full path of a member, so every compare reads the file name alone
+    stems = [(o, os.path.splitext(os.path.basename(forward_slashes(o)))[0]) for o in objects]
     # a bare stem names an unrelated object just as easily, so that fallback needs a target that
     # publishes one archive, where no second archive can hold the object it would delete
     archives = [l for l in target.exported_libs if is_a_static_library(l)]
     names = []
     for module in exported_modules_with_base(target):
         base = os.path.basename(module)
-        hits = [o for o in objects if os.path.splitext(o)[0] == base]
+        hits = [o for o, stem in stems if stem == base]
         if not hits and len(archives) <= 1:
-            hits = [o for o in objects if os.path.splitext(o)[0] == os.path.splitext(base)[0]]
+            bare = os.path.splitext(base)[0]
+            hits = [o for o, stem in stems if stem == bare]
         for h in hits:  # a comprehension cannot see its own additions, so two same-named members slip in
             if h not in names: names.append(h)
     # `ar d` drops one member per name it is given, so a repeated name needs repeating
