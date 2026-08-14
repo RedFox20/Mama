@@ -118,15 +118,17 @@ elseif(CMAKE_GENERATOR MATCHES "Ninja")
         set(MAMA_MODULES_GENERATOR TRUE)
     endif()
 endif()
+# This gate reads the toolchain alone. Each package weighs the compiler VERSION against its own
+# floor, so a package that declares a lower floor enables its modules without lowering the global one.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
-        set(MAMA_MODULES_AVAILABLE TRUE)
-    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})
-        # cmake reads a clang import graph with clang-scan-deps, which a split install may not ship
-        if(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # cmake reads a clang import graph with clang-scan-deps, which a split install may not ship.
+        # The Visual Studio generator scans a module graph with the MSVC toolset alone, never clang-cl.
+        if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio"
+           AND CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
             set(MAMA_MODULES_AVAILABLE TRUE)
         endif()
-    elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${MAMA_MODULES_MIN_MSVC})
+    else()
         set(MAMA_MODULES_AVAILABLE TRUE)
     endif()
 endif()

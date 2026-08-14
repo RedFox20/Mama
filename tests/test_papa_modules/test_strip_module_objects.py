@@ -114,10 +114,37 @@ def test_a_member_name_with_a_space_survives_the_parse(tmp_path):
     assert 'my module.cppm.o' in run.call_args[0][0]
 
 
-def test_an_object_that_drops_the_source_extension_still_matches(tmp_path):
-    # not every build system embeds the module extension in the object name
-    run = _strip(_target(tmp_path), listing='rpp-strview.o\nsprint.cpp.o\n')
-    assert 'rpp-strview.o' in run.call_args[0][0]
+def test_an_object_that_drops_the_module_extension_matches_nothing(tmp_path):
+    # a bare `foo.o` names a foo.cpp build too, and deleting that loses every definition it holds
+    assert not _strip(_target(tmp_path), listing='rpp-strview.o\nsprint.cpp.o\n').called
+
+
+def test_a_child_package_module_leaves_the_intermediary_archive(tmp_path):
+    # a static library that calls mama_target_modules compiles its dependency modules into itself
+    child = make_includes_target(str(tmp_path / 'child'))
+    child.exported_includes = [f'{tmp_path}/child/src']
+    child.exported_modules = [f'{tmp_path}/child/src/rpp/rpp-strview.cppm']
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [SimpleNamespace(target=child)]
+    assert 'rpp-strview.cppm.o' in _strip(target).call_args[0][0]
+
+
+def test_an_archive_that_compiled_no_module_keeps_its_own_path(tmp_path):
+    # every target with a module dependency would otherwise publish a copy it never had to strip
+    lib = f'{tmp_path}/libfoo.a'
+    open(lib, 'w').write('real')
+    target = _target(tmp_path, libs=(lib,))
+    with patch('mama.package.execute_piped_echo', return_value=(0, 'strview.cpp.o\n')), \
+         patch('mama.package.SubProcess.run', return_value=0):
+        package.export_stripped_module_libs(target)
+    assert target.exported_libs == [lib]
+
+
+def test_a_private_module_of_the_same_name_survives(tmp_path):
+    # both members carry the file name, so only the deeper path tells the exported one apart
+    target = _target(tmp_path, modules=('pub/api.cppm',))
+    cmd = _strip(target, listing='src/pub/api.cppm.o\nsrc/private/api.cppm.o\n').call_args[0][0]
+    assert 'src/pub/api.cppm.o' in cmd and 'src/private/api.cppm.o' not in cmd
 
 
 def test_the_exact_object_name_wins_over_the_bare_stem(tmp_path):
@@ -177,10 +204,6 @@ def test_a_recorded_export_whose_archive_is_gone_keeps_its_copy(tmp_path):
     assert target.exported_libs == [f'{tmp_path}/mama-nomodules/libfoo.a']
 
 
-def test_the_bare_stem_fallback_stays_off_when_the_target_exports_two_archives(tmp_path):
-    # a foo.o in a second archive is an ordinary object, and deleting it loses its definitions
-    target = _target(tmp_path, libs=('/pkg/lib/libfoo.a', '/pkg/lib/libbar.a'))
-    assert not _strip(target, listing='rpp-strview.o\nsprint.cpp.o\n').called
 
 
 def test_two_members_of_one_name_are_both_removed(tmp_path):

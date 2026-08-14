@@ -422,6 +422,7 @@ def make_includes_target(source_dir, build_dir=None):
     target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
     target.dep.build_dir = target.build_dir()
     target.dep.variant_suffix = ''        # the papa `O` record appends it
+    target.children.return_value = []     # a Mock is not iterable, and the module strip walks these
     return target
 
 

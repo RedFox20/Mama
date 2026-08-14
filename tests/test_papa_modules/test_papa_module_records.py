@@ -108,6 +108,20 @@ def test_an_m_record_the_archive_does_not_hold_fails_the_upload(tmp_path):
         validate_archive(package, papa, archive)
 
 
+def test_a_casing_variant_of_a_shipped_module_passes_the_upload(tmp_path):
+    # the walk answers the casing on disk, and the M record keeps the casing of the recipe
+    from mama.papa_deploy import PapaFileInfo
+    from mama.papa_upload import validate_archive
+    from mama import package as pkg
+    build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
+    archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    deployed = f'{build}/deploy/libfoo'
+    papa = PapaFileInfo(f'{deployed}/papa.txt')
+    papa.modules = [m.replace('rpp-strview', 'RPP-Strview') for m in papa.modules]
+    with patch.object(pkg.System, 'macos', True):  # a case-insensitive filesystem holds one file
+        validate_archive(deployed, papa, archive)
+
+
 def test_a_private_module_sharing_a_tail_path_with_an_exported_one_stays_out(tmp_path):
     # `private/sub/api.cppm` ends with the same tail as the exported `sub/api.cppm`
     dep = make_mock_dep(tmp_path / 'producer', name='libfoo')

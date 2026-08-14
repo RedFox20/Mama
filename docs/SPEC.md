@@ -865,11 +865,14 @@ a source the archive does not carry. A package written before the `M` record car
 **The packaged static library loses its module objects.** A module interface unit emits a strong
 `initializer for module X` symbol. The consumer compiles the same source, so a whole-archive link of
 an unstripped package finds two definitions. The strip reads the archive members and removes the ones
-named after an exported module. An archiver lists the path it stored, so the match reads the file
-name alone. Both the listing and the removal go through the archiver of the platform, so a platform
-with no `ar` still reads its own archive. That platform resolves the archiver to a full path when the
-host keeps the tool off PATH. The strip runs on the packaged copy alone, so the build artifact stays
-intact and the producer's own binaries link.
+named after a module the target compiled. That list holds the modules of every child package too,
+because a target that calls `mama_target_modules` compiles its dependency modules into its own
+archive. An archiver lists the path it stored, so each module takes the members that share the most
+trailing path components with it. A member that drops the module extension matches nothing, because a
+bare `foo.o` names a `foo.cpp` build just as well. Both the listing and the removal go through the
+archiver of the platform, so a platform with no `ar` still reads its own archive. That platform
+resolves the archiver to a full path when the host keeps the tool off PATH. The strip runs on the
+packaged copy alone, so the build artifact stays intact and the producer's own binaries link.
 `export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
 own module needs. **An exported module must define nothing but its own interface**, because the strip
 removes whole objects. A unit that defines a non-inline function loses it for a consumer on the
@@ -879,12 +882,15 @@ header fallback, so the packaging step warns on every strip.
 links `exported_libs` directly, so the packaging step points it at a copy under `mama-nomodules/`
 that carries the same file name. The original stays where `export_lib` found it, because the binaries
 of that target need those objects. A later run reads that original again, never the copy the run
-before recorded as the export. A fetched package is already stripped and copies nothing.
+before recorded as the export. An archive that compiled no module keeps its own path, and a fetched
+package is already stripped, so both copy nothing.
 
 `export_modules(..., min_gnu=, min_clang=, min_msvc=)` records the least version of one compiler that
-THESE modules need, as one `Q` record per compiler it names. `mama_target_modules` weighs each package
-on its own floor, and falls back to the global `MAMA_MODULES_MIN_*` for a package that declared none.
-A floor BELOW the global one enables nothing on its own, because the global gate answers first.
+THESE modules need, as one `Q` record per compiler it names. Repeated calls keep the strictest floor,
+because one file set carries every call. `MAMA_MODULES_AVAILABLE` reads the toolchain alone: the cmake
+version, the generator, and the scanner. So a package floor BELOW the global `MAMA_MODULES_MIN_*`
+enables that package on its own. `mama_target_modules` weighs each package against its own floor, and
+falls back to the global one for a package that declared none. An empty floor refuses.
 `MAMA_HAS_MODULES` is one define for the whole consumer target, so one package this compiler refuses
 turns the modules off for every package, and each one keeps its own headers.
 

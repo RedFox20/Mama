@@ -75,6 +75,20 @@ so cut every word that a reader of the fix does not need.
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
 
+- **A package floor below the global one enabled nothing.** The global gate weighed the compiler
+  version first. Fix: that gate reads the toolchain alone, and each package weighs its own floor.
+
+- **The module strip deleted an object no exported module named.** A bare name matched a private
+  module and a `foo.cpp` build alike. Fix: each module takes the members that share the most path.
+
+- **An intermediary archive kept the module objects of its child packages.** Fix: the strip reads the
+  modules of every child too, and an archive that compiled none keeps its own path.
+
+- **A second `export_modules()` call lowered the floor of the first.** Fix: the strictest floor wins.
+
+- **A casing variant dropped a module on macOS.** The path compare merged case on Windows alone.
+  Fix: `match_path` follows the filesystem, and the upload validation reads it too.
+
 - **The second build published the archive of the first one.** The strip read its own recorded copy,
   which nested one dir per run. Fix: it reads the archive the build wrote.
 

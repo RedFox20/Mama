@@ -62,6 +62,25 @@ def test_one_opt_out_keeps_the_module_objects_whatever_a_later_call_passes(tmp_p
     assert target.strip_module_objects is False
 
 
+def test_the_strictest_floor_of_every_call_wins(tmp_path):
+    # one file set carries both modules, so the older floor would compile the newer module too
+    target = _target(tmp_path)
+    target.module_min_compilers = {}
+    from mama.build_target import BuildTarget
+    BuildTarget.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], min_clang='21', min_gnu='14')
+    BuildTarget.export_modules(target, 'src/rpp', ['rpp-debugging.ixx'], min_clang='16')
+    assert target.module_min_compilers == {'CLANG': '21', 'GNU': '14'}
+
+
+def test_a_macos_casing_variant_still_finds_its_include_dir(tmp_path):
+    # one dir on a case-insensitive filesystem, so export_include('Src') holds a module under 'src'
+    target = _target(tmp_path)
+    package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
+    target.exported_includes = [normalized_join(str(tmp_path), 'Src/Rpp')]
+    with patch.object(package.System, 'macos', True):
+        assert package.module_base_dir(target, target.exported_modules[0])
+
+
 def test_module_base_dir_picks_the_longest_matching_export(tmp_path):
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)

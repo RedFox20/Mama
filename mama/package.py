@@ -136,7 +136,7 @@ def match_path(path: str) -> str:
     """The spelling that compares two paths: forward slashes, and one case where the filesystem
     ignores case. A raw compare drops a module whose export named the same dir another way."""
     fwd = forward_slashes(path)
-    return fwd.lower() if System.windows else fwd
+    return fwd.lower() if System.windows or System.macos else fwd
 
 
 def module_base_dir(target: BuildTarget, module: str) -> str:
@@ -169,6 +169,16 @@ def exported_modules_with_base(target: BuildTarget) -> list:
     return [m for m in target.exported_modules if module_base_dir(target, m)]
 
 
+def consumed_modules(target: BuildTarget) -> list:
+    """Every module whose object this archive can hold: the ones this target exports, and the ones
+    each child package exports. A target that calls `mama_target_modules` compiles the modules of its
+    dependencies into itself, and a consumer of both then defines each initializer twice."""
+    modules = list(exported_modules_with_base(target))
+    for child in target.children():
+        modules += exported_modules_with_base(child.target)
+    return modules
+
+
 def _archive_members(target: BuildTarget, lib: str) -> list:
     """The object members of `lib`, one per line, through the archiver of this platform.
     A failed listing raises, because treating it as an empty archive publishes the module objects."""
@@ -181,34 +191,39 @@ def _archive_members(target: BuildTarget, lib: str) -> list:
             if os.path.splitext(m)[1] in ('.o', '.obj')]
 
 
+def _shared_tail(a: list, b: list) -> int:
+    """The number of trailing path components two split paths share."""
+    n = 0
+    while n < len(a) and n < len(b) and a[-1 - n] == b[-1 - n]: n += 1
+    return n
+
+
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
-    A build system names the object after the source, with or without the module extension. The
-    exact name wins, so a `foo.o` built from `foo.cpp` never answers for a `foo.cppm` beside it.
+
+    A build system names the object after the source and keeps the module extension, so the name
+    carries it. Each module takes the members that share the most trailing path components with it.
+    That answer drops an exported `pub/api.cppm` for the private `api.cppm` beside it, and it drops a
+    bare `foo.o`, which names a `foo.cpp` build just as well as a `foo.cppm` one.
     The result keeps every occurrence, because one archive can hold two members of the same name."""
     objects = _archive_members(target, lib)
-    # an archiver lists the full path of a member, so every compare reads the file name alone
-    stems = [(o, os.path.splitext(os.path.basename(forward_slashes(o)))[0]) for o in objects]
-    # a bare stem names an unrelated object just as easily, so that fallback needs a target that
-    # publishes one archive, where no second archive can hold the object it would delete
-    archives = [l for l in target.exported_libs if is_a_static_library(l)]
+    # an archiver lists the path it stored, and the compare walks that path from its end
+    parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
     names = []
-    for module in exported_modules_with_base(target):
-        base = os.path.basename(module)
-        hits = [o for o, stem in stems if stem == base]
-        if not hits and len(archives) <= 1:
-            bare = os.path.splitext(base)[0]
-            hits = [o for o, stem in stems if stem == bare]
-        for h in hits:  # a comprehension cannot see its own additions, so two same-named members slip in
-            if h not in names: names.append(h)
+    for module in consumed_modules(target):
+        module_parts = match_path(module).split('/')
+        scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
+        best = max((n for _, n in scored), default=0)
+        for o, n in scored:
+            if n and n == best and o not in names: names.append(o)
     # `ar d` drops one member per name it is given, so a repeated name needs repeating
     return [n for n in names for _ in range(objects.count(n))]
 
 
 def strips_module_objects(target: BuildTarget, lib: str) -> bool:
-    """True when this lib loses its module objects on the way into a package."""
-    return bool(target.strip_module_objects and exported_modules_with_base(target)
-                and is_a_static_library(lib))
+    """True when this lib can lose module objects on the way into a package. The archive decides the
+    rest: a target that compiled no module interface into it keeps the archive the build wrote."""
+    return bool(target.strip_module_objects and is_a_static_library(lib) and consumed_modules(target))
 
 
 def _unstripped_lib(lib: str) -> str:
@@ -223,18 +238,32 @@ def export_stripped_module_libs(target: BuildTarget):
 
     A consumer that builds this target from source links `exported_libs` directly, and the build dir
     archive must keep those objects for the binaries of this target. The copy keeps the file name, so
-    only the directory differs. A fetched package is already stripped, so it copies nothing."""
+    only the directory differs. An archive that holds no module object keeps its own path, and a
+    fetched package is already stripped, so both copy nothing."""
     if target.dep.from_artifactory: return
     for i, lib in enumerate(target.exported_libs):
         if not isinstance(lib, str) or not strips_module_objects(target, lib): continue
         # read the archive this build wrote, never the copy an earlier run recorded as the export
         src = _unstripped_lib(lib)
         if not os.path.exists(src): continue
+        members = _module_object_members(target, src)
+        if not members: continue
         out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
         os.makedirs(os.path.dirname(out), exist_ok=True)
         copy_if_needed(src, out)
-        strip_module_objects(target, out)
+        _remove_members(target, out, members)  # the copy holds what the listing of `src` named
         target.exported_libs[i] = out
+
+
+def _remove_members(target: BuildTarget, lib: str, members: list):
+    """Removes the named object members from a static library."""
+    # the arg list stays a list, because SubProcess splits a joined string on every space
+    status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
+    if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
+    # Always warn: this removes whole objects, so a module unit that defines a non-inline function
+    # loses that definition for a consumer whose toolchain builds no module.
+    warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}. ' + \
+            'An exported module must define nothing but its own interface.')
 
 
 def strip_module_objects(target: BuildTarget, lib: str):
@@ -245,14 +274,7 @@ def strip_module_objects(target: BuildTarget, lib: str):
     supplies that symbol, so the package does not need it."""
     if not strips_module_objects(target, lib): return
     members = _module_object_members(target, lib)
-    if not members: return
-    # the arg list stays a list, because SubProcess splits a joined string on every space
-    status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
-    if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
-    # Always warn: this removes whole objects, so a module unit that defines a non-inline function
-    # loses that definition for a consumer whose toolchain builds no module.
-    warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}. ' + \
-            'An exported module must define nothing but its own interface.')
+    if members: _remove_members(target, lib, members)
 
 
 def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):

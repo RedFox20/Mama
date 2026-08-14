@@ -20,6 +20,7 @@ from . import build_names
 import mama.buildsys.msbuild as msbuild
 from .utils.fileio import copy_if_needed, read_text_from
 from .utils.errors import BuildError
+from .utils.versions import version_at_least
 from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_and_unzip, download_file
 from .utils.paths import glob_with_extensions, normalized_join, path_join
 from .utils.progress import get_time_str
@@ -650,6 +651,7 @@ class BuildTarget:
           applies to the whole target, and one False keeps the objects whatever a later call passes.
         - min_gnu, min_clang, min_msvc: [''] the least compiler version that builds THESE modules.
           A consumer skips this package alone when its compiler is older, and keeps the headers.
+          The package ships every call's modules together, so the strictest floor of the target wins.
 
         **An exported module must define nothing but its own interface.** The strip removes whole
         objects, so a module unit that defines a non-inline function loses that definition, and a
@@ -659,7 +661,9 @@ class BuildTarget:
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False
         for name, least in (('GNU', min_gnu), ('CLANG', min_clang), ('MSVC', min_msvc)):
-            if least: self.module_min_compilers[name] = str(least)
+            # one file set carries every call, so the older floor cannot answer for the newer module
+            if least and version_at_least(str(least), self.module_min_compilers.get(name, '0')):
+                self.module_min_compilers[name] = str(least)
         return package.export_modules(self, module_path, modules, build_dir=build_dir)
 
 

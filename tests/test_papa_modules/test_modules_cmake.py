@@ -11,14 +11,24 @@ from mama.utils.sub_process import execute_piped_echo
 
 
 # Reads the floor of one package the way the helper does, with no compiler and no target.
+# The caller names the compiler through -D, so one probe covers every floor case.
 _PROBE = '''cmake_minimum_required(VERSION 3.20)
 project(T NONE)
 include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)
-set(CMAKE_CXX_COMPILER_ID GNU)
-set(CMAKE_CXX_COMPILER_VERSION 14)
 _mama_package_modules_ok(Producer ok)
 message(STATUS "MAMA_PROBE ok=${ok}")
 '''
+
+
+def _probe_floor(tmp_path, *defines) -> str:
+    """The output of a real cmake run over the generated helper. Skips when cmake or ninja is absent."""
+    if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
+    (tmp_path / 'mama.cmake').write_text(_text())
+    (tmp_path / 'CMakeLists.txt').write_text(_PROBE)
+    status, out = execute_piped_echo(None, ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build',
+                                            *defines, str(tmp_path)], echo=False)
+    assert status == 0, out
+    return out
 
 
 def _text() -> str:
@@ -149,11 +159,23 @@ def test_a_package_that_fails_its_floor_keeps_every_header():
 
 def test_an_empty_compiler_floor_refuses_instead_of_breaking_the_configure(tmp_path):
     # real cmake, because a text assert cannot see an `if` whose right operand expanded to nothing
-    if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
-    (tmp_path / 'mama.cmake').write_text(_text())
-    (tmp_path / 'CMakeLists.txt').write_text(_PROBE)
-    cmd = ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build', '-DMAMA_MODULES_MIN_GNU=',
-           '-DProducer_MODULES_MIN_GNU=', str(tmp_path)]
-    status, out = execute_piped_echo(None, cmd, echo=False)
-    assert status == 0, out
+    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=GNU', '-DCMAKE_CXX_COMPILER_VERSION=14',
+                       '-DMAMA_MODULES_MIN_GNU=', '-DProducer_MODULES_MIN_GNU=')
     assert 'MAMA_PROBE ok=FALSE' in out  # an empty floor refuses, a quoted one would pass every compiler
+
+
+def test_a_package_floor_below_the_global_one_enables_that_package(tmp_path):
+    # the global gate reads the toolchain alone, so a declared floor no longer needs a lower global one
+    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18',
+                       '-DProducer_MODULES_MIN_CLANG=16')
+    assert 'MAMA_PROBE ok=TRUE' in out
+
+
+def test_a_package_that_declares_no_floor_reads_the_global_one(tmp_path):
+    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18')
+    assert 'MAMA_PROBE ok=FALSE' in out  # the global Clang floor is 21
+
+
+def test_the_visual_studio_generator_refuses_a_clang_toolset():
+    # cmake scans a module graph under that generator with the MSVC toolset alone, never with clang-cl
+    assert 'NOT CMAKE_GENERATOR MATCHES "^Visual Studio"' in _text()
