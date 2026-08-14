@@ -133,15 +133,16 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
-    module_sfx = package.module_suffixes(m for _, m in modules)
+    module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
     module_paths = _module_paths(modules)
-    suffixes = tuple(target.include_glob_filter)
+    suffixes = tuple(package.match_path(s) for s in target.include_glob_filter)
     stems = _header_stems(includes, suffixes + module_sfx)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
 
     def is_header(path:str) -> bool:
         nonlocal shipped
-        name = os.path.basename(path)
+        # the recipe and the filesystem can spell one name two ways, so the suffix reads the same rule
+        name = package.match_path(os.path.basename(path))
         # a module source ships only when export_modules named it, so a private one beside it stays out
         if name.endswith(module_sfx) and not name.endswith(suffixes):
             header = package.match_path(path) in module_paths

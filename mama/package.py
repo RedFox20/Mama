@@ -191,7 +191,7 @@ def _archive_members(target: BuildTarget, lib: str) -> list:
         raise BuildError(f'Failed to list {lib} with {cmd[0]}. The module objects cannot be removed.')
     # one member per line, so a module file name that holds a space survives the parse
     return [m for m in (ln.strip() for ln in listing.splitlines())
-            if os.path.splitext(m)[1] in ('.o', '.obj')]
+            if os.path.splitext(m)[1].lower() in ('.o', '.obj')]
 
 
 def _shared_tail(a: list, b: list) -> int:
@@ -241,7 +241,17 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
 def strips_module_objects(target: BuildTarget, lib: str) -> bool:
     """True when this lib can lose module objects on the way into a package. The archive decides the
     rest: a target that compiled no module interface into it keeps the archive the build wrote."""
-    return bool(target.strip_module_objects and is_a_static_library(lib) and consumed_modules(target))
+    return bool(target.strip_module_objects and is_a_static_library(lib)
+                and not is_a_thin_archive(lib) and consumed_modules(target))
+
+
+def is_a_thin_archive(lib: str) -> bool:
+    """True for a GNU thin archive, which names each member by a path instead of holding it.
+    A copy of one resolves every path against its new dir, so the members are gone."""
+    try:
+        with open(lib, 'rb') as f: return f.read(8) == b'!<thin>\n'
+    except OSError:
+        return False
 
 
 def _unstripped_lib(lib: str) -> str:
@@ -258,12 +268,17 @@ def export_stripped_module_libs(target: BuildTarget):
     archive must keep those objects for the binaries of this target. The copy keeps the file name, so
     only the directory differs. An archive that holds no module object keeps its own path, and a
     fetched package is already stripped, so both copy nothing."""
-    if target.dep.from_artifactory: return
+    if target.dep.from_artifactory or not target.strip_module_objects: return
+    if not consumed_modules(target): return
     for i, lib in enumerate(target.exported_libs):
-        if not isinstance(lib, str) or not strips_module_objects(target, lib): continue
+        if not isinstance(lib, str) or not is_a_static_library(lib): continue
         # read the archive this build wrote, never the copy an earlier run recorded as the export
         src = _unstripped_lib(lib)
         if not os.path.exists(src): continue
+        if is_a_thin_archive(src):
+            warning(f'  {os.path.basename(src)} is a thin archive, so its module objects stay. ' + \
+                    'A thin archive names each member by a path, and a copy breaks every one.')
+            continue
         members = _module_object_members(target, src)
         if not members: continue
         out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))

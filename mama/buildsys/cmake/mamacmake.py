@@ -107,13 +107,10 @@ if(CMAKE_GENERATOR MATCHES "^Visual Studio ([0-9]+)")
         set(MAMA_MODULES_GENERATOR TRUE)
     endif()
 elseif(CMAKE_GENERATOR MATCHES "Ninja")
-    # a Ninja generator writes a dyndep file, and only ninja 1.11 and newer read one.
-    # the cache entry keeps the probe at one spawn per build dir, never one per configure.
-    if(NOT DEFINED MAMA_NINJA_VERSION)
-        execute_process(COMMAND "${CMAKE_MAKE_PROGRAM}" --version ERROR_QUIET
-                        OUTPUT_VARIABLE MAMA_NINJA_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
-        set(MAMA_NINJA_VERSION "${MAMA_NINJA_VERSION}" CACHE INTERNAL "ninja version, probed once")
-    endif()
+    # a Ninja generator writes a dyndep file, and only ninja 1.11 and newer read one. The probe runs
+    # on every configure, because a cached version outlives the executable that answered it.
+    execute_process(COMMAND "${CMAKE_MAKE_PROGRAM}" --version ERROR_QUIET
+                    OUTPUT_VARIABLE MAMA_NINJA_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
     if(MAMA_NINJA_VERSION AND NOT MAMA_NINJA_VERSION VERSION_LESS 1.11)
         set(MAMA_MODULES_GENERATOR TRUE)
     endif()

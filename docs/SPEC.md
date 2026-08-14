@@ -872,8 +872,10 @@ trailing path components with it. MSVC drops the module extension from the objec
 that shares no component falls back to its bare name. A non-module source of that name in the target
 makes the name ambiguous, and that member stays. Both the listing and the removal go through the
 archiver of the platform, so a platform with no `ar` still reads its own archive. That platform
-resolves the archiver to a full path when the host keeps the tool off PATH. The strip runs on the
-packaged copy alone, so the build artifact stays intact and the producer's own binaries link.
+resolves the archiver to a full path when the host keeps the tool off PATH. A GNU thin archive keeps
+its module objects and says so, because it names each member by a path and a copy breaks every one.
+The strip runs on the packaged copy alone, so the build artifact stays intact and the producer's own
+binaries link.
 `export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
 own module needs. **An exported module must define nothing but its own interface**, because the strip
 removes whole objects. A unit that defines a non-inline function loses it for a consumer on the

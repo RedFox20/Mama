@@ -2,7 +2,7 @@
 import shutil
 
 import pytest
-from testutils import make_includes_dep, make_includes_target
+from testutils import is_windows, make_includes_dep, make_includes_target
 
 from mama.buildsys.cmake.mamacmake import mama_cmake_text
 from mama.dependency_chain import _get_dependency_cmake_defines
@@ -17,6 +17,14 @@ project(T NONE)
 include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)
 _mama_package_modules_ok(Producer ok)
 message(STATUS "MAMA_PROBE ok=${ok}")
+'''
+
+
+# Reports the generator verdict, which the ninja version decides.
+_NINJA_PROBE = '''cmake_minimum_required(VERSION 3.20)
+project(T NONE)
+include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)
+message(STATUS "MAMA_PROBE generator=${MAMA_MODULES_GENERATOR}")
 '''
 
 
@@ -61,7 +69,7 @@ def test_the_guard_names_every_toolchain_requirement():
     text = _text()
     for needle in ['VERSION_GREATER_EQUAL 3.28', 'MATCHES "^Visual Studio ([0-9]+)"', 'MATCHES "Ninja"',
                    'MAMA_NINJA_VERSION VERSION_LESS 1.11',  # a dyndep file needs ninja 1.11
-                   'if(NOT DEFINED MAMA_NINJA_VERSION)',    # one spawn per build dir, not per configure
+                   'COMMAND "${CMAKE_MAKE_PROGRAM}" --version',  # a cached version outlives its ninja
                    'CMAKE_MATCH_1 GREATER_EQUAL 17',  # cmake scans modules for VS 2022 and newer only
                    'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 21', 'MAMA_MODULES_MIN_MSVC  1934']:
         assert needle in text
@@ -174,6 +182,25 @@ def test_a_package_floor_below_the_global_one_enables_that_package(tmp_path):
 def test_a_package_that_declares_no_floor_reads_the_global_one(tmp_path):
     out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18')
     assert 'MAMA_PROBE ok=FALSE' in out  # the global Clang floor is 21
+
+
+def test_a_replaced_ninja_probes_again(tmp_path):
+    # the cached version outlived the executable it came from, so an upgrade never reached the guard
+    if is_windows() or not shutil.which('cmake'): pytest.skip('needs a POSIX host with cmake')
+    ninja = tmp_path / 'ninja'
+    (tmp_path / 'mama.cmake').write_text(_text())
+    (tmp_path / 'CMakeLists.txt').write_text(_NINJA_PROBE)
+
+    def configure(version) -> str:
+        ninja.write_text(f'#!/bin/sh\necho {version}\n')
+        ninja.chmod(0o755)
+        status, out = execute_piped_echo(None, ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build',
+                                                f'-DCMAKE_MAKE_PROGRAM={ninja}', str(tmp_path)], echo=False)
+        assert status == 0, out
+        return out
+
+    assert 'MAMA_PROBE generator=FALSE' in configure('1.10.2')
+    assert 'MAMA_PROBE generator=TRUE' in configure('1.11.1')  # same build dir, upgraded ninja
 
 
 def test_the_visual_studio_generator_refuses_a_clang_toolset():

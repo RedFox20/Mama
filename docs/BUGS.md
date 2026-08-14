@@ -75,6 +75,15 @@ so cut every word that a reader of the fix does not need.
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
 
+- **The module strip could not find the archiver of the Android NDK.** That toolchain names no tool
+  prefix, so it asked for a bare `ar`. Fix: Android answers with the `llvm-ar` of its NDK.
+
+- **A copy of a thin archive lost every member.** Such an archive names each member by a path. Fix:
+  the strip keeps a thin archive as it is, and says so.
+
+- **A cached ninja version outlived the executable that answered it.** An upgrade never reached the
+  guard. Fix: the probe runs on every configure.
+
 - **A package floor below the global one enabled nothing.** The global gate weighed the compiler
   version first. Fix: that gate reads the toolchain alone, and each package weighs its own floor.
 

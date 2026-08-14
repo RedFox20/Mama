@@ -137,6 +137,17 @@ def test_a_child_package_module_leaves_the_intermediary_archive(tmp_path):
     assert 'rpp-strview.cppm.o' in _strip(target).call_args[0][0]
 
 
+def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path):
+    # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
+    lib = f'{tmp_path}/libfoo.a'
+    open(lib, 'wb').write(b'!<thin>\n//   ')
+    target = _target(tmp_path, libs=(lib,))
+    with patch('mama.package.warning') as warned:
+        _export_stripped(target)
+    assert target.exported_libs == [lib]
+    assert 'thin archive' in warned.call_args[0][0]
+
+
 def test_an_archive_that_compiled_no_module_keeps_its_own_path(tmp_path):
     # every target with a module dependency would otherwise publish a copy it never had to strip
     lib = f'{tmp_path}/libfoo.a'
