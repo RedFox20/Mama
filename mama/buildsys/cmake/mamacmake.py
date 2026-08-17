@@ -108,7 +108,8 @@ set(MAMA_LIBS "")
 
 # Set MAMA_INCLUDES and MAMA_LIBS for each platform
 {platform_chain(build_dir_defines)}
-# Overrides linkage on MSVC to non-debug run-time library (TODO: make this configurable)
+# The release CRT on MSVC, for a project that holds policy CMP0091 at OLD. Mama passes one runtime
+# library for the whole tree, so this rewrite never has to ask which one.
 if(MSVC)
     add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)
     foreach(MODE "_DEBUG" "_MINSIZEREL" "_RELEASE" "_RELWITHDEBINFO")

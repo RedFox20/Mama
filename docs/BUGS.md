@@ -40,6 +40,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
+  the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
+
 - **A Windows abort left a grandchild running.** The tree sweep walked from a child that had already
   exited. Fix: read the descendant pids before the signal, and kill each orphan after it.
 

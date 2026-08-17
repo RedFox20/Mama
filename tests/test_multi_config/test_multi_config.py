@@ -1,14 +1,7 @@
 """Pins the configuration set a multi-config generator gets on the cmake command line."""
-from unittest.mock import patch
 import pytest
 
-from testutils import make_configured_target, run_config_capturing
-
-
-def _configure_cmd(tmp_path, generator, **cfg) -> str:
-    t, dep = make_configured_target(tmp_path, **cfg)
-    with patch('mama.buildsys.cmake.configure._generator', return_value=generator):
-        return run_config_capturing(t, dep)[0]
+from testutils import configure_cmd as _configure_cmd
 
 
 @pytest.mark.parametrize('generator, multi', [

@@ -14,7 +14,12 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Planned
 
-None.
+- **On MSVC, build a dependency in the configuration of the root.** `BuildTarget.cmake_build_type` gives
+  every dependency `Debug` when the run is debug, and a root mamafile commonly picks `RelWithDebInfo`.
+  On MSVC the configuration name also picks the artifact name, so a dependency that sets
+  `CMAKE_DEBUG_POSTFIX` produces `<name>_d.dll` and the consumer stages nothing. Shape: let the root
+  publish its `cmake_build_type` and have an MSVC dependency inherit it, or export a configuration-aware
+  product name. The CRT half of the same split is already fixed on the configure command line.
 
 ## Implemented
 
