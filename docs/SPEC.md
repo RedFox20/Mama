@@ -641,9 +641,9 @@ loses it, because mama appends its own after `cmake_opts` and the last `-D` on t
 mamafile that names a different CRT gets a warning. The same CRT is only redundant, so it stays quiet.
 
 **Why:** one CRT and one iterator level across the tree is what lets a Debug root link Release
-dependencies, so a big app stays debuggable and still runs fast enough to profile. A target that
-diverged would fail the link with `LNK2038`, or, across a DLL boundary where no linker compares the
-two, free a pointer on the wrong heap. CMP0091, NEW since cmake 3.15, moved the runtime library out of
+dependencies. A big app then stays debuggable and still runs fast enough to profile. A target that
+diverged would fail the link with `LNK2038`. Across a DLL boundary, where no linker compares the two,
+it would free a pointer on the wrong heap. CMP0091, NEW since cmake 3.15, moved the runtime library out of
 `CMAKE_<LANG>_FLAGS_<CONFIG>`, which is what the `mama.cmake` rewrite reads. A project that holds the
 policy at OLD reads no runtime library at all, so the rewrite is what reaches it. A third-party project
 includes no `mama.cmake` at all, so the command line is the one route that reaches both.
