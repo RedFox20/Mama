@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
 from mama.utils.errors import BuildError
-from testutils import make_mock_local_dep
+from testutils import make_mock_local_dep, write_files
 
 _MAMAFILE = 'import mama\nclass Gated(mama.BuildTarget):\n    pass\n'
 
@@ -89,6 +89,28 @@ def test_a_proxy_already_on_disk_survives(tmp_path):
     dc._save_cmake_files(dep)
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_an_uppercase_include_gets_the_proxy(tmp_path):
+    # every cmake command name is case-insensitive, so INCLUDE(mama.cmake) is the same command
+    assert dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), 'INCLUDE(Mama.cmake)\n'))
+
+
+def test_a_locale_encoded_cmakelists_reads_without_ending_the_run(tmp_path):
+    # cmake configures an 8-bit-clean file, so a Latin-1 comment must not raise UnicodeDecodeError
+    dep = _dep(tmp_path, 'leaf')
+    open(dep.cmakelists_path(), 'wb').write('# caf\xe9\ninclude(mama.cmake)\n'.encode('latin-1'))
+    assert dc._needs_mama_cmake(dep)
+
+
+def test_a_nested_cmakelists_gets_the_proxy_beside_it(tmp_path):
+    # cmake configures the dir of the CMakeLists.txt, and a bare include resolves against that dir
+    dep = _dep(tmp_path, 'leaf')
+    dep.target.cmake_lists_path = 'cmake/CMakeLists.txt'
+    write_files(dep.src_dir, {'cmake/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/cmake/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
 def test_a_missing_proxy_the_cmakelists_includes_names_the_dep(tmp_path):

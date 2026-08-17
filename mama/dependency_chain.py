@@ -304,7 +304,7 @@ def _needs_mama_cmake(dep: BuildDependency) -> bool:
 def _check_mama_cmake_present(dep: BuildDependency):
     """A CMakeLists.txt that includes the proxy must find one. Without this check cmake reports a
     missing header of an unrelated project minutes later, and never names mama."""
-    if not _cmakelists_wants_proxy(dep) or os.path.exists(f'{dep.src_dir}/mama.cmake'): return
+    if not _cmakelists_wants_proxy(dep) or os.path.exists(dep.mama_cmake_path()): return
     raise BuildError(f'{dep.name}: {dep.cmakelists_path()} includes mama.cmake, and mama wrote none.' + \
                      ' Every MAMA_ variable would expand to an empty string.')
 
@@ -460,8 +460,8 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 
 
 def _save_mama_cmake(root: BuildDependency):
-    """The `mysource/mama.cmake` proxy. Generated from the platform registry, so it cannot
-    drift from the build dir names that BuildConfig itself uses."""
+    """The `mysource/mama.cmake` proxy, beside the CMakeLists.txt that cmake configures. Generated from
+    the platform registry, so it cannot drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
 
     def build_dir_defines(build_dir):
@@ -469,7 +469,7 @@ def _save_mama_cmake(root: BuildDependency):
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(f'{root.src_dir}/mama.cmake', mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(root.mama_cmake_path(), mama_cmake_text(build_dir_defines))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):

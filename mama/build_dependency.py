@@ -809,12 +809,25 @@ class BuildDependency:
         return os.path.exists(self.cmakelists_path())
 
 
+    def cmake_source_dir(self):
+        """The dir cmake configures, which holds the CMakeLists.txt of this dep. A bare
+        `include(mama.cmake)` resolves against this dir, so the proxy belongs in it."""
+        return os.path.dirname(self.cmakelists_path()) or self.src_dir
+
+
+    def mama_cmake_path(self):
+        return normalized_join(self.cmake_source_dir(), 'mama.cmake')
+
+
     def cmakelists_includes_mama_cmake(self):
         """True when the CMakeLists.txt of this dep includes the `mama.cmake` proxy. A `#` comment line
-        does not count. The answer is cached, because every save of the cmake files reads it."""
+        does not count. The answer is cached, because every save of the cmake files reads it.
+        A cmake command name is case-insensitive, so the match lowercases the line first."""
         if self._includes_mama_cmake is None:
-            lines = read_lines_from(self.cmakelists_path())
-            self._includes_mama_cmake = any(l.lstrip().startswith('include') and 'mama.cmake' in l for l in lines)
+            # 'replace': cmake reads an 8-bit-clean file, so a locale-encoded comment must not end the run
+            lines = read_lines_from(self.cmakelists_path(), errors='replace')
+            lowered = (l.lstrip().lower() for l in lines)
+            self._includes_mama_cmake = any(l.startswith('include') and 'mama.cmake' in l for l in lowered)
         return self._includes_mama_cmake
 
 
