@@ -59,7 +59,6 @@ def test_a_skipped_proxy_still_leaves_the_dependency_exports(tmp_path):
 
 def _includes_proxy(dep, line='include(mama.cmake)\n'):
     open(dep.cmakelists_path(), 'w').write(f'project(Test)\n{line}')
-    dep._includes_mama_cmake = None  # the answer is cached, and this test writes the file after load
     return dep
 
 
@@ -111,6 +110,70 @@ def test_a_nested_cmakelists_gets_the_proxy_beside_it(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/cmake/mama.cmake')
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_an_include_split_over_two_lines_gets_the_proxy(tmp_path):
+    # a cmake command takes whitespace-separated arguments, so a newline inside the parens is valid
+    assert dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), 'include(\n  mama.cmake)\n'))
+
+
+def test_a_trailing_comment_that_names_the_proxy_gets_none(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include(other.cmake) # not mama.cmake\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_a_bracket_comment_that_names_the_proxy_gets_none(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), '#[[\ninclude(mama.cmake)\n]]\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_an_equals_bracket_comment_that_names_the_proxy_gets_none(tmp_path):
+    # a cmake bracket comment takes any number of equals signs between its brackets
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), '#[==[\ninclude(mama.cmake)\n]==]\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_an_env_variable_keeps_the_default_location(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("$ENV{MY_DIR}/mama.cmake")\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_rewritten_cmakelists_rereads_at_the_same_path(tmp_path):
+    # a configure() hook can rewrite the file in place, so the cached answer keys on the write time too
+    dep = _dep(tmp_path, 'leaf')
+    assert not dep.cmakelists_includes_mama_cmake()
+    _includes_proxy(dep)
+    os.utime(dep.cmakelists_path(), (2_000_000_000, 2_000_000_000))  # pin a distinct write time
+    assert dep.cmakelists_includes_mama_cmake()
+
+
+def test_the_proxy_follows_the_path_the_include_names(tmp_path):
+    # a nested CMakeLists.txt can ask for the proxy of the dir above it
+    dep = _dep(tmp_path, 'leaf')
+    dep.target.cmake_lists_path = 'cmake/CMakeLists.txt'
+    write_files(dep.src_dir, {'cmake/CMakeLists.txt': 'include("${CMAKE_CURRENT_LIST_DIR}/../mama.cmake")\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/cmake/mama.cmake')
+
+
+def test_a_variable_mama_cannot_expand_keeps_the_default_location(tmp_path):
+    # an unknown variable must not invent a path, and the guard must not fail a run over it
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("${MY_DIR}/mama.cmake")\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_configure_hook_that_moves_the_cmakelists_still_gets_a_proxy(tmp_path):
+    # _save_cmake_files runs before configure(), so the cmake configure step writes the proxy again
+    dep = _dep(tmp_path, 'leaf')
+    dc._save_cmake_files(dep)
+    dep.target.cmake_lists_path = 'cmake/CMakeLists.txt'
+    write_files(dep.src_dir, {'cmake/CMakeLists.txt': 'include(mama.cmake)\n'})
+    with patch('mama.build_target.cmake.inject_env'), patch('mama.build_target.cmake.run_config'):
+        dep.target._cmake_configure_step()
+    assert os.path.exists(f'{dep.src_dir}/cmake/mama.cmake')
 
 
 def test_a_missing_proxy_the_cmakelists_includes_names_the_dep(tmp_path):

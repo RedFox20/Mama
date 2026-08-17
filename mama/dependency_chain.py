@@ -309,12 +309,18 @@ def _check_mama_cmake_present(dep: BuildDependency):
                      ' Every MAMA_ variable would expand to an empty string.')
 
 
+def ensure_mama_cmake(dep: BuildDependency):
+    """Write the `mama.cmake` proxy when this dep needs one, then check that one exists. The `configure()`
+    hook can move `cmake_lists_path`, so the cmake configure step calls this again before it reads it."""
+    if _needs_mama_cmake(dep): _save_mama_cmake(dep)
+    _check_mama_cmake_present(dep)
+
+
 def _save_cmake_files(root: BuildDependency):
-    """`<build_dir>/mama-dependencies.cmake` for every dep, and the `<src_dir>/mama.cmake` proxy that
-    references it only for a dep that can include it."""
+    """`<build_dir>/mama-dependencies.cmake` for every dep, and the `mama.cmake` proxy that references
+    it only for a dep that can include it."""
     _save_dependencies_cmake(root)
-    if _needs_mama_cmake(root): _save_mama_cmake(root)
-    _check_mama_cmake_present(root)
+    ensure_mama_cmake(root)
 
 
 def _get_compile_commands_path(dep: BuildDependency):

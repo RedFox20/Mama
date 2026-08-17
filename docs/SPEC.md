@@ -107,19 +107,26 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 `<build_dir>/mama-dependencies.cmake` names every include dir and lib that this dep and the deps below
 it export, and mama writes one for every dep that has a build dir. `mama.cmake` is the proxy a
 consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them, then
-includes that build dir's `mama-dependencies.cmake`. **It sits beside the `CMakeLists.txt` that cmake
-configures.** That dir is `<src_dir>` for the default `cmake_lists_path`, and the dir of the named file
-when a mamafile points `cmake_lists_path` at a nested or an absolute one. A bare `include(mama.cmake)`
-resolves against that dir.
+includes that build dir's `mama-dependencies.cmake`. **It goes to the path the `include()` names.** Mama
+resolves that path against the dir cmake configures, which is `<src_dir>` for the default
+`cmake_lists_path`, and the dir of the named file when a mamafile points `cmake_lists_path` at a nested
+or an absolute one. Mama expands `CMAKE_CURRENT_LIST_DIR`, `CMAKE_CURRENT_SOURCE_DIR`,
+`CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` to that dir. An argument that still holds a `$` after that
+names a form mama does not expand, and it keeps the default `mama.cmake` beside the `CMakeLists.txt`.
 
-**A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** A
-`CMakeLists.txt` that holds a line starting with `include` and naming `mama.cmake` always gets one,
-whatever the shape of the dep. The match reads the line lowercased, because a cmake command name is
-case-insensitive. A `#` comment line does not count. Any other dep needs a source dir, children, a
-mamafile and a `CMakeLists.txt`, because a leaf has no dependency includes or libs to name.
+**A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** An
+`include()` whose first argument ends in `mama.cmake` asks for it, whatever else the dep holds. It still
+needs a source dir and that `CMakeLists.txt` on disk. The scan reads the whole file, because a cmake
+command may span lines, and it matches the command name in either case, because cmake does. A line
+comment and a bracket comment of any depth both drop out before the scan. Any other dep needs a source
+dir, children, a mamafile and a `CMakeLists.txt`, because a leaf has no dependency includes or libs to
+name.
 
 **A guard follows the write.** A `CMakeLists.txt` that includes the proxy must find one, and the run
 stops with the dep and the file named when it does not.
+
+**The cmake configure step writes the proxy again**, because the `configure()` hook of a mamafile can
+move `cmake_lists_path` after the load already wrote one.
 
 **Why:** the proxy is a generated file inside a checkout. A dep that does not use it pays with an
 untracked file for the life of the working tree. The write runs two lines before the guard, so only a

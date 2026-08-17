@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os, sys, shutil, time, threading
+import os, re, sys, shutil, time, threading
 
 from .types.dep_source import DepSource
 from .types.git import Git
@@ -28,6 +28,26 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 
 
 ######################################################################################
+
+
+# a cmake bracket comment, of any equals-sign depth, or a line comment. Neither can name the proxy.
+_CMAKE_COMMENTS = re.compile(r'#\[(=*)\[.*?\]\1\]|#[^\n]*', re.S)
+_CMAKE_INCLUDE = re.compile(r'\binclude\s*\(([^)]*)\)', re.I | re.S)
+# every cmake variable that expands to the dir of the CMakeLists.txt mama configures
+_CMAKE_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}',
+                   '${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
+
+
+def find_mama_cmake_include(cmakelists: str) -> str:
+    """The argument of the `include()` that names the `mama.cmake` proxy, or '' when there is none.
+    It reads the whole file, because a cmake command may span lines. A comment never counts.
+    'replace': cmake reads an 8-bit-clean file, so a locale-encoded comment must not end the run."""
+    text = _CMAKE_COMMENTS.sub(' ', ''.join(read_lines_from(cmakelists, errors='replace')))
+    for match in _CMAKE_INCLUDE.finditer(text):
+        args = match.group(1).split()
+        arg = args[0].strip('"') if args else ''
+        if arg.lower().endswith('mama.cmake'): return arg
+    return ''
 
 
 def read_shim_marker_at(build_dir: str) -> dict:
@@ -65,7 +85,8 @@ class BuildDependency:
         self.clone_revived = False # revive_deferred_load ran, so the next load must clone
         self.skimming = False   # a skim runs the hooks right now, so every dep path reads as unresolved
         self.did_skim = False   # settings() and dependencies() already ran, so the load must not repeat them
-        self._includes_mama_cmake = None  # cached answer of cmakelists_includes_mama_cmake()
+        self._proxy_include = ''   # cached answer of mama_cmake_include(), for the key below
+        self._proxy_include_key = ()  # the (path, write time) that answer belongs to
         self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
@@ -816,19 +837,32 @@ class BuildDependency:
 
 
     def mama_cmake_path(self):
-        return normalized_join(self.cmake_source_dir(), 'mama.cmake')
+        """Where the proxy belongs: the path the `include()` names, resolved against the dir cmake
+        configures. A CMakeLists.txt that includes none, or that names a variable mama cannot expand,
+        takes that dir."""
+        cmake_dir = self.cmake_source_dir()
+        arg = self.mama_cmake_include()
+        for var in _CMAKE_DIR_VARS: arg = arg.replace(var, cmake_dir)
+        # a `$` that survived names a variable of a form mama does not expand, such as $ENV{}
+        if not arg or '$' in arg: return normalized_join(cmake_dir, 'mama.cmake')
+        return normalized_join(cmake_dir, arg)
+
+
+    def mama_cmake_include(self):
+        """The argument of the `include()` that names the `mama.cmake` proxy, or '' when the
+        CMakeLists.txt of this dep includes none. The answer is cached per path and write time, because
+        every save of the cmake files reads it, and the configure() hook can move or rewrite the file."""
+        path = self.cmakelists_path()
+        stat = os.stat(path) if os.path.exists(path) else None
+        key = (path, stat.st_mtime_ns, stat.st_size) if stat else (path,)
+        if self._proxy_include_key != key:
+            self._proxy_include_key = key
+            self._proxy_include = find_mama_cmake_include(path)
+        return self._proxy_include
 
 
     def cmakelists_includes_mama_cmake(self):
-        """True when the CMakeLists.txt of this dep includes the `mama.cmake` proxy. A `#` comment line
-        does not count. The answer is cached, because every save of the cmake files reads it.
-        A cmake command name is case-insensitive, so the match lowercases the line first."""
-        if self._includes_mama_cmake is None:
-            # 'replace': cmake reads an 8-bit-clean file, so a locale-encoded comment must not end the run
-            lines = read_lines_from(self.cmakelists_path(), errors='replace')
-            lowered = (l.lstrip().lower() for l in lines)
-            self._includes_mama_cmake = any(l.startswith('include') and 'mama.cmake' in l for l in lowered)
-        return self._includes_mama_cmake
+        return bool(self.mama_cmake_include())
 
 
     def ensure_cmakelists_exists(self):
