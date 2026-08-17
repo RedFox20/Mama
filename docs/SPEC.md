@@ -109,12 +109,18 @@ it export, and mama writes one for every dep that has a build dir. `<src_dir>/ma
 a consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them,
 then includes that build dir's `mama-dependencies.cmake`.
 
-**Mama writes the proxy only for a dep that has a source dir, children, a mamafile and a
-`CMakeLists.txt`.** A leaf has no dependency includes or libs to name, and a dep with no mamafile or no
-`CMakeLists.txt` never includes the proxy.
+**A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** A
+`CMakeLists.txt` that holds a line starting with `include` and naming `mama.cmake` always gets one,
+whatever the shape of the dep. A `#` comment line does not count. Any other dep needs a source dir,
+children, a mamafile and a `CMakeLists.txt`, because a leaf has no dependency includes or libs to name.
+
+**A guard follows the write.** A `CMakeLists.txt` that includes the proxy must find one, and the run
+stops with the dep and the file named when it does not.
 
 **Why:** the proxy is a generated file inside a checkout. A dep that does not use it pays with an
-untracked file for the life of the working tree.
+untracked file for the life of the working tree. The write runs two lines before the guard, so only a
+failed write reaches it. Without the guard cmake reports a missing header of an unrelated project
+minutes later, and every `MAMA_` variable reads as an empty string.
 
 **`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
 

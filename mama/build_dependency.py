@@ -65,6 +65,7 @@ class BuildDependency:
         self.clone_revived = False # revive_deferred_load ran, so the next load must clone
         self.skimming = False   # a skim runs the hooks right now, so every dep path reads as unresolved
         self.did_skim = False   # settings() and dependencies() already ran, so the load must not repeat them
+        self._includes_mama_cmake = None  # cached answer of cmakelists_includes_mama_cmake()
         self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
@@ -806,6 +807,15 @@ class BuildDependency:
 
     def cmakelists_exists(self):
         return os.path.exists(self.cmakelists_path())
+
+
+    def cmakelists_includes_mama_cmake(self):
+        """True when the CMakeLists.txt of this dep includes the `mama.cmake` proxy. A `#` comment line
+        does not count. The answer is cached, because every save of the cmake files reads it."""
+        if self._includes_mama_cmake is None:
+            lines = read_lines_from(self.cmakelists_path())
+            self._includes_mama_cmake = any(l.lstrip().startswith('include') and 'mama.cmake' in l for l in lines)
+        return self._includes_mama_cmake
 
 
     def ensure_cmakelists_exists(self):

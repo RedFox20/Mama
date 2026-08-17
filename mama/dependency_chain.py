@@ -288,10 +288,25 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
     return deps
 
 
+def _cmakelists_wants_proxy(dep: BuildDependency) -> bool:
+    """True when the `CMakeLists.txt` of this dep includes the `<src_dir>/mama.cmake` proxy."""
+    return bool(dep.src_dir) and dep.cmakelists_exists() and dep.cmakelists_includes_mama_cmake()
+
+
 def _needs_mama_cmake(dep: BuildDependency) -> bool:
-    """True when a consumer can include the `<src_dir>/mama.cmake` proxy, so mama writes it. A leaf has
-    no dependency includes or libs to name, and a dep with no mamafile or CMakeLists.txt never includes it."""
+    """True when a consumer can include the `<src_dir>/mama.cmake` proxy, so mama writes it. A
+    CMakeLists.txt that includes the proxy decides on its own, whatever the shape of the dep. Any other
+    dep needs children and a mamafile, because a leaf has no dependency includes or libs to name."""
+    if _cmakelists_wants_proxy(dep): return True
     return bool(dep.src_dir and dep.get_children()) and dep.mamafile_exists() and dep.cmakelists_exists()
+
+
+def _check_mama_cmake_present(dep: BuildDependency):
+    """A CMakeLists.txt that includes the proxy must find one. Without this check cmake reports a
+    missing header of an unrelated project minutes later, and never names mama."""
+    if not _cmakelists_wants_proxy(dep) or os.path.exists(f'{dep.src_dir}/mama.cmake'): return
+    raise BuildError(f'{dep.name}: {dep.cmakelists_path()} includes mama.cmake, and mama wrote none.' + \
+                     ' Every MAMA_ variable would expand to an empty string.')
 
 
 def _save_cmake_files(root: BuildDependency):
@@ -299,6 +314,7 @@ def _save_cmake_files(root: BuildDependency):
     references it only for a dep that can include it."""
     _save_dependencies_cmake(root)
     if _needs_mama_cmake(root): _save_mama_cmake(root)
+    _check_mama_cmake_present(root)
 
 
 def _get_compile_commands_path(dep: BuildDependency):

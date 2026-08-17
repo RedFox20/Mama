@@ -10,7 +10,8 @@ unreleased
  - bugfix: a failed download names the reason, instead of a urllib stack trace
  - bugfix: a stopped download keeps the cached archive it was replacing
  - feature: a killed compiler names its signal, and buffered output still prints
- - feature: mama.cmake is written only for a dep that can include it
+ - feature: mama.cmake is written for a dep whose CMakeLists.txt includes it
+     a missing proxy the CMakeLists.txt includes now fails the run by name
  - bugfix: Visual Studio and Xcode now offer only configurations that link
  - bugfix: an unpublish that matches nothing names the target and the count
  - bugfix: `mama <target> unpublish=...` now unpublishes that target

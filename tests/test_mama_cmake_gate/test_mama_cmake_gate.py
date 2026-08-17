@@ -1,6 +1,9 @@
 """Pins which deps get a `<src_dir>/mama.cmake` proxy written into their source tree."""
 import os
+from unittest.mock import patch
+import pytest
 import mama.dependency_chain as dc
+from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep
 
 _MAMAFILE = 'import mama\nclass Gated(mama.BuildTarget):\n    pass\n'
@@ -50,3 +53,47 @@ def test_a_skipped_proxy_still_leaves_the_dependency_exports(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.build_dir}/mama-dependencies.cmake')
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+# --- the consumer decides: a CMakeLists.txt that includes the proxy always gets one ---------------
+
+def _includes_proxy(dep, line='include(mama.cmake)\n'):
+    open(dep.cmakelists_path(), 'w').write(f'project(Test)\n{line}')
+    dep._includes_mama_cmake = None  # the answer is cached, and this test writes the file after load
+    return dep
+
+
+def test_a_leaf_that_includes_the_proxy_gets_one(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'))
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_leaf_with_no_mamafile_that_includes_the_proxy_gets_one(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf', files=('CMakeLists.txt',)))
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_hash_commented_include_gets_no_proxy(tmp_path):
+    assert not dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), '# include(mama.cmake)\n'))
+
+
+def test_a_path_qualified_include_gets_the_proxy(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake")\n')
+    assert dc._needs_mama_cmake(dep)
+
+
+def test_a_proxy_already_on_disk_survives(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'))
+    dc._save_cmake_files(dep)
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_missing_proxy_the_cmakelists_includes_names_the_dep(tmp_path):
+    # cmake would report a missing header of an unrelated project minutes later, and never name mama
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'))
+    with patch('mama.dependency_chain._save_mama_cmake'):
+        with pytest.raises(BuildError, match='includes mama.cmake'):
+            dc._save_cmake_files(dep)
