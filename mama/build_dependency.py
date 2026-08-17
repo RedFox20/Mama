@@ -30,24 +30,56 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 ######################################################################################
 
 
-# a cmake bracket comment, of any equals-sign depth, or a line comment. Neither can name the proxy.
-_CMAKE_COMMENTS = re.compile(r'#\[(=*)\[.*?\]\1\]|#[^\n]*', re.S)
-_CMAKE_INCLUDE = re.compile(r'\binclude\s*\(([^)]*)\)', re.I | re.S)
+MAMA_CMAKE = 'mama.cmake'
+# the four spans of cmake syntax that hide what looks like a command: a bracket argument or a bracket
+# comment of any equals-sign depth, a quoted argument, and a line comment.
+_CMAKE_BRACKET = re.compile(r'\[(=*)\[.*?\]\1\]', re.S)
+_CMAKE_QUOTED = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
+_CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
+# the include command. The scan anchors it at a command position, so no name ending in include matches.
+_CMAKE_INCLUDE = re.compile(r'(?<!\w)include\s*\(([^)]*)\)', re.I | re.S)
 # every cmake variable that expands to the dir of the CMakeLists.txt mama configures
 _CMAKE_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}',
                    '${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
 
 
-def find_mama_cmake_include(cmakelists: str) -> str:
-    """The argument of the `include()` that names the `mama.cmake` proxy, or '' when there is none.
-    It reads the whole file, because a cmake command may span lines. A comment never counts.
+def first_cmake_arg(args: str) -> str:
+    """The first argument of a cmake command, with its quotes removed. A quoted argument may hold a
+    space, so the split cannot run first."""
+    args = args.strip()
+    if not args: return ''
+    if args[0] != '"': return args.split(maxsplit=1)[0]
+    end = args.find('"', 1)
+    return args[1:end] if end > 0 else ''
+
+
+def find_mama_cmake_includes(cmakelists: str) -> list:
+    """Every argument of an `include()` that names the `mama.cmake` proxy, in file order. One pass reads
+    the whole file, because a cmake command may span lines. A comment, a bracket argument and a quoted
+    argument each hide what looks like a command. A `#` inside a quoted argument opens no comment, so
+    the pass reads all four spans together.
     'replace': cmake reads an 8-bit-clean file, so a locale-encoded comment must not end the run."""
-    text = _CMAKE_COMMENTS.sub(' ', ''.join(read_lines_from(cmakelists, errors='replace')))
-    for match in _CMAKE_INCLUDE.finditer(text):
-        args = match.group(1).split()
-        arg = args[0].strip('"') if args else ''
-        if arg.lower().endswith('mama.cmake'): return arg
-    return ''
+    text = ''.join(read_lines_from(cmakelists, errors='replace'))
+    found, i = [], 0
+    while i < len(text):
+        char = text[i]
+        if char == '"':  # an unterminated quote runs to the end of the file, for cmake too
+            match = _CMAKE_QUOTED.match(text, i)
+            i = match.end() if match else len(text)
+        elif char == '#':
+            match = _CMAKE_BRACKET.match(text, i + 1) or _CMAKE_LINE_COMMENT.match(text, i)
+            i = match.end()
+        elif char == '[':
+            match = _CMAKE_BRACKET.match(text, i)
+            i = match.end() if match else i + 1
+        elif char in 'iI' and (match := _CMAKE_INCLUDE.match(text, i)):
+            i = match.end()
+            arg = first_cmake_arg(_CMAKE_LINE_COMMENT.sub('', match.group(1)))  # a comment may open the args
+            # the basename must match, or a write would replace a real module such as grandmama.cmake
+            if os.path.basename(arg).lower() == MAMA_CMAKE: found.append(arg)
+        else:
+            i += 1
+    return found
 
 
 def read_shim_marker_at(build_dir: str) -> dict:
@@ -85,8 +117,6 @@ class BuildDependency:
         self.clone_revived = False # revive_deferred_load ran, so the next load must clone
         self.skimming = False   # a skim runs the hooks right now, so every dep path reads as unresolved
         self.did_skim = False   # settings() and dependencies() already ran, so the load must not repeat them
-        self._proxy_include = ''   # cached answer of mama_cmake_include(), for the key below
-        self._proxy_include_key = ()  # the (path, write time) that answer belongs to
         self.load_action = 'check'  # what load() did, for the display: check|clone|pulling|local|artifactory
         self.phase_times = {}  # 'load'|'configure'|'build' -> wall seconds, for the `buildstats` breakdown
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
@@ -836,33 +866,28 @@ class BuildDependency:
         return os.path.dirname(self.cmakelists_path()) or self.src_dir
 
 
-    def mama_cmake_path(self):
-        """Where the proxy belongs: the path the `include()` names, resolved against the dir cmake
-        configures. A CMakeLists.txt that includes none, or that names a variable mama cannot expand,
-        takes that dir."""
+    def default_mama_cmake_path(self):
+        return normalized_join(self.cmake_source_dir(), MAMA_CMAKE)
+
+
+    def mama_cmake_paths(self) -> list:
+        """Every path the `include()` commands of the CMakeLists.txt name for the proxy, resolved
+        against the dir cmake configures. Empty when the file includes none. A conditional include names
+        one path per branch, and mama writes them all, because cmake alone knows which branch runs.
+        The scan never caches: a configure() hook can rewrite the file with no change a stat can see."""
         cmake_dir = self.cmake_source_dir()
-        arg = self.mama_cmake_include()
-        for var in _CMAKE_DIR_VARS: arg = arg.replace(var, cmake_dir)
-        # a `$` that survived names a variable of a form mama does not expand, such as $ENV{}
-        if not arg or '$' in arg: return normalized_join(cmake_dir, 'mama.cmake')
-        return normalized_join(cmake_dir, arg)
-
-
-    def mama_cmake_include(self):
-        """The argument of the `include()` that names the `mama.cmake` proxy, or '' when the
-        CMakeLists.txt of this dep includes none. The answer is cached per path and write time, because
-        every save of the cmake files reads it, and the configure() hook can move or rewrite the file."""
-        path = self.cmakelists_path()
-        stat = os.stat(path) if os.path.exists(path) else None
-        key = (path, stat.st_mtime_ns, stat.st_size) if stat else (path,)
-        if self._proxy_include_key != key:
-            self._proxy_include_key = key
-            self._proxy_include = find_mama_cmake_include(path)
-        return self._proxy_include
-
-
-    def cmakelists_includes_mama_cmake(self):
-        return bool(self.mama_cmake_include())
+        # realpath, because a symlink inside the source dir leads out of it, and a plain prefix test misses that
+        roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))
+        paths = []
+        for arg in find_mama_cmake_includes(self.cmakelists_path()):
+            for var in _CMAKE_DIR_VARS: arg = arg.replace(var, cmake_dir)
+            # a `$` that survived names a form mama does not expand, such as $ENV{}, so the default answers
+            path = normalized_join(cmake_dir, MAMA_CMAKE if '$' in arg else arg)
+            if not os.path.realpath(path).startswith(roots):
+                warning(f'{self.name}: mama writes no proxy outside its source dir: include({arg})')
+            elif path not in paths:
+                paths.append(path)
+        return paths
 
 
     def ensure_cmakelists_exists(self):

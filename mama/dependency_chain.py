@@ -288,32 +288,28 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
     return deps
 
 
-def _cmakelists_wants_proxy(dep: BuildDependency) -> bool:
-    """True when the `CMakeLists.txt` of this dep includes the `<src_dir>/mama.cmake` proxy."""
-    return bool(dep.src_dir) and dep.cmakelists_exists() and dep.cmakelists_includes_mama_cmake()
+def _proxy_paths(dep: BuildDependency) -> list:
+    """Every path this dep needs a `mama.cmake` proxy at. The `include()` commands of its CMakeLists.txt
+    name them. A dep that names none, and whose shape needs a proxy, takes the path beside that file. A
+    leaf that names none gets nothing, because it has no dependency includes or libs to name."""
+    if not dep.src_dir or not dep.cmakelists_exists(): return []
+    paths = dep.mama_cmake_paths()
+    if paths: return paths
+    return [dep.default_mama_cmake_path()] if dep.get_children() and dep.mamafile_exists() else []
 
 
 def _needs_mama_cmake(dep: BuildDependency) -> bool:
-    """True when a consumer can include the `<src_dir>/mama.cmake` proxy, so mama writes it. A
-    CMakeLists.txt that includes the proxy decides on its own, whatever the shape of the dep. Any other
-    dep needs children and a mamafile, because a leaf has no dependency includes or libs to name."""
-    if _cmakelists_wants_proxy(dep): return True
-    return bool(dep.src_dir and dep.get_children()) and dep.mamafile_exists() and dep.cmakelists_exists()
-
-
-def _check_mama_cmake_present(dep: BuildDependency):
-    """A CMakeLists.txt that includes the proxy must find one. Without this check cmake reports a
-    missing header of an unrelated project minutes later, and never names mama."""
-    if not _cmakelists_wants_proxy(dep) or os.path.exists(dep.mama_cmake_path()): return
-    raise BuildError(f'{dep.name}: {dep.cmakelists_path()} includes mama.cmake, and mama wrote none.' + \
-                     ' Every MAMA_ variable would expand to an empty string.')
+    return bool(_proxy_paths(dep))
 
 
 def ensure_mama_cmake(dep: BuildDependency):
-    """Write the `mama.cmake` proxy when this dep needs one, then check that one exists. The `configure()`
-    hook can move `cmake_lists_path`, so the cmake configure step calls this again before it reads it."""
-    if _needs_mama_cmake(dep): _save_mama_cmake(dep)
-    _check_mama_cmake_present(dep)
+    """Write the proxy at every path this dep needs one, and check each write. The `configure()` hook can
+    move `cmake_lists_path`, so the cmake configure step calls this again before cmake reads that file."""
+    for path in _proxy_paths(dep):
+        _save_mama_cmake(dep, path)
+        if not os.path.exists(path):
+            raise BuildError(f'{dep.name}: mama wrote no {path} for {dep.cmakelists_path()}.' + \
+                             ' Every MAMA_ variable would expand to an empty string.')
 
 
 def _save_cmake_files(root: BuildDependency):
@@ -465,9 +461,9 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
     save_file_if_contents_changed(outfile, text)
 
 
-def _save_mama_cmake(root: BuildDependency):
-    """The `mysource/mama.cmake` proxy, beside the CMakeLists.txt that cmake configures. Generated from
-    the platform registry, so it cannot drift from the build dir names that BuildConfig itself uses."""
+def _save_mama_cmake(root: BuildDependency, path: str):
+    """One `mama.cmake` proxy, at the path an `include()` named. Generated from the platform registry,
+    so it cannot drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
 
     def build_dir_defines(build_dir):
@@ -475,7 +471,7 @@ def _save_mama_cmake(root: BuildDependency):
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(root.mama_cmake_path(), mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):

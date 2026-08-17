@@ -140,12 +140,12 @@ def test_an_env_variable_keeps_the_default_location(tmp_path):
 
 
 def test_a_rewritten_cmakelists_rereads_at_the_same_path(tmp_path):
-    # a configure() hook can rewrite the file in place, so the cached answer keys on the write time too
+    # a configure() hook can rewrite the file in place with no change a stat can see, so nothing caches
     dep = _dep(tmp_path, 'leaf')
-    assert not dep.cmakelists_includes_mama_cmake()
+    assert not dc._needs_mama_cmake(dep)
     _includes_proxy(dep)
-    os.utime(dep.cmakelists_path(), (2_000_000_000, 2_000_000_000))  # pin a distinct write time
-    assert dep.cmakelists_includes_mama_cmake()
+    os.utime(dep.cmakelists_path(), (2_000_000_000, 2_000_000_000))  # a preserved timestamp still re-reads
+    assert dc._needs_mama_cmake(dep)
 
 
 def test_the_proxy_follows_the_path_the_include_names(tmp_path):
@@ -176,9 +176,85 @@ def test_a_configure_hook_that_moves_the_cmakelists_still_gets_a_proxy(tmp_path)
     assert os.path.exists(f'{dep.src_dir}/cmake/mama.cmake')
 
 
+def test_a_conditional_include_gets_a_proxy_per_branch(tmp_path):
+    # only cmake knows which branch runs, so every named path gets a proxy
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'),
+                          'if(WIN32)\n  include(win/mama.cmake)\nelse()\n  include(mama.cmake)\nendif()\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/win/mama.cmake')
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_module_whose_name_ends_in_mama_cmake_is_left_alone(tmp_path):
+    # a write would replace a real module, so the basename has to match exactly
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include(grandmama.cmake)\n')
+    write_files(dep.src_dir, {'grandmama.cmake': 'set(REAL_MODULE 1)\n'})
+    assert not dc._needs_mama_cmake(dep)
+    dc._save_cmake_files(dep)
+    assert 'REAL_MODULE' in open(f'{dep.src_dir}/grandmama.cmake').read()
+
+
+def test_an_include_inside_a_quoted_argument_gets_no_proxy(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'message("include(mama.cmake)")\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_an_include_inside_a_bracket_argument_gets_no_proxy(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'message([[include(mama.cmake)]])\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_an_include_named_inside_a_message_string_gets_no_proxy(tmp_path):
+    # a quoted argument may run over lines and hold parens, and cmake runs no command inside one
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'message(FATAL_ERROR "run mama, then include(mama.cmake)")\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
+def test_a_hash_inside_a_quoted_argument_opens_no_comment(tmp_path):
+    # a stripped `#` used to eat the closing quote, which flipped every later include of the file
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'message(STATUS "build #${N}")\ninclude(mama.cmake)\n')
+    assert dc._needs_mama_cmake(dep)
+
+
+def test_a_comment_inside_the_call_still_finds_the_path(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include( # written by mama\n    mama.cmake)\n')
+    assert dc._needs_mama_cmake(dep)
+
+
+def test_a_quoted_include_path_may_hold_a_space(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("my cmake/mama.cmake")\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/my cmake/mama.cmake')
+
+
+def test_a_symlink_that_leads_out_of_the_source_dir_writes_nothing(tmp_path):
+    outside = tmp_path / 'outside'; outside.mkdir()
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include(link/mama.cmake)\n')
+    try: os.symlink(outside, f'{dep.src_dir}/link', target_is_directory=True)
+    except (OSError, NotImplementedError): pytest.skip('this host does not allow a symlink')
+    dc._save_cmake_files(dep)
+    assert not os.path.exists(f'{outside}/mama.cmake')
+
+
+def test_an_include_that_points_outside_the_source_dir_writes_nothing(tmp_path):
+    # a proxy written above the source tree could replace a file mama never generated
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include(../../mama.cmake)\n')
+    assert not dc._needs_mama_cmake(dep)
+    dc._save_cmake_files(dep)
+    assert not os.path.exists(f'{tmp_path}/mama.cmake')
+
+
+def test_an_include_above_a_nested_cmakelists_stays_inside_the_source_dir(tmp_path):
+    dep = _dep(tmp_path, 'leaf')
+    dep.target.cmake_lists_path = 'cmake/CMakeLists.txt'
+    write_files(dep.src_dir, {'cmake/CMakeLists.txt': 'include(../mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
 def test_a_missing_proxy_the_cmakelists_includes_names_the_dep(tmp_path):
     # cmake would report a missing header of an unrelated project minutes later, and never name mama
     dep = _includes_proxy(_dep(tmp_path, 'leaf'))
     with patch('mama.dependency_chain._save_mama_cmake'):
-        with pytest.raises(BuildError, match='includes mama.cmake'):
+        with pytest.raises(BuildError, match='wrote no '):
             dc._save_cmake_files(dep)
