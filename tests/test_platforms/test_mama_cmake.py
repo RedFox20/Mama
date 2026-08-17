@@ -55,6 +55,13 @@ def test_the_historic_platform_variables_still_exist(var):
     assert f'set({var} TRUE)' in _text()
 
 
+def test_the_proxy_still_forces_the_release_crt():
+    """The route that reaches a project on CMP0091 OLD, where the runtime library mama passes on the
+    command line does nothing. Without it a debug build links the debug CRT and no release dep."""
+    text = _text()
+    assert 'if(MSVC)' in text and 'add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)' in text
+
+
 def test_an_unknown_platform_or_arch_fails_loudly():
     """Falling through silently would point MAMA_BUILD at nothing and link no dependency at all."""
     text = _text()

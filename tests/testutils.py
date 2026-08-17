@@ -621,7 +621,8 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     """A real BuildTarget on a fresh pkg/ dir with the preferred compiler paths mocked - the shared starting
     point for cmake configure tests. Returns (target, dep)."""
     sub = tmp_path / 'pkg'; sub.mkdir(exist_ok=True)
-    dep = make_mock_local_dep(tmp_path, src_dir=sub, jobs=8, coverage=False, clang_tidy=False, **config_overrides)
+    defaults = {'jobs': 8, 'coverage': False, 'clang_tidy': False}  # a test may override any of them
+    dep = make_mock_local_dep(tmp_path, src_dir=sub, **{**defaults, **config_overrides})
     dep.config.get_preferred_compiler_paths.return_value = compiler
     return dep.target, dep
 
@@ -649,6 +650,17 @@ def run_config_capturing(target, dep, out=None, raises=None, leave_build_dir=Fal
             write_cmake_cache(target.build_dir(), 'CMAKE_GENERATOR:INTERNAL=Ninja\n')
             write_build_file(target.build_dir())
     return cmds
+
+
+def configure_cmd(tmp_path, generator, platform_class=None, cmake_opts=(), **config_overrides) -> str:
+    """The cmake configure command line mama builds for one target. `generator` replaces the detected
+    one, which a mock config cannot resolve for MSVC or Xcode. `cmake_opts` is what a mamafile added."""
+    from unittest.mock import patch
+    target, dep = make_configured_target(tmp_path, **config_overrides)
+    if platform_class: set_mock_platform(dep.config, platform_class)
+    if cmake_opts: target.add_cmake_options(list(cmake_opts))
+    with patch('mama.buildsys.cmake.configure._generator', return_value=generator):
+        return run_config_capturing(target, dep)[0]
 
 
 def write_dep_exports(target, text):

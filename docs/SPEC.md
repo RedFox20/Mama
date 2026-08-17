@@ -627,6 +627,27 @@ names two: the type this target builds, then `Debug`, or `RelWithDebInfo` when t
 **Why:** the cmake default set adds `Release` and `MinSizeRel`, which mama configures for no
 dependency. An IDE listed four configurations, and three of them could not link.
 
+### The MSVC runtime library
+
+Every cmake build on MSVC links the release CRT, whatever the build type. The configure command line
+sets `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`, and it carries `-D_ITERATOR_DEBUG_LEVEL=0` inside
+the C++ flags of a target that builds C++. It also sets `CMAKE_POLICY_DEFAULT_CMP0091=NEW`, because
+cmake reads the runtime library under that policy alone, and a project below cmake 3.15 does not select
+it. The generated `mama.cmake` also forces the same two on every consumer that includes it. The msbuild
+path passes no runtime property, so a `.vcxproj` keeps its own.
+
+**No target takes a runtime library of its own.** A mamafile that names `CMAKE_MSVC_RUNTIME_LIBRARY`
+loses it, because mama appends its own after `cmake_opts` and the last `-D` on the line wins. A
+mamafile that names a different CRT gets a warning. The same CRT is only redundant, so it stays quiet.
+
+**Why:** one CRT and one iterator level across the tree is what lets a Debug root link Release
+dependencies, so a big app stays debuggable and still runs fast enough to profile. A target that
+diverged would fail the link with `LNK2038`, or, across a DLL boundary where no linker compares the
+two, free a pointer on the wrong heap. CMP0091, NEW since cmake 3.15, moved the runtime library out of
+`CMAKE_<LANG>_FLAGS_<CONFIG>`, which is what the `mama.cmake` rewrite reads. A project that holds the
+policy at OLD reads no runtime library at all, so the rewrite is what reaches it. A third-party project
+includes no `mama.cmake` at all, so the command line is the one route that reaches both.
+
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per

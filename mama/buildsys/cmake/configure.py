@@ -575,6 +575,18 @@ def _make_program(target:BuildTarget) -> str:
     return config.platform.make_program(target)
 
 
+_MSVC_RUNTIME = 'CMAKE_MSVC_RUNTIME_LIBRARY'
+_RELEASE_CRT = 'MultiThreadedDLL'
+
+
+def _named_option(opts:list, key:str) -> str:
+    """The value the mamafile gave `key`, and '' when it named none."""
+    for o in opts:
+        k, sep, v = o.partition('=')
+        if sep and k.strip() == key: return v.strip().strip('"\'')
+    return ''
+
+
 def _default_options(target:BuildTarget):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
@@ -602,6 +614,8 @@ def _default_options(target:BuildTarget):
     if config.msvc:
         add_flag('/EHsc')
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
+        # the release CRT carries no debug iterators, so a nonzero level has nothing to select
+        add_flag('-D_ITERATOR_DEBUG_LEVEL', '0')
         add_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
         add_flag('/MP') # multi-process build
     else:
@@ -653,6 +667,17 @@ def _default_options(target:BuildTarget):
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
     ]
+    if config.msvc:
+        # cmake reads the runtime library only under CMP0091 NEW, which a project below cmake 3.15 does
+        # not get on its own. The default reaches such a project, and its own `cmake_policy` still wins.
+        opt.append('CMAKE_POLICY_DEFAULT_CMP0091=NEW')
+        # CMP0091 moved the runtime library out of the per-config flags mama.cmake rewrites. Only the
+        # command line reaches a project that includes no mama.cmake.
+        opt.append(f'{_MSVC_RUNTIME}={_RELEASE_CRT}')
+        # A mamafile that names the same CRT is only redundant, so it stays quiet. A different one loses.
+        named = _named_option(target.cmake_opts, _MSVC_RUNTIME)
+        if named and named != _RELEASE_CRT:
+            warning(f'  {target.name: <16} ignores {_MSVC_RUNTIME}={named}: mama links one CRT across the tree')
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
 
