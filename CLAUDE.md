@@ -167,6 +167,36 @@ valid.
 **Never** use `os.forkpty()` directly anywhere in this codebase. Python 3.12 marks
 it as unsafe in a multi-threaded program, and mama runs many threads in parallel.
 
+## GitHub review comments
+
+A reviewer comment is a thread, and a thread stays open until someone closes it. **Answer every one,
+and close the ones you fixed.** A reader who opens the pull request has to see which findings are
+gone and which are still live, without reading the diff.
+
+1. **You fixed it.** Reply with the commit hash, one sentence on what the code does now, and the test
+   that pins it. Then resolve the thread.
+2. **The reviewer is right, and the fix is not in this pull request.** Reply with that, name the entry
+   you added to `docs/BUGS.md`, and leave the thread open.
+3. **The reviewer is wrong, or the fix would be wrong.** Reply with the reasoning and the `file:line`
+   that proves it. **Leave the thread open**, because the author decides, not you.
+
+Never resolve a thread you did not answer, and never resolve one you argued against.
+
+```bash
+# every thread, with its resolved state and its first comment
+gh api graphql -f query='{ repository(owner:"OWNER", name:"REPO") { pullRequest(number:NN) {
+  reviewThreads(first:50) { nodes { id isResolved comments(first:1){nodes{databaseId path body}} } } } } }'
+
+# reply to one thread, by the databaseId of its first comment
+gh api -X POST repos/OWNER/REPO/pulls/NN/comments/<databaseId>/replies -f body='Fixed in <sha>. ...'
+
+# resolve it, by the thread id
+gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<id>"}) { thread { isResolved } } }'
+```
+
+A `@codex review` request answers a commit, so push first, then request the review. A finding that
+survives two rounds needs a different fix, not a third round of the same one.
+
 ## Git commit style
 
 - Single line, `<type>: <message>` prefix. Examples:

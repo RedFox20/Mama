@@ -221,6 +221,25 @@ def test_a_comment_inside_the_call_still_finds_the_path(tmp_path):
     assert dc._needs_mama_cmake(dep)
 
 
+def test_a_quoted_include_path_may_hold_a_hash(tmp_path):
+    # cmake reads a `#` inside a quoted argument as text, so it opens no comment there
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("generated #1/mama.cmake")\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/generated #1/mama.cmake')
+
+
+def test_a_quoted_include_path_may_hold_parens(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("Program Files (x86)/mama.cmake")\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/Program Files (x86)/mama.cmake')
+
+
+def test_an_include_nested_in_another_command_gets_no_proxy(tmp_path):
+    # cmake hands `include`, `(`, `mama.cmake` and `)` to set() as text, and runs no include
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'set(X include(mama.cmake))\n')
+    assert not dc._needs_mama_cmake(dep)
+
+
 def test_a_quoted_include_path_may_hold_a_space(tmp_path):
     dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include("my cmake/mama.cmake")\n')
     dc._save_cmake_files(dep)

@@ -31,54 +31,94 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 
 
 MAMA_CMAKE = 'mama.cmake'
-# the four spans of cmake syntax that hide what looks like a command: a bracket argument or a bracket
-# comment of any equals-sign depth, a quoted argument, and a line comment.
+# the three spans of cmake syntax that hold no command: a bracket argument or a bracket comment of any
+# equals-sign depth, a quoted argument, and a line comment.
 _CMAKE_BRACKET = re.compile(r'\[(=*)\[.*?\]\1\]', re.S)
 _CMAKE_QUOTED = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
 _CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
-# the include command. The scan anchors it at a command position, so no name ending in include matches.
-_CMAKE_INCLUDE = re.compile(r'(?<!\w)include\s*\(([^)]*)\)', re.I | re.S)
+# a command invocation: a name, then the paren that opens its argument list
+_CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
 # every cmake variable that expands to the dir of the CMakeLists.txt mama configures
 _CMAKE_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}',
                    '${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
 
 
+def _skip_span(text: str, i: int) -> int:
+    """The index after the comment, the bracket argument or the quoted argument that starts at `i`, or
+    `i` itself when none starts there. An unterminated quote runs to the end, as it does for cmake."""
+    char = text[i]
+    if char == '#':
+        match = _CMAKE_BRACKET.match(text, i + 1) or _CMAKE_LINE_COMMENT.match(text, i)
+        return match.end()
+    if char == '[':
+        match = _CMAKE_BRACKET.match(text, i)
+        return match.end() if match else i
+    if char == '"':
+        match = _CMAKE_QUOTED.match(text, i)
+        return match.end() if match else len(text)
+    return i
+
+
+def _end_of_args(text: str, i: int) -> int:
+    """The index of the `)` that closes the argument list open at `i`, or the end of the text. A paren
+    inside a quoted or a bracket argument closes nothing, and an unquoted argument may nest one."""
+    depth = 1
+    while i < len(text):
+        skipped = _skip_span(text, i)
+        if skipped != i:
+            i = skipped
+            continue
+        if text[i] == '(': depth += 1
+        elif text[i] == ')':
+            depth -= 1
+            if depth == 0: return i
+        i += 1
+    return len(text)
+
+
 def first_cmake_arg(args: str) -> str:
-    """The first argument of a cmake command, with its quotes removed. A quoted argument may hold a
-    space, so the split cannot run first."""
-    args = args.strip()
-    if not args: return ''
-    if args[0] != '"': return args.split(maxsplit=1)[0]
-    end = args.find('"', 1)
-    return args[1:end] if end > 0 else ''
+    """The first argument of a cmake command, with its quotes removed. A comment may open the list, and
+    a quoted argument may hold a space or a `#`."""
+    i = 0
+    while i < len(args):
+        char = args[i]
+        if char.isspace():
+            i += 1
+        elif char == '#':
+            i = _skip_span(args, i)  # a comment names no argument
+        elif char == '"':
+            match = _CMAKE_QUOTED.match(args, i)
+            return match.group(0)[1:-1] if match else ''
+        else:
+            end = i
+            while end < len(args) and not args[end].isspace(): end += 1
+            return args[i:end]
+    return ''
 
 
 def find_mama_cmake_includes(cmakelists: str) -> list:
     """Every argument of an `include()` that names the `mama.cmake` proxy, in file order. One pass reads
-    the whole file, because a cmake command may span lines. A comment, a bracket argument and a quoted
-    argument each hide what looks like a command. A `#` inside a quoted argument opens no comment, so
-    the pass reads all four spans together.
-    'replace': cmake reads an 8-bit-clean file, so a locale-encoded comment must not end the run."""
-    text = ''.join(read_lines_from(cmakelists, errors='replace'))
+    the whole file, because a cmake command may span lines. It runs at command positions only: every
+    other command hides its whole argument list, so a nested `include(...)` there names nothing.
+    'surrogateescape': cmake reads an 8-bit-clean file, and a byte mama cannot decode still has to
+    reach the path it writes."""
+    text = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
     found, i = [], 0
     while i < len(text):
-        char = text[i]
-        if char == '"':  # an unterminated quote runs to the end of the file, for cmake too
-            match = _CMAKE_QUOTED.match(text, i)
-            i = match.end() if match else len(text)
-        elif char == '#':
-            match = _CMAKE_BRACKET.match(text, i + 1) or _CMAKE_LINE_COMMENT.match(text, i)
-            i = match.end()
-        elif char == '[':
-            match = _CMAKE_BRACKET.match(text, i)
-            i = match.end() if match else i + 1
-        elif char in 'iI' and (match := _CMAKE_INCLUDE.match(text, i)):
-            i = match.end()
-            arg = first_cmake_arg(_CMAKE_LINE_COMMENT.sub('', match.group(1)))  # a comment may open the args
+        skipped = _skip_span(text, i)
+        if skipped != i:
+            i = skipped
+            continue
+        match = _CMAKE_COMMAND.match(text, i)
+        if not match:
+            i += 1
+            continue
+        end = _end_of_args(text, match.end())
+        if match.group(1).lower() == 'include':
+            arg = first_cmake_arg(text[match.end():end])
             # the basename must match, or a write would replace a real module such as grandmama.cmake
             if os.path.basename(arg).lower() == MAMA_CMAKE: found.append(arg)
-        else:
-            i += 1
+        i = end + 1
     return found
 
 
