@@ -288,17 +288,35 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
     return deps
 
 
+def _proxy_paths(dep: BuildDependency) -> list:
+    """Every path this dep needs a `mama.cmake` proxy at. The `include()` commands of its CMakeLists.txt
+    name them. A dep that names none, and whose shape needs a proxy, takes the path beside that file. A
+    leaf that names none gets nothing, because it has no dependency includes or libs to name."""
+    if not dep.src_dir or not dep.cmakelists_exists(): return []
+    paths = dep.mama_cmake_paths()
+    if paths: return paths
+    return [dep.default_mama_cmake_path()] if dep.get_children() and dep.mamafile_exists() else []
+
+
 def _needs_mama_cmake(dep: BuildDependency) -> bool:
-    """True when a consumer can include the `<src_dir>/mama.cmake` proxy, so mama writes it. A leaf has
-    no dependency includes or libs to name, and a dep with no mamafile or CMakeLists.txt never includes it."""
-    return bool(dep.src_dir and dep.get_children()) and dep.mamafile_exists() and dep.cmakelists_exists()
+    return bool(_proxy_paths(dep))
+
+
+def ensure_mama_cmake(dep: BuildDependency):
+    """Write the proxy at every path this dep needs one, and check each write. The `configure()` hook can
+    move `cmake_lists_path`, so the cmake configure step calls this again before cmake reads that file."""
+    for path in _proxy_paths(dep):
+        _save_mama_cmake(dep, path)
+        if not os.path.exists(path):
+            raise BuildError(f'{dep.name}: mama wrote no {path} for {dep.cmakelists_path()}.' + \
+                             ' Every MAMA_ variable would expand to an empty string.')
 
 
 def _save_cmake_files(root: BuildDependency):
-    """`<build_dir>/mama-dependencies.cmake` for every dep, and the `<src_dir>/mama.cmake` proxy that
-    references it only for a dep that can include it."""
+    """`<build_dir>/mama-dependencies.cmake` for every dep, and the `mama.cmake` proxy that references
+    it only for a dep that can include it."""
     _save_dependencies_cmake(root)
-    if _needs_mama_cmake(root): _save_mama_cmake(root)
+    ensure_mama_cmake(root)
 
 
 def _get_compile_commands_path(dep: BuildDependency):
@@ -443,9 +461,9 @@ set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
     save_file_if_contents_changed(outfile, text)
 
 
-def _save_mama_cmake(root: BuildDependency):
-    """The `mysource/mama.cmake` proxy. Generated from the platform registry, so it cannot
-    drift from the build dir names that BuildConfig itself uses."""
+def _save_mama_cmake(root: BuildDependency, path: str):
+    """One `mama.cmake` proxy, at the path an `include()` named. Generated from the platform registry,
+    so it cannot drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
 
     def build_dir_defines(build_dir):
@@ -453,7 +471,7 @@ def _save_mama_cmake(root: BuildDependency):
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(f'{root.src_dir}/mama.cmake', mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):

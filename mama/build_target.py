@@ -1516,8 +1516,10 @@ class BuildTarget:
 
 
     def _cmake_configure_step(self, out=None):
-        """CMake configure half of a build: check CMakeLists, inject env, run config."""
+        """CMake configure half of a build: check CMakeLists, write the proxy, inject env, run config."""
+        from .dependency_chain import ensure_mama_cmake  # deferred: dependency_chain reads this module
         self.dep.ensure_cmakelists_exists()
+        ensure_mama_cmake(self.dep)  # configure() can move cmake_lists_path, so the proxy follows it here
         cmake.inject_env(self)
         cmake.run_config(self, out=out) # THROWS on CMAKE failure
 

@@ -119,8 +119,7 @@ def _build_files_dir(target:BuildTarget) -> str:
 
 def _seed_src_dir(target:BuildTarget) -> str:
     """The dir cmake configures (the CMAKE_HOME_DIRECTORY the injected cache must match)."""
-    d = os.path.dirname(target.dep.cmakelists_path())
-    return d if d else target.source_dir()
+    return target.dep.cmake_source_dir() or target.source_dir()
 
 
 def _seed_paths(target:BuildTarget):

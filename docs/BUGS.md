@@ -13,6 +13,19 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **Only the configured `CMakeLists.txt` names the proxy, never one a subdirectory adds.** The scan
+  reads `dep.cmakelists_path()` alone (`build_dependency.py:850`). A root that calls
+  `add_subdirectory(src)`, where `src/CMakeLists.txt` holds `include(${CMAKE_SOURCE_DIR}/mama.cmake)`,
+  reads as a dep that asks for nothing. A leaf with no children then gets no proxy, and cmake fails on
+  the include. An indirect `set(M ...)` then `include(${M})` reads the same way. Fix: scan every
+  `CMakeLists.txt` under the source dir, or take the ask from the mamafile instead.
+
+- **A targeted run leaves an out-of-scope root without its `mama.cmake` proxy.** A targeted run narrows
+  `flat_deps` to the subtree of the target (`main.py:428-431`), so `_save_cmake_files` never runs for a
+  dep outside it. Mama never configures that dep either, so no mama run breaks. A user who then runs
+  plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
+  the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
+
 - **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
   answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
   (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later

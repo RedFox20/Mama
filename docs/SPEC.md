@@ -105,16 +105,44 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 
 **Mama generates two cmake files, and only one of them reaches a source dir.**
 `<build_dir>/mama-dependencies.cmake` names every include dir and lib that this dep and the deps below
-it export, and mama writes one for every dep that has a build dir. `<src_dir>/mama.cmake` is the proxy
-a consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them,
-then includes that build dir's `mama-dependencies.cmake`.
+it export, and mama writes one for every dep that has a build dir. `mama.cmake` is the proxy a
+consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them, then
+includes that build dir's `mama-dependencies.cmake`. **It goes to every path the `include()` commands
+name.** A conditional include names one path per branch, and mama writes them all, because cmake alone
+knows which branch runs. Mama resolves each path against the dir cmake configures. That dir is
+`<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile points
+`cmake_lists_path` at a nested or an absolute one. Mama expands `CMAKE_CURRENT_LIST_DIR`,
+`CMAKE_CURRENT_SOURCE_DIR`, `CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` to that dir. An argument that
+still holds a `$` after that names a form mama does not expand, and it takes the default `mama.cmake`
+beside the `CMakeLists.txt`. **A path that leaves the source dir and the dir cmake configures gets a
+warning and no file.** The test resolves every symlink first, so a link inside the source dir leads
+nowhere new. An absolute `cmake_lists_path` widens the area mama may write to, because the dir it names
+is a dir cmake configures. A dep whose every include is refused still takes the shape rule below.
+`mama.cmake` is a generated name, and mama overwrites one wherever it does write.
 
-**Mama writes the proxy only for a dep that has a source dir, children, a mamafile and a
-`CMakeLists.txt`.** A leaf has no dependency includes or libs to name, and a dep with no mamafile or no
-`CMakeLists.txt` never includes the proxy.
+**A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** An
+`include()` whose first argument has the basename `mama.cmake`, in either case, asks for it, whatever
+else the dep holds. It still needs a source dir and that `CMakeLists.txt` on disk. A longer name such as
+`grandmama.cmake` is a module of the project, and mama never writes over it. The scan reads the whole
+file, because a cmake command may span lines, and it matches the command name in either case, because
+cmake does. One pass reads the quoted arguments, the bracket arguments and the comments together. A `#`
+inside a string opens no comment, and none of the three can name the proxy. A quoted path may hold a
+space. Any other dep needs a source dir, children, a mamafile and a `CMakeLists.txt`, because a leaf
+has no dependency includes or libs to name.
+
+**The scan caches nothing**, because a `configure()` hook can rewrite a `CMakeLists.txt` in place with
+no change that a `stat` can see.
+
+**A guard follows each write.** Every path mama writes must hold a proxy after that write. The run stops
+when one does not, and the error names the dep, the path and the `CMakeLists.txt`.
+
+**The cmake configure step writes the proxy again**, because the `configure()` hook of a mamafile can
+move `cmake_lists_path` after the load already wrote one.
 
 **Why:** the proxy is a generated file inside a checkout. A dep that does not use it pays with an
-untracked file for the life of the working tree.
+untracked file for the life of the working tree. The write runs two lines before the guard, so only a
+failed write reaches it. Without the guard cmake reports a missing header of an unrelated project
+minutes later, and every `MAMA_` variable reads as an empty string.
 
 **`build_dir_name` = `<platform dir><-clang><variant>`**, coarsest axis first.
 

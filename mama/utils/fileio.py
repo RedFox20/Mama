@@ -43,10 +43,12 @@ def write_text_to(file: str, text: str):
     pathlib.Path(file).write_text(text, encoding='utf-8')
 
 
-def read_lines_from(file: str) -> List[str]:
+def read_lines_from(file: str, errors=None) -> List[str]:
+    """- errors: [None] the codec error policy of `open`. Pass 'replace' to scan a file that a build
+      tool reads as bytes, because a locale-encoded comment must not end the run."""
     if not os.path.exists(file):
         return []
-    with pathlib.Path(file).open(encoding='utf-8') as f:
+    with pathlib.Path(file).open(encoding='utf-8', errors=errors) as f:
         return f.readlines()
 
 
