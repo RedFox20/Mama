@@ -15,6 +15,20 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.13.17** (2026-Aug-18)
+- feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
+    it lands beside that CMakeLists.txt, so a nested one finds it too
+    a missing proxy the CMakeLists.txt includes now fails the run by name
+- feature: CI logs name each stage, and a killed compiler names its signal
+- bugfix: `jobs=N` now caps ninja, which read the host core count in CI
+- bugfix: Visual Studio and Xcode offer only configurations that link, and an
+    MSVC debug build links again with one release CRT for the whole tree
+- bugfix: a failed or stopped download names the reason and keeps its cache
+    GnuProject.download_timeout raises the wait for one slow mirror
+- bugfix: unpublish reaches a bare target name, and names what it matched
+- bugfix: build_host_binary finds the host tool the bootstrap child built
+- bugfix: a Windows abort no longer leaves a grandchild process running
+
 **0.13.16** (2026-Aug-07)
  There is no 0.13.15. It broke build dirs by adding -x64v3 suffix.
  - feature: set_target_march pins the instruction set of a release build
@@ -39,21 +53,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 - bugfix: an upload names the build type of the artifacts, not of the run
 - bugfix: a targeted build no longer drops the libs of a shared dependency
 - bugfix: a git dep names its package by the commit, not the ls-remote line
-
-**0.13.13** (2026-Aug-06)
-- feature: the load shows one live line per dep, with the git chatter filtered
-- feature: one mamabuild.log per run holds the load, build and summary
-- bugfix: mama build TARGET clones, builds and packages only that subtree
-- bugfix: a shared dep loads once, and promoting it no longer crashes the run
-- bugfix: mama build debug reconfigures, and names any release package left
-- bugfix: mama update moves a stale shim forward when no package answers
-- bugfix: a full commit pin names its package by a 7 char hash, not 40
-- bugfix: republishing a package keeps its export rules and its include tree
-- bugfix: locks and compiler seeds live in packages/.mama, not beside each dep
-- bugfix: a project with no mamafile keeps its packages out of the home dir
-- perf: naming a target only skims mamafiles, and stops at the first match
-
-[Full changelog](https://github.com/RedFox20/Mama/blob/master/changelog.txt)
 
 ## Why Mama
 

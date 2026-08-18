@@ -1,21 +1,17 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
- - bugfix: an MSVC debug build links again: one release CRT for the whole tree
- - bugfix: `jobs=N` now caps ninja, which read the host core count in CI
- - feature: CI logs now report each stage as it starts, and never hide a dep
- - feature: a source archive waits 15s, an artifactory fetch keeps its 5s
-     GnuProject.download_timeout raises the wait for one slow mirror
- - bugfix: a failed download names the reason, instead of a urllib stack trace
- - bugfix: a stopped download keeps the cached archive it was replacing
- - feature: a killed compiler names its signal, and buffered output still prints
+release: 0.13.17 (2026-Aug-18)
  - feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
      it lands beside that CMakeLists.txt, so a nested one finds it too
      a missing proxy the CMakeLists.txt includes now fails the run by name
- - bugfix: Visual Studio and Xcode now offer only configurations that link
- - bugfix: an unpublish that matches nothing names the target and the count
- - bugfix: `mama <target> unpublish=...` now unpublishes that target
+ - feature: CI logs name each stage, and a killed compiler names its signal
+ - bugfix: `jobs=N` now caps ninja, which read the host core count in CI
+ - bugfix: Visual Studio and Xcode offer only configurations that link, and an
+     MSVC debug build links again with one release CRT for the whole tree
+ - bugfix: a failed or stopped download names the reason and keeps its cache
+     GnuProject.download_timeout raises the wait for one slow mirror
+ - bugfix: unpublish reaches a bare target name, and names what it matched
  - bugfix: build_host_binary finds the host tool the bootstrap child built
  - bugfix: a Windows abort no longer leaves a grandchild process running
 
