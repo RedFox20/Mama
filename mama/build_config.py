@@ -639,7 +639,11 @@ class BuildConfig:
             if not os.path.exists(cxx_path):
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
-            return os.path.dirname(cxx_path) + '/', suffix, version
+            root = os.path.dirname(cxx_path) + '/'
+            # The caller composes `root + compiler + suffix`, so that path has to exist at the resolved
+            # root. A link carries a suffix its target does not, and `clang++` links on to `clang`.
+            spelling = next((s for s in (suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
+            return root, spelling, version
 
         # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install
         priority_choices = [ suggested_path, os.getenv('CXX'),
@@ -647,11 +651,11 @@ class BuildConfig:
                             '/etc/alternatives/' + compiler ]
         for priority_cxx in priority_choices:
             if priority_cxx and os.path.exists(priority_cxx):
-                path, _, ver = resolve_compiler(priority_cxx, '')
+                path, real_suffix, ver = resolve_compiler(priority_cxx, '')
                 if ver:
                     if self.verbose:
                         console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)} via {priority_cxx}')
-                    return path, '', ver
+                    return path, real_suffix, ver
 
         # search every candidate directory for a suitable compiler
         roots = []
@@ -669,10 +673,10 @@ class BuildConfig:
             for suffix in suffixes:
                 cxx_path = root + compiler + suffix # compiler=clang++
                 if os.path.exists(cxx_path):
-                    path, _, ver = resolve_compiler(cxx_path, suffix)
+                    path, real_suffix, ver = resolve_compiler(cxx_path, suffix)
                     if ver and not path in already_added:
                         already_added.add(path)
-                        candidates.append((path, suffix, ver))
+                        candidates.append((path, real_suffix, ver))
         if not candidates:
             raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 

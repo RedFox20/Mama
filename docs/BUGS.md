@@ -36,15 +36,6 @@ so cut every word that a reader of the fix does not need.
   wrong one for a flag that names a standard mama has no min-cmake entry for. Fix: record which
   standard `enable_cxxNN()` chose, and read that instead of parsing the flag back.
 
-- **Compiler discovery composes a suffixed path that a symlinked toolchain does not have.**
-  `find_compiler_root` resolves the symlink of a candidate and returns the REAL dir. It keeps the
-  suffix that named the link. `get_preferred_compiler_paths` then joins the two
-  (`build_config.py:712`), so `/usr/bin/clang++-18 -> /usr/lib/llvm-18/bin/clang++` yields
-  `/usr/lib/llvm-18/bin/clang++-18`, and cmake reports "not a full path to an existing compiler
-  tool". Only a host whose suffixed compiler links to an unsuffixed name hits it, which is the
-  normal Debian and Ubuntu LLVM layout. Fix: return the suffix that the RESOLVED path carries, or
-  return the resolved full path instead of the (dir, suffix) pair.
-
 - **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
   answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
   (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later
@@ -71,6 +62,9 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **Compiler discovery named a compiler the host does not have.** A link carries a suffix its target
+  does not, and `clang++` links on to `clang`. Fix: keep the spelling that exists at the resolved root.
 
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
