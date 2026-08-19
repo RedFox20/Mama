@@ -4,7 +4,6 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - bugfix: a cached compiler probe no longer loses ar, ranlib or clang-scan-deps
  - bugfix: clang discovery named clang++-18 in a dir that holds only clang++
- - bugfix: a consumer can import a module out of an artifactory package
  - bugfix: a seeded compiler cache broke every clang C++20 module build
  - feature: enable_cxxNN() now also sets CMAKE_CXX_STANDARD, so
      target_compile_features() and C++20 modules work in a mamafile project
