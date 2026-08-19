@@ -1,8 +1,12 @@
 """Pins a real module build across a mama dependency: the consumer compiles the exported .cppm,
 the packaged archive drops the module object, and an incapable toolchain keeps the headers."""
+import http.server
 import os
 import re
 import shutil
+import tempfile
+import threading
+import zipfile
 from glob import glob
 from types import SimpleNamespace
 
@@ -146,3 +150,51 @@ def test_a_generator_without_module_support_falls_back_to_headers(tmp_path):
     # cmake scans modules under Ninja and Visual Studio, so only a make host loses them here
     project = _build(tmp_path, MAMA_TEST_MODULES='0', MAMA_TEST_NO_NINJA='1')
     assert _run_consumer(project) == 'HEADERS hello'
+
+
+def _serve_package(package_dir, name) -> tuple:
+    """Zip a deployed package and serve it the way artifactory does. Returns (url, the http server).
+
+    The consumer composes the archive name from its own platform and compiler, so the handler answers
+    every request with the one zip. That keeps the naming rules out of this test."""
+    served = tempfile.mkdtemp(prefix='mama_artifactory_')
+    archive = os.path.join(served, f'{name}.zip')
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zip:
+        for root, _, files in os.walk(package_dir):
+            for f in files:
+                path = os.path.join(root, f)
+                zip.write(path, os.path.relpath(path, package_dir))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Length', str(os.path.getsize(archive)))
+            self.end_headers()
+            with open(archive, 'rb') as f: shutil.copyfileobj(f, self.wfile)
+        def log_message(self, *args): pass
+
+    server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f'127.0.0.1:{server.server_port}', server
+
+
+@pytest.mark.slow
+def test_a_consumer_imports_a_module_out_of_an_artifactory_package(tmp_path):
+    # the fetched package carries the module as an `M` record, never as a producer source tree
+    _, deploy = _build_and_deploy(tmp_path)
+    assert 'M include/rpp/rpp-strview.cppm' in open(f'{deploy}/papa.txt').read()
+
+    url, server = _serve_package(deploy, 'Producer-artifactory-test')
+    try:
+        project = _project(tmp_path / 'consumer', MAMA_TEST_ARTIFACTORY=url,
+                           MAMA_TEST_ARTIFACTORY_PKG='Producer-artifactory-test')
+        assert mama_exec(['build'], exit_on_fail=False) == 0
+        # an unpacked package leaves papa.txt beside the libs, and a source build never writes one
+        fetched = glob(f'{project}/packages/Producer/{native_platform_name()}*/papa.txt')
+        assert fetched, 'the consumer built no fetched package, so it never read the artifactory zip'
+        assert 'M include/rpp/rpp-strview.cppm' in open(fetched[0]).read()
+        assert _run_consumer(project) == 'MODULES hello'
+    finally:
+        server.shutdown()
+        os.environ.pop('MAMA_TEST_ARTIFACTORY', None)
+        os.environ.pop('MAMA_TEST_ARTIFACTORY_PKG', None)

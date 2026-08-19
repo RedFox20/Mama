@@ -20,7 +20,14 @@ class Consumer(mama.BuildTarget):
         self.config.cxx_version = os.getenv('MAMA_TEST_CXX_VERSION')
 
     def dependencies(self):
-        self.add_local('Producer', 'producer')
+        # the artifactory mode fetches the very package the source mode deployed, so the consumer
+        # reads the modules back from the `M` records instead of from the producer source tree
+        url = os.getenv('MAMA_TEST_ARTIFACTORY')
+        if url:
+            self.set_artifactory_ftp(url, auth='none')
+            self.add_artifactory_pkg('Producer', fullname=os.getenv('MAMA_TEST_ARTIFACTORY_PKG'))
+        else:
+            self.add_local('Producer', 'producer')
 
     def configure(self):
         self.enable_cxx20()

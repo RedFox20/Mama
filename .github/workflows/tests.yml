@@ -32,9 +32,9 @@ jobs:
       - name: Run tests
         run: pytest -v
 
-  # Clones a well known C++ package, builds it, and links an app against it. mama does the clone,
-  # so this job proves the whole load, build and consume path against a real dependency.
-  recpp-consumer:
+  # The slow gate: it builds real C++ with a real toolchain. One job clones a well known package
+  # and links an app against it, and the module tests cover the source and the artifactory path.
+  integration:
     strategy:
       fail-fast: false
       matrix:
@@ -53,8 +53,8 @@ jobs:
       - name: Install mama from this checkout
         run: pip install -e ".[dev]"
 
-      - name: Build and run the consumer
-        run: pytest tests/test_recpp_consumer -m slow -v -n0
+      - name: Build and run the integration tests
+        run: pytest tests/test_recpp_consumer tests/test_modules_build -m slow -v -n0
 
   package:
     runs-on: ubuntu-latest
