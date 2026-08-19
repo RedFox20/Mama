@@ -32,6 +32,38 @@ jobs:
       - name: Run tests
         run: pytest -v
 
+  # Builds a real consumer against the ReCpp module export, on every compiler family. The checkout
+  # IS the mama under test, so no version pinning is needed here.
+  module-consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  compiler: clang, expect: modules }
+          - { os: ubuntu-latest,  compiler: gcc,   expect: headers }  # gcc 13 reports no import graph
+          - { os: windows-latest, compiler: windows, expect: any }    # tighten once a run names the path
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14
+
+      - name: Install the ReCpp build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdw-dev libunwind-dev ninja-build libc++-dev libc++abi-dev
+
+      - name: Install mama from this checkout
+        run: pip install -e .
+
+      # TODO: drop --branch once the consumer test reaches ReCpp master
+      - name: Clone the ReCpp consumer fixture
+        run: git clone --depth 1 --branch claude/mama-module-cppm-support-03jtvo https://github.com/RedFox20/ReCpp.git ../ReCpp
+
+      - name: Build and run the consumer
+        working-directory: ../ReCpp/tests/consumer
+        run: python run_test.py --compiler ${{ matrix.compiler }} --expect ${{ matrix.expect }} --compare-paths --jobs 3
+
   package:
     runs-on: ubuntu-latest
     steps:
