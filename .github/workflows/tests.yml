@@ -46,9 +46,11 @@ jobs:
         with:
           python-version: 3.14
 
+      # libdw gives the stack trace, ninja gives the module scanner. Do not add libunwind-dev: the
+      # image already ships the libunwind of its clang, and the two packages conflict.
       - name: Install the C++ build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdw-dev libunwind-dev ninja-build libc++-dev libc++abi-dev
+        run: sudo apt-get update && sudo apt-get install -y libdw-dev ninja-build libc++-dev libc++abi-dev
 
       - name: Install mama from this checkout
         run: pip install -e ".[dev]"
