@@ -112,10 +112,10 @@ def export_includes(target: BuildTarget, include_paths, build_dir: bool):
     return added
 
 
-def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bool):
+def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bool, recursive=True):
     module_path = target_root_path(target, module_path, build_dir=build_dir)
     if modules is None:
-        found = sorted(glob_with_extensions(module_path, list(MODULE_EXTENSIONS)))
+        found = sorted(glob_with_extensions(module_path, list(MODULE_EXTENSIONS), recursive=recursive))
     else:
         found = [normalized_join(module_path, m) for m in modules]
     added = False

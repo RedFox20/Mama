@@ -764,8 +764,9 @@ a module interface unit. **Why:** a library that ships one almost always publish
 that ships a module source no consumer compiles is the more common mistake. An `export_modules()`
 call in the hook replaces this, so a recipe narrows the list by naming it.
 
-`export_modules(path, [names])` names the C++20 module interface units of a package. It copies no
-file of its own. The include deploy carries them, because the deploy filter joins
+`export_modules(path, [names])` names the C++20 module interface units of a package. A `None` name
+list globs every module extension under `path`, and `recursive=False` reads that one directory. It
+copies no file of its own. The include deploy carries them, because the deploy filter joins
 `include_glob_filter` with the suffixes of every gathered module. A recursive deploy gathers the
 modules of the children too, so a parent filter that names no module suffix still ships them. The
 hook order cannot drop a module, and one module ships exactly once. A module file ships only when

@@ -91,11 +91,13 @@ def user_cache_dir(*parts) -> str:
     return forward_slashes(path_join(os.environ.get('MAMA_CACHE_DIR') or _cache_base(), *parts))
 
 
-def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List[str] = None) -> List[str]:
+def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List[str] = None,
+                         recursive=True) -> List[str]:
     results = []
     exclude = set(exclude_dirs) if exclude_dirs else None
     for dirpath, dirnames, dirfiles in os.walk(rootdir):
         if exclude: dirnames[:] = [d for d in dirnames if d not in exclude]  # prune generated/vendored trees
+        if not recursive: dirnames.clear()  # os.walk reads this list back, so an empty one stops the descent
         for file in dirfiles:
             _, fext = os.path.splitext(file)
             if fext in extensions:

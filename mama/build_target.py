@@ -643,8 +643,8 @@ class BuildTarget:
 
 
 
-    def export_modules(self, module_path, modules=None, build_dir=False, strip_objects=True,
-                       min_gnu='', min_clang='', min_msvc=''):
+    def export_modules(self, module_path, modules=None, build_dir=False, recursive=True,
+                       strip_objects=True, min_gnu='', min_clang='', min_msvc=''):
         """
         Exports C++20 module interface units to consumers of this package.
 
@@ -661,6 +661,7 @@ class BuildTarget:
         - module_path: the folder holding the module interface units
         - modules: [None] the file names. None globs every known module extension under module_path
         - build_dir: [False] resolve module_path against the build directory
+        - recursive: [True] the glob reads every subdirectory too. False reads module_path alone
         - strip_objects: [True] remove the module objects from the exported static library. The flag
           applies to the whole target, and one False keeps the objects whatever a later call passes.
         - min_gnu, min_clang, min_msvc: [''] the least compiler version that builds THESE modules.
@@ -678,7 +679,7 @@ class BuildTarget:
             # one file set carries every call, so the older floor cannot answer for the newer module
             if least and version_at_least(str(least), self.module_min_compilers.get(name, '0')):
                 self.module_min_compilers[name] = str(least)
-        return package.export_modules(self, module_path, modules, build_dir=build_dir)
+        return package.export_modules(self, module_path, modules, build_dir=build_dir, recursive=recursive)
 
 
     def export_lib(self, relative_path, src_dir=False, build_dir=True):
