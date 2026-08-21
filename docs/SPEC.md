@@ -776,6 +776,46 @@ widen the export to a private module beside an exported one.
 `strip_objects` sets a target-wide flag, and only an opt-out sticks. One
 `export_modules(..., strip_objects=False)` keeps the module objects, whatever a later call passes.
 
+### C++20 modules reach a consumer as source
+
+A binary module interface is not portable, so a package ships the interface unit and the consumer
+compiles it. Mama carries that through the generated cmake.
+
+`mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` for a package that
+exports a module, one `{name}_MODULES_MIN_{GNU|CLANG|MSVC}` per floor it declared, and appends the
+package name to `MAMA_MODULE_PACKAGES`. A dep that exports none writes nothing, so the file of an
+existing project stays byte-identical and an upgrade reconfigures nothing. The consolidated
+`MAMA_MODULES_BASE_DIRS` drops a base dir that sits inside another, because cmake refuses a file set
+whose base dirs contain each other.
+
+`mama.cmake` carries the reader. `mama_target_modules(target [scope])` adds a
+`FILE_SET mama_modules TYPE CXX_MODULES`, asks for `cxx_std_20` through `target_compile_features`,
+and defines `MAMA_HAS_MODULES=1`. The scope is `PUBLIC` unless the call names one. A library that
+installs itself through `install(EXPORT)` passes `PRIVATE`. Cmake refuses to export a target whose
+`PUBLIC` file set it does not also install. The consumer source reads `#ifdef MAMA_HAS_MODULES`
+and imports, or includes the exported header.
+
+`MAMA_MODULES_AVAILABLE` reads the toolchain alone, and every part must answer:
+
+| Part | What it takes |
+|---|---|
+| cmake | 3.28 or newer |
+| generator | Ninja 1.11 or newer, or Visual Studio 17 2022 or newer |
+| clang | `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS` that exists, and no Visual Studio generator |
+
+The ninja probe runs on every configure, because a cached version outlives the executable that
+answered it. A Visual Studio generator scans a module graph with the MSVC toolset alone, so clang
+there is refused. **Why:** a toolchain that misses one part keeps the exported headers, and a build
+never fails because a compiler cannot read modules.
+
+`MAMA_MODULES_MIN_GNU`, `MAMA_MODULES_MIN_CLANG` and `MAMA_MODULES_MIN_MSVC` are cache strings a
+consumer may lower, and they default to 14, 21 and 1934. A package weighs its own `Q` floor first and
+falls back to the global one. An empty floor refuses, and never passes.
+
+**One refused package keeps the headers of every package.** `MAMA_HAS_MODULES` is one define for the
+whole target, so a consumer cannot import from one package and read the headers of another. Both
+refusals print a cmake STATUS line naming what happened.
+
 A failing `package()` names its target and stops the run. A `list` run builds nothing, so a
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
 reports the gap and carries on.
