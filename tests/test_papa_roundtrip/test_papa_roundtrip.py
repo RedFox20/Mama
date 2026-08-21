@@ -10,8 +10,9 @@ from mama.utils.archive import try_unzip
 # A build output with payload suffixes a plain header filter would drop.
 BUILD_FILES = ['include/foo/foo.h', 'include/foo/foo.hpp', 'include/foo/detail.inc',
                'include/foo/table.txt', 'include/foo/readme.md',
-               'include/foo/foo.cppm',
                'src/api.h', 'src/detail.inc', 'lib/libfoo.a', 'bin/tool']
+# only the module style writes this: an exported include dir that holds one turns on the module export
+MODULE_FILE = 'include/foo/foo.cppm'
 
 
 SOURCE_FILES = ['data/table.txt', 'data/params.xml', 'notes.md']
@@ -24,8 +25,8 @@ def _write_source_tree(src_dir):
         with open(path, 'w') as f: f.write(f'; {rel}\n')
 
 
-def _write_build_output(build_dir):
-    for rel in BUILD_FILES:
+def _write_build_output(build_dir, with_module: bool):
+    for rel in BUILD_FILES + ([MODULE_FILE] if with_module else []):
         path = os.path.join(build_dir, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w') as f: f.write(f'// {rel}\n')
@@ -108,7 +109,7 @@ def _deploy(root, recipe, *, fetched_from=None, shape='shim', source_of=None):
         assert artifactory_load_target(target, build_dir, num_files_copied=0)[0]
         assert target.dep.from_artifactory
     else:
-        _write_build_output(build_dir)
+        _write_build_output(build_dir, recipe is _modules)
         _write_source_tree(target.dep.src_dir)
     target._run_packaging()
     target.papa_deploy('pkg')

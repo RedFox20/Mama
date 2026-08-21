@@ -754,14 +754,23 @@ never produced or just deleted.
 
 The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
 `export_asset` and `export_modules`. When it exports no includes, the default include packaging runs.
-When it exports no libs and no syslibs, the default lib packaging runs. `no_export_includes()` and
-`no_export_libs()` opt out.
+When it exports no libs and no syslibs, the default lib packaging runs. When it exports no modules,
+the default module packaging runs, which reads every exported include dir. It runs after the include
+default, because a module ships inside an exported include tree or it cannot ship at all.
+`no_export_includes()`, `no_export_libs()` and `no_export_modules()` opt out.
+
+`default_package_modules()` exports every file under the exported include dirs whose extension names
+a module interface unit. **Why:** a library that ships one almost always publishes it, and a package
+that ships a module source no consumer compiles is the more common mistake. An `export_modules()`
+call in the hook replaces this, so a recipe narrows the list by naming it.
 
 `export_modules(path, [names])` names the C++20 module interface units of a package. It copies no
 file of its own. The include deploy carries them, because the deploy filter joins
 `include_glob_filter` with the suffixes of every gathered module. A recursive deploy gathers the
 modules of the children too, so a parent filter that names no module suffix still ships them. The
-hook order cannot drop a module, and one module ships exactly once.
+hook order cannot drop a module, and one module ships exactly once. A module file ships only when
+an export named it, whatever `include_glob_filter` holds. A filter that names a module suffix cannot
+widen the export to a private module beside an exported one.
 
 `strip_objects` sets a target-wide flag, and only an opt-out sticks. One
 `export_modules(..., strip_objects=False)` keeps the module objects, whatever a later call passes.

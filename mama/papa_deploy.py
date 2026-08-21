@@ -144,7 +144,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         # the recipe and the filesystem can spell one name two ways, so the suffix reads the same rule
         name = package.match_path(os.path.basename(path))
         # a module source ships only when export_modules named it, so a private one beside it stays out
-        if name.endswith(module_sfx) and not name.endswith(suffixes):
+        if name.endswith(module_sfx):
             header = package.match_path(path) in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when

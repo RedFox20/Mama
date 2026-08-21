@@ -1,0 +1,38 @@
+"""Pins the automatic module export: a recipe that names none gets every module its includes hold."""
+import os
+
+from testutils import make_package_target, write_files
+
+CPPM = 'export module rpp.strview;\n'
+FILES = {'include/rpp/strview.h': '#pragma once\n', 'include/rpp/rpp-strview.cppm': CPPM,
+         'include/rpp/rpp-vec.cppm': CPPM, 'src/rpp/private.cppm': CPPM}
+
+
+def _packaged(tmp_path, package) -> list:
+    """Run the packaging of a target whose package() hook is `package`. Returns its module names."""
+    target = make_package_target(tmp_path, package=package,
+                                 dep_attrs={'from_artifactory': False, 'should_rebuild': True})
+    write_files(target.source_dir(), FILES)
+    target._run_packaging()
+    assert target.exported_includes, 'the packaging never ran, so every assert below passes for free'
+    return sorted(os.path.basename(m) for m in target.exported_modules)
+
+
+def test_the_packaging_exports_every_module_an_exported_include_holds(tmp_path):
+    # src/rpp/private.cppm is not under the exported dir, and a module that cannot deploy stays out
+    def package(self): self.export_include('include')
+    assert _packaged(tmp_path, package) == ['rpp-strview.cppm', 'rpp-vec.cppm']
+
+
+def test_an_explicit_export_narrows_the_automatic_one(tmp_path):
+    def package(self):
+        self.export_include('include')
+        self.export_modules('include/rpp', ['rpp-strview.cppm'])
+    assert _packaged(tmp_path, package) == ['rpp-strview.cppm']
+
+
+def test_no_export_modules_opts_out(tmp_path):
+    def package(self):
+        self.no_export_modules()
+        self.export_include('include')
+    assert _packaged(tmp_path, package) == []

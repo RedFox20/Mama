@@ -129,6 +129,15 @@ def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bo
     return added
 
 
+def default_package_modules(target: BuildTarget) -> bool:
+    """Export every module interface unit under the exported include dirs. A library that ships one
+    almost always publishes it, and an explicit export_modules() call narrows this down."""
+    added = False
+    for include in target.exported_includes:
+        added |= export_modules(target, include, None, build_dir=False)
+    return added
+
+
 def module_suffixes(modules) -> tuple:
     """The distinct extensions of `modules`, so the include deploy carries them too.
     It reads the gathered list, not one target, because a recursive deploy ships a child's modules."""

@@ -64,6 +64,14 @@ def test_a_cppm_carried_by_the_include_filter_alone_writes_no_m_record(tmp_path)
     assert not [l for l in _papa_lines(archive) if l.startswith('M ')]
 
 
+def test_a_filter_that_names_a_module_suffix_still_ships_the_exported_module_alone(tmp_path):
+    # a target that exports modules answers from that list, so no filter can widen it to a private one
+    build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'], filter=['.h', '.cppm'])
+    write_files(build, {'include/rpp/private.cppm': CPPM})
+    names = zipfile.ZipFile(deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')).namelist()
+    assert 'include/rpp/rpp-strview.cppm' in names and 'include/rpp/private.cppm' not in names
+
+
 def test_a_module_the_export_never_named_stays_out_of_the_package(tmp_path):
     build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
     write_files(build, {'include/rpp/private.cppm': CPPM})

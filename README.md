@@ -502,7 +502,7 @@ self.export_include('src', as_includes_root='mylib') # Deploy as src/*.h as incl
 self.export_libs('.', ['.lib', '.a'])                # Find and export libs matching patterns
 self.export_libs('.', ['.lib', '.a'], order=['core', 'utils'])  # Control linker order (important on Linux)
 self.export_lib('lib/mylib.a')                       # Export a specific library file
-self.export_modules('src/rpp', ['rpp-strview.cppm']) # Export C++20 modules a consumer compiles itself
+self.export_modules('src/rpp', ['rpp-strview.cppm']) # Narrow the C++20 modules exported (default: every one an include dir holds)
 self.export_syslib('GL')                             # Export a system library
 self.export_syslib('GL', apt='libgl-dev')            # With apt package hint on failure
 self.export_syslib('optional_lib', required=False)   # Silently skip if not found
@@ -510,6 +510,7 @@ self.export_asset('data/model.bin', category='models')  # Export asset files
 self.export_assets('data/', ['.bin', '.dat'])         # Export multiple assets by pattern
 self.no_export_includes()                            # Suppress automatic include exports
 self.no_export_libs()                                # Suppress automatic lib exports
+self.no_export_modules()                             # Suppress automatic C++20 module exports
 ```
 
 ### Execution utilities

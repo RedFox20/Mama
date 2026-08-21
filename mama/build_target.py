@@ -105,6 +105,7 @@ class BuildTarget:
         self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
+        self.no_modules = False # no C++20 module interface units to export
         self.no_upload = False # nothing_to_upload(): an upload skips this target
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
@@ -563,6 +564,19 @@ class BuildTarget:
         self.no_libs = True
 
 
+    def no_export_modules(self):
+        """
+        Declares that this target exports no C++20 module interface units. This prevents the
+        automatic module search, which reads every exported include dir.
+        ```
+            def package(self):
+                self.no_export_modules()
+                self.export_include('include')
+        ```
+        """
+        self.no_modules = True
+
+
     def nothing_to_upload(self):
         """
         Declares that this target publishes no package, so `mama upload` skips it and reports
@@ -638,7 +652,7 @@ class BuildTarget:
         The generated `mama.cmake` carries them, and `mama_target_modules(MyApp)` adds them to a
         target. A toolchain without module support keeps the headers.
         ```
-            self.export_include('src/rpp', includes_filter=['.h','.cppm'], as_includes_root=True)
+            self.export_include('src/rpp', as_includes_root=True)
             self.export_modules('src/rpp', ['rpp-strview.cppm'])
         ```
         The modules deploy inside the exported include tree, so a module reaches its own header.
@@ -1453,10 +1467,11 @@ class BuildTarget:
 
     def default_package(self):
         """Performs the default packaging steps. Mama calls this when self.package() exported nothing.
-        A package() override can also call it to collect the default includes and libs.
-        `no_export_includes()` and `no_export_libs()` opt each half out."""
+        A package() override can also call it to collect the default includes, libs and modules.
+        `no_export_includes()`, `no_export_libs()` and `no_export_modules()` opt each part out."""
         if not self.no_includes: self.default_package_includes()
         if not self.no_libs: self.default_package_libs()
+        if not self.no_modules: self.default_package_modules()
 
 
     ## TODO: move this into `package.py`
@@ -1467,6 +1482,12 @@ class BuildTarget:
         elif self.export_include('include', build_dir=False): pass
         elif self.export_include('src',     build_dir=False, as_includes_root=self.name): pass
         elif self.export_include('',        build_dir=False): pass
+
+
+    def default_package_modules(self):
+        """Performs the default MODULE packaging steps. It reads the exported include dirs, so it runs
+        after the includes. A package() override can call it to collect modules."""
+        return package.default_package_modules(self)
 
 
     ## TODO: move this into `package.py`
@@ -1877,6 +1898,9 @@ class BuildTarget:
                 self.default_package_includes()
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
+            # after the includes: a module ships inside an exported include tree, or it cannot ship
+            if not self.exported_modules and not self.no_modules:
+                self.default_package_modules()
 
         # A consumer links the exported lib whether it fetched this package or built it here, so the
         # module objects come out before that path is published, not only on the way into a package.
