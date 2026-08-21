@@ -71,3 +71,11 @@ def test_a_real_suffixed_file_keeps_its_suffix(tmp_path):
 def test_an_unsuffixed_toolchain_keeps_its_own_layout(tmp_path):
     root, suffix, _ = _find(_bin_with(tmp_path, CC, CXX), ['-18', ''])
     assert suffix == '' and os.path.exists(f'{root}{CXX}{suffix}')
+
+
+def test_the_path_separator_of_this_platform_splits_the_search_roots(tmp_path):
+    # Windows separates PATH with `;`, and a split on `:` there also cuts the drive letter off
+    bin_dir = _bin_with(tmp_path, CC, CXX)
+    with patch('os.pathsep', ';'):
+        root, suffix, _ = _find(f'/nonexistent;{bin_dir}', ['-18', ''])
+    assert suffix == '' and os.path.exists(f'{root}{CXX}{suffix}')

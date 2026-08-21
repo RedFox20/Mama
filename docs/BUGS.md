@@ -63,6 +63,10 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **Compiler discovery on Windows searched a PATH it had cut apart.** The split read `:`, which
+  also takes the drive letter off every entry. Fix: split on the separator of this platform, and
+  return the root with forward slashes.
+
 - **Compiler discovery named a compiler the host does not have.** A link carries a suffix its target
   does not, and `clang++` links on to `clang`. Fix: keep the spelling that exists at the resolved root.
 

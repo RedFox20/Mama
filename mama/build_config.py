@@ -19,7 +19,7 @@ from .utils.archive import unzip
 from .utils.errors import BuildError
 from .utils.fileio import find_executable_from_system
 from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_file
-from .utils.paths import normalized_path
+from .utils.paths import forward_slashes, normalized_path
 from .utils.system import System, console, Color, error, warning
 from .utils.sub_process import execute, execute_piped
 
@@ -639,7 +639,7 @@ class BuildConfig:
             if not os.path.exists(cxx_path):
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
-            root = os.path.dirname(cxx_path) + '/'
+            root = forward_slashes(os.path.dirname(cxx_path)) + '/'
             # The caller composes `root + compiler + suffix`, so that path has to exist at the resolved
             # root. A link carries a suffix its target does not, and `clang++` links on to `clang`.
             spelling = next((s for s in (suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
@@ -662,10 +662,9 @@ class BuildConfig:
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
 
-        # also search PATH, not only the hardcoded paths
-        pathDirs = os.getenv('PATH').split(":")
-        pathDirs = list(map(lambda p: p if p.endswith("/") else p + "/", pathDirs)) # Add slash at end if missing
-        roots += pathDirs
+        # also search PATH, not only the hardcoded roots. Windows separates its entries with `;`
+        path_dirs = (forward_slashes(p) for p in os.getenv('PATH', '').split(os.pathsep) if p)
+        roots += [p if p.endswith('/') else p + '/' for p in path_dirs]
 
         candidates = []
         already_added = set()
