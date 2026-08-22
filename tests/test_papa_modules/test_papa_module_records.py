@@ -239,9 +239,9 @@ def _recursive_deploy(tmp_path, parent_modules, child_modules, filter):
     return deployed
 
 
-def test_a_bundled_child_tree_keeps_the_include_filter_of_its_own_owner(tmp_path):
-    # the child exports no module, so its .cppm rides the ordinary filter. One flat root set gated
-    # every descendant of the parent's module base, and dropped the file with no error.
+def test_a_bundled_child_tree_that_exports_no_module_falls_back_to_the_filter(tmp_path):
+    # the child exports no module, so its .cppm rides the include filter of the deploy. One flat root
+    # set gated every descendant of the parent's module base, and dropped the file with no error.
     deployed = _recursive_deploy(tmp_path, ['include/rpp/rpp-strview.cppm'], [], ['.h', '.cppm'])
     assert os.path.exists(f'{deployed}/include/child/extra.cppm')
     # the parent DID export a module, so its own tree still answers from that list alone

@@ -684,11 +684,12 @@ other spelling sets them OFF.
 
 The mapping reads the flag alone, never the build args. An arg the mamafile ignored therefore cannot
 steer cmake away from the flag the compiler gets. An operator who passes a standard through `flags=`
-wins over the mamafile, because cmake appends its own flag last. `c++latest` maps to no number,
-because it names no fixed standard. Three more cases get nothing:
+wins over the mamafile, because cmake appends its own flag last. `c++latest` takes the newest number
+mama knows, because cmake would otherwise append a lower flag after it. Four cases get nothing:
 
-- a mamafile that forces no standard
+- neither the mamafile nor the operator forces a standard
 - a mamafile that named the same variable through `add_cmake_options()`, in any spelling
+- a mamafile that called `disable_cxx_compiler()`
 - a cmake older than the release that learned that number
 
 Mama never passes `CMAKE_CXX_STANDARD_REQUIRED`. A compiler that cannot give the standard has to
@@ -782,9 +783,10 @@ target that exports one module answers for every module file, so a filter naming
 ships no private module beside it. One module ships
 exactly once, whatever order the hook used.
 
-The exported include dir nearest a file names the target that answers for it. A recursive bundle
-copies a child tree that sits inside the parent's, and the child's own filter still decides there.
-The extension test folds case, because the module glob reads `Api.IXX` as a module.
+The exported include dir nearest a file decides. Where a module export names that dir as its base,
+the export list alone ships the module files there. Everywhere else the include filter of the
+deploying target decides, so a recursive bundle keeps a child tree that exports no module on the
+filter. The module extension test folds case, because the module glob reads `Api.IXX` as a module.
 
 `strip_objects` sets a target-wide flag, and only an opt-out sticks. One
 `export_modules(..., strip_objects=False)` keeps the module objects, whatever a later call passes.
@@ -950,15 +952,16 @@ components. MSVC drops the module extension, so a module that shares none falls 
 name. A member stays whenever its name is ambiguous. That covers a non-module source of the same name, a
 copy the exported modules cannot account for, and a module of that name this target does not export.
 Mama reads the source tree and the build tree for those names, and skips every deployed package tree
-below them. A build tree file that matches an exported module byte for byte is that module, because
-an install step writes it there.
+below them. A build tree file that carries the name of an exported module, and matches its size and
+SHA1, is that module. An install step writes it there.
 **Why:** removing the object of a private unit loses its definitions, and every consumer then fails
 to link. Both the
 listing and the removal go through the archiver of the platform. Windows, Android and every prefixed
-cross platform name a full path there, because the host keeps that tool off PATH. An archive that
-stored a member path needs the full-path match modifier, and the removal passes it exactly when a
-selected member holds a path. Without it `ar` matches the base name, and with it an archive of bare
-names matches no path. A GNU thin archive names each member by a path, so it keeps its
+cross platform name a full path there, because the host keeps that tool off PATH. An `ar` archive
+that stored a member path needs the full-path match modifier. The removal passes it exactly when a
+selected member holds a path. Without it `ar` strips the path from the name it is given, so a stored
+path matches nothing. With it a stored bare name matches no path.
+A GNU thin archive names each member by a path, so it keeps its
 module objects and says so.
 
 The strip touches the packaged copy alone, so the producer's own binaries still link.

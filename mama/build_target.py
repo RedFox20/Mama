@@ -1000,7 +1000,7 @@ class BuildTarget:
 
 
     # The number cmake wants, for each spelling the enable_cxxNN family writes. `c++latest` names no
-    # fixed standard, so it maps to none and cmake keeps its own default.
+    # fixed standard, so it takes the newest number mama knows.
     _CXX_STANDARD_OF_FLAG = {'c++11':'11', 'c++14':'14', 'c++17':'17', 'c++1z':'17',
                              'c++20':'20', 'c++2a':'20', 'c++23':'23', 'c++2b':'23',
                              'c++26':'26', 'c++2c':'26', 'c++latest':'26'}
