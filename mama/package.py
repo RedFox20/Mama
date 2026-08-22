@@ -156,6 +156,9 @@ def module_base_dir(target: BuildTarget, module: str) -> str:
     """The exported include dir that holds `module`, longest match first, or '' when none does.
     Cmake needs every module of a file set to sit under one of its base dirs."""
     fwd = match_path(module)
+    # as_includes_root deploys one subdir of the export, so a module outside it never reaches a consumer
+    root_src = match_path(target.includes_root[1]) if target.includes_root[1] else ''
+    if root_src and not fwd.startswith(root_src + '/'): return ''
     best = ''
     for include in target.exported_includes:
         if fwd.startswith(match_path(include) + '/') and len(include) > len(best):
@@ -225,14 +228,19 @@ def _shared_tail(a: list, b: list) -> int:
     return n
 
 
-def _source_stems(target: BuildTarget) -> set:
-    """The names, without extension, of every non-module source under the source dir of this target."""
-    stems = set()
+def _ambiguous_names(target: BuildTarget) -> set:
+    """Every name a member could also have come from: a non-module source without its extension, and
+    a module this target does not export with its extension. Either one makes a bare member unsafe."""
+    exported = {match_path(m) for m in target.exported_modules}
+    names = set()
     for root, _, files in os.walk(target.source_dir()):
         for name in files:
             stem, ext = os.path.splitext(name)
-            if ext.lower() in SOURCE_EXTENSIONS: stems.add(match_path(stem))
-    return stems
+            ext = ext.lower()
+            if ext in SOURCE_EXTENSIONS: names.add(match_path(stem))
+            elif ext in MODULE_EXTENSIONS and match_path(normalized_join(root, name)) not in exported:
+                names.add(match_path(name))
+    return names
 
 
 def _module_object_members(target: BuildTarget, lib: str) -> list:
@@ -247,15 +255,19 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     objects = _archive_members(target, lib)
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
-    claims, stems = {}, None
+    claims, names = {}, None
     for module in consumed_modules(target):
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
         best = max((n for _, n in scored), default=0)
+        if names is None: names = _ambiguous_names(target)  # one walk, whatever the scores need
+        if best == 1 and module_parts[-1] in names:
+            warning(f'{target.name}: a module named {module_parts[-1]} is not exported, and the '
+                    'archive names no path, so the module objects of that name stay.')
+            continue
         if not best:
-            if stems is None: stems = _source_stems(target)  # one walk, and only when a name needs it
             bare = match_path(os.path.splitext(module_parts[-1])[0])
-            if bare in stems: continue
+            if bare in names: continue
             scored, best = [(o, 1) for o, p in parts if p[-1] == bare], 1
         for name in {o for o, n in scored if n and n == best}:
             claims[name] = claims.get(name, 0) + 1

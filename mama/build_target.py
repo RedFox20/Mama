@@ -106,6 +106,7 @@ class BuildTarget:
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
         self.no_modules = False # no C++20 module interface units to export
+        self.modules_declared = False # the recipe called export_modules(), whatever it resolved to
         self.no_upload = False # nothing_to_upload(): an upload skips this target
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
@@ -671,6 +672,7 @@ class BuildTarget:
         """
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False
+        self.modules_declared = True  # a call that resolves to nothing still states what this ships
         return package.export_modules(self, module_path, modules, build_dir=build_dir, recursive=recursive)
 
 
@@ -1465,7 +1467,7 @@ class BuildTarget:
         if not self.no_includes: self.default_package_includes()
         if not self.no_libs: self.default_package_libs()
         # a recipe that already named its modules calls this for the rest, so the default cannot widen
-        if not self.no_modules and not self.exported_modules: self.default_package_modules()
+        if not self.no_modules and not self.modules_declared: self.default_package_modules()
 
 
     ## TODO: move this into `package.py`
@@ -1885,7 +1887,10 @@ class BuildTarget:
         if fetched:
             # The hook owns the export RULES. papa.txt owns the LIST for every category the hook left
             # alone, so a recipe that exports includes only keeps the libs the archive recorded.
-            self._set_exports(tuple(new or old for new, old in zip(self._exports(), loaded)))
+            merged = [new or old for new, old in zip(self._exports(), loaded)]
+            # modules are last, and an opt-out or an explicit export decided them either way
+            if self.no_modules or self.modules_declared: merged[-1] = self.exported_modules
+            self._set_exports(tuple(merged))
         else:
             # the user provided no packaging, use the default packaging instead
             if not self.exported_includes and not self.no_includes:
@@ -1893,7 +1898,7 @@ class BuildTarget:
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
             # after the includes: a module ships inside an exported include tree, or it cannot ship
-            if not self.exported_modules and not self.no_modules:
+            if not self.modules_declared and not self.no_modules:
                 self.default_package_modules()
         package.warn_unreachable_modules(self)
 

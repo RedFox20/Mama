@@ -166,6 +166,15 @@ def test_an_uppercase_archive_suffix_is_still_a_static_library():
     assert package.is_a_static_library('Producer.LIB') is (not package.System.linux)
 
 
+def test_a_private_module_of_the_same_name_keeps_its_object(tmp_path):
+    # GNU ar stores no path, so this one member could be either unit, and only one of them ships
+    write_files(tmp_path, {'src/rpp/private/api.cppm': 'module;', 'src/rpp/api.cppm': 'module;'})
+    target = _target(tmp_path, modules=('api.cppm',))
+    with patch('mama.package.warning') as warned:
+        assert not _strip(target, listing='api.cppm.o\nother.cpp.o\n').called
+    assert 'api.cppm' in warned.call_args[0][0]
+
+
 def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path):
     # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
     lib = f'{tmp_path}/libfoo.a'

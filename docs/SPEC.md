@@ -755,8 +755,11 @@ never produced or just deleted.
 The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
 `export_asset` and `export_modules`. For a target built from source, each category the hook leaves
 empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default.
-`default_package()` runs the same three, and skips the module default when the hook already named
-one, so collecting the rest cannot widen a narrowed list. `no_export_includes()`, `no_export_libs()` and
+`default_package()` runs the same three, so collecting the rest cannot widen a narrowed list.
+
+**A call to `export_modules()` decides, whatever it resolves to.** A recipe that names a module only
+some platforms carry gets the empty result it asked for, never the automatic export. `papa.txt`
+cannot refill that category either, so `no_export_modules()` holds for a fetched package too. `no_export_includes()`, `no_export_libs()` and
 `no_export_modules()` opt one out.
 
 `default_package_modules()` exports every module interface unit under the exported include dirs. It
@@ -915,7 +918,8 @@ An `M` record holds one package-relative path, inside the include tree an `I` re
 record loads the child package, which carries its own modules. Two copies would make a consumer
 compile one module twice, which cmake refuses.
 
-A module under no exported include path ships nothing, and the packaging step warns. The upload refuses an
+A module under no exported include path ships nothing, and the packaging step warns. So does a
+module outside the subtree `as_includes_root` deploys, because the copy carries only that subtree. The upload refuses an
 `M` record whose file the include filter dropped, because the consumer would compile a source the
 archive does not carry. A package written before the `M` record carries no module.
 
@@ -927,9 +931,10 @@ dependency tree into this target.
 
 An archiver lists the path it stored, so each module takes the members sharing the most trailing path
 components. MSVC drops the module extension, so a module that shares none falls back to its bare
-name. A non-module source of that name makes the bare name ambiguous, and that member stays. So does a
-name the exported modules cannot account for, because removing the copy of a private unit loses its
-definitions. Both the
+name. A member stays whenever its name is ambiguous. That covers a non-module source of the same name, a
+copy the exported modules cannot account for, and a module of that name this target does not export.
+**Why:** removing the object of a private unit loses its definitions, and every consumer then fails
+to link. Both the
 listing and the removal go through the archiver of the platform. Windows, Android and every prefixed
 cross platform name a full path there, because the host keeps that tool off PATH. A GNU thin archive names each member by a path, so it keeps its
 module objects and says so.

@@ -98,6 +98,14 @@ def test_a_private_module_of_another_extension_stays_out(tmp_path):
     assert 'include/rpp/rpp-strview.ixx' in names and 'include/rpp/rpp-strview.cppm' not in names
 
 
+def test_an_includes_root_export_holds_no_module_outside_its_subtree(tmp_path):
+    # as_includes_root deploys src/rpp alone, so a module under src/other never reaches a consumer
+    build, target = _built(tmp_path, ['src'], ['src/rpp/rpp-strview.cppm'], as_root=True)
+    write_files(build, {'src/other/hidden.cppm': CPPM})
+    target.exported_modules.append(f'{build}/src/other/hidden.cppm')
+    assert package.module_base_dir(target, f'{build}/src/other/hidden.cppm') == ''
+
+
 def test_a_recursive_deploy_writes_no_m_record_for_a_child_module(tmp_path):
     # the parent writes a D record for the child, and the child package ships its own M record. Two
     # copies would make a consumer compile one module twice, and cmake refuses the second declaration.
