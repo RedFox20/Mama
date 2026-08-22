@@ -241,11 +241,12 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     keeps an exported `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module
     extension from the object name, so a module that shares no component falls back to its bare name.
     A non-module source of that name in this target makes the name ambiguous, and the member stays.
-    The result keeps every occurrence, because one archive can hold two members of the same name."""
+    An archiver that stores no path lists a private unit under the name of an exported one, so a name
+    the exported modules cannot account for keeps every copy."""
     objects = _archive_members(target, lib)
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
-    names, stems = [], None
+    claims, stems = {}, None
     for module in consumed_modules(target):
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
@@ -255,10 +256,18 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
             bare = match_path(os.path.splitext(module_parts[-1])[0])
             if bare in stems: continue
             scored, best = [(o, 1) for o, p in parts if p[-1] == bare], 1
-        for o, n in scored:
-            if n and n == best and o not in names: names.append(o)
-    # `ar d` drops one member per name it is given, so a repeated name needs repeating
-    return [n for n in names for _ in range(objects.count(n))]
+        for name in {o for o, n in scored if n and n == best}:
+            claims[name] = claims.get(name, 0) + 1
+
+    members = []
+    for name, claimed in claims.items():
+        held = objects.count(name)
+        if held > claimed:
+            warning(f'{target.name}: {os.path.basename(lib)} holds {held} members named {name}, and '
+                    f'{claimed} exported module(s) claim it. Keeping them, so no definition is lost.')
+            continue
+        members += [name] * held  # `ar d` drops one member per name it is given
+    return members
 
 
 def strips_module_objects(target: BuildTarget, lib: str) -> bool:

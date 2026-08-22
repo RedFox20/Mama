@@ -91,17 +91,12 @@ so cut every word that a reader of the fix does not need.
 - **A cached ninja version outlived the executable that answered it.** An upgrade never reached the
   guard. Fix: the probe runs on every configure.
 
-- **A package floor below the global one enabled nothing.** The global gate weighed the compiler
-  version first. Fix: that gate reads the toolchain alone, and each package weighs its own floor.
-
 - **The module strip deleted an object no exported module named.** A bare name matched a private
   module and a `foo.cpp` build alike. Fix: each module takes the members that share the most path,
   and a bare name answers only when no non-module source of this target carries it.
 
 - **An intermediary archive kept the module objects of its child packages.** Fix: the strip reads the
   modules of every child too, and an archive that compiled none keeps its own path.
-
-- **A second `export_modules()` call lowered the floor of the first.** Fix: the strictest floor wins.
 
 - **A casing variant dropped a module on macOS.** The path compare merged case on Windows alone.
   Fix: `match_path` follows the filesystem, and the upload validation reads it too.
@@ -112,9 +107,6 @@ so cut every word that a reader of the fix does not need.
 - **An empty compiler floor broke the whole configure.** An unquoted empty operand left the `if` with
   no right side. Fix: an empty floor refuses, and a package floor falls back to the global one.
 
-- **One skipped module package still defined `MAMA_HAS_MODULES`.** A consumer then imported a module
-  the file set never got. Fix: one refused package keeps the headers of every package.
-
 - **The Windows strip found neither `lib.exe` nor its archive members.** Only a developer prompt puts
   the tool on PATH, and an archiver lists a full path. Fix: read the MSVC toolset and match the name.
 
@@ -124,8 +116,8 @@ so cut every word that a reader of the fix does not need.
 - **The module strip removed every definition the interface unit compiled.** Fix: the API states that
   an exported module defines nothing but its interface, and every strip warns.
 
-- **One lowered compiler floor enabled every module package.** Fix: `export_modules` takes
-  `min_gnu`/`min_clang`/`min_msvc`, and the cmake helper weighs each package on its own floor.
+- **One lowered compiler floor enabled every module package.** Fix: mama ships one floor per
+  compiler family, and a package declares none.
 
 - **A recursive package shipped a child module the child package also shipped.** A consumer then
   declared one module twice. Fix: write `M` records for the deployed target alone.

@@ -31,6 +31,15 @@ def test_an_explicit_export_narrows_the_automatic_one(tmp_path):
     assert _packaged(tmp_path, package) == ['rpp-strview.cppm']
 
 
+def test_default_package_never_widens_a_narrowed_list(tmp_path):
+    # a recipe may collect the rest of the defaults after it named the modules it wants
+    def package(self):
+        self.export_include('include')
+        self.export_modules('include/rpp', ['rpp-strview.cppm'])
+        self.default_package()
+    assert _packaged(tmp_path, package) == ['rpp-strview.cppm']
+
+
 def test_no_export_modules_opts_out(tmp_path):
     def package(self):
         self.no_export_modules()

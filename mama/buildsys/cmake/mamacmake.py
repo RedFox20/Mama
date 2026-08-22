@@ -149,6 +149,9 @@ function(mama_target_modules target)
     endif()
     # a module needs C++20, and the consumer mamafile does not have to force a standard of its own
     target_compile_features(${target} ${scope} cxx_std_20)
+    # cmake scans a source for `import` only under CMP0155 NEW, which a consumer whose
+    # cmake_minimum_required predates 3.28 does not get. Ask for the scan by name instead.
+    set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES ON)
     target_sources(${target} ${scope} FILE_SET mama_modules TYPE CXX_MODULES
                    BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})
     target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)

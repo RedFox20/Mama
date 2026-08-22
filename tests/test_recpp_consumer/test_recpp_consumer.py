@@ -1,17 +1,32 @@
 """Pins that mama clones a well known C++ package, builds it, and links an app against it.
 
 The app imports the C++20 module when that package exports one, and includes the header when it does
-not, so this test follows whichever path the package and the toolchain allow.
+not, so this test follows whichever path the package and the toolchain allow. This is the one test
+that reaches the network, because a real dependency is the point of it.
 Excluded from the default run: `python -m pytest tests/test_recpp_consumer -m slow`."""
 import os
 import shutil
+import socket
 import subprocess
 
 import pytest
 import testutils
 
+RECPP_HOST = 'github.com'
+
+
+def _has_network() -> bool:
+    """The clone needs the host that serves the package. An offline run skips instead of failing."""
+    try:
+        socket.create_connection((RECPP_HOST, 443), timeout=5).close()
+        return True
+    except OSError:
+        return False
+
 
 def _run(cmd, env=None) -> subprocess.CompletedProcess:
+    """Raw subprocess.run, not SubProcess.run: this test reads the whole output after the fact and
+    needs no live progress display."""
     print('+', ' '.join(cmd), flush=True)
     return subprocess.run(cmd, text=True, capture_output=True, env=env)
 
@@ -42,6 +57,7 @@ def _env(**extra) -> dict:
 @pytest.mark.parametrize('compiler', ['windows'] if testutils.is_windows() else ['clang', 'gcc'])
 def test_mama_clones_builds_and_consumes_a_real_package(tmp_path, compiler):
     if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
+    if not _has_network(): pytest.skip(f'{RECPP_HOST} is unreachable, so the package cannot clone')
     project = testutils.init(__file__, tmp_path)
     out = _build_and_run(project, compiler, _env())
 

@@ -239,9 +239,18 @@ def test_a_recorded_export_whose_archive_is_gone_keeps_its_copy(tmp_path):
 
 
 
-def test_two_members_of_one_name_are_both_removed(tmp_path):
-    # `ar d` drops one member per name it is given, so a repeated name has to repeat
+def test_one_module_never_takes_a_same_named_member_it_cannot_claim(tmp_path):
+    # GNU ar stores no path, so a private api.cppm lists exactly like the exported one. Removing
+    # both would take the definitions of the private unit, and the consumer link then fails.
     target = _target(tmp_path, modules=('api.cppm',))
+    with patch('mama.package.warning') as warned:
+        assert not _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').called
+    assert 'api.cppm.o' in warned.call_args[0][0]
+
+
+def test_two_exported_modules_of_one_name_take_both_members(tmp_path):
+    # `ar d` drops one member per name it is given, so two claims on one name repeat it
+    target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
     cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
     assert cmd.count('api.cppm.o') == 2
 

@@ -1466,7 +1466,8 @@ class BuildTarget:
         `no_export_includes()`, `no_export_libs()` and `no_export_modules()` opt each part out."""
         if not self.no_includes: self.default_package_includes()
         if not self.no_libs: self.default_package_libs()
-        if not self.no_modules: self.default_package_modules()
+        # a recipe that already named its modules calls this for the rest, so the default cannot widen
+        if not self.no_modules and not self.exported_modules: self.default_package_modules()
 
 
     ## TODO: move this into `package.py`
