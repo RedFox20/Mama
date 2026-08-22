@@ -24,14 +24,17 @@ def _linux_ubuntu(cfg):
 
 
 def _run(tool, exists=True):
-    """Runs one convenient install with every outbound call mocked, and returns the execute mock."""
+    """Runs one convenient install with every outbound call mocked, and returns the execute mock.
+
+    distro imports only on linux, so create=True gives a windows host an attribute to patch.
+    """
     cfg = BuildConfig(['build'])
     cfg.convenient_install = [tool]
     with _linux_ubuntu(cfg), \
          patch('mama.build_config.execute', autospec=True, return_value=0) as ex, \
          patch('mama.build_config.execute_piped', autospec=True, return_value='14.2.0'), \
          patch('mama.build_config.console'), patch('mama.build_config.warning'), \
-         patch('mama.build_config.distro') as dist, \
+         patch('mama.build_config.distro', create=True) as dist, \
          patch('mama.build_config.os.path.exists', return_value=exists):
         dist.info.return_value = {'codename': 'noble'}
         cfg.run_convenient_installs()
