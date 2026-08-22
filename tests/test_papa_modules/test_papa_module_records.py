@@ -208,3 +208,48 @@ def test_a_case_variant_dir_holds_no_module_of_the_other_one(tmp_path):
     with patch('mama.package.System') as system:
         system.macos = True  # the platform that folds case, on a volume that does not
         assert package.module_base_dir(target, f'{tmp_path}/Src/api.cppm') == ''
+
+
+def test_an_uppercase_module_extension_still_ships(tmp_path):
+    # the glob reads Api.IXX as a module, and a case-sensitive suffix test then dropped it silently
+    dep = make_mock_dep(tmp_path / 'producer', name='libfoo')
+    build = dep.build_dir
+    write_files(build, {'include/rpp/Api.IXX': CPPM, 'lib/libfoo.a': '\0'})
+    target = make_exporting_target(dep, [f'{build}/include'], [f'{build}/lib/libfoo.a'],
+                                   modules=[f'{build}/include/rpp/Api.IXX'])
+    target.strip_module_objects = False
+    archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
+    assert 'M include/rpp/Api.IXX' in _papa_lines(archive)
+    assert 'include/rpp/Api.IXX' in zipfile.ZipFile(archive).namelist()
+
+
+def _recursive_deploy(tmp_path, parent_modules, child_modules, filter):
+    """Deploy a parent whose include tree physically holds the child's. Returns the papa dir."""
+    from mama import papa_deploy
+    build, parent = _built(tmp_path, ['include'], parent_modules, filter=filter)
+    write_files(build, {'include/child/extra.cppm': CPPM, 'include/rpp/loose.cppm': CPPM})
+    child_dep = make_mock_dep(tmp_path / 'child', name='libchild')
+    child_dep.build_dir = build  # the bundled child tree sits inside the parent's include root
+    child_dep.target = make_exporting_target(child_dep, [f'{build}/include/child'], [],
+                                             modules=[f'{build}/{m}' for m in child_modules])
+    deployed = str(tmp_path / 'deploy' / 'libfoo')
+    with patch.object(type(parent), 'children', lambda self: [child_dep] if self is parent else []):
+        papa_deploy.papa_deploy_to(parent, deployed, r_includes=True, r_dylibs=False,
+                                   r_syslibs=False, r_assets=False)
+    return deployed
+
+
+def test_a_bundled_child_tree_keeps_the_include_filter_of_its_own_owner(tmp_path):
+    # the child exports no module, so its .cppm rides the ordinary filter. One flat root set gated
+    # every descendant of the parent's module base, and dropped the file with no error.
+    deployed = _recursive_deploy(tmp_path, ['include/rpp/rpp-strview.cppm'], [], ['.h', '.cppm'])
+    assert os.path.exists(f'{deployed}/include/child/extra.cppm')
+    # the parent DID export a module, so its own tree still answers from that list alone
+    assert not os.path.exists(f'{deployed}/include/rpp/loose.cppm')
+
+
+def test_a_bundled_child_module_gates_its_own_tree_and_no_other(tmp_path):
+    # the child owns the module, so only the child's base dir gates. A base resolved against the
+    # parent answered '', which gated every absolute path and dropped the parent's own sources.
+    deployed = _recursive_deploy(tmp_path, [], ['include/child/extra.cppm'], ['.h', '.cppm'])
+    assert os.path.exists(f'{deployed}/include/rpp/loose.cppm')

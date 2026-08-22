@@ -220,6 +220,18 @@ def test_a_listing_of_full_object_paths_still_matches(tmp_path):
     assert obj in run.call_args[0][0]
 
 
+def test_a_full_path_member_is_deleted_by_its_full_path(tmp_path):
+    # `ar d` matches the base name, so an archive that stored a path kept the member and reported success
+    obj = 'src/pub/rpp-strview.cppm.o'
+    cmd = _strip(_target(tmp_path), listing=f'{obj}\nsrc/pub/strview.cpp.o\n').call_args[0][0]
+    assert cmd[1] == 'dP' and obj in cmd
+
+
+def test_a_bare_member_keeps_the_plain_delete(tmp_path):
+    # `P` compares the whole stored name, and an archive of bare names then matches no path
+    assert _strip(_target(tmp_path)).call_args[0][0][1] == 'd'
+
+
 def test_the_windows_listing_uses_the_lib_list_flag():
     assert _windows(LIB_EXE).list_archive_members_cmd('foo.lib') == [LIB_EXE, '/NOLOGO', '/LIST', 'foo.lib']
 
@@ -345,3 +357,37 @@ def test_a_target_that_now_exports_no_module_republishes_its_archive(tmp_path):
     target = _target(tmp_path, modules=(), libs=(f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a',))
     package.export_stripped_module_libs(target)
     assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
+
+
+def _apart(tmp_path, files, exported='module rpp.api;\n'):
+    """A target whose build dir sits outside its source tree, holding `files`. Exports src/rpp/api.cppm."""
+    write_files(f'{tmp_path}/src', {'rpp/api.cppm': exported})
+    write_files(f'{tmp_path}/out', files)
+    target = make_includes_target(f'{tmp_path}/src', build_dir=f'{tmp_path}/out')
+    target.exported_includes = [f'{tmp_path}/src']
+    target.exported_modules = [f'{tmp_path}/src/rpp/api.cppm']
+    target.exported_libs = ['/pkg/lib/libfoo.a']
+    target.config.print = False
+    return target
+
+
+def test_a_generated_module_of_the_same_name_keeps_the_object(tmp_path):
+    # a generated private api.cppm owns its own member, and a bare listing names it like the exported one
+    target = _apart(tmp_path, {'gen/api.cppm': 'module gen.api;\n'})
+    with patch('mama.package.warning') as warned:
+        assert not _strip(target, listing='api.cppm.o\n').called
+    assert 'api.cppm' in warned.call_args[0][0]
+
+
+def test_an_installed_copy_of_an_exported_module_still_strips(tmp_path):
+    # cmake installs the exported module into the build tree, and reading that copy as a second unit
+    # would silently publish every module object
+    target = _apart(tmp_path, {'src/rpp/api.cppm': 'module rpp.api;\n'})
+    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\n').call_args[0][0]
+
+
+def test_a_deployed_package_tree_under_the_build_dir_is_not_a_second_unit(tmp_path):
+    # a deployed package holds its own modules, and its tree answers for them through its own records
+    target = _apart(tmp_path, {'deploy/TestLib/papa.txt': 'P TestLib\n',
+                               'deploy/TestLib/include/rpp/api.cppm': 'a copy that drifted\n'})
+    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\n').call_args[0][0]

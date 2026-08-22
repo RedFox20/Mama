@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os
+import itertools, os
 from .utils.system import console, System, warning
 from .utils.paths import (normalized_path, normalized_join, forward_slashes,
                           glob_with_name_match, glob_with_extensions)
 from .utils.errors import BuildError
-from .utils.fileio import copy_if_needed
+from .utils.fileio import copy_if_needed, file_sha1
 from .utils.sub_process import execute_piped, execute_piped_echo, SubProcess
 from .types.asset import Asset
 
@@ -215,16 +215,17 @@ def warn_unreachable_modules(target: BuildTarget) -> None:
 
 
 def consumed_modules(target: BuildTarget) -> list:
-    """Every module whose object this archive can hold: the ones this target exports, and the ones
-    every package below it exports. `mama_target_modules` compiles the whole dependency tree into
-    this target, so a grandchild module the strip misses defines its initializer twice."""
-    modules = list(exported_modules_with_base(target))
+    """(owner, module) for every module whose object this archive can hold: the ones this target
+    exports, and the ones every package below it exports. `mama_target_modules` compiles the whole
+    dependency tree into this target, so a grandchild module the strip misses defines its initializer
+    twice. The owner answers for the base dir, which only its own export list resolves."""
+    modules = [(target, m) for m in exported_modules_with_base(target)]
     seen = set()
     def walk(parent: BuildTarget):
         for child in parent.children():
             if child.name in seen: continue  # a diamond reaches one package through two parents
             seen.add(child.name)
-            modules.extend(exported_modules_with_base(child.target))
+            modules.extend((child.target, m) for m in exported_modules_with_base(child.target))
             walk(child.target)
     walk(target)
     return modules
@@ -249,18 +250,43 @@ def _shared_tail(a: list, b: list) -> int:
     return n
 
 
+def _tree_sources(root: str, extensions: tuple):
+    """Every source of `extensions` under `root`, skipping each PAPA package tree below it.
+    A deployed copy of an exported module is ours, and reading it as a private one stops the strip."""
+    for dirpath, dirnames, names in os.walk(root):
+        if dirpath != root and 'papa.txt' in names:
+            dirnames.clear()
+            continue
+        for name in names:
+            if os.path.splitext(name)[1].lower() in extensions: yield normalized_join(dirpath, name)
+
+
+def _is_ours(path: str, exported: dict, build: str) -> bool:
+    """True when `path` is an exported module, or a byte copy of the one of that name. An install step
+    writes a module into the build tree, and only there does a copy stand for the module it came from."""
+    original = exported.get(match_path(os.path.basename(path)))
+    if not original: return False
+    fwd = match_path(path)
+    if fwd == match_path(original): return True
+    if not fwd.startswith(build): return False  # two units of one name in the source tree are two units
+    try: return os.path.getsize(original) == os.path.getsize(path) and file_sha1(original) == file_sha1(path)
+    except OSError: return False  # one of them is gone, so nothing proves they are one module
+
+
 def _ambiguous_names(target: BuildTarget) -> set:
     """Every name a member could also have come from: a non-module source without its extension, and
     a module this target does not export with its extension. Either one makes a bare member unsafe."""
-    exported = {match_path(m) for m in target.exported_modules}
+    exported = {match_path(os.path.basename(m)): m for m in target.exported_modules}
+    build = match_path(target.build_dir()) + '/'
+    every = SOURCE_EXTENSIONS + MODULE_EXTENSIONS
+    # a generated module lands in the build dir, and its object answers to the name of an exported one
     names = set()
-    # the build dir gives sources alone: it also holds the deploy tree, whose module copies are ours
-    for root, exts in ((target.source_dir(), SOURCE_EXTENSIONS + MODULE_EXTENSIONS),
-                       (target.build_dir(), SOURCE_EXTENSIONS)):
-        for path in glob_with_extensions(root, list(exts)):
-            stem, ext = os.path.splitext(os.path.basename(path))
-            if ext.lower() in SOURCE_EXTENSIONS: names.add(match_path(stem))
-            elif match_path(path) not in exported: names.add(match_path(os.path.basename(path)))
+    for path in itertools.chain(_tree_sources(target.source_dir(), every),
+                                _tree_sources(target.build_dir(), every)):
+        base = os.path.basename(path)
+        stem, ext = os.path.splitext(base)
+        if ext.lower() in SOURCE_EXTENSIONS: names.add(match_path(stem))
+        elif not _is_ours(path, exported, build): names.add(match_path(base))
     return names
 
 
@@ -277,7 +303,7 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
     claims, names = {}, None
-    for module in consumed_modules(target):
+    for _, module in consumed_modules(target):
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
         best = max((n for _, n in scored), default=0)
@@ -336,7 +362,7 @@ def export_stripped_module_libs(target: BuildTarget):
     only the directory differs. An archive that holds no module object keeps its own path, and a
     fetched package is already stripped, so both copy nothing."""
     if target.dep.from_artifactory or not target.strip_module_objects: return
-    modules = consumed_modules(target)
+    modules = consumed_modules(target)  # (owner, module), and only the count decides here
     for i, lib in enumerate(target.exported_libs):
         if not isinstance(lib, str) or not is_a_static_library(lib): continue
         # read the archive this build wrote, never the copy an earlier run recorded as the export

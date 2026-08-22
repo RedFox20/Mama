@@ -134,11 +134,16 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
     module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
-    module_sfx_all = tuple(package.match_path(s) for s in package.MODULE_EXTENSIONS)
-    # a target that exports a module answers for every module file of ITS OWN tree, and of no other.
-    # A recursive bundle carries a tree whose owner exports none, and its filter still decides there.
-    gated_roots = tuple({package.match_path(package.module_base_dir(t, m)) + '/' for t, m in modules})
+    # A target that exports a module answers for every module file of ITS OWN tree, and of no other.
+    # The exported include dir nearest a file names that tree, whatever tree physically holds it.
+    roots = sorted({package.match_path(i) for _, i in includes}, key=len, reverse=True)
+    bases = {package.match_path(b) for b in (package.module_base_dir(t, m) for t, m in modules) if b}
     module_paths = _module_paths(modules)
+
+    def exports_modules(fwd:str) -> bool:
+        """True when the exported include dir nearest to `fwd` exported a module of its own."""
+        return next((r in bases for r in roots if fwd.startswith(r + '/')), False)
+
     suffixes = tuple(package.match_path(s) for s in target.include_glob_filter)
     stems = _header_stems(includes, suffixes + module_sfx)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
@@ -149,7 +154,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         name = package.match_path(os.path.basename(path))
         # a module source ships only when export_modules named it, so a private one beside it stays out
         fwd = package.match_path(path)
-        if name.endswith(module_sfx_all) and fwd.startswith(gated_roots):
+        # the compiler reads Api.IXX as a module, so the extension test folds case on every filesystem
+        if name.lower().endswith(package.MODULE_EXTENSIONS) and exports_modules(fwd):
             header = fwd in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
@@ -312,7 +318,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     modules = _gather_modules(target)
     includes = _gather_includes(target, r_includes)
     # a recursive bundle copies the child include trees, so their modules must ride along with them
-    copied = [(target, m) for m in package.consumed_modules(target)] if r_includes else modules
+    copied = package.consumed_modules(target) if r_includes else modules
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes, copied)
     _warn_about_duplicate_include_trees(target, package_full_path)
     shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)

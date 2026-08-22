@@ -257,8 +257,11 @@ class Platform:
 
 
     def remove_from_archive_cmd(self, lib: str, members: list) -> list:
-        """The command that removes object members from a static library."""
-        return [self.archiver(), 'd', lib, *members]
+        """The command that removes object members from a static library.
+        `P` matches the full stored name, which an archive that kept the path needs. A bare-name archive
+        matches no path under `P`, so it is not the default. The members are the ones the listing printed."""
+        mode = 'dP' if any('/' in m for m in members) else 'd'
+        return [self.archiver(), mode, lib, *members]
 
 
     def gnu_host_triple(self) -> str:
