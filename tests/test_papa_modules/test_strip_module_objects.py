@@ -391,3 +391,11 @@ def test_a_deployed_package_tree_under_the_build_dir_is_not_a_second_unit(tmp_pa
     target = _apart(tmp_path, {'deploy/TestLib/papa.txt': 'P TestLib\n',
                                'deploy/TestLib/include/rpp/api.cppm': 'a copy that drifted\n'})
     assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\n').call_args[0][0]
+
+
+def test_two_exported_modules_of_one_name_both_lose_their_objects(tmp_path):
+    # the archiver flattens both to api.cppm.o, and a lookup that kept one path called the other private
+    write_files(tmp_path, {'src/rpp/a/api.cppm': 'module a;\n', 'src/rpp/b/api.cppm': 'module b;\n'})
+    target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
+    cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
+    assert cmd.count('api.cppm.o') == 2

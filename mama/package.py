@@ -262,21 +262,24 @@ def _tree_sources(root: str, extensions: tuple):
 
 
 def _is_ours(path: str, exported: dict, build: str) -> bool:
-    """True when `path` is an exported module, or a byte copy of the one of that name. An install step
+    """True when `path` is an exported module, or a byte copy of one of that name. An install step
     writes a module into the build tree, and only there does a copy stand for the module it came from."""
-    original = exported.get(match_path(os.path.basename(path)))
-    if not original: return False
+    originals = exported.get(match_path(os.path.basename(path)))
+    if not originals: return False
     fwd = match_path(path)
-    if fwd == match_path(original): return True
+    if any(fwd == match_path(o) for o in originals): return True
     if not fwd.startswith(build): return False  # two units of one name in the source tree are two units
-    try: return os.path.getsize(original) == os.path.getsize(path) and file_sha1(original) == file_sha1(path)
+    try:  # hash only what the size already matched, because a hash reads the whole file
+        same = [o for o in originals if os.path.getsize(o) == os.path.getsize(path)]
+        return bool(same) and file_sha1(path) in {file_sha1(o) for o in same}
     except OSError: return False  # one of them is gone, so nothing proves they are one module
 
 
 def _ambiguous_names(target: BuildTarget) -> set:
     """Every name a member could also have come from: a non-module source without its extension, and
     a module this target does not export with its extension. Either one makes a bare member unsafe."""
-    exported = {match_path(os.path.basename(m)): m for m in target.exported_modules}
+    exported = {}  # every exported path per base name: two dirs can export one name, and both are ours
+    for m in target.exported_modules: exported.setdefault(match_path(os.path.basename(m)), []).append(m)
     build = match_path(target.build_dir()) + '/'
     every = SOURCE_EXTENSIONS + MODULE_EXTENSIONS
     # a generated module lands in the build dir, and its object answers to the name of an exported one
