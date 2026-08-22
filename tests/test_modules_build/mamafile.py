@@ -31,4 +31,3 @@ class Consumer(mama.BuildTarget):
 
     def configure(self):
         self.enable_cxx20()
-        if os.getenv('MAMA_TEST_WHOLE_ARCHIVE') == '1': self.add_cmake_options('WHOLE_ARCHIVE_LINK=ON')

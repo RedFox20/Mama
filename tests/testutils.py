@@ -502,31 +502,56 @@ def make_exporting_target(dep, includes, libs, version='abc1234', modules=None):
 
 
 def module_compilers() -> tuple:
-    """The compilers a module test may use, best first. MAMA_TEST_COMPILER pins one, so a CI job can
-    report which toolchain works instead of taking whichever the host happens to prefer."""
+    """(name, cc, cxx, least major version) for each compiler a module test may use, best first.
+    MAMA_TEST_COMPILER pins one, so a CI job reports which toolchain works instead of taking whichever
+    the host happens to prefer. MSVC names no paths, because mama resolves its own toolset."""
     named = os.getenv('MAMA_TEST_COMPILER', '')
     # the same floors the generated cmake ships, so a capable host here is a capable host there
-    every = (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14))
-    # a name neither one answers to, such as msvc, pins nothing: that host builds with its own toolchain
-    return tuple(c for c in every if c[0] == named) or every
+    every = (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14), ('msvc', '', '', 0))
+    if named: return tuple(c for c in every if c[0] == named)
+    return every if is_windows() else every[:2]
+
+
+def clang_scan_deps(cxx_path: str) -> str:
+    """The clang-scan-deps that reads the import graph of `cxx_path`, or '' when the install ships none.
+    cmake looks beside the real compiler first, so a symlinked clang++ resolves into its own llvm dir."""
+    beside = shutil.which('clang-scan-deps', path=os.path.dirname(os.path.realpath(cxx_path)))
+    suffix = os.path.basename(cxx_path).replace('clang++', '')
+    return beside or shutil.which('clang-scan-deps' + suffix) or shutil.which('clang-scan-deps') or ''
 
 
 @lru_cache(maxsize=1)
-def module_capable_compiler() -> dict:
-    """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
-    Cmake scans the import graph only under Ninja, and only for a recent compiler. The paths are
-    explicit, because compiler discovery composes a suffixed path a symlinked toolchain does not have."""
-    if not shutil.which('ninja'): return {}
+def _probe_module_compiler() -> dict:
+    """The first compiler of module_compilers() that really builds a module on this host, or {}."""
     cmake = execute_piped(['cmake', '--version'], throw=False) or ''
     version = re.search(r'(\d+)\.(\d+)', cmake)
     if not version or (int(version.group(1)), int(version.group(2))) < (3, 28): return {}
+    ninja = shutil.which('ninja')  # only a Ninja generator writes the dyndep file a module build reads
     for name, cc, cxx, least in module_compilers():
+        # the Visual Studio generator scans the graph itself, and mama picks the toolset and the paths
+        if name == 'msvc':
+            if is_windows(): return {'name': name, 'cc': '', 'cxx': '', 'version': ''}
+            continue
+        if not ninja: continue
         cxx_path = shutil.which(cxx)
-        if not cxx_path: continue
+        if not cxx_path or (name == 'clang' and not clang_scan_deps(cxx_path)): continue
         dumped = (execute_piped([cxx_path, '-dumpversion'], throw=False) or '').strip()
         if dumped and int(dumped.split('.')[0]) >= least:
             return {'name': name, 'cc': shutil.which(cc), 'cxx': cxx_path, 'version': dumped}
     return {}
+
+
+def module_capable_compiler() -> dict:
+    """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
+    The paths are explicit, because compiler discovery composes a suffixed path a symlinked toolchain
+    does not have. A job that pinned MAMA_TEST_COMPILER raises instead of answering {}. A skipped cell
+    reports green and proves nothing, so a broken module path would reach a release unseen."""
+    found = _probe_module_compiler()
+    pinned = os.getenv('MAMA_TEST_COMPILER', '')
+    if not found and pinned:
+        raise RuntimeError(f'MAMA_TEST_COMPILER={pinned} names no toolchain that builds C++20 modules '
+                           'here. Install it, or unset the variable and let the module tests skip.')
+    return found
 
 
 def archive_papa_package(package_path, archive_path) -> str:

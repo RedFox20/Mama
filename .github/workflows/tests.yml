@@ -59,6 +59,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libdw-dev ninja-build libc++-dev libc++abi-dev
 
+      # cmake reads a clang import graph with clang-scan-deps, and the image ships no clang tools
+      - name: Install the clang module scanner
+        if: matrix.compiler == 'clang'
+        run: sudo apt-get install -y clang-tools
+
       # the runner image may ship an older gcc, and the module floor is 14
       - name: Install GCC 14
         if: matrix.compiler == 'gcc'
