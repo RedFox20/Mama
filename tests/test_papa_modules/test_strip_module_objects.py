@@ -399,3 +399,16 @@ def test_two_exported_modules_of_one_name_both_lose_their_objects(tmp_path):
     target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
     cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
     assert cmd.count('api.cppm.o') == 2
+
+
+def test_a_nested_child_module_is_not_a_private_unit(tmp_path):
+    # a local child dep sits under the parent source dir, and the walk found its module there. The
+    # identity map held the parent exports alone, so the child's own object was kept.
+    write_files(tmp_path, {'child/src/api.cppm': 'module child.api;\n'})
+    target = _target(tmp_path, modules=())
+    child = make_includes_target(f'{tmp_path}/child')
+    child.exported_includes = [f'{tmp_path}/child/src']
+    child.exported_modules = [f'{tmp_path}/child/src/api.cppm']
+    target.children.return_value = [SimpleNamespace(name='Child', target=child)]
+    child.children.return_value = []
+    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\nother.cpp.o\n').call_args[0][0]

@@ -275,11 +275,12 @@ def _is_ours(path: str, exported: dict, build: str) -> bool:
     except OSError: return False  # one of them is gone, so nothing proves they are one module
 
 
-def _ambiguous_names(target: BuildTarget) -> set:
+def _ambiguous_names(target: BuildTarget, modules: list) -> set:
     """Every name a member could also have come from: a non-module source without its extension, and
-    a module this target does not export with its extension. Either one makes a bare member unsafe."""
-    exported = {}  # every exported path per base name: two dirs can export one name, and both are ours
-    for m in target.exported_modules: exported.setdefault(match_path(os.path.basename(m)), []).append(m)
+    a module no package here exports with its extension. Either one makes a bare member unsafe.
+    - modules: (owner, module) for every module this archive can hold, a child package included"""
+    exported = {}  # every path per base name: two dirs can export one name, and both are ours
+    for _, m in modules: exported.setdefault(match_path(os.path.basename(m)), []).append(m)
     build = match_path(target.build_dir()) + '/'
     every = SOURCE_EXTENSIONS + MODULE_EXTENSIONS
     # a generated module lands in the build dir, and its object answers to the name of an exported one
@@ -306,11 +307,12 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
     claims, names = {}, None
-    for _, module in consumed_modules(target):
+    modules = consumed_modules(target)
+    for _, module in modules:
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
         best = max((n for _, n in scored), default=0)
-        if names is None: names = _ambiguous_names(target)  # one walk, whatever the scores need
+        if names is None: names = _ambiguous_names(target, modules)  # one walk, whatever the scores need
         if best == 1 and module_parts[-1] in names:
             warning(f'{target.name}: a module named {module_parts[-1]} is not exported, and the '
                     'archive names no path, so the module objects of that name stay.')
