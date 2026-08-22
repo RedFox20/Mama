@@ -1890,10 +1890,16 @@ class BuildTarget:
         if fetched:
             # The hook owns the export RULES. papa.txt owns the LIST for every category the hook left
             # alone, so a recipe that exports includes only keeps the libs the archive recorded.
-            merged = [new or old for new, old in zip(self._exports(), loaded)]
+            hook = self._exports()
+            merged = [new or old for new, old in zip(hook, loaded)]
             # modules are last, and an opt-out or an explicit export decided them either way
             if self.no_modules or self.modules_declared: merged[-1] = self.exported_modules
+            # a module sits under an include dir of the same tree, so a hook that re-rooted the
+            # includes drops the archived module paths and the default finds them again below
+            elif hook[0]: merged[-1] = []
             self._set_exports(tuple(merged))
+            if not self.exported_modules and not self.no_modules and not self.modules_declared:
+                self.default_package_modules()
         else:
             # the user provided no packaging, use the default packaging instead
             if not self.exported_includes and not self.no_includes:

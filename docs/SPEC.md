@@ -757,6 +757,11 @@ The `package()` hook populates the exports through `export_include`, `export_lib
 empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default.
 `default_package()` runs the same three, so collecting the rest cannot widen a narrowed list.
 
+**A fetched module list belongs to the include tree of the same run.** A hook that re-roots the
+exported includes drops the module paths the archive recorded, and the module default finds them
+again under the new roots. **Why:** a deployed module path sits under no source include dir, and
+every consumer variable then loses it.
+
 **A call to `export_modules()` decides, whatever it resolves to.** A recipe that names a module only
 some platforms carry gets the empty result it asked for, never the automatic export. `papa.txt`
 cannot refill that category either, so `no_export_modules()` holds for a fetched package too. `no_export_includes()`, `no_export_libs()` and

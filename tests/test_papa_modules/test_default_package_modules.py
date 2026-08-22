@@ -3,6 +3,8 @@ import os
 
 from testutils import make_package_target, write_files
 
+from mama import package as package_mod
+
 CPPM = 'export module rpp.strview;\n'
 FILES = {'include/rpp/strview.h': '#pragma once\n', 'include/rpp/rpp-strview.cppm': CPPM,
          'include/rpp/rpp-vec.cppm': CPPM, 'src/rpp/private.cppm': CPPM}
@@ -65,3 +67,16 @@ def test_no_export_modules_opts_out(tmp_path):
         self.no_export_modules()
         self.export_include('include')
     assert _packaged(tmp_path, package) == []
+
+
+def test_a_fetched_hook_that_re_roots_the_includes_finds_its_modules_again(tmp_path):
+    # the archive records deployed module paths, and a hook that exports the source tree re-roots them
+    def package(self): self.export_include('include')
+    deployed = f'{tmp_path}/deploy/include/rpp/old.cppm'
+    target = make_package_target(tmp_path, package=package,
+                                 exports=([f'{tmp_path}/deploy/include'], [], [], [], [deployed]),
+                                 dep_attrs={'from_artifactory': True, 'should_rebuild': True})
+    write_files(target.source_dir(), FILES)
+    target._run_packaging()
+    assert [os.path.basename(m) for m in package_mod.exported_modules_with_base(target)] \
+        == ['rpp-strview.cppm', 'rpp-vec.cppm']
