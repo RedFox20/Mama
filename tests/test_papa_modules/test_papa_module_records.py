@@ -198,3 +198,13 @@ def test_a_symlinked_deploy_dir_is_still_the_build_artifact(tmp_path):
         with pytest.raises(RuntimeError, match='is the build dir itself'):
             papa_deploy.papa_deploy_to(target, link, r_includes=False, r_dylibs=False,
                                        r_syslibs=False, r_assets=False)
+
+
+@pytest.mark.case_sensitive_fs
+def test_a_case_variant_dir_holds_no_module_of_the_other_one(tmp_path):
+    # a case-sensitive volume keeps Src/ and src/ apart, and folding the case merges two real dirs
+    write_files(str(tmp_path), {'Src/api.cppm': CPPM, 'src/other.h': '#pragma once\n'})
+    target = make_exporting_target(make_mock_dep(tmp_path, name='libfoo'), [f'{tmp_path}/src'], [])
+    with patch('mama.package.System') as system:
+        system.macos = True  # the platform that folds case, on a volume that does not
+        assert package.module_base_dir(target, f'{tmp_path}/Src/api.cppm') == ''

@@ -115,16 +115,19 @@ def export_includes(target: BuildTarget, include_paths, build_dir: bool):
 
 def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bool, recursive=True):
     module_path = target_root_path(target, module_path, build_dir=build_dir)
+    if isinstance(modules, str): modules = [modules]  # one name, not a sequence of characters
     if modules is None:
         found = sorted(glob_with_extensions(module_path, list(MODULE_EXTENSIONS), recursive=recursive))
     else:
         found = [normalized_join(module_path, m) for m in modules]
     added = False
+    seen = {match_path(m) for m in target.exported_modules}  # one file, whatever case the caller spelled
     for module in found:
         if not os.path.exists(module):
             warning(f'export_modules failed to find: {module}')
             continue
-        if not module in target.exported_modules:
+        if match_path(module) not in seen:
+            seen.add(match_path(module))
             target.exported_modules.append(module)
             added = True
     return added
@@ -152,16 +155,34 @@ def match_path(path: str) -> str:
     return fwd.lower() if System.windows or System.macos else fwd
 
 
+def _holds_path(directory: str, path: str) -> bool:
+    """True when `directory` really is an ancestor of `path`. A case-sensitive volume holds two dirs
+    whose folded names are equal, so only the filesystem can tell that pair apart."""
+    ancestor = os.path.dirname(path)
+    while len(ancestor) >= len(directory):
+        try:
+            if os.path.samefile(ancestor, directory): return True
+        except OSError:
+            return False  # one of them is gone, so they name no common dir
+        parent = os.path.dirname(ancestor)
+        if parent == ancestor: return False
+        ancestor = parent
+    return False
+
+
 def module_base_dir(target: BuildTarget, module: str) -> str:
     """The exported include dir that holds `module`, longest match first, or '' when none does.
     Cmake needs every module of a file set to sit under one of its base dirs."""
     fwd = match_path(module)
+    raw = forward_slashes(module)
     # as_includes_root deploys one subdir of the export, so a module outside it never reaches a consumer
     root_src = match_path(target.includes_root[1]) if target.includes_root[1] else ''
     if root_src and not fwd.startswith(root_src + '/'): return ''
     best = ''
     for include in target.exported_includes:
-        if fwd.startswith(match_path(include) + '/') and len(include) > len(best):
+        if not fwd.startswith(match_path(include) + '/') or len(include) <= len(best): continue
+        # only a match that needed case folding asks the filesystem, so the exact path costs nothing
+        if raw.startswith(forward_slashes(include) + '/') or _holds_path(include, module):
             best = include  # the caller matches this against the export list, so keep its spelling
     return best
 

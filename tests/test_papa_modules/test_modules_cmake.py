@@ -189,3 +189,8 @@ def test_the_written_ninja_version_decides_the_generator(tmp_path, version, expe
 def test_the_visual_studio_generator_refuses_a_clang_toolset():
     # cmake scans a module graph under that generator with the MSVC toolset alone, never with clang-cl
     assert 'NOT CMAKE_GENERATOR MATCHES "^Visual Studio"' in _text()
+
+
+def test_the_helper_refuses_a_scope_a_module_file_set_cannot_take():
+    # cmake refuses an INTERFACE CXX_MODULES file set, and its own error names no caller
+    assert 'takes PUBLIC or PRIVATE' in _text()

@@ -91,10 +91,13 @@ _BACKSLASH_PATH = re.compile(r'(?:\\[\w.\-+~$()]+)+')
 
 
 def _opts_to_defines(opts:list[str]) -> str:
-    """`-D` flags for the cmake command line. Backslash PATHS become forward slashes: SubProcess
-    shlex-splits the command, which silently strips them. cmake takes / on every platform."""
+    """`-D` flags for the cmake command line. A caller may spell the prefix itself, and two of them
+    name a variable called `-DFOO`. Backslash PATHS become forward slashes: SubProcess shlex-splits
+    the command, which silently strips them. cmake takes / on every platform."""
     opts_defines = ''
     for opt in opts:
+        opt = opt.strip()
+        if opt.startswith('-D'): opt = opt[2:]
         opts_defines += '-D' + _BACKSLASH_PATH.sub(lambda m: m.group(0).replace('\\', '/'), opt) + ' '
     return opts_defines
 
@@ -141,8 +144,9 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     if not target.enable_cxx_build: return []
     # cmake appends its own standard flag after CMAKE_CXX_FLAGS, so an operator standard that reaches
     # cmake as nothing would lose to it. That one wins, whether or not the mamafile forced its own.
-    operator = re.search(r'[-/]std[=:](\S+)', target.config.flags or '')
-    std = target.cxx_standard_of(operator.group(1)) if operator else target.cxx_standard()
+    # the compiler reads the last -std of the line, so a repeated flag decides by its last spelling
+    operator = re.findall(r'[-/]std[=:](\S+)', target.config.flags or '')
+    std = target.cxx_standard_of(operator[-1]) if operator else target.cxx_standard()
     if not std: return []  # nothing forced, or a value with no cmake number, so keep the default
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
     if not least or _cmake_version(target.config, target.cmake_command) < least: return []

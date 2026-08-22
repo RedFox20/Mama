@@ -81,11 +81,12 @@ def test_one_opt_out_keeps_the_module_objects_whatever_a_later_call_passes(tmp_p
 
 
 def test_a_macos_casing_variant_still_finds_its_include_dir(tmp_path):
-    # one dir on a case-insensitive filesystem, so export_include('Src') holds a module under 'src'
+    # a case-merging volume holds ONE dir, so export_include('Src') holds a module under 'src'
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
     target.exported_includes = [normalized_join(str(tmp_path), 'Src/Rpp')]
-    with patch.object(package.System, 'macos', True):
+    with patch.object(package.System, 'macos', True), \
+         patch('mama.package.os.path.samefile', return_value=True):
         assert package.module_base_dir(target, target.exported_modules[0])
 
 
@@ -112,3 +113,21 @@ def test_module_base_dir_is_empty_when_no_export_holds_the_module(tmp_path):
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
     target.exported_includes = [normalized_join(str(tmp_path), 'include')]
     assert package.module_base_dir(target, target.exported_modules[0]) == ''
+
+
+def test_a_single_module_name_is_one_export(tmp_path):
+    # a bare string iterates character by character, probing src/rpp/r and src/rpp/p
+    target = _target(tmp_path)
+    assert package.export_modules(target, 'src/rpp', 'rpp-strview.cppm', build_dir=False)
+    assert [m.rsplit('/', 1)[1] for m in target.exported_modules] == ['rpp-strview.cppm']
+
+
+def test_two_spellings_of_one_file_export_once(tmp_path):
+    # the file set would name one interface twice, and the scanner reads that as two providers
+    target = _target(tmp_path)
+    package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
+    # a case-merging filesystem answers for both spellings, so the export must merge them too
+    with patch('mama.package.System') as system, patch('mama.package.os.path.exists', return_value=True):
+        system.windows = True
+        package.export_modules(target, 'src/rpp', ['RPP-Strview.cppm'], build_dir=False)
+    assert len(target.exported_modules) == 1
