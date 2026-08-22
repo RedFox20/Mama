@@ -76,7 +76,7 @@ def test_an_unreadable_cmake_version_sets_nothing(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('spelling', ['CMAKE_CXX_STANDARD=17', 'CMAKE_CXX_STANDARD:STRING=17',
-                                      '-DCMAKE_CXX_STANDARD=17'])
+                                      '-DCMAKE_CXX_STANDARD=17', '-D CMAKE_CXX_STANDARD=17'])
 def test_the_mamafile_keeps_the_standard_it_named_itself(spelling, tmp_path, monkeypatch):
     # add_cmake_options comes first on the command line, and cmake takes the last -D, so a default of
     # ours would silently win. Every legal spelling of the name has to defer to it.
