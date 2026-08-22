@@ -4,7 +4,7 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - bugfix: mama install-gcc-N raised a TypeError before it installed anything
  - bugfix: a cached compiler probe no longer loses ar, ranlib or clang-scan-deps
- - bugfix: clang discovery named clang++-18 in a dir that holds only clang++
+ - bugfix: compiler discovery composed a path no symlinked toolchain has
  - bugfix: compiler discovery on Windows read PATH with the UNIX separator
  - feature: -DMAMA_ENABLE_MODULES=OFF keeps the exported headers instead
  - bugfix: a seeded compiler cache broke every clang C++20 module build

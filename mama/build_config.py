@@ -642,8 +642,10 @@ class BuildConfig:
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
             root = forward_slashes(os.path.dirname(cxx_path)) + '/'
             # The caller composes `root + compiler + suffix`, so that path has to exist at the resolved
-            # root. A link carries a suffix its target does not, and `clang++` links on to `clang`.
-            spelling = next((s for s in (suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
+            # root. Each of the link and its target carries a name the other does not, so try both.
+            name = os.path.basename(cxx_path)
+            real = name[len(compiler):] if name.startswith(compiler) else ''
+            spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
             return root, spelling, version
 
         # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install

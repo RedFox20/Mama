@@ -78,3 +78,34 @@ def test_the_path_separator_of_this_platform_splits_the_search_roots(tmp_path):
     with patch('os.pathsep', ';'):
         root, suffix, _ = _find(f'/nonexistent;{bin_dir}', ['-18', ''])
     assert suffix == '' and os.path.exists(f'{root}{CXX}{suffix}')
+
+
+def test_an_unsuffixed_link_answers_the_suffix_the_real_file_carries(tmp_path):
+    # bin/cc++ -> gcc/bin/cc++-14, so the resolved root holds the suffixed spelling and no other
+    real_bin, link_bin = tmp_path / 'gcc-14' / 'bin', tmp_path / 'bin'
+    real_bin.mkdir(parents=True); link_bin.mkdir()
+    for name in (CC, CXX):
+        _fake(str(real_bin), f'{name}-14')
+        _link(real_bin / f'{name}-14', link_bin / name)
+
+    root, suffix, version = _find(str(link_bin) + '/', ['-14', ''])
+    assert version == VERSION
+    assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
+    assert os.path.exists(f'{root}{CC}{suffix}'), f'{root}{CC}{suffix}'
+
+
+def test_the_cxx_env_var_reads_the_suffix_off_the_real_file_too(tmp_path):
+    # CXX takes the priority path, which passes no suffix at all, so only the resolved name can answer
+    real_bin = tmp_path / 'gcc-14' / 'bin'
+    real_bin.mkdir(parents=True)
+    for name in (CC, CXX): _fake(str(real_bin), f'{name}-14')
+    link = tmp_path / CXX
+    _link(real_bin / f'{CXX}-14', link)
+
+    config = BuildConfig.__new__(BuildConfig)
+    config.verbose = False
+    with patch.dict(os.environ, {'PATH': '', 'CXX': str(link)}), \
+         patch.object(BuildConfig, 'get_gcc_clang_fullversion', lambda *a, **kw: VERSION):
+        root, suffix, _ = config.find_compiler_root('', CXX, ['-14', ''], dumpfullversion=False)
+    assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
+    assert os.path.exists(f'{root}{CC}{suffix}'), f'{root}{CC}{suffix}'
