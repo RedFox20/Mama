@@ -131,3 +131,17 @@ def test_a_gnu_dialect_operator_standard_reaches_cmake(tmp_path, monkeypatch):
     target = _target(tmp_path, monkeypatch, enable='20')
     target.config.flags = '-std=gnu++23'
     assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '23'
+
+
+@pytest.mark.parametrize('flag,extensions', [('gnu++23', 'ON'), ('c++23', 'OFF')])
+def test_a_gnu_dialect_keeps_the_cmake_extensions_on(flag, extensions, tmp_path, monkeypatch):
+    # OFF makes cmake append a strict -std after the operator flag, and a GNU extension then fails
+    target = _target(tmp_path, monkeypatch, enable='20')
+    target.config.flags = f'-std={flag}'
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_EXTENSIONS'] == extensions
+
+
+def test_a_mamafile_gnu_dialect_keeps_the_extensions_on(tmp_path, monkeypatch):
+    target = _target(tmp_path, monkeypatch)
+    target.add_cxx_flags('-std=gnu++20')
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_EXTENSIONS'] == 'ON'

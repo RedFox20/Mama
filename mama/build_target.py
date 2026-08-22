@@ -1015,6 +1015,10 @@ class BuildTarget:
             if std_flag.startswith(flag): return number
         return ''
 
+    def cxx_std_flag(self) -> str:
+        """The `-std` value this mamafile forced, eg 'c++2a' or 'gnu++23'. '' when it forced none."""
+        return self._get_cxx_std()
+
     def cxx_standard(self) -> str:
         """The C++ standard this mamafile forced, as the number cmake wants, eg '20'.
         It reads the flag alone, never the build args, because the flag is what reaches the compiler.

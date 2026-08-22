@@ -146,14 +146,16 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     # cmake as nothing would lose to it. That one wins, whether or not the mamafile forced its own.
     # the compiler reads the last -std of the line, so a repeated flag decides by its last spelling
     operator = re.findall(r'[-/]std[=:](\S+)', target.config.flags or '')
-    std = target.cxx_standard_of(operator[-1]) if operator else target.cxx_standard()
+    std_flag = operator[-1] if operator else target.cxx_std_flag()
+    std = target.cxx_standard_of(std_flag)
     if not std: return []  # nothing forced, or a value with no cmake number, so keep the default
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
     if not least or _cmake_version(target.config, target.cmake_command) < least: return []
     forced = {_cmake_opt_key(o) for o in target.cmake_opts}
-    # EXTENSIONS OFF keeps the flag cmake adds equal to the one the mamafile already asked for. There
-    # is no REQUIRED: a compiler that cannot give this standard must decay, not fail the configure.
-    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_EXTENSIONS': 'OFF'}
+    # EXTENSIONS matches what the flag already asks for, and a `gnu++` dialect keeps them. No REQUIRED:
+    # a compiler that cannot give this standard must decay, not fail the configure.
+    extensions = 'ON' if std_flag.startswith('gnu++') else 'OFF'
+    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_EXTENSIONS': extensions}
     return [f'{k}={v}' for k, v in defaults.items() if k not in forced]
 
 

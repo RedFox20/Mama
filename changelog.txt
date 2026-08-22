@@ -10,8 +10,8 @@ unreleased
  - bugfix: a seeded compiler cache broke every clang C++20 module build
  - feature: enable_cxxNN() now also sets CMAKE_CXX_STANDARD, so
      target_compile_features() and C++20 modules work in a mamafile project
-     CMAKE_CXX_EXTENSIONS=OFF comes with it: a subproject that names its
-     own standard now compiles as c++NN, where it compiled as gnu++NN
+     CMAKE_CXX_EXTENSIONS comes with it: a subproject that names its own
+     standard compiles as c++NN, and a gnu++NN flag keeps the extensions
  - bugfix: enable_cxx23() doubled the /std: prefix on MSVC
  - feature: a package exports its C++20 modules, and the consumer compiles them
      mama finds them, export_modules() only narrows the list
