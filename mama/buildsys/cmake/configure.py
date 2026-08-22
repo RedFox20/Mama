@@ -4,7 +4,7 @@ import os, contextlib, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
-from mama.utils.fileio import file_sha1, read_text_from, write_text_to
+from mama.utils.fileio import file_sha1, find_executable_from_system, read_text_from, write_text_to
 from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -200,6 +200,17 @@ def _seed_probe(target:BuildTarget) -> str:
     return normalized_path(cxx) if cxx else ''
 
 
+def _clang_scan_deps(cxx:str) -> str:
+    """The clang-scan-deps that answers for `cxx`, or ''. cmake reads a clang import graph with it, and
+    it searches for one inside compiler detection alone, which a seeded build dir skips. So the seed has
+    to carry whether the tool was there. The search only has to flip when the tool arrives or goes, so
+    it need not resolve the same path cmake picks."""
+    suffix = os.path.basename(cxx).replace('clang++', '')
+    beside = shutil.which('clang-scan-deps', path=os.path.dirname(os.path.realpath(cxx)))
+    return beside or find_executable_from_system('clang-scan-deps' + suffix) \
+        or find_executable_from_system('clang-scan-deps')
+
+
 def _seed_id(target:BuildTarget) -> str:
     """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. A HOST seed reaching a cross build
     dir would make cmake skip system determination and compile with host flags, silently. The name
@@ -226,6 +237,8 @@ def _seed_inputs(target:BuildTarget) -> dict:
         # fingerprint once, so run_config wipes the dirs an older seed shaped and seeds them again.
         'seedfmt': seedcache._SEED_FORMAT,
     }
+    if config.clang and cxx:  # a seed made before the scanner was installed keeps modules off for days
+        inputs['scandeps'] = seedcache.compiler_stat(_clang_scan_deps(cxx))
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
         inputs['msvc'] = seedcache.compiler_stat(_seed_probe(target))
     elif not cc:  # no explicit compiler -> CC/CXX env selects it, so they belong in the fingerprint
