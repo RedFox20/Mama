@@ -3,7 +3,12 @@
 // report. A facade that re-exports through using-declarations is where a compiler tends to differ.
 // A module exports no macro, so RPP_ENABLE_UNICODE and friends come from the header either way.
 // The module interface unit documents this rule for its own importers.
+// EVERY #include comes before the import: a header parsed after one re-declares what the module
+// already made reachable, and GCC 14 rejects that.
 #include <rpp/config.h>
+#include <cstdio>
+#include <string>
+#include <vector>
 #ifdef MAMA_HAS_MODULES
 import rpp.strview;
 #  define BUILT_WITH "MODULES"
@@ -11,9 +16,6 @@ import rpp.strview;
 #  include <rpp/strview.h>
 #  define BUILT_WITH "HEADERS"
 #endif
-#include <cstdio>
-#include <string>
-#include <vector>
 
 using namespace rpp::literals;
 

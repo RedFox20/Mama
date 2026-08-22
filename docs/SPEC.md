@@ -797,6 +797,11 @@ the call names one. A library that installs itself through `install(EXPORT)` pas
 cmake refuses to export a target whose `PUBLIC` file set it does not install. The consumer source
 reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
 
+**Every `#include` of a consumer must precede its first `import`.** A module makes the declarations
+of its own included headers reachable, so a header parsed after the import re-declares them. GCC 14
+rejects that as a redefinition of a standard entity. Mama cannot order the includes of a source it
+does not own, so this is a rule its consumers follow.
+
 `MAMA_MODULES_AVAILABLE` is the one gate, and every part must answer:
 
 | Part | What it takes |

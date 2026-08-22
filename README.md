@@ -548,12 +548,19 @@ mama_target_modules(MyApp)          # PRIVATE if MyApp installs itself through i
 One source then follows either path, so a toolchain without module support still builds:
 
 ```cpp
+#include <cstdio>          // EVERY #include comes first
+#include <string>
 #ifdef MAMA_HAS_MODULES
-import rpp.strview;
+import rpp.strview;        // then the imports, and nothing includes after them
 #else
 #include <rpp/strview.h>
 #endif
 ```
+
+**Put every `#include` before the first `import`.** A module makes the declarations of its own
+included headers reachable. A header parsed after the import re-declares them, and GCC 14 then
+reports a redefinition of a standard entity, such as `std::is_nothrow_convertible_v`. The rule
+applies to a header too: a header that imports must not include anything after it.
 
 Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
 MSVC 19.34. Only the cmake that runs has to be that new: `mama_target_modules()` asks for the module
