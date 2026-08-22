@@ -568,14 +568,21 @@ def archive_papa_package(package_path, archive_path) -> str:
     return archive
 
 
-def deploy_and_archive(tmp_path, target, package_path) -> str:
-    """papa_deploy the target, then archive and validate what it deployed."""
+def papa_deploy_target(target, package_path, r_includes=False, children=()):
+    """papa_deploy `target` into `package_path`, answering `children` for it and none for a child.
+    The patch replaces the method on the class, so every target in the run reads the same one."""
     from unittest.mock import patch
     from mama import papa_deploy
     from mama.build_target import BuildTarget
-    with patch.object(BuildTarget, 'children', lambda self: []):
-        papa_deploy.papa_deploy_to(target, package_path, r_includes=False, r_dylibs=False,
+    answer = lambda self: list(children) if self is target else []
+    with patch.object(BuildTarget, 'children', answer), patch.object(type(target), 'children', answer):
+        papa_deploy.papa_deploy_to(target, package_path, r_includes=r_includes, r_dylibs=False,
                                    r_syslibs=False, r_assets=False)
+
+
+def deploy_and_archive(tmp_path, target, package_path) -> str:
+    """papa_deploy the target, then archive and validate what it deployed."""
+    papa_deploy_target(target, package_path)
     return archive_papa_package(package_path, tmp_path / 'package.zip')
 
 

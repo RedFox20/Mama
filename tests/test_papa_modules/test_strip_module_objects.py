@@ -1,4 +1,5 @@
 """Pins which archive members the module strip removes, and every case where it runs nothing."""
+import contextlib
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -6,25 +7,58 @@ from unittest.mock import patch
 import pytest
 from testutils import make_includes_target, write_files
 
-from mama.utils.paths import forward_slashes
-
 from mama import package
 from mama.platforms.windows import Windows
 from mama.utils.errors import BuildError
+from mama.utils.paths import forward_slashes
 
 
 LISTING = 'strview.cpp.o\nrpp-strview.cppm.o\nsprint.cpp.o\n'
 LIB_EXE = 'C:/msvc/bin/Hostx64/x64/lib.exe'
+NOMOD = package.MODULE_STRIP_DIR
 
 
-def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True, libs=('/pkg/lib/libfoo.a',)):
-    target = make_includes_target(str(tmp_path))
-    target.exported_includes = [f'{tmp_path}/src']  # a module needs an exported base to ship at all
-    target.exported_modules = [f'{tmp_path}/src/rpp/{m}' for m in modules]
+def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True, libs=('/pkg/lib/libfoo.a',),
+            root=None, build_dir=None):
+    """A target exporting `modules` under its src dir. `build_dir` puts the build tree outside it."""
+    root = root or f'{tmp_path}/src'
+    target = make_includes_target(root if build_dir else str(tmp_path), build_dir=build_dir)
+    target.exported_includes = [root]  # a module needs an exported base to ship at all
+    target.exported_modules = [f'{root}/{m}' for m in modules]
     target.exported_libs = list(libs)
     target.strip_module_objects = strip
-    target.config.print = False
     return target
+
+
+def _child(root, modules, children=()):
+    """A dependency target exporting `modules`, wrapped the way `children()` answers it."""
+    target = make_includes_target(root)
+    target.exported_includes = [f'{root}/src']
+    target.exported_modules = [f'{root}/src/{m}' for m in modules]
+    target.children.return_value = list(children)
+    return SimpleNamespace(name=os.path.basename(root), target=target)
+
+
+@contextlib.contextmanager
+def _stubs(listing=LISTING, status=0, run_status=0):
+    """Both subprocess primitives of the strip, stubbed. Yields (the listing mock, the run mock)."""
+    with patch('mama.package.execute_piped_echo', return_value=(status, listing)) as listed, \
+         patch('mama.package.SubProcess.run', return_value=run_status) as run:
+        yield listed, run
+
+
+def _strip(target, lib='/pkg/lib/libfoo.a', **kw):
+    """Run the strip with both primitives stubbed. Returns the SubProcess.run mock."""
+    with _stubs(**kw) as (_, run):
+        package.strip_module_objects(target, lib)
+    return run
+
+
+def _export_stripped(target, **kw):
+    """Run the export swap with both primitives stubbed. Returns the SubProcess.run mock."""
+    with _stubs(**kw) as (_, run):
+        package.export_stripped_module_libs(target)
+    return run
 
 
 def _windows(archiver='', bin_dir='') -> Windows:
@@ -35,51 +69,151 @@ def _windows(archiver='', bin_dir='') -> Windows:
     return platform
 
 
-def _strip(target, lib='/pkg/lib/libfoo.a', listing=LISTING, status=0):
-    """Run the strip with both subprocess primitives stubbed. Returns the SubProcess.run mock."""
-    with patch('mama.package.execute_piped_echo', return_value=(status, listing)), \
-         patch('mama.package.SubProcess.run', return_value=0) as run:
-        package.strip_module_objects(target, lib)
-    return run
-
+# --- which members the strip takes -------------------------------------------
 
 def test_only_the_module_objects_reach_the_remove_command(tmp_path):
-    run = _strip(_target(tmp_path))
-    cmd = run.call_args[0][0]
+    cmd = _strip(_target(tmp_path)).call_args[0][0]
     assert 'rpp-strview.cppm.o' in cmd
     assert 'strview.cpp.o' not in cmd and 'sprint.cpp.o' not in cmd
 
 
-def test_an_archive_holding_no_module_object_runs_nothing(tmp_path):
-    assert not _strip(_target(tmp_path), listing='strview.cpp.o\n').called
+@pytest.mark.parametrize('modules, listing, member', [
+    # MSVC keeps the module extension on the object, and the strip must read that spelling too
+    (('rpp-strview.ixx',), 'rpp-strview.ixx.obj\n', 'rpp-strview.ixx.obj'),
+    # the listing names one member per line, and splitting on whitespace tore such a name in two
+    (('my module.cppm',), 'my module.cppm.o\nother.cpp.o\n', 'my module.cppm.o'),
+    # MSVC also drops it, so a strip that needs the extension does nothing on Windows
+    (('rpp-strview.cppm',), 'Producer.dir/rpp-strview.obj\nstrview.cpp.obj\n',
+     'Producer.dir/rpp-strview.obj'),
+    # an archiver lists the path it stored, and a compare against that whole line matched nothing
+    (('rpp-strview.cppm',), 'D:\\b\\rpp-strview.cppm.obj\nD:\\b\\strview.cpp.obj\n',
+     'D:\\b\\rpp-strview.cppm.obj'),
+])
+def test_the_strip_matches_the_object_name_the_archiver_wrote(tmp_path, modules, listing, member):
+    cmd = _strip(_target(tmp_path, modules=modules), listing=listing).call_args[0][0]
+    assert cmd.count(member) == 1
 
 
-def test_the_opt_out_runs_nothing(tmp_path):
-    assert not _strip(_target(tmp_path, strip=False)).called
+@pytest.mark.parametrize('modules, listing, taken, left', [
+    # both members carry the file name, so only the deeper path tells the exported one apart
+    (('pub/api.cppm',), 'src/pub/api.cppm.o\nsrc/private/api.cppm.o\n',
+     'src/pub/api.cppm.o', 'src/private/api.cppm.o'),
+    # a foo.o built from foo.cpp must not answer for the foo.cppm beside it
+    (('rpp-strview.cppm',), 'rpp-strview.cppm.o\nrpp-strview.o\n',
+     'rpp-strview.cppm.o', 'rpp-strview.o'),
+])
+def test_a_deeper_path_beats_a_name_a_second_unit_shares(tmp_path, modules, listing, taken, left):
+    cmd = _strip(_target(tmp_path, modules=modules), listing=listing).call_args[0][0]
+    assert taken in cmd and left not in cmd
 
 
-def test_a_target_without_modules_runs_nothing(tmp_path):
-    assert not _strip(_target(tmp_path, modules=())).called
+def test_two_exported_modules_of_one_name_both_lose_their_objects(tmp_path):
+    # the archiver flattens both to api.cppm.o, and a lookup that kept one path called the other private
+    write_files(tmp_path, {'src/a/api.cppm': 'module a;\n', 'src/b/api.cppm': 'module b;\n'})
+    target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
+    cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
+    assert cmd.count('api.cppm.o') == 2  # `ar d` drops one member per name it is given
 
 
-def test_a_dynamic_library_runs_nothing(tmp_path):
-    assert not _strip(_target(tmp_path), lib='/pkg/lib/libfoo.so').called
+# --- and every case where it runs nothing ------------------------------------
+
+@pytest.mark.parametrize('kw, lib, listing, files', [
+    ({}, None, 'strview.cpp.o\n', None),                       # the archive holds no module object
+    ({'strip': False}, None, LISTING, None),                   # the opt-out
+    ({'modules': ()}, None, LISTING, None),                    # the target exports no module
+    ({}, '/pkg/lib/libfoo.so', LISTING, None),                 # a dynamic library
+    # a foo.o built from foo.cpp carries definitions, and the bare name cannot tell the two apart
+    ({}, None, 'rpp-strview.o\nsprint.cpp.o\n', {'src/rpp-strview.cpp': '// the same name'}),
+    # MSVC drops the module extension, and a generated foo.cpp of that name lands in the build dir
+    ({'modules': ('api.cppm',)}, None, 'api.obj\n', {'build/gen/api.cpp': '// generated'}),
+])
+def test_the_strip_runs_nothing(tmp_path, kw, lib, listing, files):
+    if files: write_files(tmp_path, files)
+    assert not _strip(_target(tmp_path, **kw), lib=lib or '/pkg/lib/libfoo.a', listing=listing).called
 
 
-def test_an_msvc_object_suffix_still_matches(tmp_path):
-    run = _strip(_target(tmp_path, modules=('rpp-strview.ixx',)), listing='rpp-strview.ixx.obj\n')
-    assert 'rpp-strview.ixx.obj' in run.call_args[0][0]
+def test_a_module_under_no_exported_include_is_never_stripped(tmp_path):
+    # it reaches no consumer, so removing its object only loses definitions
+    target = _target(tmp_path)
+    target.exported_includes = [f'{tmp_path}/elsewhere']
+    assert not _strip(target).called
 
+
+@pytest.mark.parametrize('modules, listing, files, warns', [
+    # GNU ar stores no path, so this one member could be either unit, and only one of them ships
+    (('api.cppm',), 'api.cppm.o\nother.cpp.o\n',
+     {'src/private/api.cppm': 'module;', 'src/api.cppm': 'module;'}, 'api.cppm'),
+    # removing both would take the definitions of the private unit, and the consumer link then fails
+    (('api.cppm',), 'api.cppm.o\napi.cppm.o\nother.cpp.o\n', None, 'api.cppm.o'),
+])
+def test_a_member_no_module_can_claim_stays_and_warns(tmp_path, modules, listing, files, warns):
+    if files: write_files(tmp_path, files)
+    with patch('mama.package.warning') as warned:
+        assert not _strip(_target(tmp_path, modules=modules), listing=listing).called
+    assert warns in warned.call_args[0][0]
+
+
+# --- the build tree, which holds units this target never exported -------------
+
+def _apart(tmp_path, files, exported='module rpp.api;\n'):
+    """A target whose build dir sits outside its source tree, holding `files`. Exports src/rpp/api.cppm."""
+    write_files(f'{tmp_path}/src', {'rpp/api.cppm': exported})
+    write_files(f'{tmp_path}/out', files)
+    return _target(tmp_path, modules=('rpp/api.cppm',), root=f'{tmp_path}/src',
+                   build_dir=f'{tmp_path}/out')
+
+
+def test_a_generated_module_of_the_same_name_keeps_the_object(tmp_path):
+    # a generated private api.cppm owns its own member, and a bare listing names it like the exported one
+    target = _apart(tmp_path, {'gen/api.cppm': 'module gen.api;\n'})
+    with patch('mama.package.warning') as warned:
+        assert not _strip(target, listing='api.cppm.o\n').called
+    assert 'api.cppm' in warned.call_args[0][0]
+
+
+@pytest.mark.parametrize('files', [
+    # an install step writes the exported module into the build tree, and that copy is ours
+    {'src/rpp/api.cppm': 'module rpp.api;\n'},
+    # a deployed package holds its own modules, and its tree answers for them through its own records
+    {'deploy/TestLib/papa.txt': 'P TestLib\n', 'deploy/TestLib/include/rpp/api.cppm': 'drifted\n'},
+])
+def test_a_build_tree_copy_of_our_own_module_still_strips(tmp_path, files):
+    cmd = _strip(_apart(tmp_path, files), listing='api.cppm.o\n').call_args[0][0]
+    assert 'api.cppm.o' in cmd
+
+
+# --- the modules of every package below this one ------------------------------
+
+def test_a_child_package_module_leaves_the_intermediary_archive(tmp_path):
+    # a static library that calls mama_target_modules compiles its dependency modules into itself
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [_child(f'{tmp_path}/child', ['rpp/rpp-strview.cppm'])]
+    assert 'rpp-strview.cppm.o' in _strip(target).call_args[0][0]
+
+
+def test_a_grandchild_package_module_leaves_the_intermediary_archive(tmp_path):
+    # MAMA_MODULES aggregates the whole dep tree, so this archive compiled the grandchild module too
+    grand = _child(f'{tmp_path}/grand', ['rpp/rpp-vec.cppm'])
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [_child(f'{tmp_path}/child', [], children=[grand])]
+    assert 'rpp-vec.cppm.o' in _strip(target, listing='rpp-vec.cppm.o\n').call_args[0][0]
+
+
+def test_a_nested_child_module_is_not_a_private_unit(tmp_path):
+    # a local child dep sits under the parent source dir, and the walk finds its module there. An
+    # identity map of the parent exports alone called the child's own object private.
+    write_files(tmp_path, {'child/src/api.cppm': 'module child.api;\n'})
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [_child(f'{tmp_path}/child', ['api.cppm'])]
+    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\nother.cpp.o\n').call_args[0][0]
+
+
+# --- the command, and what a failure does ------------------------------------
 
 def test_the_cross_archiver_prefix_reaches_the_command(tmp_path):
     target = _target(tmp_path)
     target.config.platform.toolchain().tool_prefix = '/opt/sdk/bin/aarch64-linux-gnu-'
     assert '/opt/sdk/bin/aarch64-linux-gnu-ar' in _strip(target).call_args[0][0]
-
-
-def test_the_windows_command_uses_the_lib_remove_flag():
-    cmd = _windows(LIB_EXE).remove_from_archive_cmd('foo.lib', ['a.ixx.obj', 'b.ixx.obj'])
-    assert cmd == [LIB_EXE, '/NOLOGO', 'foo.lib', '/REMOVE:a.ixx.obj', '/REMOVE:b.ixx.obj']
 
 
 def test_the_command_keeps_its_arguments_apart(tmp_path):
@@ -88,11 +222,19 @@ def test_the_command_keeps_its_arguments_apart(tmp_path):
     assert isinstance(cmd, list) and '/pkg/my libs/libfoo.a' in cmd
 
 
+@pytest.mark.parametrize('listing, mode', [
+    # `ar d` matches the base name, so an archive that stored a path kept the member and exited 0
+    ('src/pub/rpp-strview.cppm.o\nsrc/pub/strview.cpp.o\n', 'dP'),
+    # `P` compares the whole stored name, and an archive of bare names then matches no path
+    (LISTING, 'd'),
+])
+def test_the_delete_mode_follows_the_names_the_listing_printed(tmp_path, listing, mode):
+    assert _strip(_target(tmp_path), listing=listing).call_args[0][0][1] == mode
+
+
 def test_a_failed_removal_stops_the_package(tmp_path):
-    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)), \
-         patch('mama.package.SubProcess.run', return_value=1):
-        with pytest.raises(BuildError):
-            package.strip_module_objects(_target(tmp_path), '/pkg/lib/libfoo.a')
+    with pytest.raises(BuildError):
+        _strip(_target(tmp_path), run_status=1)
 
 
 def test_a_failed_listing_stops_the_package(tmp_path):
@@ -104,155 +246,46 @@ def test_a_failed_listing_stops_the_package(tmp_path):
 def test_the_listing_goes_through_the_platform_too(tmp_path):
     # a hardcoded `ar t` reads nothing on a toolchain with no ar, and the strip then silently skips
     target = _target(tmp_path)
-    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)) as listed, \
-         patch('mama.package.SubProcess.run', return_value=0):
+    with _stubs() as (listed, _):
         package.strip_module_objects(target, '/pkg/lib/libfoo.a')
     assert listed.call_args[0][1] == target.config.platform.list_archive_members_cmd('/pkg/lib/libfoo.a')
 
 
-def test_a_member_name_with_a_space_survives_the_parse(tmp_path):
-    # the listing names one member per line, and splitting on whitespace tore such a name in two
-    run = _strip(_target(tmp_path, modules=('my module.cppm',)), listing='my module.cppm.o\nother.cpp.o\n')
-    assert 'my module.cppm.o' in run.call_args[0][0]
+# --- the Windows archiver ----------------------------------------------------
 
-
-def test_an_object_that_drops_the_module_extension_still_matches(tmp_path):
-    # MSVC names it rpp-strview.obj, so a strip that needs the extension does nothing on Windows
-    run = _strip(_target(tmp_path), listing='Producer.dir/rpp-strview.obj\nstrview.cpp.obj\n')
-    assert run.call_args[0][0].count('Producer.dir/rpp-strview.obj') == 1
-    assert 'strview.cpp.obj' not in run.call_args[0][0]
-
-
-def test_a_bare_object_name_a_second_source_could_own_stays(tmp_path):
-    # a foo.o built from foo.cpp carries definitions, and the bare name cannot tell the two apart
-    write_files(tmp_path, {'src/rpp/rpp-strview.cpp': '// the same name, not a module'})
-    assert not _strip(_target(tmp_path), listing='rpp-strview.o\nsprint.cpp.o\n').called
-
-
-def test_a_child_package_module_leaves_the_intermediary_archive(tmp_path):
-    # a static library that calls mama_target_modules compiles its dependency modules into itself
-    child = make_includes_target(str(tmp_path / 'child'))
-    child.exported_includes = [f'{tmp_path}/child/src']
-    child.exported_modules = [f'{tmp_path}/child/src/rpp/rpp-strview.cppm']
-    target = _target(tmp_path, modules=())
-    target.children.return_value = [SimpleNamespace(name='child', target=child)]
-    assert 'rpp-strview.cppm.o' in _strip(target).call_args[0][0]
-
-
-def test_a_grandchild_package_module_leaves_the_intermediary_archive(tmp_path):
-    # MAMA_MODULES aggregates the whole dep tree, so this archive compiled the grandchild module too
-    child = make_includes_target(str(tmp_path / 'child'))
-    child.children.return_value = []
-    grand = make_includes_target(str(tmp_path / 'grand'))
-    grand.children.return_value = []
-    grand.exported_includes = [f'{tmp_path}/grand/src']
-    grand.exported_modules = [f'{tmp_path}/grand/src/rpp/rpp-vec.cppm']
-    child.children.return_value = [SimpleNamespace(name='grand', target=grand)]
-    target = _target(tmp_path, modules=())
-    target.children.return_value = [SimpleNamespace(name='child', target=child)]
-    assert 'rpp-vec.cppm.o' in _strip(target, listing='rpp-vec.cppm.o\n').call_args[0][0]
-
-
-def test_a_build_that_needs_no_strip_publishes_the_archive_it_wrote(tmp_path):
-    # an earlier run recorded a stripped copy, and a rebuild that compiles no module must undo that
-    lib = f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a'
-    write_files(tmp_path, {'libfoo.a': 'x', f'{package.MODULE_STRIP_DIR}/libfoo.a': 'stale'})
-    target = _target(tmp_path, libs=(lib,))
-    with patch('mama.package.execute_piped_echo', return_value=(0, 'other.cpp.o\n')):
-        package.export_stripped_module_libs(target)
-    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
-
-
-def test_an_uppercase_archive_suffix_is_still_a_static_library():
-    # a Windows recipe may spell it Producer.LIB, and that filesystem reads one file
-    assert package.is_a_static_library('Producer.LIB') is (not package.System.linux)
-
-
-def test_a_private_module_of_the_same_name_keeps_its_object(tmp_path):
-    # GNU ar stores no path, so this one member could be either unit, and only one of them ships
-    write_files(tmp_path, {'src/rpp/private/api.cppm': 'module;', 'src/rpp/api.cppm': 'module;'})
-    target = _target(tmp_path, modules=('api.cppm',))
-    with patch('mama.package.warning') as warned:
-        assert not _strip(target, listing='api.cppm.o\nother.cpp.o\n').called
-    assert 'api.cppm' in warned.call_args[0][0]
-
-
-def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path):
-    # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
-    lib = f'{tmp_path}/libfoo.a'
-    open(lib, 'wb').write(b'!<thin>\n//   ')
-    target = _target(tmp_path, libs=(lib,))
-    with patch('mama.package.warning') as warned:
-        _export_stripped(target)
-    assert target.exported_libs == [lib]
-    assert 'thin archive' in warned.call_args[0][0]
-
-
-def test_an_archive_that_compiled_no_module_keeps_its_own_path(tmp_path):
-    # every target with a module dependency would otherwise publish a copy it never had to strip
-    lib = f'{tmp_path}/libfoo.a'
-    open(lib, 'w').write('real')
-    target = _target(tmp_path, libs=(lib,))
-    with patch('mama.package.execute_piped_echo', return_value=(0, 'strview.cpp.o\n')), \
-         patch('mama.package.SubProcess.run', return_value=0):
-        package.export_stripped_module_libs(target)
-    assert target.exported_libs == [lib]
-
-
-def test_a_private_module_of_the_same_name_survives(tmp_path):
-    # both members carry the file name, so only the deeper path tells the exported one apart
-    target = _target(tmp_path, modules=('pub/api.cppm',))
-    cmd = _strip(target, listing='src/pub/api.cppm.o\nsrc/private/api.cppm.o\n').call_args[0][0]
-    assert 'src/pub/api.cppm.o' in cmd and 'src/private/api.cppm.o' not in cmd
-
-
-def test_the_exact_object_name_wins_over_the_bare_stem(tmp_path):
-    # a foo.o built from foo.cpp must not answer for the foo.cppm beside it
-    target = _target(tmp_path, modules=('rpp-strview.cppm',))
-    cmd = _strip(target, listing='rpp-strview.cppm.o\nrpp-strview.o\n').call_args[0][0]
-    assert 'rpp-strview.cppm.o' in cmd and 'rpp-strview.o' not in cmd
-
-
-def test_a_listing_of_full_object_paths_still_matches(tmp_path):
-    # an archiver lists the path it stored, and a compare against that whole line matched nothing
-    obj = 'D:\\build\\Producer.dir\\RelWithDebInfo\\rpp-strview.cppm.obj'
-    run = _strip(_target(tmp_path), listing=f'{obj}\nD:\\build\\Producer.dir\\strview.cpp.obj\n')
-    assert obj in run.call_args[0][0]
-
-
-def test_a_full_path_member_is_deleted_by_its_full_path(tmp_path):
-    # `ar d` matches the base name, so an archive that stored a path kept the member and reported success
-    obj = 'src/pub/rpp-strview.cppm.o'
-    cmd = _strip(_target(tmp_path), listing=f'{obj}\nsrc/pub/strview.cpp.o\n').call_args[0][0]
-    assert cmd[1] == 'dP' and obj in cmd
-
-
-def test_a_bare_member_keeps_the_plain_delete(tmp_path):
-    # `P` compares the whole stored name, and an archive of bare names then matches no path
-    assert _strip(_target(tmp_path)).call_args[0][0][1] == 'd'
-
-
-def test_the_windows_listing_uses_the_lib_list_flag():
+def test_the_windows_commands_use_the_lib_flags():
     assert _windows(LIB_EXE).list_archive_members_cmd('foo.lib') == [LIB_EXE, '/NOLOGO', '/LIST', 'foo.lib']
+    assert _windows(LIB_EXE).remove_from_archive_cmd('foo.lib', ['a.obj', 'b.obj']) \
+        == [LIB_EXE, '/NOLOGO', 'foo.lib', '/REMOVE:a.obj', '/REMOVE:b.obj']
 
 
-def test_the_windows_archiver_reads_the_msvc_toolset(tmp_path):
+@pytest.mark.parametrize('has_lib_exe', [True, False])
+def test_the_windows_archiver_reads_the_msvc_toolset_before_the_path(tmp_path, has_lib_exe):
     # only a developer prompt puts lib.exe on PATH, and a bare name then fails every build that strips
     bin_dir = f'{tmp_path}/bin/Hostx64/x64/'
-    os.makedirs(bin_dir); open(f'{bin_dir}lib.exe', 'w').close()
-    assert _windows(bin_dir=bin_dir).archiver() == f'{bin_dir}lib.exe'
+    if has_lib_exe: os.makedirs(bin_dir); open(f'{bin_dir}lib.exe', 'w').close()
+    expected = f'{bin_dir}lib.exe' if has_lib_exe else 'lib.exe'
+    assert _windows(bin_dir=bin_dir).archiver() == expected
 
 
-def test_the_windows_archiver_falls_back_to_the_path(tmp_path):
-    # a host toolset dir that holds no lib.exe leaves PATH as the one place left to look
-    assert _windows(bin_dir=f'{tmp_path}/absent/').archiver() == 'lib.exe'
+@pytest.mark.parametrize('folds_case', [True, False])
+def test_an_uppercase_archive_suffix_follows_the_filesystem(folds_case):
+    # a Windows recipe may spell it Producer.LIB, and only a case-folding filesystem reads one file
+    with patch.object(package.System, 'windows', folds_case), \
+         patch.object(package.System, 'macos', False), patch.object(package.System, 'linux', not folds_case):
+        assert package.is_a_static_library('Producer.LIB') is folds_case
 
 
-def _export_stripped(target):
-    """Run the export swap with both subprocess primitives stubbed."""
-    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)), \
-         patch('mama.package.SubProcess.run', return_value=0):
-        package.export_stripped_module_libs(target)
+# --- the exported lib a source-built consumer links ---------------------------
+
+def test_the_exported_lib_becomes_a_stripped_copy(tmp_path):
+    # a consumer that builds this dep from source links exported_libs, not the packaged copy
+    write_files(str(tmp_path), {'libfoo.a': '\0'})
+    target = _target(tmp_path, libs=(f'{tmp_path}/libfoo.a',))
+    run = _export_stripped(target)
+    assert target.exported_libs[0].endswith(f'/{NOMOD}/libfoo.a')
+    assert os.path.exists(target.exported_libs[0]), 'the copy is a real file a consumer can link'
+    assert 'rpp-strview.cppm.o' in run.call_args[0][0]
 
 
 def test_a_second_run_strips_the_archive_this_build_wrote(tmp_path):
@@ -264,56 +297,39 @@ def test_a_second_run_strips_the_archive_this_build_wrote(tmp_path):
     copy = target.exported_libs[0]
     open(lib, 'w').write('rebuilt')  # the next build writes a new archive under the same name
     _export_stripped(target)
-    assert target.exported_libs[0] == copy and copy.count('mama-nomodules') == 1
+    assert target.exported_libs[0] == copy and copy.count(NOMOD) == 1
     assert open(copy).read() == 'rebuilt'
 
 
-def test_a_recorded_export_whose_archive_is_gone_keeps_its_copy(tmp_path):
+@pytest.mark.parametrize('kw, files, listing, keeps_copy', [
+    # a rebuild that compiles no module must undo the copy an earlier run recorded
+    ({}, {'libfoo.a': 'x', f'{NOMOD}/libfoo.a': 'stale'}, 'other.cpp.o\n', False),
+    # every target with a module dependency would otherwise publish a copy it never had to strip
+    ({}, {'libfoo.a': 'real'}, 'strview.cpp.o\n', False),
+    # this rebuild compiles no module at all, and the recorded export names the stripped copy
+    ({'modules': ()}, {'libfoo.a': 'x'}, LISTING, False),
     # a cleaned build dir leaves the recorded export with no source to read
-    target = _target(tmp_path, libs=(f'{tmp_path}/mama-nomodules/libfoo.a',))
-    _export_stripped(target)
-    assert target.exported_libs == [f'{tmp_path}/mama-nomodules/libfoo.a']
+    ({}, {}, LISTING, True),
+])
+def test_the_export_points_at_the_archive_this_build_wrote(tmp_path, kw, files, listing, keeps_copy):
+    if files: write_files(str(tmp_path), files)
+    copy = f'{tmp_path}/{NOMOD}/libfoo.a'
+    target = _target(tmp_path, libs=(copy,), **kw)
+    _export_stripped(target, listing=listing)
+    assert target.exported_libs[0] == (copy if keeps_copy else f'{forward_slashes(str(tmp_path))}/libfoo.a')
 
 
-
-
-def test_one_module_never_takes_a_same_named_member_it_cannot_claim(tmp_path):
-    # GNU ar stores no path, so a private api.cppm lists exactly like the exported one. Removing
-    # both would take the definitions of the private unit, and the consumer link then fails.
-    target = _target(tmp_path, modules=('api.cppm',))
+@pytest.mark.parametrize('recorded_copy', [False, True])
+def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path, recorded_copy):
+    # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
+    lib = f'{tmp_path}/libfoo.a'
+    open(lib, 'wb').write(b'!<thin>\n//   ')
+    if recorded_copy: os.makedirs(f'{tmp_path}/{NOMOD}', exist_ok=True)
+    target = _target(tmp_path, libs=(f'{tmp_path}/{NOMOD}/libfoo.a' if recorded_copy else lib,))
     with patch('mama.package.warning') as warned:
-        assert not _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').called
-    assert 'api.cppm.o' in warned.call_args[0][0]
-
-
-def test_two_exported_modules_of_one_name_take_both_members(tmp_path):
-    # `ar d` drops one member per name it is given, so two claims on one name repeat it
-    target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
-    cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
-    assert cmd.count('api.cppm.o') == 2
-
-
-def test_a_module_under_no_exported_include_is_never_stripped(tmp_path):
-    # it reaches no consumer, so removing its object only loses definitions
-    target = _target(tmp_path)
-    target.exported_includes = [f'{tmp_path}/elsewhere']
-    assert not _strip(target).called
-
-
-# --- the exported lib a source-built consumer links ---------------------------
-
-def test_the_exported_lib_becomes_a_stripped_copy(tmp_path, monkeypatch):
-    # a consumer that builds this dep from source links exported_libs, not the packaged copy
-    lib = tmp_path / 'libfoo.a'
-    lib.write_bytes(b'\0')
-    target = _target(tmp_path, libs=(str(lib),))
-    target.dep.from_artifactory = False
-    with patch('mama.package.execute_piped_echo', return_value=(0, LISTING)), \
-         patch('mama.package.SubProcess.run', return_value=0) as run:
-        package.export_stripped_module_libs(target)
-    assert target.exported_libs[0].endswith('/mama-nomodules/libfoo.a')
-    assert os.path.exists(target.exported_libs[0]), 'the copy is a real file a consumer can link'
-    assert 'rpp-strview.cppm.o' in run.call_args[0][0]
+        _export_stripped(target)
+    assert target.exported_libs == [forward_slashes(lib)]
+    assert 'thin archive' in warned.call_args[0][0]
 
 
 def test_the_build_dir_lib_is_never_replaced_for_a_fetched_package(tmp_path):
@@ -324,91 +340,9 @@ def test_the_build_dir_lib_is_never_replaced_for_a_fetched_package(tmp_path):
     assert target.exported_libs == ['/pkg/lib/libfoo.a']
 
 
-def test_a_generated_source_of_the_same_name_keeps_the_object(tmp_path):
-    # MSVC drops the module extension, and a generated foo.cpp of that name lands in the build dir
-    write_files(f'{tmp_path}/build', {'gen/api.cpp': '// generated'})
-    target = _target(tmp_path, modules=('api.cppm',))
-    assert not _strip(target, listing='api.obj\n').called
-
-
 def test_a_directory_of_that_name_without_the_original_is_not_a_stripped_copy(tmp_path):
     # a project may keep its own mama-nomodules/ dir, and only the archive beside it names ours
-    lib = f'{tmp_path}/mama-nomodules/libfoo.a'
+    lib = f'{tmp_path}/{NOMOD}/libfoo.a'
     assert package._unstripped_lib(lib) == lib
     write_files(str(tmp_path), {'libfoo.a': '\0'})
     assert package._unstripped_lib(lib) == f'{forward_slashes(str(tmp_path))}/libfoo.a'
-
-
-def test_a_thin_archive_republishes_the_archive_the_build_wrote(tmp_path):
-    # an earlier run recorded the stripped copy, and the thin branch must not leave dependents on it
-    write_files(str(tmp_path), {'libfoo.a': 'x'})
-    thin = f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a'
-    os.makedirs(os.path.dirname(thin), exist_ok=True)
-    open(f'{tmp_path}/libfoo.a', 'wb').write(b'!<thin>\n//   ')
-    target = _target(tmp_path, libs=(thin,))
-    with patch('mama.package.warning'):
-        package.export_stripped_module_libs(target)
-    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
-
-
-def test_a_target_that_now_exports_no_module_republishes_its_archive(tmp_path):
-    # the recorded export names the stripped copy, and this rebuild compiles no module at all
-    write_files(str(tmp_path), {'libfoo.a': 'x'})
-    target = _target(tmp_path, modules=(), libs=(f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a',))
-    package.export_stripped_module_libs(target)
-    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
-
-
-def _apart(tmp_path, files, exported='module rpp.api;\n'):
-    """A target whose build dir sits outside its source tree, holding `files`. Exports src/rpp/api.cppm."""
-    write_files(f'{tmp_path}/src', {'rpp/api.cppm': exported})
-    write_files(f'{tmp_path}/out', files)
-    target = make_includes_target(f'{tmp_path}/src', build_dir=f'{tmp_path}/out')
-    target.exported_includes = [f'{tmp_path}/src']
-    target.exported_modules = [f'{tmp_path}/src/rpp/api.cppm']
-    target.exported_libs = ['/pkg/lib/libfoo.a']
-    target.config.print = False
-    return target
-
-
-def test_a_generated_module_of_the_same_name_keeps_the_object(tmp_path):
-    # a generated private api.cppm owns its own member, and a bare listing names it like the exported one
-    target = _apart(tmp_path, {'gen/api.cppm': 'module gen.api;\n'})
-    with patch('mama.package.warning') as warned:
-        assert not _strip(target, listing='api.cppm.o\n').called
-    assert 'api.cppm' in warned.call_args[0][0]
-
-
-def test_an_installed_copy_of_an_exported_module_still_strips(tmp_path):
-    # cmake installs the exported module into the build tree, and reading that copy as a second unit
-    # would silently publish every module object
-    target = _apart(tmp_path, {'src/rpp/api.cppm': 'module rpp.api;\n'})
-    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\n').call_args[0][0]
-
-
-def test_a_deployed_package_tree_under_the_build_dir_is_not_a_second_unit(tmp_path):
-    # a deployed package holds its own modules, and its tree answers for them through its own records
-    target = _apart(tmp_path, {'deploy/TestLib/papa.txt': 'P TestLib\n',
-                               'deploy/TestLib/include/rpp/api.cppm': 'a copy that drifted\n'})
-    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\n').call_args[0][0]
-
-
-def test_two_exported_modules_of_one_name_both_lose_their_objects(tmp_path):
-    # the archiver flattens both to api.cppm.o, and a lookup that kept one path called the other private
-    write_files(tmp_path, {'src/rpp/a/api.cppm': 'module a;\n', 'src/rpp/b/api.cppm': 'module b;\n'})
-    target = _target(tmp_path, modules=('a/api.cppm', 'b/api.cppm'))
-    cmd = _strip(target, listing='api.cppm.o\napi.cppm.o\nother.cpp.o\n').call_args[0][0]
-    assert cmd.count('api.cppm.o') == 2
-
-
-def test_a_nested_child_module_is_not_a_private_unit(tmp_path):
-    # a local child dep sits under the parent source dir, and the walk found its module there. The
-    # identity map held the parent exports alone, so the child's own object was kept.
-    write_files(tmp_path, {'child/src/api.cppm': 'module child.api;\n'})
-    target = _target(tmp_path, modules=())
-    child = make_includes_target(f'{tmp_path}/child')
-    child.exported_includes = [f'{tmp_path}/child/src']
-    child.exported_modules = [f'{tmp_path}/child/src/api.cppm']
-    target.children.return_value = [SimpleNamespace(name='Child', target=child)]
-    child.children.return_value = []
-    assert 'api.cppm.o' in _strip(target, listing='api.cppm.o\nother.cpp.o\n').call_args[0][0]
