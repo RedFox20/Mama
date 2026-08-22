@@ -325,3 +325,23 @@ def test_a_directory_of_that_name_without_the_original_is_not_a_stripped_copy(tm
     assert package._unstripped_lib(lib) == lib
     write_files(str(tmp_path), {'libfoo.a': '\0'})
     assert package._unstripped_lib(lib) == f'{forward_slashes(str(tmp_path))}/libfoo.a'
+
+
+def test_a_thin_archive_republishes_the_archive_the_build_wrote(tmp_path):
+    # an earlier run recorded the stripped copy, and the thin branch must not leave dependents on it
+    write_files(str(tmp_path), {'libfoo.a': 'x'})
+    thin = f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a'
+    os.makedirs(os.path.dirname(thin), exist_ok=True)
+    open(f'{tmp_path}/libfoo.a', 'wb').write(b'!<thin>\n//   ')
+    target = _target(tmp_path, libs=(thin,))
+    with patch('mama.package.warning'):
+        package.export_stripped_module_libs(target)
+    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
+
+
+def test_a_target_that_now_exports_no_module_republishes_its_archive(tmp_path):
+    # the recorded export names the stripped copy, and this rebuild compiles no module at all
+    write_files(str(tmp_path), {'libfoo.a': 'x'})
+    target = _target(tmp_path, modules=(), libs=(f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a',))
+    package.export_stripped_module_libs(target)
+    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'

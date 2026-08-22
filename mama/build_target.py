@@ -1008,7 +1008,9 @@ class BuildTarget:
     @staticmethod
     def cxx_standard_of(std_flag: str) -> str:
         """The number cmake wants for a `-std` value, eg 'c++2a' gives '20'. '' when it names none.
-        `c++latest` takes the newest number mama knows: unset, cmake appends a lower flag after it."""
+        `c++latest` takes the newest number mama knows: unset, cmake appends a lower flag after it.
+        A `gnu++NN` dialect names the same standard, and cmake carries the extensions separately."""
+        if std_flag.startswith('gnu++'): std_flag = 'c++' + std_flag[5:]
         for flag, number in BuildTarget._CXX_STANDARD_OF_FLAG.items():
             if std_flag.startswith(flag): return number
         return ''

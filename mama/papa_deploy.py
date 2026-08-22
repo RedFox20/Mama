@@ -134,8 +134,10 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
     module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
-    # a target that exports a module answers for EVERY module file, so no filter can widen that set
-    gated_sfx = tuple(package.match_path(s) for s in package.MODULE_EXTENSIONS) if modules else ()
+    module_sfx_all = tuple(package.match_path(s) for s in package.MODULE_EXTENSIONS)
+    # a target that exports a module answers for every module file of ITS OWN tree, and of no other.
+    # A recursive bundle carries a tree whose owner exports none, and its filter still decides there.
+    gated_roots = tuple({package.match_path(package.module_base_dir(t, m)) + '/' for t, m in modules})
     module_paths = _module_paths(modules)
     suffixes = tuple(package.match_path(s) for s in target.include_glob_filter)
     stems = _header_stems(includes, suffixes + module_sfx)
@@ -146,8 +148,9 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         # the recipe and the filesystem can spell one name two ways, so the suffix reads the same rule
         name = package.match_path(os.path.basename(path))
         # a module source ships only when export_modules named it, so a private one beside it stays out
-        if name.endswith(gated_sfx):
-            header = package.match_path(path) in module_paths
+        fwd = package.match_path(path)
+        if name.endswith(module_sfx_all) and fwd.startswith(gated_roots):
+            header = fwd in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
             # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.

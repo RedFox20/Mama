@@ -336,20 +336,21 @@ def export_stripped_module_libs(target: BuildTarget):
     only the directory differs. An archive that holds no module object keeps its own path, and a
     fetched package is already stripped, so both copy nothing."""
     if target.dep.from_artifactory or not target.strip_module_objects: return
-    if not consumed_modules(target): return
+    modules = consumed_modules(target)
     for i, lib in enumerate(target.exported_libs):
         if not isinstance(lib, str) or not is_a_static_library(lib): continue
         # read the archive this build wrote, never the copy an earlier run recorded as the export
         src = _unstripped_lib(lib)
         if not os.path.exists(src): continue
+        # every path below that writes no copy publishes `src`, so a recorded copy never outlives it
+        target.exported_libs[i] = src
+        if not modules: continue
         if is_a_thin_archive(src):
             warning(f'  {os.path.basename(src)} is a thin archive, so its module objects stay. ' + \
                     'A thin archive names each member by a path, and a copy breaks every one.')
             continue
         members = _module_object_members(target, src)
-        if not members:
-            target.exported_libs[i] = src  # this build wrote no module object, so publish it as it is
-            continue
+        if not members: continue  # this build wrote no module object, so `src` stays the export
         out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
         os.makedirs(os.path.dirname(out), exist_ok=True)
         copy_if_needed(src, out)

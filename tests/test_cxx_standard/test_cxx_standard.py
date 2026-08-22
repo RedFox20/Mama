@@ -124,3 +124,10 @@ def test_msvc_forces_the_standard_without_doubling_the_std_prefix(tmp_path, monk
     target = _target(tmp_path, monkeypatch, enable='23', platform=Windows, msvc=True, gcc=False)
     assert target.cmake_cxxflags['/std'] == 'c++23preview'
     assert target.cxx_standard() == '23'
+
+
+def test_a_gnu_dialect_operator_standard_reaches_cmake(tmp_path, monkeypatch):
+    # unset, cmake appends its own lower -std after this one, and the target drops back silently
+    target = _target(tmp_path, monkeypatch, enable='20')
+    target.config.flags = '-std=gnu++23'
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '23'
