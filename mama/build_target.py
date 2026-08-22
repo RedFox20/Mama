@@ -643,7 +643,7 @@ class BuildTarget:
 
 
     def export_modules(self, module_path, modules=None, build_dir=False, recursive=True,
-                       strip_objects=True, **removed):
+                       strip_objects=True):
         """
         Exports C++20 module interface units to consumers of this package.
 
@@ -673,10 +673,6 @@ class BuildTarget:
         """
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False
-        # a mamafile written against an older mama must not fail the run over an argument mama dropped
-        if removed:
-            warning(f'{self.name}: export_modules() ignores {", ".join(sorted(removed))}. Mama knows '
-                    'the compiler floor, and a consumer sets MAMA_ENABLE_MODULES=OFF to opt out.')
         return package.export_modules(self, module_path, modules, build_dir=build_dir, recursive=recursive)
 
 

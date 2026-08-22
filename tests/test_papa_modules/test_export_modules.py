@@ -73,16 +73,6 @@ def test_one_opt_out_keeps_the_module_objects_whatever_a_later_call_passes(tmp_p
     assert target.strip_module_objects is False
 
 
-def test_a_removed_floor_argument_warns_and_exports_anyway(tmp_path):
-    # a recipe written against the old API must not fail the run over an argument that does nothing
-    target = _target(tmp_path)
-    from mama.build_target import BuildTarget
-    with patch('mama.build_target.warning') as warn:
-        BuildTarget.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], min_clang='18')
-    assert 'min_clang' in warn.call_args[0][0]
-    assert len(target.exported_modules) == 1
-
-
 def test_a_macos_casing_variant_still_finds_its_include_dir(tmp_path):
     # one dir on a case-insensitive filesystem, so export_include('Src') holds a module under 'src'
     target = _target(tmp_path)
