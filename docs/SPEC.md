@@ -782,9 +782,9 @@ A binary module interface is not portable, so a package ships the interface unit
 compiles it. Mama carries that through the generated cmake.
 
 `mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` for a package that
-exports a module, one `{name}_MODULES_MIN_{GNU|CLANG|MSVC}` per floor it declared, and appends the
-package name to `MAMA_MODULE_PACKAGES`. A dep that exports none writes nothing, so the file of an
-existing project stays byte-identical and an upgrade reconfigures nothing. The consolidated
+exports a module, and appends that list to the aggregate `MAMA_MODULES`, the way `MAMA_INCLUDES` and
+`MAMA_LIBS` compose. A dep that exports none writes nothing, so the file of an existing project
+stays byte-identical and an upgrade reconfigures nothing. The consolidated
 `MAMA_MODULES_BASE_DIRS` drops a base dir that sits inside another, because cmake refuses a file set
 whose base dirs contain each other.
 
@@ -795,12 +795,14 @@ installs itself through `install(EXPORT)` passes `PRIVATE`. Cmake refuses to exp
 `PUBLIC` file set it does not also install. The consumer source reads `#ifdef MAMA_HAS_MODULES`
 and imports, or includes the exported header.
 
-`MAMA_MODULES_AVAILABLE` reads the toolchain alone, and every part must answer:
+`MAMA_MODULES_AVAILABLE` is the one gate, and every part must answer:
 
 | Part | What it takes |
 |---|---|
+| the lever | `MAMA_ENABLE_MODULES`, an option that defaults to ON |
 | cmake | 3.28 or newer |
 | generator | Ninja 1.11 or newer, or Visual Studio 17 2022 or newer |
+| compiler | GCC 14, Clang 18, or MSVC 1934 |
 | clang | `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS` that exists, and no Visual Studio generator |
 
 The ninja probe runs on every configure, because a cached version outlives the executable that
@@ -808,13 +810,14 @@ answered it. A Visual Studio generator scans a module graph with the MSVC toolse
 there is refused. **Why:** a toolchain that misses one part keeps the exported headers, and a build
 never fails because a compiler cannot read modules.
 
-`MAMA_MODULES_MIN_GNU`, `MAMA_MODULES_MIN_CLANG` and `MAMA_MODULES_MIN_MSVC` are cache strings a
-consumer may lower, and they default to 14, 21 and 1934. A package weighs its own `Q` floor first and
-falls back to the global one. An empty floor refuses, and never passes.
+**Mama knows the floor, and no package declares one.** `MAMA_MODULES_MIN_GNU`,
+`MAMA_MODULES_MIN_CLANG` and `MAMA_MODULES_MIN_MSVC` are cache strings, so a consumer on an odd
+toolchain can move one. An empty floor refuses, and never passes. `MAMA_ENABLE_MODULES=OFF` keeps
+the exported headers whatever the toolchain can do. **Why:** a floor per package weighed a list that
+`mama_target_modules` then took all or nothing, so it computed one maximum the long way around.
 
-**One refused package keeps the headers of every package.** `MAMA_HAS_MODULES` is one define for the
-whole target, so a consumer cannot import from one package and read the headers of another. Both
-refusals print a cmake STATUS line naming what happened.
+`MAMA_HAS_MODULES=1` is one define for the whole target, so a consumer cannot import from one
+package and read the headers of another. A refusal prints a cmake STATUS line.
 
 A failing `package()` names its target and stops the run. A `list` run builds nothing, so a
 `package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
@@ -896,7 +899,6 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `D` | a dependency source |
 | `I` | an exported include dir |
 | `M` | an exported C++20 module source |
-| `Q` | one compiler, and the least version of it the exported modules need |
 | `L` | an exported lib |
 | `S` | an exported system lib |
 | `A` | an exported asset |
@@ -944,14 +946,8 @@ of that target need those objects. A later run reads that original again, never 
 before recorded as the export. An archive that compiled no module keeps its own path, and a fetched
 package is already stripped, so both copy nothing.
 
-`export_modules(..., min_gnu=, min_clang=, min_msvc=)` records the least version of one compiler that
-THESE modules need, as one `Q` record per compiler it names. Repeated calls keep the strictest floor,
-because one file set carries every call. `MAMA_MODULES_AVAILABLE` reads the toolchain alone: the cmake
-version, the generator, and the scanner. So a package floor BELOW the global `MAMA_MODULES_MIN_*`
-enables that package on its own. `mama_target_modules` weighs each package against its own floor, and
-falls back to the global one for a package that declared none. An empty floor refuses.
-`MAMA_HAS_MODULES` is one define for the whole consumer target, so one package this compiler refuses
-turns the modules off for every package, and each one keeps its own headers.
+A package declares no compiler floor. Mama knows the versions that build a module, and the consumer
+moves `MAMA_MODULES_MIN_*` or sets `MAMA_ENABLE_MODULES=OFF`. See the consumer section of 12.
 
 A package built by a different compiler than the current build warns and does not fail.
 Compiler-scoped build dirs make a cross-family mismatch unreachable in practice. A compiler version

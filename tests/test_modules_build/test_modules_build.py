@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from testutils import (executable_extension, init, is_windows, mama_exec, module_capable_compiler,
-                       MODULE_TEST_MIN_CLANG, native_platform_name, static_library_extension)
+                       native_platform_name, static_library_extension)
 
 from mama.platforms.windows import Windows
 from mama.utils.paths import forward_slashes
@@ -20,10 +20,10 @@ from mama.utils.sub_process import execute_piped
 
 
 def _env(**overrides):
-    """Env for one mama run. The compiler and the clang floor follow this host."""
+    """Env for one mama run. The compiler follows this host."""
     cc = module_capable_compiler()
     env = {'MAMA_TEST_MODULE_COMPILER': cc['name'], 'MAMA_TEST_CC': cc['cc'], 'MAMA_TEST_CXX': cc['cxx'],
-           'MAMA_TEST_CXX_VERSION': cc['version'], 'MAMA_TEST_MIN_CLANG': str(MODULE_TEST_MIN_CLANG),
+           'MAMA_TEST_CXX_VERSION': cc['version'],
            'MAMA_TEST_MODULES': '1', 'MAMA_TEST_NO_NINJA': '0'}
     env.update(overrides)
     return env

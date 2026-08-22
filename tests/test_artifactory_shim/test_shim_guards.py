@@ -163,7 +163,6 @@ def test_papa_deploy_to_succeeds_for_normal_destination(tmp_path):
     target.exported_syslibs = []
     target.exported_assets = []
     target.exported_modules = []
-    target.module_min_compilers = {}
     target.includes_root = ('', '', '')
     target.children.return_value = []
     target.build_dir.return_value = str(deploy_dir)

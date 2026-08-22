@@ -439,9 +439,6 @@ set({name}_LIBS {all_libs_list})
 set({name}_MODULES {_get_cmake_path_list(modules)})
 set({name}_MODULES_BASE_DIRS {_get_cmake_path_list(package.module_base_dirs(dep.target))})
 '''
-        # the floor THIS package declared, so a consumer skips it alone when its compiler is older
-        for compiler, least in sorted(dep.target.module_min_compilers.items()):
-            text += f'set({name}_MODULES_MIN_{compiler} {least})\n'
     return f'${{{name}_INCLUDES}}', text
 
 
@@ -455,7 +452,7 @@ def _save_dependencies_cmake(root: BuildDependency):
 '''
     includes_def, package_text = _get_dependency_cmake_defines(root)
     includes_defs = [includes_def]
-    module_deps = [root.name] if package.exported_modules_with_base(root.target) else []
+    module_refs = [f'${{{root.name}_MODULES}}'] if package.exported_modules_with_base(root.target) else []
     module_bases = list(package.module_base_dirs(root.target))
     text += package_text
 
@@ -464,7 +461,7 @@ def _save_dependencies_cmake(root: BuildDependency):
         includes_def, package_text = _get_dependency_cmake_defines(dep)
         includes_defs.append(includes_def)
         if package.exported_modules_with_base(dep.target):
-            module_deps.append(dep.name)
+            module_refs.append(f'${{{dep.name}_MODULES}}')
             module_bases += package.module_base_dirs(dep.target)
         text += package_text
 
@@ -475,14 +472,12 @@ f'''
 set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})
 set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 '''
-    if module_deps:
-        # the package names, so mama_target_modules can weigh each floor before it takes the modules
-        names = ' '.join(module_deps)
+    if module_refs:
         # the consolidated bases are literal paths, because one package's base dir can sit inside
         # another package's, and cmake refuses a file set whose base dirs contain each other
         bases = _get_cmake_path_list(package.drop_nested_dirs(module_bases))
         text += \
-f'''set(MAMA_MODULE_PACKAGES   ${{MAMA_MODULE_PACKAGES}}   {names})
+f'''set(MAMA_MODULES           ${{MAMA_MODULES}}           {' '.join(module_refs)})
 set(MAMA_MODULES_BASE_DIRS ${{MAMA_MODULES_BASE_DIRS}} {bases})
 '''
 

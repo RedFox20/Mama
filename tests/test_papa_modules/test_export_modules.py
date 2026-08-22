@@ -73,14 +73,14 @@ def test_one_opt_out_keeps_the_module_objects_whatever_a_later_call_passes(tmp_p
     assert target.strip_module_objects is False
 
 
-def test_the_strictest_floor_of_every_call_wins(tmp_path):
-    # one file set carries both modules, so the older floor would compile the newer module too
+def test_a_removed_floor_argument_warns_and_exports_anyway(tmp_path):
+    # a recipe written against the old API must not fail the run over an argument that does nothing
     target = _target(tmp_path)
-    target.module_min_compilers = {}
     from mama.build_target import BuildTarget
-    BuildTarget.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], min_clang='21', min_gnu='14')
-    BuildTarget.export_modules(target, 'src/rpp', ['rpp-debugging.ixx'], min_clang='16')
-    assert target.module_min_compilers == {'CLANG': '21', 'GNU': '14'}
+    with patch('mama.build_target.warning') as warn:
+        BuildTarget.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], min_clang='18')
+    assert 'min_clang' in warn.call_args[0][0]
+    assert len(target.exported_modules) == 1
 
 
 def test_a_macos_casing_variant_still_finds_its_include_dir(tmp_path):

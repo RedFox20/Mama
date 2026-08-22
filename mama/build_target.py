@@ -113,7 +113,6 @@ class BuildTarget:
         self.exported_assets: List[Asset] = [] # exported asset files
         self.exported_modules = [] # C++20 module interface units a consumer compiles itself
         self.strip_module_objects = True # drop the module objects from the packaged static lib
-        self.module_min_compilers = {} # compiler id -> least version that builds the exported modules
         self.packaging_result = '' # result of the package() step
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._did_configure = False # guards configure() to run once across configure/build phases
@@ -644,13 +643,15 @@ class BuildTarget:
 
 
     def export_modules(self, module_path, modules=None, build_dir=False, recursive=True,
-                       strip_objects=True, min_gnu='', min_clang='', min_msvc=''):
+                       strip_objects=True, **removed):
         """
         Exports C++20 module interface units to consumers of this package.
 
         A binary module interface is not portable, so a consumer compiles these sources itself.
         The generated `mama.cmake` carries them, and `mama_target_modules(MyApp)` adds them to a
-        target. A toolchain without module support keeps the headers.
+        target. A toolchain without module support keeps the headers. A consumer that needs a
+        newer compiler than the default raises `MAMA_MODULES_MIN_CLANG`, or turns the whole
+        feature off with `MAMA_ENABLE_MODULES=OFF`.
         ```
             self.export_include('src/rpp', as_includes_root=True)
             self.export_modules('src/rpp', ['rpp-strview.cppm'])
@@ -664,9 +665,6 @@ class BuildTarget:
         - recursive: [True] the glob reads every subdirectory too. False reads module_path alone
         - strip_objects: [True] remove the module objects from the exported static library. The flag
           applies to the whole target, and one False keeps the objects whatever a later call passes.
-        - min_gnu, min_clang, min_msvc: [''] the least compiler version that builds THESE modules.
-          A consumer skips this package alone when its compiler is older, and keeps the headers.
-          The package ships every call's modules together, so the strictest floor of the target wins.
 
         **An exported module must define nothing but its own interface.** The strip removes whole
         objects, so a module unit that defines a non-inline function loses that definition, and a
@@ -675,10 +673,10 @@ class BuildTarget:
         """
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False
-        for name, least in (('GNU', min_gnu), ('CLANG', min_clang), ('MSVC', min_msvc)):
-            # one file set carries every call, so the older floor cannot answer for the newer module
-            if least and version_at_least(str(least), self.module_min_compilers.get(name, '0')):
-                self.module_min_compilers[name] = str(least)
+        # a mamafile written against an older mama must not fail the run over an argument mama dropped
+        if removed:
+            warning(f'{self.name}: export_modules() ignores {", ".join(sorted(removed))}. Mama knows '
+                    'the compiler floor, and a consumer sets MAMA_ENABLE_MODULES=OFF to opt out.')
         return package.export_modules(self, module_path, modules, build_dir=build_dir, recursive=recursive)
 
 

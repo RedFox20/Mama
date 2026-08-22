@@ -524,12 +524,11 @@ def package(self):
     self.export_include('src/rpp', as_includes_root=True)  # the modules under it come along
 ```
 
-Call `export_modules()` only to narrow that list, or to state a compiler floor:
+Call `export_modules()` only to narrow that list:
 
 ```py
 self.export_modules('src/rpp', ['rpp-strview.cppm'])  # only this one
 self.export_modules('src/rpp', recursive=False)       # that directory, not its subdirectories
-self.export_modules('src/rpp', min_clang='21')        # older clang keeps the headers of THIS package
 self.export_modules('src/rpp', strip_objects=False)   # a unit that defines more than its interface
 self.no_export_modules()                              # this package publishes no module
 ```
@@ -557,9 +556,10 @@ import rpp.strview;
 #endif
 ```
 
-Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 21 or
-MSVC 19.34. A toolchain that misses one keeps the exported headers and prints why. Lower a floor
-with `-DMAMA_MODULES_MIN_CLANG=18`.
+Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
+MSVC 19.34. A toolchain that misses one keeps the exported headers and prints why. A package states
+no compiler floor of its own. To turn the feature off, build with `-DMAMA_ENABLE_MODULES=OFF`, or
+add `self.add_cmake_options('MAMA_ENABLE_MODULES=OFF')` to the consumer mamafile.
 
 The packaged static library drops its module objects, because the consumer compiles the same source
 and a whole-archive link would otherwise find two `initializer for module X` symbols. An exported

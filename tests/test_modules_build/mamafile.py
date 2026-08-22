@@ -31,7 +31,4 @@ class Consumer(mama.BuildTarget):
 
     def configure(self):
         self.enable_cxx20()
-        # The shipped floor answers for any package. This fixture is a thin facade, so it builds on
-        # the older clang this host may carry.
-        self.add_cmake_options(f'MAMA_MODULES_MIN_CLANG={os.getenv("MAMA_TEST_MIN_CLANG", "21")}')
         if os.getenv('MAMA_TEST_WHOLE_ARCHIVE') == '1': self.add_cmake_options('WHOLE_ARCHIVE_LINK=ON')

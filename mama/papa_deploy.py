@@ -312,8 +312,6 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes, modules)
     _warn_about_duplicate_include_trees(target, package_full_path)
     shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
-    for compiler, least in sorted(target.module_min_compilers.items()):
-        descr.append(f'Q {compiler} {least}')  # the least compiler version these modules need
 
     build_dir = target.build_dir()
     source_dir = target.source_dir()
@@ -387,7 +385,6 @@ class PapaFileInfo:
         self.libs = []
         self.syslibs = []
         self.modules = [] # C++20 module sources. [] predates the M record
-        self.module_min_compilers = {} # compiler id -> least version. {} predates the Q record
         self.assets: List[Asset] = []
 
         suffixes = {}  # dep name -> version_suffix, applied below once every `D` record is in
@@ -407,9 +404,6 @@ class PapaFileInfo:
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
             elif line.startswith('M '): append_to(self.modules, line)
-            elif line.startswith('Q '):
-                compiler, _, least = line[2:].strip().partition(' ')
-                self.module_min_compilers[compiler] = least.strip()
             elif line.startswith('A '):
                 relpath = line[2:].strip()
                 fullpath = normalized_join(self.papa_dir, relpath)

@@ -10,13 +10,12 @@ from mama.utils.paths import forward_slashes
 from mama.utils.sub_process import execute_piped_echo
 
 
-# Reads the floor of one package the way the helper does, with no compiler and no target.
-# The caller names the compiler through -D, so one probe covers every floor case.
+# Reads the one gate, with no compiler and no target. The caller names the compiler through -D,
+# so one probe covers every floor case.
 _PROBE = '''cmake_minimum_required(VERSION 3.20)
 project(T NONE)
 include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)
-_mama_package_modules_ok(Producer ok)
-message(STATUS "MAMA_PROBE ok=${ok}")
+message(STATUS "MAMA_PROBE ok=${MAMA_MODULES_AVAILABLE}")
 '''
 
 
@@ -33,7 +32,9 @@ def _probe_floor(tmp_path, *defines) -> str:
     if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
     (tmp_path / 'mama.cmake').write_text(_text())
     (tmp_path / 'CMakeLists.txt').write_text(_PROBE)
+    # a NONE project resolves no scanner, and the clang arm reads one, so name a file that exists
     status, out = execute_piped_echo(None, ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build',
+                                            f'-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS={tmp_path}/mama.cmake',
                                             *defines, str(tmp_path)], echo=False)
     assert status == 0, out
     return out
@@ -71,7 +72,8 @@ def test_the_guard_names_every_toolchain_requirement():
                    'MAMA_NINJA_VERSION VERSION_LESS 1.11',  # a dyndep file needs ninja 1.11
                    'COMMAND "${CMAKE_MAKE_PROGRAM}" --version',  # a cached version outlives its ninja
                    'CMAKE_MATCH_1 GREATER_EQUAL 17',  # cmake scans modules for VS 2022 and newer only
-                   'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 21', 'MAMA_MODULES_MIN_MSVC  1934']:
+                   'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 18', 'MAMA_MODULES_MIN_MSVC  1934',
+                   'option(MAMA_ENABLE_MODULES']:  # the one lever a consumer turns off
         assert needle in text
 
 
@@ -139,49 +141,33 @@ def test_drop_nested_dirs_keeps_two_unrelated_roots(tmp_path):
     assert package.drop_nested_dirs([b, a]) == [a, b]
 
 
-# --- a floor per package, so one lowered floor never enables a second package -
+# --- the compiler floor, which mama knows and a consumer may override ---------
 
-def test_a_package_emits_the_floor_it_declared(tmp_path):
-    target = make_includes_target(str(tmp_path))
-    target.exported_includes = [f'{tmp_path}/include']
-    target.exported_modules = [f'{tmp_path}/include/rpp/rpp-strview.cppm']
-    target.module_min_compilers = {'CLANG': '16'}
-    _, text = _get_dependency_cmake_defines(make_includes_dep(target))
-    assert 'set(TestLib_MODULES_MIN_CLANG 16)' in text
-
-
-def test_the_helper_weighs_each_package_floor_on_its_own():
+def test_the_helper_keeps_every_header_when_the_gate_refuses():
+    # MAMA_HAS_MODULES is one define, so the early return has to precede it
     text = _text()
-    assert 'function(_mama_package_modules_ok package out)' in text
-    assert 'set(min_${id} ${${package}_MODULES_MIN_${id}})' in text    # the package floor wins
-    assert 'set(min_${id} ${MAMA_MODULES_MIN_${id}})' in text          # the global one is the default
-    assert 'foreach(package ${MAMA_MODULE_PACKAGES})' in text          # one verdict per package
+    assert 'using the exported headers' in text
+    assert text.index('if(NOT MAMA_MODULES_AVAILABLE OR NOT MAMA_MODULES)') \
+        < text.index('target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)')
 
 
-def test_a_package_that_fails_its_floor_keeps_every_header():
-    # MAMA_HAS_MODULES is one define, so a consumer cannot import one package and read another's headers
-    text = _text()
-    assert 'so every package keeps its exported headers' in text
-    assert text.index('if(skipped)') < text.index('target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)')
+@pytest.mark.parametrize('version, expected', [('18', 'TRUE'), ('17', 'FALSE')])
+def test_the_clang_floor_is_the_version_that_builds_a_module(tmp_path, version, expected):
+    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', f'-DCMAKE_CXX_COMPILER_VERSION={version}')
+    assert f'MAMA_PROBE ok={expected}' in out
+
+
+def test_the_lever_refuses_a_toolchain_that_could_build_the_modules(tmp_path):
+    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18',
+                       '-DMAMA_ENABLE_MODULES=OFF')
+    assert 'MAMA_PROBE ok=FALSE' in out
 
 
 def test_an_empty_compiler_floor_refuses_instead_of_breaking_the_configure(tmp_path):
     # real cmake, because a text assert cannot see an `if` whose right operand expanded to nothing
     out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=GNU', '-DCMAKE_CXX_COMPILER_VERSION=14',
-                       '-DMAMA_MODULES_MIN_GNU=', '-DProducer_MODULES_MIN_GNU=')
+                       '-DMAMA_MODULES_MIN_GNU=')
     assert 'MAMA_PROBE ok=FALSE' in out  # an empty floor refuses, a quoted one would pass every compiler
-
-
-def test_a_package_floor_below_the_global_one_enables_that_package(tmp_path):
-    # the global gate reads the toolchain alone, so a declared floor no longer needs a lower global one
-    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18',
-                       '-DProducer_MODULES_MIN_CLANG=16')
-    assert 'MAMA_PROBE ok=TRUE' in out
-
-
-def test_a_package_that_declares_no_floor_reads_the_global_one(tmp_path):
-    out = _probe_floor(tmp_path, '-DCMAKE_CXX_COMPILER_ID=Clang', '-DCMAKE_CXX_COMPILER_VERSION=18')
-    assert 'MAMA_PROBE ok=FALSE' in out  # the global Clang floor is 21
 
 
 def test_a_replaced_ninja_probes_again(tmp_path):

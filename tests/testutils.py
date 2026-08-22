@@ -412,7 +412,6 @@ def make_includes_target(source_dir, build_dir=None):
     target.exported_syslibs, target.exported_assets = [], []
     target.exported_modules = []
     target.strip_module_objects = True
-    target.module_min_compilers = {}
     target.includes_root = ('', '', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
@@ -501,11 +500,6 @@ def make_exporting_target(dep, includes, libs, version='abc1234', modules=None):
     return target
 
 
-# The test fixture module is a thin facade, so it needs a lower clang than the shipped default. That
-# default answers for any package, and clang 16 already builds the shape this fixture uses.
-MODULE_TEST_MIN_CLANG = 16
-
-
 @lru_cache(maxsize=1)
 def module_capable_compiler() -> dict:
     """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
@@ -515,8 +509,8 @@ def module_capable_compiler() -> dict:
     cmake = execute_piped(['cmake', '--version'], throw=False) or ''
     version = re.search(r'(\d+)\.(\d+)', cmake)
     if not version or (int(version.group(1)), int(version.group(2))) < (3, 28): return {}
-    for name, cc, cxx, least in (('clang', 'clang', 'clang++', MODULE_TEST_MIN_CLANG),
-                                 ('gcc', 'gcc', 'g++', 14)):
+    # the same floors the generated cmake ships, so a capable host here is a capable host there
+    for name, cc, cxx, least in (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14)):
         cxx_path = shutil.which(cxx)
         if not cxx_path: continue
         dumped = (execute_piped([cxx_path, '-dumpversion'], throw=False) or '').strip()

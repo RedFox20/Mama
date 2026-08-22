@@ -84,10 +84,13 @@ def platform_chain(build_dir_defines) -> str:
 
 # A plain string, not part of the f-string below: every `${}` here would need a doubled brace.
 _MODULES_HELPER = '''
-# The least compiler version that builds an exported module. Lower one when a package states that its
-# modules build on an older compiler, because the safe default answers for any package.
+# The lever: OFF keeps the exported headers of every package, whatever the toolchain can do.
+option(MAMA_ENABLE_MODULES "Compile the C++20 modules that mama packages export" ON)
+
+# The least compiler version that builds an exported module. Raise one for a package whose modules
+# need a newer compiler than this, and the consumer keeps its exported headers instead.
 set(MAMA_MODULES_MIN_GNU   14   CACHE STRING "Least GCC version that builds exported C++20 modules")
-set(MAMA_MODULES_MIN_CLANG 21   CACHE STRING "Least Clang version that builds exported C++20 modules")
+set(MAMA_MODULES_MIN_CLANG 18   CACHE STRING "Least Clang version that builds exported C++20 modules")
 set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exported C++20 modules")
 
 # An empty floor must refuse, never pass. Unquoted it breaks the `if`, and quoted it compares TRUE.
@@ -115,38 +118,23 @@ elseif(CMAKE_GENERATOR MATCHES "Ninja")
         set(MAMA_MODULES_GENERATOR TRUE)
     endif()
 endif()
-# This gate reads the toolchain alone. Each package weighs the compiler VERSION against its own
-# floor, so a package that declares a lower floor enables its modules without lowering the global one.
-if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
+if(MAMA_ENABLE_MODULES AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # cmake reads a clang import graph with clang-scan-deps, which a split install may not ship.
         # The Visual Studio generator scans a module graph with the MSVC toolset alone, never clang-cl.
         if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio"
-           AND CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+           AND CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}"
+           AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})
             set(MAMA_MODULES_AVAILABLE TRUE)
         endif()
-    else()
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
+            set(MAMA_MODULES_AVAILABLE TRUE)
+        endif()
+    elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${MAMA_MODULES_MIN_MSVC})
         set(MAMA_MODULES_AVAILABLE TRUE)
     endif()
 endif()
-
-# True when this compiler meets the floor `package` declared, or the global floor when it declared none.
-function(_mama_package_modules_ok package out)
-    set(${out} FALSE PARENT_SCOPE)
-    foreach(id GNU CLANG MSVC)
-        set(min_${id} ${MAMA_MODULES_MIN_${id}})
-        if(${package}_MODULES_MIN_${id})
-            set(min_${id} ${${package}_MODULES_MIN_${id}})
-        endif()
-    endforeach()
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${min_GNU})
-        set(${out} TRUE PARENT_SCOPE)
-    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${min_CLANG})
-        set(${out} TRUE PARENT_SCOPE)
-    elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${min_MSVC})
-        set(${out} TRUE PARENT_SCOPE)
-    endif()
-endfunction()
 
 # Adds the C++20 modules of every mama package to `target`, once, after the target exists.
 # scope is PUBLIC by default. A library that installs itself through install(EXPORT) needs PRIVATE.
@@ -155,34 +143,14 @@ function(mama_target_modules target)
     if(ARGC GREATER 1)
         set(scope "${ARGV1}")
     endif()
-    set(files "")
-    set(skipped "")
-    if(MAMA_MODULES_AVAILABLE)
-        # each package answers for its own floor, so one package with an older floor never lets a
-        # second package through
-        foreach(package ${MAMA_MODULE_PACKAGES})
-            _mama_package_modules_ok(${package} ok)
-            if(ok)
-                list(APPEND files ${${package}_MODULES})
-            else()
-                list(APPEND skipped ${package})
-            endif()
-        endforeach()
-    endif()
-    # MAMA_HAS_MODULES is one define for the whole target, so a consumer cannot import one package and
-    # read the headers of another. One package this compiler refuses therefore keeps every header.
-    if(skipped)
-        message(STATUS "MAMA: ${skipped} C++20 modules off, so every package keeps its exported headers")
-        return()
-    endif()
-    if(NOT files)
+    if(NOT MAMA_MODULES_AVAILABLE OR NOT MAMA_MODULES)
         message(STATUS "MAMA: C++20 modules off, using the exported headers")
         return()
     endif()
     # a module needs C++20, and the consumer mamafile does not have to force a standard of its own
     target_compile_features(${target} ${scope} cxx_std_20)
     target_sources(${target} ${scope} FILE_SET mama_modules TYPE CXX_MODULES
-                   BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${files})
+                   BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})
     target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)
 endfunction()
 '''
