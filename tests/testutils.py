@@ -600,12 +600,12 @@ def git_init_commit(cwd, branch='', files=None):
     if os.path.isdir(cwd) and os.listdir(cwd): return _build_git_repo(cwd, branch, files)
     key = (branch, tuple(sorted((files or {}).items())))
     if key in _repo_templates:
-        shutil.copytree(_repo_templates[key], cwd, dirs_exist_ok=True)
+        shutil.copytree(_repo_templates[key], cwd, dirs_exist_ok=True, ignore=_TRANSIENT)
         return
     _build_git_repo(cwd, branch, files)
     if _repo_template_dir:
         _repo_templates[key] = template = path_join(_repo_template_dir, str(len(_repo_templates)))
-        shutil.copytree(cwd, template)
+        shutil.copytree(cwd, template, ignore=_TRANSIENT)
 
 
 def git_run(args, cwd):
@@ -736,6 +736,8 @@ def write_build_file(build_dir, name='build.ninja'):
 
 # What mama generates into a test project. The copy starts without them, so no test has to remove them.
 _GENERATED = shutil.ignore_patterns('packages', 'bin', 'build', '__pycache__', '*.pyc')
+# git maintenance writes a lock beside the objects and removes it again, so a copy can race the delete
+_TRANSIENT = shutil.ignore_patterns('*.lock')
 
 
 def init(caller_file: str, workdir) -> str:

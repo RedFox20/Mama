@@ -6,6 +6,8 @@ from unittest.mock import patch
 import pytest
 from testutils import make_includes_target, write_files
 
+from mama.utils.paths import forward_slashes
+
 from mama import package
 from mama.platforms.windows import Windows
 from mama.utils.errors import BuildError
@@ -158,7 +160,7 @@ def test_a_build_that_needs_no_strip_publishes_the_archive_it_wrote(tmp_path):
     target = _target(tmp_path, libs=(lib,))
     with patch('mama.package.execute_piped_echo', return_value=(0, 'other.cpp.o\n')):
         package.export_stripped_module_libs(target)
-    assert target.exported_libs[0] == f'{tmp_path}/libfoo.a'
+    assert target.exported_libs[0] == f'{forward_slashes(str(tmp_path))}/libfoo.a'
 
 
 def test_an_uppercase_archive_suffix_is_still_a_static_library():
@@ -322,4 +324,4 @@ def test_a_directory_of_that_name_without_the_original_is_not_a_stripped_copy(tm
     lib = f'{tmp_path}/mama-nomodules/libfoo.a'
     assert package._unstripped_lib(lib) == lib
     write_files(str(tmp_path), {'libfoo.a': '\0'})
-    assert package._unstripped_lib(lib) == f'{tmp_path}/libfoo.a'
+    assert package._unstripped_lib(lib) == f'{forward_slashes(str(tmp_path))}/libfoo.a'
