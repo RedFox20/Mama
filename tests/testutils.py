@@ -501,6 +501,16 @@ def make_exporting_target(dep, includes, libs, version='abc1234', modules=None):
     return target
 
 
+def module_compilers() -> tuple:
+    """The compilers a module test may use, best first. MAMA_TEST_COMPILER pins one, so a CI job can
+    report which toolchain works instead of taking whichever the host happens to prefer."""
+    named = os.getenv('MAMA_TEST_COMPILER', '')
+    # the same floors the generated cmake ships, so a capable host here is a capable host there
+    every = (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14))
+    # a name neither one answers to, such as msvc, pins nothing: that host builds with its own toolchain
+    return tuple(c for c in every if c[0] == named) or every
+
+
 @lru_cache(maxsize=1)
 def module_capable_compiler() -> dict:
     """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
@@ -510,8 +520,7 @@ def module_capable_compiler() -> dict:
     cmake = execute_piped(['cmake', '--version'], throw=False) or ''
     version = re.search(r'(\d+)\.(\d+)', cmake)
     if not version or (int(version.group(1)), int(version.group(2))) < (3, 28): return {}
-    # the same floors the generated cmake ships, so a capable host here is a capable host there
-    for name, cc, cxx, least in (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14)):
+    for name, cc, cxx, least in module_compilers():
         cxx_path = shutil.which(cxx)
         if not cxx_path: continue
         dumped = (execute_piped([cxx_path, '-dumpversion'], throw=False) or '').strip()

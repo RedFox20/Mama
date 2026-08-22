@@ -34,12 +34,19 @@ jobs:
 
   # The slow gate: it builds real C++ with a real toolchain. One job clones a well known package
   # and links an app against it, and the module tests cover the source and the artifactory path.
+  # One job per toolchain, because a green matrix cell must name the compiler it proved.
   integration:
+    name: integration (${{ matrix.os }}, ${{ matrix.compiler }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, compiler: clang }
+          - { os: ubuntu-latest, compiler: gcc }
+          - { os: windows-latest, compiler: msvc }
     runs-on: ${{ matrix.os }}
+    env:
+      MAMA_TEST_COMPILER: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -51,6 +58,11 @@ jobs:
       - name: Install the C++ build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libdw-dev ninja-build libc++-dev libc++abi-dev
+
+      # the runner image may ship an older gcc, and the module floor is 14
+      - name: Install GCC 14
+        if: matrix.compiler == 'gcc'
+        run: bash tools/install_gcc14.sh
 
       - name: Install mama from this checkout
         run: pip install -e ".[dev]"

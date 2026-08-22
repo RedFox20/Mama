@@ -62,7 +62,8 @@ def _env(**extra) -> dict:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize('compiler', ['windows'] if testutils.is_windows() else ['clang', 'gcc'])
+@pytest.mark.parametrize('compiler', ['windows'] if testutils.is_windows()
+                         else [c[0] for c in testutils.module_compilers()])
 def test_mama_clones_builds_and_consumes_a_real_package(tmp_path, compiler):
     if not (shutil.which('cmake') and shutil.which('ninja')): pytest.skip('no cmake or ninja')
     if not _has_network(): pytest.skip(f'{RECPP_HOST} is unreachable, so the package cannot clone')
