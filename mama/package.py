@@ -1,16 +1,31 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os
+import itertools, os
 from .utils.system import console, System, warning
-from .utils.paths import normalized_path, normalized_join, glob_with_name_match, glob_with_extensions
+from .utils.paths import (normalized_path, normalized_join, forward_slashes,
+                          glob_with_name_match, glob_with_extensions)
+from .utils.errors import BuildError
+from .utils.fileio import copy_if_needed, file_sha1
+from .utils.sub_process import execute_piped, execute_piped_echo, SubProcess
 from .types.asset import Asset
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
     from .build_config import BuildConfig
 
+# Every spelling of a C++20 module interface unit. MSVC writes `.ixx`, the others write `.cppm`.
+MODULE_EXTENSIONS = ('.cppm', '.ixx', '.ccm', '.cxxm', '.c++m', '.mpp')
+
+# The dir that holds the exported archive after the strip, beside the archive the build wrote.
+MODULE_STRIP_DIR = 'mama-nomodules'
+
+# Every non-module C++ source. An object named after one of these is not a module object.
+SOURCE_EXTENSIONS = ('.cpp', '.cc', '.cxx', '.c++', '.c')
+
+
 def is_a_static_library(lib: str):
     if not lib: return False
+    lib = match_path(lib)  # a filesystem that ignores case reads Producer.LIB as the same archive
     return lib.endswith('.a') or lib.endswith('.lib')
 
 
@@ -96,6 +111,301 @@ def export_includes(target: BuildTarget, include_paths, build_dir: bool):
         for include_path in include_paths:
             added |= target.export_include(include_path, build_dir)
     return added
+
+
+def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bool, recursive=True):
+    module_path = target_root_path(target, module_path, build_dir=build_dir)
+    if isinstance(modules, str): modules = [modules]  # one name, not a sequence of characters
+    if modules is None:
+        found = sorted(glob_with_extensions(module_path, list(MODULE_EXTENSIONS), recursive=recursive))
+    else:
+        found = [normalized_join(module_path, m) for m in modules]
+    added = False
+    seen = {match_path(m) for m in target.exported_modules}  # one file, whatever case the caller spelled
+    for module in found:
+        if not os.path.exists(module):
+            warning(f'export_modules failed to find: {module}')
+            continue
+        if match_path(module) not in seen:
+            seen.add(match_path(module))
+            target.exported_modules.append(module)
+            added = True
+    return added
+
+
+def default_package_modules(target: BuildTarget) -> bool:
+    """Export every module interface unit under the exported include dirs. A library that ships one
+    almost always publishes it, and an explicit export_modules() call narrows this down."""
+    added = False
+    for include in target.exported_includes:
+        added |= export_modules(target, include, None, build_dir=False)
+    return added
+
+
+def module_suffixes(modules) -> tuple:
+    """The distinct extensions of `modules`, so the include deploy carries them too.
+    It reads the gathered list, not one target, because the caller decides which modules ship."""
+    return tuple({os.path.splitext(m)[1] for m in modules})
+
+
+def match_path(path: str) -> str:
+    """The spelling that compares two paths: forward slashes, and one case where the filesystem
+    ignores case. A raw compare drops a module whose export named the same dir another way."""
+    fwd = forward_slashes(path)
+    return fwd.lower() if System.windows or System.macos else fwd
+
+
+def _holds_path(directory: str, path: str) -> bool:
+    """True when `directory` really is an ancestor of `path`. A case-sensitive volume holds two dirs
+    whose folded names are equal, so only the filesystem can tell that pair apart."""
+    ancestor = os.path.dirname(path)
+    while len(ancestor) >= len(directory):
+        try:
+            if os.path.samefile(ancestor, directory): return True
+        except OSError:
+            return False  # one of them is gone, so they name no common dir
+        parent = os.path.dirname(ancestor)
+        if parent == ancestor: return False
+        ancestor = parent
+    return False
+
+
+def module_base_dir(target: BuildTarget, module: str) -> str:
+    """The exported include dir that holds `module`, longest match first, or '' when none does.
+    Cmake needs every module of a file set to sit under one of its base dirs."""
+    fwd = match_path(module)
+    raw = forward_slashes(module)
+    # as_includes_root deploys one subdir of the export, so a module outside it never reaches a consumer
+    root_src = match_path(target.includes_root[1]) if target.includes_root[1] else ''
+    if root_src and not fwd.startswith(root_src + '/'): return ''
+    best = ''
+    for include in target.exported_includes:
+        if not fwd.startswith(match_path(include) + '/') or len(include) <= len(best): continue
+        # only a match that needed case folding asks the filesystem, so the exact path costs nothing
+        if raw.startswith(forward_slashes(include) + '/') or _holds_path(include, module):
+            best = include  # the caller matches this against the export list, so keep its spelling
+    return best
+
+
+def drop_nested_dirs(dirs) -> list:
+    """The given dirs, sorted, with every dir that sits inside another one removed. Cmake refuses a
+    file set whose base dirs contain each other, and the outer dir already holds them all."""
+    uniq = sorted({forward_slashes(d) for d in dirs if d})
+    return [d for d in uniq
+            if not any(match_path(d).startswith(match_path(o) + '/') for o in uniq if o != d)]
+
+
+def module_base_dirs(target: BuildTarget) -> list:
+    """The exported include dirs that hold a module of this target, with every nested dir dropped."""
+    return drop_nested_dirs(module_base_dir(target, m) for m in target.exported_modules)
+
+
+def exported_modules_with_base(target: BuildTarget) -> list:
+    """The exported modules that an exported include dir holds. A module outside every include path
+    reaches no consumer, and cmake refuses a file set whose FILES sit under no base dir."""
+    return [m for m in target.exported_modules if module_base_dir(target, m)]
+
+
+def warn_unreachable_modules(target: BuildTarget) -> None:
+    """Warn once for a module no exported include dir holds. Every later step drops such a module
+    without a word, so this is where the recipe author can still see the mistake."""
+    for module in target.exported_modules:
+        if not module_base_dir(target, module):
+            warning(f'{target.name}: export_modules skipped {module}. No exported include dir holds it.')
+
+
+def consumed_modules(target: BuildTarget) -> list:
+    """(owner, module) for every module whose object this archive can hold: the ones this target
+    exports, and the ones every package below it exports. `mama_target_modules` compiles the whole
+    dependency tree into this target, so a grandchild module the strip misses defines its initializer
+    twice. The owner answers for the base dir, which only its own export list resolves."""
+    modules = [(target, m) for m in exported_modules_with_base(target)]
+    seen = set()
+    def walk(parent: BuildTarget):
+        for child in parent.children():
+            if child.name in seen: continue  # a diamond reaches one package through two parents
+            seen.add(child.name)
+            modules.extend((child.target, m) for m in exported_modules_with_base(child.target))
+            walk(child.target)
+    walk(target)
+    return modules
+
+
+def _archive_members(target: BuildTarget, lib: str) -> list:
+    """The object members of `lib`, one per line, through the archiver of this platform.
+    A failed listing raises, because treating it as an empty archive publishes the module objects."""
+    cmd = target.config.platform.list_archive_members_cmd(lib)
+    status, listing = execute_piped_echo(None, cmd, echo=False)
+    if status != 0:
+        raise BuildError(f'Failed to list {lib} with {cmd[0]}. The module objects cannot be removed.')
+    # one member per line, so a module file name that holds a space survives the parse
+    return [m for m in (ln.strip() for ln in listing.splitlines())
+            if os.path.splitext(m)[1].lower() in ('.o', '.obj')]
+
+
+def _shared_tail(a: list, b: list) -> int:
+    """The number of trailing path components two split paths share."""
+    n = 0
+    while n < len(a) and n < len(b) and a[-1 - n] == b[-1 - n]: n += 1
+    return n
+
+
+def _tree_sources(root: str, extensions: tuple):
+    """Every source of `extensions` under `root`, skipping each PAPA package tree below it.
+    A deployed copy of an exported module is ours, and reading it as a private one stops the strip."""
+    for dirpath, dirnames, names in os.walk(root):
+        if dirpath != root and 'papa.txt' in names:
+            dirnames.clear()
+            continue
+        for name in names:
+            if os.path.splitext(name)[1].lower() in extensions: yield normalized_join(dirpath, name)
+
+
+def _is_ours(path: str, exported: dict, build: str) -> bool:
+    """True when `path` is an exported module, or a byte copy of one of that name. An install step
+    writes a module into the build tree, and only there does a copy stand for the module it came from."""
+    originals = exported.get(match_path(os.path.basename(path)))
+    if not originals: return False
+    fwd = match_path(path)
+    if any(fwd == match_path(o) for o in originals): return True
+    if not fwd.startswith(build): return False  # two units of one name in the source tree are two units
+    try:  # hash only what the size already matched, because a hash reads the whole file
+        same = [o for o in originals if os.path.getsize(o) == os.path.getsize(path)]
+        return bool(same) and file_sha1(path) in {file_sha1(o) for o in same}
+    except OSError: return False  # one of them is gone, so nothing proves they are one module
+
+
+def _ambiguous_names(target: BuildTarget, modules: list) -> set:
+    """Every name a member could also have come from: a non-module source without its extension, and
+    a module no package here exports with its extension. Either one makes a bare member unsafe.
+    - modules: (owner, module) for every module this archive can hold, a child package included"""
+    exported = {}  # every path per base name: two dirs can export one name, and both are ours
+    for _, m in modules: exported.setdefault(match_path(os.path.basename(m)), []).append(m)
+    build = match_path(target.build_dir()) + '/'
+    every = SOURCE_EXTENSIONS + MODULE_EXTENSIONS
+    # a generated module lands in the build dir, and its object answers to the name of an exported one
+    names = set()
+    for path in itertools.chain(_tree_sources(target.source_dir(), every),
+                                _tree_sources(target.build_dir(), every)):
+        base = os.path.basename(path)
+        stem, ext = os.path.splitext(base)
+        if ext.lower() in SOURCE_EXTENSIONS: names.add(match_path(stem))
+        elif not _is_ours(path, exported, build): names.add(match_path(base))
+    return names
+
+
+def _module_object_members(target: BuildTarget, lib: str) -> list:
+    """The archive members that hold a module initializer, read from the archive itself.
+
+    Each module takes the members sharing the most trailing path components, which keeps an exported
+    `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module extension, so a
+    module that shares none falls back to its bare name. A name this target cannot account for is
+    ambiguous, and every member of that name stays."""
+    objects = _archive_members(target, lib)
+    # an archiver lists the path it stored, and the compare walks that path from its end
+    parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
+    claims, names = {}, None
+    modules = consumed_modules(target)
+    for _, module in modules:
+        module_parts = match_path(module).split('/')
+        scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
+        best = max((n for _, n in scored), default=0)
+        if names is None: names = _ambiguous_names(target, modules)  # one walk, whatever the scores need
+        if best == 1 and module_parts[-1] in names:
+            warning(f'{target.name}: a module named {module_parts[-1]} is not exported, and the '
+                    'archive names no path, so the module objects of that name stay.')
+            continue
+        if not best:
+            bare = match_path(os.path.splitext(module_parts[-1])[0])
+            if bare in names: continue
+            scored, best = [(o, 1) for o, p in parts if p[-1] == bare], 1
+        for name in {o for o, n in scored if n and n == best}:
+            claims[name] = claims.get(name, 0) + 1
+
+    members = []
+    for name, claimed in claims.items():
+        held = objects.count(name)
+        if held > claimed:
+            warning(f'{target.name}: {os.path.basename(lib)} holds {held} members named {name}, and '
+                    f'{claimed} exported module(s) claim it. Keeping them, so no definition is lost.')
+            continue
+        members += [name] * held  # `ar d` drops one member per name it is given
+    return members
+
+
+def strips_module_objects(target: BuildTarget, lib: str) -> bool:
+    """True when this lib can lose module objects on the way into a package. The archive decides the
+    rest: a target that compiled no module interface into it keeps the archive the build wrote."""
+    return bool(target.strip_module_objects and is_a_static_library(lib)
+                and not is_a_thin_archive(lib) and consumed_modules(target))
+
+
+def is_a_thin_archive(lib: str) -> bool:
+    """True for a GNU thin archive, which names each member by a path instead of holding it.
+    A copy of one resolves every path against its new dir, so the members are gone."""
+    try:
+        with open(lib, 'rb') as f: return f.read(8) == b'!<thin>\n'
+    except OSError:
+        return False
+
+
+def _unstripped_lib(lib: str) -> str:
+    """The archive a stripped copy came from, and `lib` itself for any other path.
+    A later run reads back the recorded export, which already names the copy."""
+    head, tail = os.path.split(os.path.dirname(lib))
+    original = normalized_join(head, os.path.basename(lib))
+    return original if tail == MODULE_STRIP_DIR and os.path.exists(original) else lib
+
+
+def export_stripped_module_libs(target: BuildTarget):
+    """Point every exported static library at a copy that holds no module object.
+
+    A consumer that builds this target from source links `exported_libs` directly, and the build dir
+    archive must keep those objects for the binaries of this target. An archive that holds no module
+    object keeps its own path, and a fetched package is already stripped, so both copy nothing."""
+    if target.dep.from_artifactory or not target.strip_module_objects: return
+    modules = consumed_modules(target)  # (owner, module), and only the count decides here
+    for i, lib in enumerate(target.exported_libs):
+        if not isinstance(lib, str) or not is_a_static_library(lib): continue
+        # read the archive this build wrote, never the copy an earlier run recorded as the export
+        src = _unstripped_lib(lib)
+        if not os.path.exists(src): continue
+        # every path below that writes no copy publishes `src`, so a recorded copy never outlives it
+        target.exported_libs[i] = src
+        if not modules: continue
+        if is_a_thin_archive(src):
+            warning(f'  {os.path.basename(src)} is a thin archive, so its module objects stay. ' + \
+                    'A thin archive names each member by a path, and a copy breaks every one.')
+            continue
+        members = _module_object_members(target, src)
+        if not members: continue  # this build wrote no module object, so `src` stays the export
+        out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        copy_if_needed(src, out)
+        _remove_members(target, out, members)  # the copy holds what the listing of `src` named
+        target.exported_libs[i] = out
+
+
+def _remove_members(target: BuildTarget, lib: str, members: list):
+    """Removes the named object members from a static library."""
+    # the arg list stays a list, because SubProcess splits a joined string on every space
+    status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
+    if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
+    # Always warn: this removes whole objects, so a module unit that defines a non-inline function
+    # loses that definition for a consumer whose toolchain builds no module.
+    warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}. ' + \
+            'An exported module must define nothing but its own interface.')
+
+
+def strip_module_objects(target: BuildTarget, lib: str):
+    """Removes the module objects from a packaged static library.
+
+    A module interface unit emits a strong `initializer for module X` symbol. The consumer compiles
+    the same source, so a whole-archive link finds two definitions and fails. The consumer always
+    supplies that symbol, so the package does not need it."""
+    if not strips_module_objects(target, lib): return
+    members = _module_object_members(target, lib)
+    if members: _remove_members(target, lib, members)
 
 
 def export_lib(target: BuildTarget, relative_path: str, build_dir: bool):

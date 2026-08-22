@@ -19,7 +19,7 @@ from .utils.archive import unzip
 from .utils.errors import BuildError
 from .utils.fileio import find_executable_from_system
 from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_file
-from .utils.paths import normalized_path
+from .utils.paths import forward_slashes, normalized_path
 from .utils.system import System, console, Color, error, warning
 from .utils.sub_process import execute, execute_piped
 
@@ -225,6 +225,7 @@ class BuildConfig:
         self.artifactory_auth = None
         ## Ninja
         self.ninja_path = self.find_ninja_build()
+        self._ninja_version = None # measured once, see ninja_version()
         self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
         ## Convenient installation utils:
         self.convenient_install = []
@@ -252,7 +253,7 @@ class BuildConfig:
         self._network_available = None  # None=untested, True/False=result
         self._announced = set()          # announce_once() keys already printed
         self._announce_lock = threading.Lock()
-        self._cmake_ver_num = None   # cached `cmake --version`, also the CMakeFiles/<ver> dir name
+        self._cmake_ver_num = {}     # cmake command -> version, also the CMakeFiles/<ver> dir name
         self._seed_coord = None      # compiler-seed Coordinator, built on first configure
         self._buildstats_start = None  # buildstats wall start, set only on a non-MSVC insights run
         self._timetrace_json = None    # vcperf trace path, set only on an MSVC insights run
@@ -639,7 +640,13 @@ class BuildConfig:
             if not os.path.exists(cxx_path):
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
-            return os.path.dirname(cxx_path) + '/', suffix, version
+            root = forward_slashes(os.path.dirname(cxx_path)) + '/'
+            # The caller composes `root + compiler + suffix`, so that path has to exist at the resolved
+            # root. Each of the link and its target carries a name the other does not, so try both.
+            name = os.path.basename(cxx_path)
+            real = name[len(compiler):] if name.startswith(compiler) else ''
+            spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
+            return root, spelling, version
 
         # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install
         priority_choices = [ suggested_path, os.getenv('CXX'),
@@ -647,21 +654,20 @@ class BuildConfig:
                             '/etc/alternatives/' + compiler ]
         for priority_cxx in priority_choices:
             if priority_cxx and os.path.exists(priority_cxx):
-                path, _, ver = resolve_compiler(priority_cxx, '')
+                path, real_suffix, ver = resolve_compiler(priority_cxx, '')
                 if ver:
                     if self.verbose:
                         console(f'Compiler {compiler} ({ver}) at {os.path.realpath(priority_cxx)} via {priority_cxx}')
-                    return path, '', ver
+                    return path, real_suffix, ver
 
         # search every candidate directory for a suitable compiler
         roots = []
         if suggested_path: roots.append(suggested_path)
         roots += ['/etc/alternatives/', '/usr/bin/', '/usr/local/bin/', '/bin/']
 
-        # also search PATH, not only the hardcoded paths
-        pathDirs = os.getenv('PATH').split(":")
-        pathDirs = list(map(lambda p: p if p.endswith("/") else p + "/", pathDirs)) # Add slash at end if missing
-        roots += pathDirs
+        # also search PATH, not only the hardcoded roots. Windows separates its entries with `;`
+        path_dirs = (forward_slashes(p) for p in os.getenv('PATH', '').split(os.pathsep) if p)
+        roots += [p if p.endswith('/') else p + '/' for p in path_dirs]
 
         candidates = []
         already_added = set()
@@ -669,10 +675,10 @@ class BuildConfig:
             for suffix in suffixes:
                 cxx_path = root + compiler + suffix # compiler=clang++
                 if os.path.exists(cxx_path):
-                    path, _, ver = resolve_compiler(cxx_path, suffix)
+                    path, real_suffix, ver = resolve_compiler(cxx_path, suffix)
                     if ver and not path in already_added:
                         already_added.add(path)
-                        candidates.append((path, suffix, ver))
+                        candidates.append((path, real_suffix, ver))
         if not candidates:
             raise EnvironmentError(f'Could not find {compiler} from {roots} with any suffix {suffixes}')
 
@@ -728,6 +734,15 @@ class BuildConfig:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         raise EnvironmentError('No preferred compiler for this platform!')
+
+
+    def ninja_version(self) -> str:
+        """What `ninja --version` answers, measured once. The generated cmake reads this number
+        instead of spawning ninja on every configure."""
+        if self._ninja_version is None:
+            out = execute_piped([self.ninja_path, '--version'], throw=False) if self.ninja_path else ''
+            self._ninja_version = (out or '').strip()
+        return self._ninja_version
 
 
     def get_gcc_clang_fullversion(self, cc_path, dumpfullversion):
@@ -915,7 +930,9 @@ class BuildConfig:
         id, major, minor = self.get_distro_info()
         if id != "ubuntu": raise OSError(f'install-gcc-{gcc_major} only supports ubuntu')
         console(f'Installing gcc-{gcc_major} and g++-{gcc_major} from apt repositories', color=Color.MAGENTA)
-        execute('sudo apt-get update')
+        # a blocked third-party PPA fails the whole update, and the Ubuntu archive still updated
+        if execute('sudo apt-get update', throw=False) != 0:
+            warning('  apt-get update reported an error, continuing with the lists it fetched')
         execute(f'sudo apt-get install gcc-{gcc_major} g++-{gcc_major} -y')
         # make this gcc the default via update-alternatives, so mama and the cmake tools find it
         console(f'Configuring gcc-{gcc_major} as default gcc via update-alternatives', color=Color.MAGENTA)

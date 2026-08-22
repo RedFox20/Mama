@@ -150,3 +150,39 @@ def test_a_seed_published_for_one_platform_never_validates_for_another(tmp_path)
         for other in ids:
             if other != seed_id:
                 assert not seedcache.is_valid(manifest, other), f'{seed_id} accepted as {other}'
+
+
+# --- the seed carries whether clang-scan-deps was there ---
+
+def _clang_target(tmp_path, scanner):
+    """A clang target whose seed inputs see `scanner` as the clang-scan-deps of this host."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    t, _ = make_configured_target(tmp_path, compiler=('/usr/bin/clang', '/usr/bin/clang++', '18.1'),
+                                  clang=True, gcc=False)
+    with patch.object(cc, '_clang_scan_deps', return_value=scanner):
+        return cc._seed_inputs(t)
+
+
+def test_installing_the_module_scanner_reseeds_the_compiler_cache(tmp_path):
+    # cmake finds the scanner inside compiler detection alone, which a seeded dir skips, so a seed made
+    # without it would keep modules off until the backstop TTL expired
+    without = _clang_target(tmp_path / 'a', '')
+    with_it = _clang_target(tmp_path / 'b', '/usr/bin/clang-scan-deps-18')
+    assert seedcache.compute_fingerprint(without) != seedcache.compute_fingerprint(with_it)
+
+
+def test_a_gcc_target_carries_no_scanner_input(tmp_path):
+    # gcc reports its own import graph, so the tool is a clang fact and must not reshape a gcc seed
+    (tmp_path / 'g').mkdir(parents=True, exist_ok=True)
+    t, _ = make_configured_target(tmp_path / 'g')
+    assert 'scandeps' not in cc._seed_inputs(t)
+
+
+def test_a_cross_clang_toolchain_carries_the_scanner_input(tmp_path):
+    # a cross platform names its own clang, and config.clang stays false because it is a host flag
+    (tmp_path / 'x').mkdir(parents=True, exist_ok=True)
+    ndk = '/opt/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin'
+    t, _ = make_configured_target(tmp_path / 'x', compiler=(f'{ndk}/clang', f'{ndk}/clang++', '18.0'),
+                                  clang=False, gcc=True)
+    with patch.object(cc, '_clang_scan_deps', return_value=f'{ndk}/clang-scan-deps'):
+        assert 'scandeps' in cc._seed_inputs(t)

@@ -49,8 +49,8 @@ dev = ["pytest", "pytest-xdist", "pytest-cov"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# `slow` runs a real toolchain per platform (~90s). Run it before a release:
-#     python -m pytest tests/test_platform_configure -m slow
+# `slow` runs a real toolchain (~90s). Run it over the whole tree before a release:
+#     python -m pytest tests/ -m slow
 # -n8: the suite waits on git and cmake processes far more than it computes. Fixed at 8, not `auto`,
 # to leave a dev machine responsive. Pass `-n0` to debug a test or to profile the children it spawns.
 addopts = "-m 'not slow' -n8"

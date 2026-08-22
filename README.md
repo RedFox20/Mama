@@ -502,6 +502,7 @@ self.export_include('src', as_includes_root='mylib') # Deploy as src/*.h as incl
 self.export_libs('.', ['.lib', '.a'])                # Find and export libs matching patterns
 self.export_libs('.', ['.lib', '.a'], order=['core', 'utils'])  # Control linker order (important on Linux)
 self.export_lib('lib/mylib.a')                       # Export a specific library file
+self.export_modules('src/rpp', ['rpp-strview.cppm']) # Narrow the C++20 modules exported (default: every one an include dir holds)
 self.export_syslib('GL')                             # Export a system library
 self.export_syslib('GL', apt='libgl-dev')            # With apt package hint on failure
 self.export_syslib('optional_lib', required=False)   # Silently skip if not found
@@ -509,7 +510,66 @@ self.export_asset('data/model.bin', category='models')  # Export asset files
 self.export_assets('data/', ['.bin', '.dat'])         # Export multiple assets by pattern
 self.no_export_includes()                            # Suppress automatic include exports
 self.no_export_libs()                                # Suppress automatic lib exports
+self.no_export_modules()                             # Suppress automatic C++20 module exports
 ```
+
+### C++20 modules
+
+A binary module interface is not portable, so a package ships the `.cppm` source and the consumer
+compiles it. Mama exports every module interface unit under an exported include dir, with no
+declaration.
+
+```py
+def package(self):
+    self.export_include('src/rpp', as_includes_root=True)  # the modules under it come along
+```
+
+Call `export_modules()` only to narrow that list:
+
+```py
+self.export_modules('src/rpp', ['rpp-strview.cppm'])  # only this one
+self.export_modules('src/rpp', recursive=False)       # that directory, not its subdirectories
+self.export_modules('src/rpp', strip_objects=False)   # a unit that defines more than its interface
+self.no_export_modules()                              # this package publishes no module
+```
+
+A consumer adds them to a target in one line, after the target exists:
+
+```cmake
+include(mama.cmake)
+include_directories(${MAMA_INCLUDES})
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE ${MAMA_LIBS})
+mama_target_modules(MyApp)          # PRIVATE if MyApp installs itself through install(EXPORT)
+```
+
+`mama init` writes that call already. It does nothing until a package exports a module.
+
+One source then follows either path, so a toolchain without module support still builds:
+
+```cpp
+#include <cstdio>          // EVERY #include comes first
+#include <string>
+#ifdef MAMA_HAS_MODULES
+import rpp.strview;        // then the imports, and nothing includes after them
+#else
+#include <rpp/strview.h>
+#endif
+```
+
+**Put every `#include` before the first `import`.** A module makes the declarations of its own
+included headers reachable, so a header parsed after the import re-declares them and GCC 14 rejects
+it. The rule applies inside a header too.
+
+Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
+MSVC 19.34. Only the cmake that runs has to be that new: `mama_target_modules()` asks for the module
+scan by name, so your own `cmake_minimum_required` can stay where it is. A toolchain that misses one
+part keeps the exported headers and says so. `-DMAMA_ENABLE_MODULES=OFF` turns the feature off.
+
+The packaged static library drops its module objects. The consumer compiles the same source, so a
+whole-archive link would otherwise find two `initializer for module X` symbols. **An exported module
+must define nothing but its own interface.** Pass `strip_objects=False` for a unit that carries a
+definition.
 
 ### Execution utilities
 ```py

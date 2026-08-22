@@ -82,9 +82,91 @@ def platform_chain(build_dir_defines) -> str:
     return chain
 
 
-def mama_cmake_text(build_dir_defines) -> str:
+# A plain string, not part of the f-string below: every `${}` here would need a doubled brace.
+_MODULES_HELPER = '''
+# The lever: OFF keeps the exported headers of every package, whatever the toolchain can do.
+option(MAMA_ENABLE_MODULES "Compile the C++20 modules that mama packages export" ON)
+
+# The least compiler version that builds an exported module. Raise one for a package whose modules
+# need a newer compiler than this, and the consumer keeps its exported headers instead.
+set(MAMA_MODULES_MIN_GNU   14   CACHE STRING "Least GCC version that builds exported C++20 modules")
+set(MAMA_MODULES_MIN_CLANG 18   CACHE STRING "Least Clang version that builds exported C++20 modules")
+set(MAMA_MODULES_MIN_MSVC  1934 CACHE STRING "Least MSVC version that builds exported C++20 modules")
+
+# An empty floor must refuse, never pass. Unquoted it breaks the `if`, and quoted it compares TRUE.
+foreach(id GNU CLANG MSVC)
+    if(NOT MAMA_MODULES_MIN_${id})
+        set(MAMA_MODULES_MIN_${id} 999999)
+    endif()
+endforeach()
+
+# C++20 modules need cmake 3.28, the Ninja or Visual Studio generator, and a compiler that reports
+# its import graph. A toolchain that misses one keeps the headers, so a build never fails on this.
+set(MAMA_MODULES_AVAILABLE FALSE)
+set(MAMA_MODULES_GENERATOR FALSE)
+if(CMAKE_GENERATOR MATCHES "^Visual Studio ([0-9]+)")
+    # cmake scans a module graph for Visual Studio 17 2022 and newer, never for an older one
+    if(CMAKE_MATCH_1 GREATER_EQUAL 17)
+        set(MAMA_MODULES_GENERATOR TRUE)
+    endif()
+elseif(CMAKE_GENERATOR MATCHES "Ninja")
+    # a Ninja generator writes a dyndep file, and only ninja 1.11 and newer read one. Mama measured
+    # this when it wrote the file, so no configure spawns ninja to ask again.
+    set(MAMA_NINJA_VERSION "@MAMA_NINJA_VERSION@")
+    if(MAMA_NINJA_VERSION AND NOT MAMA_NINJA_VERSION VERSION_LESS 1.11)
+        set(MAMA_MODULES_GENERATOR TRUE)
+    endif()
+endif()
+if(MAMA_ENABLE_MODULES AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.28 AND MAMA_MODULES_GENERATOR)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # cmake reads a clang import graph with clang-scan-deps, which a split install may not ship.
+        # The Visual Studio generator scans a module graph with the MSVC toolset alone, never clang-cl.
+        if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio"
+           AND CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS AND EXISTS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}"
+           AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_CLANG})
+            set(MAMA_MODULES_AVAILABLE TRUE)
+        endif()
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL ${MAMA_MODULES_MIN_GNU})
+            set(MAMA_MODULES_AVAILABLE TRUE)
+        endif()
+    elseif(MSVC AND MSVC_VERSION GREATER_EQUAL ${MAMA_MODULES_MIN_MSVC})
+        set(MAMA_MODULES_AVAILABLE TRUE)
+    endif()
+endif()
+
+# Adds the C++20 modules of every mama package to `target`, once, after the target exists.
+# scope is PUBLIC by default. A library that installs itself through install(EXPORT) needs PRIVATE.
+function(mama_target_modules target)
+    set(scope PUBLIC)
+    if(ARGC GREATER 1)
+        set(scope "${ARGV1}")
+    endif()
+    if(NOT scope STREQUAL "PUBLIC" AND NOT scope STREQUAL "PRIVATE")
+        message(FATAL_ERROR "MAMA: mama_target_modules(${target} ${scope}) takes PUBLIC or PRIVATE. "
+                            "A CXX_MODULES file set has no INTERFACE scope outside an imported target.")
+    endif()
+    if(NOT MAMA_MODULES_AVAILABLE OR NOT MAMA_MODULES)
+        message(STATUS "MAMA: C++20 modules off, using the exported headers")
+        return()
+    endif()
+    # a module needs C++20, and the consumer mamafile does not have to force a standard of its own
+    target_compile_features(${target} ${scope} cxx_std_20)
+    # cmake scans a source for `import` only under CMP0155 NEW, which a consumer whose
+    # cmake_minimum_required predates 3.28 does not get. Ask for the scan by name instead.
+    set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+    target_sources(${target} ${scope} FILE_SET mama_modules TYPE CXX_MODULES
+                   BASE_DIRS ${MAMA_MODULES_BASE_DIRS} FILES ${MAMA_MODULES})
+    target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)
+    message(STATUS "MAMA: ${target} compiles C++20 modules: ${MAMA_MODULES}")
+endfunction()
+'''
+
+
+def mama_cmake_text(build_dir_defines, ninja_version='') -> str:
     """The `mysource/mama.cmake` proxy a consumer's CMakeLists includes. It detects the platform and
-    the arch the way cmake sees them, then includes that build dir's mama-dependencies.cmake."""
+    the arch the way cmake sees them, then includes that build dir's mama-dependencies.cmake.
+    - ninja_version: what `ninja --version` answered, which decides the module dyndep support"""
     return f'''# This file is auto-generated by mama build. Do not modify by hand!
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(CLANG TRUE)
@@ -119,4 +201,4 @@ if(MSVC)
         set(CMAKE_CXX_FLAGS${{MODE}} "${{TMP}}" CACHE STRING "" FORCE)
     endforeach(MODE)
 endif()
-'''
+{_MODULES_HELPER.replace('@MAMA_NINJA_VERSION@', ninja_version)}'''

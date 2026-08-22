@@ -2,7 +2,7 @@
 publish() captures only the toolchain detection files, never project flags, and inject() replays them."""
 
 from __future__ import annotations
-import os, shutil, hashlib, json, time, threading
+import os, re, shutil, hashlib, json, time, threading
 from mama.utils.fileio import read_text_from
 from mama.utils.paths import path_join, normalized_path
 
@@ -22,8 +22,13 @@ _MANIFEST = 'seed.json'
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
                       'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
 
+# Every tool the binutils search finds, in the two shapes it writes. A closed set, because one seed
+# serves every target of a compiler config, and a project's own find_program result must not travel.
+_TOOLS = 'AR|RANLIB|STRIP|LINKER|NM|OBJDUMP|OBJCOPY|READELF|DLLTOOL|ADDR2LINE|TAPI|MT|INSTALL_NAME_TOOL'
+_REPLAY_TOOL_KEY = re.compile(rf'^CMAKE_(({_TOOLS})|[A-Za-z]+_COMPILER_(AR|RANLIB|CLANG_SCAN_DEPS))$')
+
 # Bumped when the seed shape changes. is_valid rejects an older format, so the probe runs again.
-_SEED_FORMAT = 3
+_SEED_FORMAT = 5
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds. The fingerprint is the real gate. This TTL is only a backstop.
 
 
@@ -114,7 +119,8 @@ def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
     compiles with "". `compilers` fills the missing entries, so the cache always names the compiler."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: text = ''
-    lines = [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
+    lines = [ln for ln in text.splitlines()
+             if (key := ln.split(':', 1)[0]) in _REPLAY_CACHE_KEYS or _REPLAY_TOOL_KEY.match(key)]
     cached = {ln.split(':', 1)[0] for ln in lines}
     for lang, compiler in (compilers or {}).items():
         key = f'CMAKE_{lang}_COMPILER'

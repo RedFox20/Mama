@@ -11,6 +11,7 @@ from .utils.paths import normalized_join, path_join, forward_slashes
 from .utils.progress import get_file_size_str, ProgressBar
 from .utils.system import console, error, warning
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
+from . import package
 
 if TYPE_CHECKING:
     from .build_target import BuildTarget
@@ -137,6 +138,15 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
         raise RuntimeError(f'PAPA archive validation failed for {archive_path}: the include tree holds ' + \
                            f'{len(trees)} duplicated directory pairs.\n{describe_duplicate_trees(trees)}\n' + \
                            f'    Fix the export_include() paths of {papa.project_name}.')
+
+    # A module the include filter dropped leaves the consumer naming a file the archive does not hold.
+    # The walk answers the casing on disk, and the M record keeps the casing of the recipe.
+    shipped = {package.match_path(rel) for rel in expected}
+    dropped = [forward_slashes(os.path.relpath(m, package_full_path)) for m in papa.modules]
+    dropped = [m for m in dropped if package.match_path(m) not in shipped]
+    if dropped:
+        raise RuntimeError(f'PAPA archive validation failed for {archive_path}: the include filter dropped ' + \
+                           f'these modules: {dropped}. Add their suffix to the export_include() filter.')
 
     for lib in papa.libs:
         rel_path = os.path.relpath(lib, package_full_path)

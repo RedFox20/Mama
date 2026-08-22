@@ -4,7 +4,7 @@ import os, contextlib, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
-from mama.utils.fileio import file_sha1, read_text_from, write_text_to
+from mama.utils.fileio import file_sha1, find_executable_from_system, read_text_from, write_text_to
 from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -91,10 +91,13 @@ _BACKSLASH_PATH = re.compile(r'(?:\\[\w.\-+~$()]+)+')
 
 
 def _opts_to_defines(opts:list[str]) -> str:
-    """`-D` flags for the cmake command line. Backslash PATHS become forward slashes: SubProcess
-    shlex-splits the command, which silently strips them. cmake takes / on every platform."""
+    """`-D` flags for the cmake command line. A caller may spell the prefix itself, and two of them
+    name a variable called `-DFOO`. Backslash PATHS become forward slashes: SubProcess shlex-splits
+    the command, which silently strips them. cmake takes / on every platform."""
     opts_defines = ''
     for opt in opts:
+        opt = opt.strip()
+        if opt.startswith('-D'): opt = opt[2:]
         opts_defines += '-D' + _BACKSLASH_PATH.sub(lambda m: m.group(0).replace('\\', '/'), opt) + ' '
     return opts_defines
 
@@ -102,19 +105,62 @@ def _opts_to_defines(opts:list[str]) -> str:
 _seed_lock = threading.Lock()
 
 
-def _cmake_version_number(config) -> str:
-    """Parsed cmake version (e.g. '4.2.3'), which is also the CMakeFiles/<ver> dir name. Cached."""
-    v = config._cmake_ver_num
-    if v is None:
-        out = execute_piped([config.cmake_command, '--version'], throw=False) or ''
+def _cmake_version_number(config, cmake_command=None) -> str:
+    """Parsed cmake version (e.g. '4.2.3'), which is also the CMakeFiles/<ver> dir name.
+    Cached per executable, because a target can select a cmake of its own."""
+    cmd = cmake_command or config.cmake_command
+    cache = config._cmake_ver_num
+    if not isinstance(cache, dict): cache = config._cmake_ver_num = {}
+    if cmd not in cache:
+        out = execute_piped([cmd, '--version'], throw=False) or ''
         nums = [ln.split()[-1] for ln in out.splitlines() if 'version' in ln.lower()]
-        v = nums[0] if nums else 'unknown'
-        config._cmake_ver_num = v
-    return v
+        cache[cmd] = nums[0] if nums else 'unknown'
+    return cache[cmd]
+
+
+def _cmake_version(config, cmake_command=None) -> tuple:
+    """(major, minor) of that cmake. (0, 0) when the probe failed, which enables nothing."""
+    parts = _cmake_version_number(config, cmake_command).split('.')
+    try: return (int(parts[0]), int(parts[1]))
+    except (ValueError, IndexError): return (0, 0)
+
+
+# The cmake release that learned each standard. An older cmake fails the configure on a number it
+# does not know, so mama passes the flag alone and leaves the cmake default in place.
+_CXX_STANDARD_MIN_CMAKE = {'11': (3,1), '14': (3,1), '17': (3,8), '20': (3,12), '23': (3,20), '26': (3,25)}
+
+
+def _cmake_opt_key(opt:str) -> str:
+    """The cmake variable an option names, whatever spelling it uses: a `-D` prefix, or a `:TYPE`."""
+    key = re.split('[=:]', opt.strip(), maxsplit=1)[0].strip()
+    return key[2:].strip() if key.startswith('-D') else key
+
+
+def _cxx_standard_opts(target:BuildTarget) -> list:
+    """The cmake C++ standard, taken from the standard the mamafile forced. A raw `-std` flag tells
+    cmake nothing, so `target_compile_features` and a `CXX_MODULES` file set both fail without this.
+    A mamafile that names one of these through add_cmake_options() keeps its own value, and an
+    operator who passes a standard through `flags=` keeps that one."""
+    if not target.enable_cxx_build: return []
+    # cmake appends its own standard flag after CMAKE_CXX_FLAGS, so an operator standard that reaches
+    # cmake as nothing would lose to it. That one wins, whether or not the mamafile forced its own.
+    # the compiler reads the last -std of the line, so a repeated flag decides by its last spelling
+    operator = re.findall(r'[-/]std[=:](\S+)', target.config.flags or '')
+    std_flag = operator[-1] if operator else target.cxx_std_flag()
+    std = target.cxx_standard_of(std_flag)
+    if not std: return []  # nothing forced, or a value with no cmake number, so keep the default
+    least = _CXX_STANDARD_MIN_CMAKE.get(std)
+    if not least or _cmake_version(target.config, target.cmake_command) < least: return []
+    forced = {_cmake_opt_key(o) for o in target.cmake_opts}
+    # EXTENSIONS matches what the flag already asks for, and a `gnu++` dialect keeps them. No REQUIRED:
+    # a compiler that cannot give this standard must decay, not fail the configure.
+    extensions = 'ON' if std_flag.startswith('gnu++') else 'OFF'
+    defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_EXTENSIONS': extensions}
+    return [f'{k}={v}' for k, v in defaults.items() if k not in forced]
 
 
 def _build_files_dir(target:BuildTarget) -> str:
-    return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config)}')
+    return path_join(target.build_dir(), f'CMakeFiles/{_cmake_version_number(target.config, target.cmake_command)}')
 
 
 def _seed_src_dir(target:BuildTarget) -> str:
@@ -154,6 +200,17 @@ def _seed_probe(target:BuildTarget) -> str:
     return normalized_path(cxx) if cxx else ''
 
 
+def _clang_scan_deps(cxx:str) -> str:
+    """The clang-scan-deps that answers for `cxx`, or ''. cmake reads a clang import graph with it, and
+    it searches for one inside compiler detection alone, which a seeded build dir skips. So the seed has
+    to carry whether the tool was there. The search only has to flip when the tool arrives or goes, so
+    it need not resolve the same path cmake picks."""
+    suffix = os.path.basename(cxx).replace('clang++', '')
+    beside = shutil.which('clang-scan-deps', path=os.path.dirname(os.path.realpath(cxx)))
+    return beside or find_executable_from_system('clang-scan-deps' + suffix) \
+        or find_executable_from_system('clang-scan-deps')
+
+
 def _seed_id(target:BuildTarget) -> str:
     """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. A HOST seed reaching a cross build
     dir would make cmake skip system determination and compile with host flags, silently. The name
@@ -169,7 +226,7 @@ def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
     cc, cxx, ver = config.get_preferred_compiler_paths()
     inputs = {
-        'cmake': _cmake_version_number(config), 'gen': _generator(target),
+        'cmake': _cmake_version_number(config, target.cmake_command), 'gen': _generator(target),
         'arch': config.arch, 'platform': build_names.build_dir_name(config),
         'cc': seedcache.compiler_stat(cc) if cc else {},
         'cxx': seedcache.compiler_stat(cxx) if cxx else {},
@@ -180,6 +237,10 @@ def _seed_inputs(target:BuildTarget) -> dict:
         # fingerprint once, so run_config wipes the dirs an older seed shaped and seeds them again.
         'seedfmt': seedcache._SEED_FORMAT,
     }
+    # read the resolved compiler, never config.clang: that flag is a host preference, and a cross
+    # platform such as the NDK names its own clang while it stays false
+    if cxx and 'clang' in os.path.basename(cxx):
+        inputs['scandeps'] = seedcache.compiler_stat(_clang_scan_deps(cxx))
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
         inputs['msvc'] = seedcache.compiler_stat(_seed_probe(target))
     elif not cc:  # no explicit compiler -> CC/CXX env selects it, so they belong in the fingerprint
@@ -224,7 +285,7 @@ def _probe_toolchain(target:BuildTarget):
         if config.verbose: console(f'  seed probe: {cmd}', color=Color.BLUE)
         if SubProcess.run(cmd, tmp, env=compute_env(target), io_func=lambda p, line: None) != 0:
             yield None; return
-        files_dir = path_join(bld, f'CMakeFiles/{_cmake_version_number(config)}')
+        files_dir = path_join(bld, f'CMakeFiles/{_cmake_version_number(config, target.cmake_command)}')
         yield (bld, files_dir) if seedcache.covers_core_langs(seedcache.detected_langs(files_dir)) else None
 
 
@@ -677,6 +738,8 @@ def _default_options(target:BuildTarget):
         named = _named_option(target.cmake_opts, _MSVC_RUNTIME)
         if named and named != _RELEASE_CRT:
             warning(f'  {target.name: <16} ignores {_MSVC_RUNTIME}={named}: mama links one CRT across the tree')
+
+    opt += _cxx_standard_opts(target)
     if config.with_tests or (config.test and config.target_matches(target.name)):
         opt += ["ENABLE_TESTS=ON", "BUILD_TESTS=ON"]
 

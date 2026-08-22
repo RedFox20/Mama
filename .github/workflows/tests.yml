@@ -32,6 +32,49 @@ jobs:
       - name: Run tests
         run: pytest -v
 
+  # The slow gate: it builds real C++ with a real toolchain. One job clones a well known package
+  # and links an app against it, and the module tests cover the source and the artifactory path.
+  # One job per toolchain, because a green matrix cell must name the compiler it proved.
+  integration:
+    name: integration (${{ matrix.os }}, ${{ matrix.compiler }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, compiler: clang }
+          - { os: ubuntu-latest, compiler: gcc }
+          - { os: windows-latest, compiler: msvc }
+    runs-on: ${{ matrix.os }}
+    env:
+      MAMA_TEST_COMPILER: ${{ matrix.compiler }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14
+
+      # libdw gives the stack trace, ninja gives the module scanner. Do not add libunwind-dev: the
+      # image already ships the libunwind of its clang, and the two packages conflict.
+      - name: Install the C++ build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdw-dev ninja-build libc++-dev libc++abi-dev
+
+      # cmake reads a clang import graph with clang-scan-deps, and the image ships no clang tools
+      - name: Install the clang module scanner
+        if: matrix.compiler == 'clang'
+        run: sudo apt-get install -y clang-tools
+
+      # the runner image may ship an older gcc, and the module floor is 14
+      - name: Install GCC 14
+        if: matrix.compiler == 'gcc'
+        run: bash tools/install_gcc14.sh
+
+      - name: Install mama from this checkout
+        run: pip install -e ".[dev]"
+
+      - name: Build and run the integration tests
+        run: pytest tests/test_recpp_consumer tests/test_modules_build tests/test_module_chain -m slow -v -n0
+
   package:
     runs-on: ubuntu-latest
     steps:

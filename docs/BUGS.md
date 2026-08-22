@@ -53,8 +53,65 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **`enable_cxx26()` asked GCC and Clang for C++23.** It wrote `c++2b` while MSVC got `c++latest`, so
+  one mamafile named two standards. Fix: write `c++2c`, which maps to 26 like `c++latest`.
+
+- **An intermediary archive kept the module objects of the packages below it.** A consumer compiles
+  that whole tree. Fix: the strip walks every package below, not the direct children alone.
+
+- **A module no exported include dir held vanished without a word.** Every later step filtered it out
+  first, so the warning could not fire. Fix: the packaging step warns where the author can act.
+
+- **Compiler discovery on Windows searched a PATH it had cut apart.** The split read `:`, which takes
+  the drive letter off every entry. Fix: split on the separator of this platform.
+
+- **Compiler discovery named a compiler the host does not have.** A link carries a suffix its target
+  does not, and `clang++` links on to `clang`. Fix: keep the spelling that exists at the resolved root.
+
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
+
+- **A seeded configure dropped every tool the binutils search found.** `ar`, `ranlib`, `nm` and
+  `clang-scan-deps` reached the build empty. Fix: the seed replays that closed set of cache keys.
+
+- **The module strip could not find the archiver of the Android NDK.** That toolchain names no tool
+  prefix, so it asked for a bare `ar`. Fix: Android answers with the `llvm-ar` of its NDK.
+
+- **A copy of a thin archive lost every member.** Such an archive names each member by a path. Fix:
+  the strip keeps a thin archive as it is, and says so.
+
+- **A cached ninja version outlived the executable that answered it.** An upgrade never reached the
+  guard. Fix: the probe runs on every configure.
+
+- **The module strip deleted an object no exported module named.** A bare name matched a private
+  module and a `foo.cpp` build alike. Fix: a member goes only to the module that shares the most path.
+
+- **A casing variant dropped a module on macOS.** The path compare merged case on Windows alone.
+  Fix: `match_path` follows the filesystem, and the upload validation reads it too.
+
+- **The second build published the archive of the first one.** The strip read its own recorded copy,
+  which nested one dir per run. Fix: it reads the archive the build wrote.
+
+- **An empty compiler floor broke the whole configure.** An unquoted empty operand left the `if` with
+  no right side. Fix: an empty floor refuses, and a package floor falls back to the global one.
+
+- **The Windows strip found neither `lib.exe` nor its archive members.** Only a developer prompt puts
+  the tool on PATH, and an archiver lists a full path. Fix: read the MSVC toolset and match the name.
+
+- **A source-built dependency exported the archive that still held its module objects.** Fix: the
+  packaging step points `exported_libs` at a stripped copy under `mama-nomodules/`.
+
+- **The module strip removed every definition the interface unit compiled.** Fix: the API states that
+  an exported module defines nothing but its interface, and every strip warns.
+
+- **One lowered compiler floor enabled every module package.** Fix: mama ships one floor per
+  compiler family, and a package declares none.
+
+- **A recursive package shipped a child module the child package also shipped.** A consumer then
+  declared one module twice. Fix: write `M` records for the deployed target alone.
+
+- **A `PUBLIC` module file set broke a consumer that installs and exports its own target.** Fix:
+  `mama_target_modules(target [scope])` takes an optional scope.
 
 - **A Windows abort left a grandchild running.** The tree sweep walked from a child that had already
   exited. Fix: read the descendant pids before the signal, and kill each orphan after it.

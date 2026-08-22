@@ -5,6 +5,7 @@ from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from ._version import __version__
 from .buildsys.cmake.mamacmake import mama_cmake_text
+from . import package
 from .platforms.windows import msvc_toolset_version
 from .utils.errors import BuildError
 from .utils.fileio import read_text_from, write_text_to, save_file_if_contents_changed
@@ -421,7 +422,7 @@ def _get_dependency_cmake_defines(dep: BuildDependency):
     # reference name_LIB if it equals name_LIBS
     if own_libs_list == all_libs_list:
         all_libs_list = f'${{{name}_LIB}}'
-    return f'${{{name}_INCLUDES}}', \
+    text = \
 f'''
 # Package {name}
 set({name}_INCLUDES {includes})
@@ -430,6 +431,15 @@ set({name}_LIB {own_libs_list})
 # includes {name} libs and all dependency libs
 set({name}_LIBS {all_libs_list})
 '''
+    # A dep with no modules emits nothing here, so an upgrade reconfigures no existing project.
+    # A module under no exported include dir is dropped: cmake refuses a FILES entry with no base dir.
+    modules = package.exported_modules_with_base(dep.target)
+    if modules:
+        text += f'''# C++20 module sources a consumer compiles itself
+set({name}_MODULES {_get_cmake_path_list(modules)})
+set({name}_MODULES_BASE_DIRS {_get_cmake_path_list(package.module_base_dirs(dep.target))})
+'''
+    return f'${{{name}_INCLUDES}}', text
 
 
 def _save_dependencies_cmake(root: BuildDependency):
@@ -442,12 +452,17 @@ def _save_dependencies_cmake(root: BuildDependency):
 '''
     includes_def, package_text = _get_dependency_cmake_defines(root)
     includes_defs = [includes_def]
+    module_refs = [f'${{{root.name}_MODULES}}'] if package.exported_modules_with_base(root.target) else []
+    module_bases = list(package.module_base_dirs(root.target))
     text += package_text
 
     root.flattened_deps = _get_flattened_deps(root)
     for dep in root.flattened_deps:
         includes_def, package_text = _get_dependency_cmake_defines(dep)
         includes_defs.append(includes_def)
+        if package.exported_modules_with_base(dep.target):
+            module_refs.append(f'${{{dep.name}_MODULES}}')
+            module_bases += package.module_base_dirs(dep.target)
         text += package_text
 
     includes = ' '.join(includes_defs)
@@ -457,6 +472,14 @@ f'''
 set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})
 set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 '''
+    if module_refs:
+        # the consolidated bases are literal paths, because one package's base dir can sit inside
+        # another package's, and cmake refuses a file set whose base dirs contain each other
+        bases = _get_cmake_path_list(package.drop_nested_dirs(module_bases))
+        text += \
+f'''set(MAMA_MODULES           ${{MAMA_MODULES}}           {' '.join(module_refs)})
+set(MAMA_MODULES_BASE_DIRS ${{MAMA_MODULES_BASE_DIRS}} {bases})
+'''
 
     save_file_if_contents_changed(outfile, text)
 
@@ -465,13 +488,14 @@ def _save_mama_cmake(root: BuildDependency, path: str):
     """One `mama.cmake` proxy, at the path an `include()` named. Generated from the platform registry,
     so it cannot drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
+    ninja_version = config.ninja_version()
 
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion often fails to detect macro paths
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines, ninja_version))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):

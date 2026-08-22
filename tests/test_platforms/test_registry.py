@@ -4,6 +4,7 @@ import pytest
 
 from mama.build_config import BuildConfig
 from mama.platforms.platform import Platform
+from types import SimpleNamespace
 from mama.platforms.registry import PLATFORMS, platform_for_arg, host_platform, platform_named
 from mama.build_names import build_dir_name
 
@@ -115,3 +116,11 @@ def test_every_cross_platform_says_so(platform_class):
     cross = platform_class.name not in ('windows', 'linux', 'macos')
     assert platform_class.is_cross == cross
     assert platform_class.is_host_runnable == (not cross)
+
+
+def test_a_cross_platform_names_a_full_path_for_its_archiver():
+    # the host keeps a cross ar off PATH, and a bare name then edits the archive with the wrong tool
+    from mama.platforms.raspi import Raspi
+    raspi = Raspi(SimpleNamespace(verbose=False, arch='arm64'))
+    raspi.compilers = '/opt/rpi/bin/'
+    assert raspi.archiver() == f'/opt/rpi/bin/{raspi.triple()}-ar'

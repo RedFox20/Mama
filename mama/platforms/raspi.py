@@ -54,6 +54,11 @@ class Raspi(Platform):
         return f'{self.compilers}{self.triple()}-'
 
 
+    def archiver(self) -> str:
+        """The cross binutils sit beside the compiler, and the host keeps them off PATH."""
+        return f'{self.compiler_prefix()}ar'
+
+
     def get_sysroot(self) -> str:
         if not self.compilers: self.init_default()
         return self.sysroot

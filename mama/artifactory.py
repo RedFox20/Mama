@@ -294,6 +294,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     target.dep.from_artifactory = True
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
+    target.exported_modules = papa.modules
     package.set_export_libs_and_products(target, papa.libs)
     package.reload_syslibs(target, papa.syslibs)
 

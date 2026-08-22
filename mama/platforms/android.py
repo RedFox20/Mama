@@ -66,6 +66,11 @@ class Android(Platform):
         return f'{self.bin()}/{arch}-linux-{self.android_api.replace("-", "")}-{suffix}{ext}'
 
 
+    def archiver(self) -> str:
+        """The NDK ships one llvm-ar for every arch, and the toolchain carries no `ar` name prefix."""
+        return f'{self.bin()}/llvm-ar' + ('.exe' if System.windows else '')
+
+
     def cc_path(self):
         return self._clang_path('clang')
 
