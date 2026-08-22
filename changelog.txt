@@ -7,6 +7,7 @@ unreleased
  - bugfix: compiler discovery on Windows read PATH with the UNIX separator
  - feature: mama exports the C++20 modules a package holds, with no declaration
  - feature: -DMAMA_ENABLE_MODULES=OFF keeps the exported headers instead
+ - bugfix: the module strip reads the whole dep tree, not the direct children
  - bugfix: a seeded compiler cache broke every clang C++20 module build
  - feature: enable_cxxNN() now also sets CMAKE_CXX_STANDARD, so
      target_compile_features() and C++20 modules work in a mamafile project

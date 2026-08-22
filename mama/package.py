@@ -140,7 +140,7 @@ def default_package_modules(target: BuildTarget) -> bool:
 
 def module_suffixes(modules) -> tuple:
     """The distinct extensions of `modules`, so the include deploy carries them too.
-    It reads the gathered list, not one target, because a recursive deploy ships a child's modules."""
+    It reads the gathered list, not one target, because the caller decides which modules ship."""
     return tuple({os.path.splitext(m)[1] for m in modules})
 
 
@@ -181,13 +181,27 @@ def exported_modules_with_base(target: BuildTarget) -> list:
     return [m for m in target.exported_modules if module_base_dir(target, m)]
 
 
+def warn_unreachable_modules(target: BuildTarget) -> None:
+    """Warn once for a module no exported include dir holds. Every later step drops such a module
+    without a word, so this is where the recipe author can still see the mistake."""
+    for module in target.exported_modules:
+        if not module_base_dir(target, module):
+            warning(f'{target.name}: export_modules skipped {module}. No exported include dir holds it.')
+
+
 def consumed_modules(target: BuildTarget) -> list:
     """Every module whose object this archive can hold: the ones this target exports, and the ones
-    each child package exports. A target that calls `mama_target_modules` compiles the modules of its
-    dependencies into itself, and a consumer of both then defines each initializer twice."""
+    every package below it exports. `mama_target_modules` compiles the whole dependency tree into
+    this target, so a grandchild module the strip misses defines its initializer twice."""
     modules = list(exported_modules_with_base(target))
-    for child in target.children():
-        modules += exported_modules_with_base(child.target)
+    seen = set()
+    def walk(parent: BuildTarget):
+        for child in parent.children():
+            if child.name in seen: continue  # a diamond reaches one package through two parents
+            seen.add(child.name)
+            modules.extend(exported_modules_with_base(child.target))
+            walk(child.target)
+    walk(target)
     return modules
 
 

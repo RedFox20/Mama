@@ -6,9 +6,12 @@ from unittest.mock import patch
 import pytest
 from testutils import deploy_and_archive, make_exporting_target, make_mock_dep, write_files
 
+from mama import package
+
 CPPM = 'module;\n#include "rpp/strview.h"\nexport module rpp.strview;\n'
 # both layouts a recipe uses: a plain include/ tree, and a src/ tree re-rooted by as_includes_root
 FILES = {'include/rpp/strview.h': '#pragma once\n', 'include/rpp/rpp-strview.cppm': CPPM,
+         'include/rpp/rpp-strview.ixx': CPPM,  # a second extension, so a filter cannot answer for both
          'src/rpp/strview.h': '#pragma once\n', 'src/rpp/rpp-strview.cppm': CPPM, 'lib/libfoo.a': '\0'}
 
 
@@ -81,8 +84,18 @@ def test_a_module_the_export_never_named_stays_out_of_the_package(tmp_path):
 
 def test_a_module_outside_every_exported_include_warns_and_records_nothing(tmp_path):
     build, target = _built(tmp_path, ['include'], ['src/rpp/rpp-strview.cppm'])
+    with patch('mama.package.warning') as warned:
+        package.warn_unreachable_modules(target)
+    assert 'rpp-strview.cppm' in warned.call_args[0][0]  # every later step drops it without a word
     archive = deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')
     assert not [l for l in _papa_lines(archive) if l.startswith('M ')]
+
+
+def test_a_private_module_of_another_extension_stays_out(tmp_path):
+    # the filter names .cppm and the export names a .ixx, so only the exported list may decide
+    build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.ixx'], filter=['.h', '.cppm'])
+    names = zipfile.ZipFile(deploy_and_archive(tmp_path, target, f'{build}/deploy/libfoo')).namelist()
+    assert 'include/rpp/rpp-strview.ixx' in names and 'include/rpp/rpp-strview.cppm' not in names
 
 
 def test_a_recursive_deploy_writes_no_m_record_for_a_child_module(tmp_path):

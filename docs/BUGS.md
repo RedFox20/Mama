@@ -63,6 +63,12 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **An intermediary archive kept a grandchild package module.** The strip read the direct children,
+  while the consumer cmake compiles the whole dep tree. Fix: the strip walks every package below.
+
+- **A module no exported include dir held vanished without a word.** Every later step filtered it out
+  first, so the warning could not fire. Fix: the packaging step warns where the author can act.
+
 - **Compiler discovery on Windows searched a PATH it had cut apart.** The split read `:`, which
   also takes the drive letter off every entry. Fix: split on the separator of this platform, and
   return the root with forward slashes.

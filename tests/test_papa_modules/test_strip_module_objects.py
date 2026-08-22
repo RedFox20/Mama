@@ -133,8 +133,22 @@ def test_a_child_package_module_leaves_the_intermediary_archive(tmp_path):
     child.exported_includes = [f'{tmp_path}/child/src']
     child.exported_modules = [f'{tmp_path}/child/src/rpp/rpp-strview.cppm']
     target = _target(tmp_path, modules=())
-    target.children.return_value = [SimpleNamespace(target=child)]
+    target.children.return_value = [SimpleNamespace(name='child', target=child)]
     assert 'rpp-strview.cppm.o' in _strip(target).call_args[0][0]
+
+
+def test_a_grandchild_package_module_leaves_the_intermediary_archive(tmp_path):
+    # MAMA_MODULES aggregates the whole dep tree, so this archive compiled the grandchild module too
+    child = make_includes_target(str(tmp_path / 'child'))
+    child.children.return_value = []
+    grand = make_includes_target(str(tmp_path / 'grand'))
+    grand.children.return_value = []
+    grand.exported_includes = [f'{tmp_path}/grand/src']
+    grand.exported_modules = [f'{tmp_path}/grand/src/rpp/rpp-vec.cppm']
+    child.children.return_value = [SimpleNamespace(name='grand', target=grand)]
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [SimpleNamespace(name='child', target=child)]
+    assert 'rpp-vec.cppm.o' in _strip(target, listing='rpp-vec.cppm.o\n').call_args[0][0]
 
 
 def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path):

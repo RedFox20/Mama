@@ -753,8 +753,8 @@ upload, deploy and test walk the chain without building, so they would otherwise
 never produced or just deleted.
 
 The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
-`export_asset` and `export_modules`. Each category the hook leaves empty gets a default: includes,
-then libs and syslibs, then modules. `no_export_includes()`, `no_export_libs()` and
+`export_asset` and `export_modules`. For a target built from source, each category the hook leaves
+empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default. `no_export_includes()`, `no_export_libs()` and
 `no_export_modules()` opt one out.
 
 `default_package_modules()` exports every module interface unit under the exported include dirs. It
@@ -763,11 +763,11 @@ ship at all. **Why:** a library that ships a module almost always publishes it.
 
 `export_modules(path, [names])` narrows that list. A `None` name list globs every module extension
 under `path`, and `recursive=False` reads that one directory alone. The call copies no file. The
-include deploy carries the modules, because its filter joins `include_glob_filter` with the suffixes
-of every gathered module. A recursive deploy gathers the children's modules too.
+include deploy carries the modules, because the copy admits every path the export named.
 
 **An export decides which module files ship, and `include_glob_filter` cannot change that.** A
-filter naming a module suffix ships no private module beside an exported one. One module ships
+target that exports one module answers for every module file, so a filter naming a module suffix
+ships no private module beside it. One module ships
 exactly once, whatever order the hook used.
 
 `strip_objects` sets a target-wide flag, and only an opt-out sticks. One
@@ -779,7 +779,8 @@ A binary module interface is not portable, so a package ships the interface unit
 compiles it.
 
 `mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` per package, and
-appends both to the aggregates `MAMA_MODULES` and `MAMA_MODULES_BASE_DIRS`. A dep that exports no
+appends the module list to the aggregate `MAMA_MODULES`. The aggregate `MAMA_MODULES_BASE_DIRS`
+takes the base dirs as literal paths. A dep that exports no
 module writes nothing, so an upgrade reconfigures no existing project. The aggregate drops a base dir
 that sits inside another, because cmake refuses a file set whose base dirs contain each other.
 
@@ -812,9 +813,9 @@ maximum the long way around.
 `MAMA_HAS_MODULES=1` is one define for the whole target, so a consumer cannot import from one
 package and read the headers of another. A refusal prints a cmake STATUS line.
 
-A failing `package()` names its target and stops the run. A `list` run builds nothing, so a
-`package()` that reads a build product cannot pass there. That is not a failure of the run, so a list
-reports the gap and carries on.
+A failing `package()` names its target and stops the run. Two runs carry on instead, and report the
+gap. A `list` run builds nothing, so a `package()` that reads a build product cannot pass there. A
+fetched dep already holds its export list in `papa.txt`.
 
 ### Rules against list, and why a fetched dep runs the hook
 
@@ -910,21 +911,21 @@ An `M` record holds one package-relative path, inside the include tree an `I` re
 record loads the child package, which carries its own modules. Two copies would make a consumer
 compile one module twice, which cmake refuses.
 
-A module under no exported include path ships nothing, and the deploy says so. The upload refuses an
+A module under no exported include path ships nothing, and the packaging step warns. The upload refuses an
 `M` record whose file the include filter dropped, because the consumer would compile a source the
 archive does not carry. A package written before the `M` record carries no module.
 
 **The packaged static library loses its module objects.** A module interface unit emits a strong
 `initializer for module X`. The consumer compiles the same source, so a whole-archive link of an
 unstripped package finds two definitions. The strip removes each member named after a module the
-target compiled. The modules of every child package count too, because a target that calls
-`mama_target_modules` compiles them into its own archive.
+target compiled. The modules of every package below it count too, because `mama_target_modules` compiles the whole
+dependency tree into this target.
 
 An archiver lists the path it stored, so each module takes the members sharing the most trailing path
 components. MSVC drops the module extension, so a module that shares none falls back to its bare
 name. A non-module source of that name makes the bare name ambiguous, and that member stays. Both the
-listing and the removal go through the archiver of the platform. That platform resolves a full path
-when the host keeps the tool off PATH. A GNU thin archive names each member by a path, so it keeps its
+listing and the removal go through the archiver of the platform. Windows, Android and every prefixed
+cross platform name a full path there, because the host keeps that tool off PATH. A GNU thin archive names each member by a path, so it keeps its
 module objects and says so.
 
 The strip touches the packaged copy alone, so the producer's own binaries still link.

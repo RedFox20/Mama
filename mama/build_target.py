@@ -1896,6 +1896,7 @@ class BuildTarget:
             # after the includes: a module ships inside an exported include tree, or it cannot ship
             if not self.exported_modules and not self.no_modules:
                 self.default_package_modules()
+        package.warn_unreachable_modules(self)
 
         # A consumer links the exported lib whether it fetched this package or built it here, so the
         # module objects come out before that path is published, not only on the way into a package.

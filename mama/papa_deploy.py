@@ -134,6 +134,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
     module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
+    # a target that exports a module answers for EVERY module file, so no filter can widen that set
+    gated_sfx = tuple(package.match_path(s) for s in package.MODULE_EXTENSIONS) if modules else ()
     module_paths = _module_paths(modules)
     suffixes = tuple(package.match_path(s) for s in target.include_glob_filter)
     stems = _header_stems(includes, suffixes + module_sfx)
@@ -144,7 +146,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         # the recipe and the filesystem can spell one name two ways, so the suffix reads the same rule
         name = package.match_path(os.path.basename(path))
         # a module source ships only when export_modules named it, so a private one beside it stays out
-        if name.endswith(module_sfx):
+        if name.endswith(gated_sfx):
             header = package.match_path(path) in module_paths
         else:
             # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
@@ -186,9 +188,6 @@ def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, m
     shipped = 0
     for modtarget, module in modules:
         base = package.module_base_dir(modtarget, module)
-        if not base:
-            warning(f'export_modules skipped {module}: no exported include path holds it.')
-            continue
         # the copy maps src_dir onto dst_dir, so the module follows the same pair. An includes root
         # ships one subdir of the export, so its src_dir is deeper than the exported include.
         src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
