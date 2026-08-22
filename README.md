@@ -558,15 +558,13 @@ import rpp.strview;        // then the imports, and nothing includes after them
 ```
 
 **Put every `#include` before the first `import`.** A module makes the declarations of its own
-included headers reachable. A header parsed after the import re-declares them, and GCC 14 then
-reports a redefinition of a standard entity, such as `std::is_nothrow_convertible_v`. The rule
-applies to a header too: a header that imports must not include anything after it.
+included headers reachable, so a header parsed after the import re-declares them and GCC 14 rejects
+it. The rule applies inside a header too.
 
 Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
 MSVC 19.34. Only the cmake that runs has to be that new: `mama_target_modules()` asks for the module
 scan by name, so your own `cmake_minimum_required` can stay where it is. A toolchain that misses one
-part keeps the exported headers and says so. A package declares
-no compiler floor. To turn the feature off, build with `-DMAMA_ENABLE_MODULES=OFF`.
+part keeps the exported headers and says so. `-DMAMA_ENABLE_MODULES=OFF` turns the feature off.
 
 The packaged static library drops its module objects. The consumer compiles the same source, so a
 whole-archive link would otherwise find two `initializer for module X` symbols. **An exported module

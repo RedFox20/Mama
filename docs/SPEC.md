@@ -767,8 +767,8 @@ every consumer variable then loses it.
 
 **A call to `export_modules()` decides, whatever it resolves to.** A recipe that names a module only
 some platforms carry gets the empty result it asked for, never the automatic export. `papa.txt`
-cannot refill that category either, so `no_export_modules()` holds for a fetched package too. `no_export_includes()`, `no_export_libs()` and
-`no_export_modules()` opt one out.
+cannot refill that category either, so `no_export_modules()` holds for a fetched package too.
+`no_export_includes()`, `no_export_libs()` and `no_export_modules()` each opt one category out.
 
 `default_package_modules()` exports every module interface unit under the exported include dirs. It
 runs after the include default, because a module ships inside an exported include tree or it cannot
@@ -780,8 +780,7 @@ include deploy carries the modules, because the copy admits every path the expor
 
 **An export decides which module files ship, and `include_glob_filter` cannot change that.** A
 target that exports one module answers for every module file, so a filter naming a module suffix
-ships no private module beside it. One module ships
-exactly once, whatever order the hook used.
+ships no private module beside it. One module ships exactly once, whatever order the hook used.
 
 The exported include dir nearest a file decides. Where a module export names that dir as its base,
 the export list alone ships the module files there. Everywhere else the include filter of the
@@ -798,17 +797,18 @@ compiles it.
 
 `mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` per package, and
 appends the module list to the aggregate `MAMA_MODULES`. The aggregate `MAMA_MODULES_BASE_DIRS`
-takes the base dirs as literal paths. A dep that exports no
-module writes nothing, so an upgrade reconfigures no existing project. The aggregate drops a base dir
-that sits inside another, because cmake refuses a file set whose base dirs contain each other.
+takes the base dirs as literal paths, and drops one that sits inside another. Cmake refuses a file
+set whose base dirs contain each other. A dep that exports no module writes nothing, so an upgrade
+reconfigures no existing project.
 
 `mama_target_modules(target [scope])` in `mama.cmake` adds a `FILE_SET mama_modules TYPE
 CXX_MODULES`, asks for `cxx_std_20`, sets `CXX_SCAN_FOR_MODULES ON`, defines `MAMA_HAS_MODULES=1`,
-and names the modules it added in a cmake STATUS line. **Why:** cmake scans a source for `import`
-only under CMP0155 NEW, which a consumer whose `cmake_minimum_required` predates 3.28 never gets. The scope is `PUBLIC` unless
-the call names one. A library that installs itself through `install(EXPORT)` passes `PRIVATE`, because
-cmake refuses to export a target whose `PUBLIC` file set it does not install. The consumer source
-reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
+and names the modules it added in a cmake STATUS line. The scope is `PUBLIC` unless the call names
+one, and a library that installs itself through `install(EXPORT)` passes `PRIVATE`. The consumer
+source reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
+**Why:** cmake scans for `import` only under CMP0155 NEW, which a consumer whose
+`cmake_minimum_required` predates 3.28 never gets. It also refuses to export a target whose `PUBLIC`
+file set it does not install.
 
 **Every `#include` of a consumer must precede its first `import`.** A module makes the declarations
 of its own included headers reachable, so a header parsed after the import re-declares them. GCC 14

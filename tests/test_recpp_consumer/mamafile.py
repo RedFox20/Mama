@@ -14,5 +14,3 @@ class consumer(mama.BuildTarget):
 
     def configure(self):
         self.enable_cxx20()
-        # the lever a consumer turns when a package ships modules its toolchain cannot compile
-        if os.getenv('NO_MAMA_MODULES'): self.add_cmake_options('MAMA_ENABLE_MODULES=OFF')

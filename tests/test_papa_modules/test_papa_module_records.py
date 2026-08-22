@@ -172,7 +172,7 @@ def test_an_in_place_deploy_of_a_module_package_is_refused(tmp_path):
     build, target = _built(tmp_path, ['include'], ['include/rpp/rpp-strview.cppm'])
     target.strip_module_objects = True  # the refusal fires before any archive is read
     with patch.object(type(target), 'children', lambda self: []):
-        with pytest.raises(RuntimeError, match='is the build dir itself'):
+        with pytest.raises(RuntimeError, match='is the build output itself'):
             papa_deploy.papa_deploy_to(target, build, r_includes=False, r_dylibs=False,
                                        r_syslibs=False, r_assets=False)
 
@@ -195,7 +195,7 @@ def test_a_symlinked_deploy_dir_is_still_the_build_artifact(tmp_path):
     link = str(tmp_path / 'linked')
     os.symlink(build, link)
     with patch.object(type(target), 'children', lambda self: []):
-        with pytest.raises(RuntimeError, match='is the build dir itself'):
+        with pytest.raises(RuntimeError, match='is the build output itself'):
             papa_deploy.papa_deploy_to(target, link, r_includes=False, r_dylibs=False,
                                        r_syslibs=False, r_assets=False)
 

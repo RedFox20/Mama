@@ -297,12 +297,10 @@ def _ambiguous_names(target: BuildTarget, modules: list) -> set:
 def _module_object_members(target: BuildTarget, lib: str) -> list:
     """The archive members that hold a module initializer, read from the archive itself.
 
-    Each module takes the members that share the most trailing path components with it. That answer
-    keeps an exported `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module
-    extension from the object name, so a module that shares no component falls back to its bare name.
-    A non-module source of that name in this target makes the name ambiguous, and the member stays.
-    An archiver that stores no path lists a private unit under the name of an exported one, so a name
-    the exported modules cannot account for keeps every copy."""
+    Each module takes the members sharing the most trailing path components, which keeps an exported
+    `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module extension, so a
+    module that shares none falls back to its bare name. A name this target cannot account for is
+    ambiguous, and every member of that name stays."""
     objects = _archive_members(target, lib)
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
@@ -363,9 +361,8 @@ def export_stripped_module_libs(target: BuildTarget):
     """Point every exported static library at a copy that holds no module object.
 
     A consumer that builds this target from source links `exported_libs` directly, and the build dir
-    archive must keep those objects for the binaries of this target. The copy keeps the file name, so
-    only the directory differs. An archive that holds no module object keeps its own path, and a
-    fetched package is already stripped, so both copy nothing."""
+    archive must keep those objects for the binaries of this target. An archive that holds no module
+    object keeps its own path, and a fetched package is already stripped, so both copy nothing."""
     if target.dep.from_artifactory or not target.strip_module_objects: return
     modules = consumed_modules(target)  # (owner, module), and only the count decides here
     for i, lib in enumerate(target.exported_libs):

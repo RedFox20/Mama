@@ -26,16 +26,6 @@ so cut every word that a reader of the fix does not need.
   plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
   the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
 
-- **`enable_cxx26()` asks for C++23 on GCC and Clang.** `build_target.py` writes `c++2b`, which is the
-  C++23 name. MSVC gets `c++latest`, so one mamafile asks for two different standards. Fix: write
-  `c++2c`, which GCC 14 and Clang 17 accept, and keep `c++2b` for an older compiler.
-
-- **A `-std` in `add_cxx_flags()` now steers `CMAKE_CXX_STANDARD`.** `cxx_standard()` reads the `-std`
-  key of `cmake_cxxflags`, and `add_cxx_flags('-std=c++17')` writes that same key. A plain compiler
-  flag therefore changes what mama tells cmake. That is the right answer for `-std=c++17`, and the
-  wrong one for a flag that names a standard mama has no min-cmake entry for. Fix: record which
-  standard `enable_cxxNN()` chose, and read that instead of parsing the flag back.
-
 - **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
   answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
   (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later
@@ -63,15 +53,17 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
-- **An intermediary archive kept a grandchild package module.** The strip read the direct children,
-  while the consumer cmake compiles the whole dep tree. Fix: the strip walks every package below.
+- **`enable_cxx26()` asked GCC and Clang for C++23.** It wrote `c++2b` while MSVC got `c++latest`, so
+  one mamafile named two standards. Fix: write `c++2c`, which maps to 26 like `c++latest`.
+
+- **An intermediary archive kept the module objects of the packages below it.** A consumer compiles
+  that whole tree. Fix: the strip walks every package below, not the direct children alone.
 
 - **A module no exported include dir held vanished without a word.** Every later step filtered it out
   first, so the warning could not fire. Fix: the packaging step warns where the author can act.
 
-- **Compiler discovery on Windows searched a PATH it had cut apart.** The split read `:`, which
-  also takes the drive letter off every entry. Fix: split on the separator of this platform, and
-  return the root with forward slashes.
+- **Compiler discovery on Windows searched a PATH it had cut apart.** The split read `:`, which takes
+  the drive letter off every entry. Fix: split on the separator of this platform.
 
 - **Compiler discovery named a compiler the host does not have.** A link carries a suffix its target
   does not, and `clang++` links on to `clang`. Fix: keep the spelling that exists at the resolved root.
@@ -92,11 +84,7 @@ so cut every word that a reader of the fix does not need.
   guard. Fix: the probe runs on every configure.
 
 - **The module strip deleted an object no exported module named.** A bare name matched a private
-  module and a `foo.cpp` build alike. Fix: each module takes the members that share the most path,
-  and a bare name answers only when no non-module source of this target carries it.
-
-- **An intermediary archive kept the module objects of its child packages.** Fix: the strip reads the
-  modules of every child too, and an archive that compiled none keeps its own path.
+  module and a `foo.cpp` build alike. Fix: a member goes only to the module that shares the most path.
 
 - **A casing variant dropped a module on macOS.** The path compare merged case on Windows alone.
   Fix: `match_path` follows the filesystem, and the upload validation reads it too.

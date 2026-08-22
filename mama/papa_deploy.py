@@ -118,6 +118,14 @@ def _same_file(a:str, b:str) -> bool:
     except OSError: return False  # one of them does not exist yet, so they are two files
 
 
+def _refuse_in_place(what: str) -> RuntimeError:
+    """The refusal both in-place checks raise. The strip would take the module objects the binaries of
+    the producer link, so a package and a build artifact must not be one file."""
+    return RuntimeError(f'papa_deploy refused: {what} is the build output itself, so the module ' + \
+                        'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
+                        'or pass strip_objects=False to export_modules().')
+
+
 def _module_paths(modules) -> set:
     """The exact path of every gathered module, in the one spelling every path compare uses. The copy
     predicate reads the whole path, so a private module whose name ends the same way stays out."""
@@ -303,13 +311,10 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
 
-    # An in-place deploy makes the package and the build tree one thing. The strip would take the
-    # module objects the producer's own binaries link, so refuse before anything here removes a file.
+    # the loop below refuses too, but only after the include tree is gone, so check before that
     if _same_file(package_full_path, target.build_dir()) and \
        any(package.strips_module_objects(target, l) for l in target.exported_libs):
-        raise RuntimeError(f'papa_deploy refused: {package_full_path} is the build dir itself, so the module ' + \
-                           'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
-                           'or pass strip_objects=False to export_modules().')
+        raise _refuse_in_place(package_full_path)
 
     # Delete the include tree the last deploy wrote. A header this target no longer exports must not
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
@@ -341,11 +346,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
             # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.
             package.strip_module_objects(libtarget, outpath)
         elif package.strips_module_objects(libtarget, outpath):
-            # An in-place deploy makes the package and the build artifact one file. The strip would
-            # take the objects the producer's own binaries link, so refuse instead of publishing both.
-            raise RuntimeError(f'papa_deploy refused: {outpath} is the build artifact itself, so the module ' + \
-                               'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
-                               'or pass strip_objects=False to export_modules().')
+            raise _refuse_in_place(outpath)
 
     syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:
