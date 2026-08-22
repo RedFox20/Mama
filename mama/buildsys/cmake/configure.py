@@ -237,7 +237,9 @@ def _seed_inputs(target:BuildTarget) -> dict:
         # fingerprint once, so run_config wipes the dirs an older seed shaped and seeds them again.
         'seedfmt': seedcache._SEED_FORMAT,
     }
-    if config.clang and cxx:  # a seed made before the scanner was installed keeps modules off for days
+    # read the resolved compiler, never config.clang: that flag is a host preference, and a cross
+    # platform such as the NDK names its own clang while it stays false
+    if cxx and 'clang' in os.path.basename(cxx):
         inputs['scandeps'] = seedcache.compiler_stat(_clang_scan_deps(cxx))
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible
         inputs['msvc'] = seedcache.compiler_stat(_seed_probe(target))

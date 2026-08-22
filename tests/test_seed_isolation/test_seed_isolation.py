@@ -176,3 +176,13 @@ def test_a_gcc_target_carries_no_scanner_input(tmp_path):
     (tmp_path / 'g').mkdir(parents=True, exist_ok=True)
     t, _ = make_configured_target(tmp_path / 'g')
     assert 'scandeps' not in cc._seed_inputs(t)
+
+
+def test_a_cross_clang_toolchain_carries_the_scanner_input(tmp_path):
+    # a cross platform names its own clang, and config.clang stays false because it is a host flag
+    (tmp_path / 'x').mkdir(parents=True, exist_ok=True)
+    ndk = '/opt/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin'
+    t, _ = make_configured_target(tmp_path / 'x', compiler=(f'{ndk}/clang', f'{ndk}/clang++', '18.0'),
+                                  clang=False, gcc=True)
+    with patch.object(cc, '_clang_scan_deps', return_value=f'{ndk}/clang-scan-deps'):
+        assert 'scandeps' in cc._seed_inputs(t)
