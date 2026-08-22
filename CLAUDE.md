@@ -330,6 +330,9 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   builds, so they stay fast and they never fail on a flaky connection.
 - When you patch, write `patch('mama.<module>.<name>')`. Patch where the code looks
   the name up, not where the code defines it.
+- **Patch a mama function with `autospec=True`.** A plain `Mock` accepts any argument,
+  so a call that names a keyword the real function does not have still passes. That gap
+  shipped `execute(cmd, exit_on_fail=False)`, which only a consumer CI caught.
 - Always run the **full** suite (`python -m pytest tests/`) before you commit. It runs on 8
   worker processes and takes about 5 seconds on Linux, 13 on Windows. Add `-n0` to debug one
   test or to read a traceback in order. It also lets a profiler see what a test spawns.
