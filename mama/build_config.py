@@ -929,7 +929,7 @@ class BuildConfig:
         if id != "ubuntu": raise OSError(f'install-gcc-{gcc_major} only supports ubuntu')
         console(f'Installing gcc-{gcc_major} and g++-{gcc_major} from apt repositories', color=Color.MAGENTA)
         # a blocked third-party PPA fails the whole update, and the Ubuntu archive still updated
-        if execute('sudo apt-get update', exit_on_fail=False) != 0:
+        if execute('sudo apt-get update', throw=False) != 0:
             warning('  apt-get update reported an error, continuing with the lists it fetched')
         execute(f'sudo apt-get install gcc-{gcc_major} g++-{gcc_major} -y')
         # make this gcc the default via update-alternatives, so mama and the cmake tools find it
