@@ -96,11 +96,11 @@ def glob_with_extensions(rootdir: str, extensions: List[str], exclude_dirs: List
     results = []
     exclude = set(exclude_dirs) if exclude_dirs else None
     for dirpath, dirnames, dirfiles in os.walk(rootdir):
-        if exclude: dirnames[:] = [d for d in dirnames if d not in exclude]  # prune generated/vendored trees
         if not recursive: dirnames.clear()  # os.walk reads this list back, so an empty one stops the descent
+        elif exclude: dirnames[:] = [d for d in dirnames if d not in exclude]  # prune generated/vendored trees
         for file in dirfiles:
             _, fext = os.path.splitext(file)
-            if fext in extensions:
+            if fext.lower() in extensions:  # a compiler reads Api.IXX as a module, so the glob does too
                 results.append(normalized_join(dirpath, file))
     return results
 

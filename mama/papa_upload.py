@@ -139,9 +139,8 @@ def validate_archive(package_full_path: str, papa: PapaFileInfo, archive_path: s
                            f'{len(trees)} duplicated directory pairs.\n{describe_duplicate_trees(trees)}\n' + \
                            f'    Fix the export_include() paths of {papa.project_name}.')
 
-    # A module rides inside an include tree, so the counts already hold it. A module the include filter
-    # dropped would leave the consumer with a target_sources naming a file the archive does not carry.
-    # the filesystem walk answers the casing on disk, and the M record keeps the casing of the recipe
+    # A module the include filter dropped leaves the consumer naming a file the archive does not hold.
+    # The walk answers the casing on disk, and the M record keeps the casing of the recipe.
     shipped = {package.match_path(rel) for rel in expected}
     dropped = [forward_slashes(os.path.relpath(m, package_full_path)) for m in papa.modules]
     dropped = [m for m in dropped if package.match_path(m) not in shipped]

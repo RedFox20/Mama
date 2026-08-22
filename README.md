@@ -556,7 +556,9 @@ import rpp.strview;
 ```
 
 Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
-MSVC 19.34. A toolchain that misses one keeps the exported headers and says so. A package declares
+MSVC 19.34. Only the cmake that runs has to be that new: `mama_target_modules()` asks for the module
+scan by name, so your own `cmake_minimum_required` can stay where it is. A toolchain that misses one
+part keeps the exported headers and says so. A package declares
 no compiler floor. To turn the feature off, build with `-DMAMA_ENABLE_MODULES=OFF`.
 
 The packaged static library drops its module objects. The consumer compiles the same source, so a

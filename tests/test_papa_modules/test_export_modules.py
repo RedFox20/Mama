@@ -35,6 +35,13 @@ def test_a_glob_reads_a_subdirectory_only_when_it_recurses(tmp_path, recursive, 
     assert 'rpp-strview.cppm' in names  # the named dir answers either way
 
 
+def test_a_glob_reads_an_uppercase_module_extension(tmp_path):
+    # a compiler reads Api.IXX as a module interface unit, so the automatic export does too
+    target = _target(tmp_path, {'src/rpp/Api.IXX': 'export module rpp.api;'})
+    assert package.export_modules(target, 'src/rpp', None, build_dir=False)
+    assert [m.rsplit('/', 1)[1] for m in target.exported_modules] == ['Api.IXX']
+
+
 def test_an_explicit_list_records_exactly_those_files_in_order(tmp_path):
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm', 'rpp-debugging.ixx'], build_dir=False)

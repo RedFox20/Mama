@@ -488,13 +488,14 @@ def _save_mama_cmake(root: BuildDependency, path: str):
     """One `mama.cmake` proxy, at the path an `include()` named. Generated from the platform registry,
     so it cannot drift from the build dir names that BuildConfig itself uses."""
     config:BuildConfig = root.config
+    ninja_version = config.ninja_version()
 
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion often fails to detect macro paths
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
-    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines))
+    save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines, ninja_version))
 
 
 def load_dependency_chain(root: BuildDependency, display=None):

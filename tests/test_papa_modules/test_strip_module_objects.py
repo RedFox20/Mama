@@ -151,6 +151,21 @@ def test_a_grandchild_package_module_leaves_the_intermediary_archive(tmp_path):
     assert 'rpp-vec.cppm.o' in _strip(target, listing='rpp-vec.cppm.o\n').call_args[0][0]
 
 
+def test_a_build_that_needs_no_strip_publishes_the_archive_it_wrote(tmp_path):
+    # an earlier run recorded a stripped copy, and a rebuild that compiles no module must undo that
+    lib = f'{tmp_path}/{package.MODULE_STRIP_DIR}/libfoo.a'
+    write_files(tmp_path, {'libfoo.a': 'x', f'{package.MODULE_STRIP_DIR}/libfoo.a': 'stale'})
+    target = _target(tmp_path, libs=(lib,))
+    with patch('mama.package.execute_piped_echo', return_value=(0, 'other.cpp.o\n')):
+        package.export_stripped_module_libs(target)
+    assert target.exported_libs[0] == f'{tmp_path}/libfoo.a'
+
+
+def test_an_uppercase_archive_suffix_is_still_a_static_library():
+    # a Windows recipe may spell it Producer.LIB, and that filesystem reads one file
+    assert package.is_a_static_library('Producer.LIB') is (not package.System.linux)
+
+
 def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path):
     # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
     lib = f'{tmp_path}/libfoo.a'

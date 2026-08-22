@@ -247,9 +247,8 @@ class BuildTarget:
         # cwd is the root project, so the child resolves the same dependency graph.
         host_view = build_names.host_view(self.config)
         child_args = [host, 'build', f'target={self.name}', f'arch={host_view.platform.arch()}']
-        # Only a command line choice travels: a mamafile preference belongs to the child's own config,
-        # and forcing it here would build a host tool with a compiler the project refused. Only a linux
-        # build dir names a compiler at all, which is what the host view answers.
+        # Only a command line choice travels. A mamafile preference belongs to the child's own config,
+        # and forcing it here builds a host tool with a compiler the project refused.
         if host_view.linux and self.config.compiler_from_args:
             child_args.append('clang' if self.config.clang else 'gcc')
         child_cmd = 'mama ' + ' '.join(child_args)
@@ -265,9 +264,8 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        # The predicted dir first: a dep arg may spell a token the scan refuses, such as args=['ASAN'],
-        # and the child just wrote exactly that dir. Otherwise take what the child produced, and NOTHING
-        # a warm tree already held: an exit code of 0 does not prove this tool belongs to this request.
+        # The predicted dir first, because a dep arg may spell a token the scan refuses. Never take
+        # what a warm tree held: an exit code of 0 does not prove that tool answers this request.
         if os.path.exists(binary): return binary
         fresh = [p for p, mtime in self._host_tools_on_disk(relpath).items() if before.get(p) != mtime]
         return max(fresh, key=os.path.getmtime) if fresh else None

@@ -225,6 +225,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
+    cfg.ninja_version.return_value = ''  # the generated mama.cmake writes this number verbatim
     cfg.cmake_command = 'cmake'
     # artifactory_archive_name and the papa `O` record use these
     cfg.get_distro_info.return_value = ('ubuntu', 22, 4)

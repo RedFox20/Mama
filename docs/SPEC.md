@@ -754,7 +754,9 @@ never produced or just deleted.
 
 The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
 `export_asset` and `export_modules`. For a target built from source, each category the hook leaves
-empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default. `no_export_includes()`, `no_export_libs()` and
+empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default.
+`default_package()` runs the same three, and skips the module default when the hook already named
+one, so collecting the rest cannot widen a narrowed list. `no_export_includes()`, `no_export_libs()` and
 `no_export_modules()` opt one out.
 
 `default_package_modules()` exports every module interface unit under the exported include dirs. It
@@ -785,7 +787,9 @@ module writes nothing, so an upgrade reconfigures no existing project. The aggre
 that sits inside another, because cmake refuses a file set whose base dirs contain each other.
 
 `mama_target_modules(target [scope])` in `mama.cmake` adds a `FILE_SET mama_modules TYPE
-CXX_MODULES`, asks for `cxx_std_20`, and defines `MAMA_HAS_MODULES=1`. The scope is `PUBLIC` unless
+CXX_MODULES`, asks for `cxx_std_20`, sets `CXX_SCAN_FOR_MODULES ON`, defines `MAMA_HAS_MODULES=1`,
+and names the modules it added in a cmake STATUS line. **Why:** cmake scans a source for `import`
+only under CMP0155 NEW, which a consumer whose `cmake_minimum_required` predates 3.28 never gets. The scope is `PUBLIC` unless
 the call names one. A library that installs itself through `install(EXPORT)` passes `PRIVATE`, because
 cmake refuses to export a target whose `PUBLIC` file set it does not install. The consumer source
 reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
@@ -800,9 +804,9 @@ reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
 | compiler | GCC 14, Clang 18, or MSVC 1934 |
 | clang | `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS` that exists, and no Visual Studio generator |
 
-The ninja probe runs on every configure, because a cached version outlives the executable that
-answered it. **Why:** a toolchain that misses one part keeps the exported headers, so a build never
-fails because a compiler cannot read modules.
+Mama measures ninja once per run and writes that number into `mama.cmake`, so no configure spawns
+the tool to ask again. **Why:** a toolchain that misses one part keeps the exported headers, so a
+build never fails because a compiler cannot read modules.
 
 **Mama knows the floor, and no package declares one.** The three `MAMA_MODULES_MIN_*` values are
 cache strings a consumer on an odd toolchain can move. An empty one refuses, and never passes.
@@ -923,7 +927,9 @@ dependency tree into this target.
 
 An archiver lists the path it stored, so each module takes the members sharing the most trailing path
 components. MSVC drops the module extension, so a module that shares none falls back to its bare
-name. A non-module source of that name makes the bare name ambiguous, and that member stays. Both the
+name. A non-module source of that name makes the bare name ambiguous, and that member stays. So does a
+name the exported modules cannot account for, because removing the copy of a private unit loses its
+definitions. Both the
 listing and the removal go through the archiver of the platform. Windows, Android and every prefixed
 cross platform name a full path there, because the host keeps that tool off PATH. A GNU thin archive names each member by a path, so it keeps its
 module objects and says so.

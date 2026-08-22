@@ -22,9 +22,8 @@ _MANIFEST = 'seed.json'
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
                       'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
 
-# Every tool the binutils search of compiler detection finds, in the two shapes it writes. Seeding
-# skips that search, so each tool reaches the build empty. A closed set, because one seed serves every
-# target of a compiler config and a project's own find_program result must not travel with it.
+# Every tool the binutils search finds, in the two shapes it writes. A closed set, because one seed
+# serves every target of a compiler config, and a project's own find_program result must not travel.
 _TOOLS = 'AR|RANLIB|STRIP|LINKER|NM|OBJDUMP|OBJCOPY|READELF|DLLTOOL|ADDR2LINE|TAPI|MT|INSTALL_NAME_TOOL'
 _REPLAY_TOOL_KEY = re.compile(rf'^CMAKE_(({_TOOLS})|[A-Za-z]+_COMPILER_(AR|RANLIB|CLANG_SCAN_DEPS))$')
 

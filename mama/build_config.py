@@ -225,6 +225,7 @@ class BuildConfig:
         self.artifactory_auth = None
         ## Ninja
         self.ninja_path = self.find_ninja_build()
+        self._ninja_version = None # measured once, see ninja_version()
         self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
         ## Convenient installation utils:
         self.convenient_install = []
@@ -731,6 +732,15 @@ class BuildConfig:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         raise EnvironmentError('No preferred compiler for this platform!')
+
+
+    def ninja_version(self) -> str:
+        """What `ninja --version` answers, measured once. The generated cmake reads this number
+        instead of spawning ninja on every configure."""
+        if self._ninja_version is None:
+            out = execute_piped([self.ninja_path, '--version'], throw=False) if self.ninja_path else ''
+            self._ninja_version = (out or '').strip()
+        return self._ninja_version
 
 
     def get_gcc_clang_fullversion(self, cc_path, dumpfullversion):

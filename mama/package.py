@@ -25,6 +25,7 @@ SOURCE_EXTENSIONS = ('.cpp', '.cc', '.cxx', '.c++', '.c')
 
 def is_a_static_library(lib: str):
     if not lib: return False
+    lib = match_path(lib)  # a filesystem that ignores case reads Producer.LIB as the same archive
     return lib.endswith('.a') or lib.endswith('.lib')
 
 
@@ -312,7 +313,9 @@ def export_stripped_module_libs(target: BuildTarget):
                     'A thin archive names each member by a path, and a copy breaks every one.')
             continue
         members = _module_object_members(target, src)
-        if not members: continue
+        if not members:
+            target.exported_libs[i] = src  # this build wrote no module object, so publish it as it is
+            continue
         out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
         os.makedirs(os.path.dirname(out), exist_ok=True)
         copy_if_needed(src, out)

@@ -45,9 +45,8 @@ def _bin_with(tmp_path, *names) -> str:
 
 
 def test_a_suffixed_symlink_answers_the_name_the_real_file_carries(tmp_path):
-    # /usr/bin/clang++-18 -> /usr/lib/llvm-18/bin/clang++, so the -18 suffix belongs to the link alone.
-    # The real chain has two links: bin/mamacc++-18 -> llvm/bin/mamacc++ -> llvm/bin/mamacc,
-    # so a realpath lands on a name that does not start with the compiler name at all
+    # The real chain has two links, bin/cc++-18 -> llvm/bin/cc++ -> llvm/bin/cc, so the suffix belongs
+    # to the first link alone and a realpath lands on a name the compiler name does not even start.
     real_bin, link_bin = tmp_path / 'llvm-18' / 'bin', tmp_path / 'bin'
     real_bin.mkdir(parents=True); link_bin.mkdir()
     _fake(str(real_bin), CC)

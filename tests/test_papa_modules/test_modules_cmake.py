@@ -40,8 +40,8 @@ def _probe_floor(tmp_path, *defines) -> str:
     return out
 
 
-def _text() -> str:
-    return mama_cmake_text(lambda build_dir: f'set(MAMA_BUILD "{build_dir}")')
+def _text(ninja_version='1.11.1') -> str:
+    return mama_cmake_text(lambda build_dir: f'set(MAMA_BUILD "{build_dir}")', ninja_version)
 
 
 def _defines(tmp_path, modules=None, includes=None) -> str:
@@ -70,7 +70,6 @@ def test_the_guard_names_every_toolchain_requirement():
     text = _text()
     for needle in ['VERSION_GREATER_EQUAL 3.28', 'MATCHES "^Visual Studio ([0-9]+)"', 'MATCHES "Ninja"',
                    'MAMA_NINJA_VERSION VERSION_LESS 1.11',  # a dyndep file needs ninja 1.11
-                   'COMMAND "${CMAKE_MAKE_PROGRAM}" --version',  # a cached version outlives its ninja
                    'CMAKE_MATCH_1 GREATER_EQUAL 17',  # cmake scans modules for VS 2022 and newer only
                    'MAMA_MODULES_MIN_GNU   14', 'MAMA_MODULES_MIN_CLANG 18', 'MAMA_MODULES_MIN_MSVC  1934',
                    'option(MAMA_ENABLE_MODULES']:  # the one lever a consumer turns off
@@ -143,6 +142,11 @@ def test_drop_nested_dirs_keeps_two_unrelated_roots(tmp_path):
 
 # --- the compiler floor, which mama knows and a consumer may override ---------
 
+def test_the_helper_names_the_modules_it_added():
+    # a reader of the configure log sees which files reached the file set, not only that some did
+    assert 'compiles C++20 modules: ${MAMA_MODULES}' in _text()
+
+
 def test_the_helper_keeps_every_header_when_the_gate_refuses():
     # MAMA_HAS_MODULES is one define, so the early return has to precede it
     text = _text()
@@ -170,23 +174,16 @@ def test_an_empty_compiler_floor_refuses_instead_of_breaking_the_configure(tmp_p
     assert 'MAMA_PROBE ok=FALSE' in out  # an empty floor refuses, a quoted one would pass every compiler
 
 
-def test_a_replaced_ninja_probes_again(tmp_path):
-    # the cached version outlived the executable it came from, so an upgrade never reached the guard
-    if is_windows() or not shutil.which('cmake'): pytest.skip('needs a POSIX host with cmake')
-    ninja = tmp_path / 'ninja'
-    (tmp_path / 'mama.cmake').write_text(_text())
+@pytest.mark.parametrize('version, expected', [('1.11.1', 'TRUE'), ('1.10.2', 'FALSE'), ('', 'FALSE')])
+def test_the_written_ninja_version_decides_the_generator(tmp_path, version, expected):
+    # mama measures ninja once and writes the number, so no configure spawns it again
+    if not shutil.which('cmake'): pytest.skip('no cmake')
+    (tmp_path / 'mama.cmake').write_text(_text(version))
     (tmp_path / 'CMakeLists.txt').write_text(_NINJA_PROBE)
-
-    def configure(version) -> str:
-        ninja.write_text(f'#!/bin/sh\necho {version}\n')
-        ninja.chmod(0o755)
-        status, out = execute_piped_echo(None, ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build',
-                                                f'-DCMAKE_MAKE_PROGRAM={ninja}', str(tmp_path)], echo=False)
-        assert status == 0, out
-        return out
-
-    assert 'MAMA_PROBE generator=FALSE' in configure('1.10.2')
-    assert 'MAMA_PROBE generator=TRUE' in configure('1.11.1')  # same build dir, upgraded ninja
+    status, out = execute_piped_echo(None, ['cmake', '-G', 'Ninja', '-B', f'{tmp_path}/build',
+                                            str(tmp_path)], echo=False)
+    assert status == 0, out
+    assert f'MAMA_PROBE generator={expected}' in out
 
 
 def test_the_visual_studio_generator_refuses_a_clang_toolset():
