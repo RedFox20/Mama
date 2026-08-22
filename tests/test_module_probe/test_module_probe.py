@@ -46,11 +46,13 @@ def test_the_scanner_search_reads_the_dir_of_the_real_compiler(tmp_path):
     # a distro symlinks clang++ into its llvm dir, and the scanner sits there under no suffix
     llvm = tmp_path / 'llvm' / 'bin'
     llvm.mkdir(parents=True)
-    scanner = llvm / 'clang-scan-deps'
+    # the search runs shutil.which, which reads PATHEXT, so a name without it is invisible on Windows
+    scanner = llvm / ('clang-scan-deps.exe' if testutils.is_windows() else 'clang-scan-deps')
     scanner.write_text('#!/bin/sh\n')
     scanner.chmod(0o755)
     link = tmp_path / 'clang++'
-    link.symlink_to(llvm / 'clang++-18')
+    try: link.symlink_to(llvm / 'clang++-18')
+    except OSError: pytest.skip('this host refuses to create a symlink')
     assert testutils.clang_scan_deps(str(link)) == str(scanner)
 
 
