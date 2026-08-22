@@ -516,8 +516,8 @@ self.no_export_modules()                             # Suppress automatic C++20 
 ### C++20 modules
 
 A binary module interface is not portable, so a package ships the `.cppm` source and the consumer
-compiles it. Mama finds the modules of a package on its own: every module interface unit under an
-exported include dir is exported, with no declaration.
+compiles it. Mama exports every module interface unit under an exported include dir, with no
+declaration.
 
 ```py
 def package(self):
@@ -543,10 +543,9 @@ target_link_libraries(MyApp PRIVATE ${MAMA_LIBS})
 mama_target_modules(MyApp)          # PRIVATE if MyApp installs itself through install(EXPORT)
 ```
 
-`mama init` writes that call into a new CMakeLists.txt already. It does nothing until a package
-exports a module, so it costs an existing project nothing.
+`mama init` writes that call already. It does nothing until a package exports a module.
 
-The same source then follows either path, so a toolchain without module support still builds:
+One source then follows either path, so a toolchain without module support still builds:
 
 ```cpp
 #ifdef MAMA_HAS_MODULES
@@ -557,14 +556,13 @@ import rpp.strview;
 ```
 
 Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
-MSVC 19.34. A toolchain that misses one keeps the exported headers and prints why. A package states
-no compiler floor of its own. To turn the feature off, build with `-DMAMA_ENABLE_MODULES=OFF`, or
-add `self.add_cmake_options('MAMA_ENABLE_MODULES=OFF')` to the consumer mamafile.
+MSVC 19.34. A toolchain that misses one keeps the exported headers and prints why. A package declares
+no compiler floor. To turn the feature off, build with `-DMAMA_ENABLE_MODULES=OFF`.
 
-The packaged static library drops its module objects, because the consumer compiles the same source
-and a whole-archive link would otherwise find two `initializer for module X` symbols. An exported
-module must therefore define nothing but its own interface. Pass `strip_objects=False` for a unit
-that carries a definition.
+The packaged static library drops its module objects. The consumer compiles the same source, so a
+whole-archive link would otherwise find two `initializer for module X` symbols. **An exported module
+must define nothing but its own interface.** Pass `strip_objects=False` for a unit that carries a
+definition.
 
 ### Execution utilities
 ```py

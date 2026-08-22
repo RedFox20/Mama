@@ -753,25 +753,22 @@ upload, deploy and test walk the chain without building, so they would otherwise
 never produced or just deleted.
 
 The `package()` hook populates the exports through `export_include`, `export_libs`, `export_syslib`,
-`export_asset` and `export_modules`. When it exports no includes, the default include packaging runs.
-When it exports no libs and no syslibs, the default lib packaging runs. When it exports no modules,
-the default module packaging runs, which reads every exported include dir. It runs after the include
-default, because a module ships inside an exported include tree or it cannot ship at all.
-`no_export_includes()`, `no_export_libs()` and `no_export_modules()` opt out.
+`export_asset` and `export_modules`. Each category the hook leaves empty gets a default: includes,
+then libs and syslibs, then modules. `no_export_includes()`, `no_export_libs()` and
+`no_export_modules()` opt one out.
 
-`default_package_modules()` exports every file under the exported include dirs whose extension names
-a module interface unit. **Why:** a library that ships one almost always publishes it, and a package
-that ships a module source no consumer compiles is the more common mistake. An `export_modules()`
-call in the hook replaces this, so a recipe narrows the list by naming it.
+`default_package_modules()` exports every module interface unit under the exported include dirs. It
+runs after the include default, because a module ships inside an exported include tree or it cannot
+ship at all. **Why:** a library that ships a module almost always publishes it.
 
-`export_modules(path, [names])` names the C++20 module interface units of a package. A `None` name
-list globs every module extension under `path`, and `recursive=False` reads that one directory. It
-copies no file of its own. The include deploy carries them, because the deploy filter joins
-`include_glob_filter` with the suffixes of every gathered module. A recursive deploy gathers the
-modules of the children too, so a parent filter that names no module suffix still ships them. The
-hook order cannot drop a module, and one module ships exactly once. A module file ships only when
-an export named it, whatever `include_glob_filter` holds. A filter that names a module suffix cannot
-widen the export to a private module beside an exported one.
+`export_modules(path, [names])` narrows that list. A `None` name list globs every module extension
+under `path`, and `recursive=False` reads that one directory alone. The call copies no file. The
+include deploy carries the modules, because its filter joins `include_glob_filter` with the suffixes
+of every gathered module. A recursive deploy gathers the children's modules too.
+
+**An export decides which module files ship, and `include_glob_filter` cannot change that.** A
+filter naming a module suffix ships no private module beside an exported one. One module ships
+exactly once, whatever order the hook used.
 
 `strip_objects` sets a target-wide flag, and only an opt-out sticks. One
 `export_modules(..., strip_objects=False)` keeps the module objects, whatever a later call passes.
@@ -779,21 +776,18 @@ widen the export to a private module beside an exported one.
 ### C++20 modules reach a consumer as source
 
 A binary module interface is not portable, so a package ships the interface unit and the consumer
-compiles it. Mama carries that through the generated cmake.
+compiles it.
 
-`mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` for a package that
-exports a module, and appends that list to the aggregate `MAMA_MODULES`, the way `MAMA_INCLUDES` and
-`MAMA_LIBS` compose. A dep that exports none writes nothing, so the file of an existing project
-stays byte-identical and an upgrade reconfigures nothing. The consolidated
-`MAMA_MODULES_BASE_DIRS` drops a base dir that sits inside another, because cmake refuses a file set
-whose base dirs contain each other.
+`mama-dependencies.cmake` writes `{name}_MODULES` and `{name}_MODULES_BASE_DIRS` per package, and
+appends both to the aggregates `MAMA_MODULES` and `MAMA_MODULES_BASE_DIRS`. A dep that exports no
+module writes nothing, so an upgrade reconfigures no existing project. The aggregate drops a base dir
+that sits inside another, because cmake refuses a file set whose base dirs contain each other.
 
-`mama.cmake` carries the reader. `mama_target_modules(target [scope])` adds a
-`FILE_SET mama_modules TYPE CXX_MODULES`, asks for `cxx_std_20` through `target_compile_features`,
-and defines `MAMA_HAS_MODULES=1`. The scope is `PUBLIC` unless the call names one. A library that
-installs itself through `install(EXPORT)` passes `PRIVATE`. Cmake refuses to export a target whose
-`PUBLIC` file set it does not also install. The consumer source reads `#ifdef MAMA_HAS_MODULES`
-and imports, or includes the exported header.
+`mama_target_modules(target [scope])` in `mama.cmake` adds a `FILE_SET mama_modules TYPE
+CXX_MODULES`, asks for `cxx_std_20`, and defines `MAMA_HAS_MODULES=1`. The scope is `PUBLIC` unless
+the call names one. A library that installs itself through `install(EXPORT)` passes `PRIVATE`, because
+cmake refuses to export a target whose `PUBLIC` file set it does not install. The consumer source
+reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
 
 `MAMA_MODULES_AVAILABLE` is the one gate, and every part must answer:
 
@@ -806,15 +800,14 @@ and imports, or includes the exported header.
 | clang | `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS` that exists, and no Visual Studio generator |
 
 The ninja probe runs on every configure, because a cached version outlives the executable that
-answered it. A Visual Studio generator scans a module graph with the MSVC toolset alone, so clang
-there is refused. **Why:** a toolchain that misses one part keeps the exported headers, and a build
-never fails because a compiler cannot read modules.
+answered it. **Why:** a toolchain that misses one part keeps the exported headers, so a build never
+fails because a compiler cannot read modules.
 
-**Mama knows the floor, and no package declares one.** `MAMA_MODULES_MIN_GNU`,
-`MAMA_MODULES_MIN_CLANG` and `MAMA_MODULES_MIN_MSVC` are cache strings, so a consumer on an odd
-toolchain can move one. An empty floor refuses, and never passes. `MAMA_ENABLE_MODULES=OFF` keeps
-the exported headers whatever the toolchain can do. **Why:** a floor per package weighed a list that
-`mama_target_modules` then took all or nothing, so it computed one maximum the long way around.
+**Mama knows the floor, and no package declares one.** The three `MAMA_MODULES_MIN_*` values are
+cache strings a consumer on an odd toolchain can move. An empty one refuses, and never passes.
+`MAMA_ENABLE_MODULES=OFF` keeps the exported headers whatever the toolchain can do. **Why:** a floor
+per package weighed a list `mama_target_modules` then took all or nothing, so it computed one
+maximum the long way around.
 
 `MAMA_HAS_MODULES=1` is one define for the whole target, so a consumer cannot import from one
 package and read the headers of another. A refusal prints a cmake STATUS line.
@@ -913,38 +906,39 @@ name carry the merged marker `x64v3` instead. The record is text, and a reader c
 The parser splits the record on whitespace and searches it, so a new attribute needs no fixed place.
 
 An `M` record holds one package-relative path, inside the include tree an `I` record already names.
-**A deploy writes `M` records for the modules of its own target, never for a child's.** A recursive
-deploy still writes the `D` record that loads the child package, and that package carries its own
-modules. Two copies would make a consumer compile one module twice, which cmake refuses.
-A module that sits under no exported include path ships nothing, and the deploy says so. The upload
-refuses an `M` record whose file the include filter dropped, because the consumer would then compile
-a source the archive does not carry. A package written before the `M` record carries no module.
+**A deploy writes `M` records for the modules of its own target, never for a child's.** The `D`
+record loads the child package, which carries its own modules. Two copies would make a consumer
+compile one module twice, which cmake refuses.
+
+A module under no exported include path ships nothing, and the deploy says so. The upload refuses an
+`M` record whose file the include filter dropped, because the consumer would compile a source the
+archive does not carry. A package written before the `M` record carries no module.
 
 **The packaged static library loses its module objects.** A module interface unit emits a strong
-`initializer for module X` symbol. The consumer compiles the same source, so a whole-archive link of
-an unstripped package finds two definitions. The strip reads the archive members and removes the ones
-named after a module the target compiled. That list holds the modules of every child package too,
-because a target that calls `mama_target_modules` compiles its dependency modules into its own
-archive. An archiver lists the path it stored, so each module takes the members that share the most
-trailing path components with it. MSVC drops the module extension from the object name, so a module
-that shares no component falls back to its bare name. A non-module source of that name in the target
-makes the name ambiguous, and that member stays. Both the listing and the removal go through the
-archiver of the platform, so a platform with no `ar` still reads its own archive. That platform
-resolves the archiver to a full path when the host keeps the tool off PATH. A GNU thin archive keeps
-its module objects and says so, because it names each member by a path and a copy breaks every one.
-The strip runs on the packaged copy alone, so the build artifact stays intact and the producer's own
-binaries link.
-`export_modules(..., strip_objects=False)` keeps them, which a target whose own sources import its
-own module needs. **An exported module must define nothing but its own interface**, because the strip
-removes whole objects. A unit that defines a non-inline function loses it for a consumer on the
-header fallback, so the packaging step warns on every strip.
+`initializer for module X`. The consumer compiles the same source, so a whole-archive link of an
+unstripped package finds two definitions. The strip removes each member named after a module the
+target compiled. The modules of every child package count too, because a target that calls
+`mama_target_modules` compiles them into its own archive.
+
+An archiver lists the path it stored, so each module takes the members sharing the most trailing path
+components. MSVC drops the module extension, so a module that shares none falls back to its bare
+name. A non-module source of that name makes the bare name ambiguous, and that member stays. Both the
+listing and the removal go through the archiver of the platform. That platform resolves a full path
+when the host keeps the tool off PATH. A GNU thin archive names each member by a path, so it keeps its
+module objects and says so.
+
+The strip touches the packaged copy alone, so the producer's own binaries still link.
+`export_modules(..., strip_objects=False)` keeps the objects, which a target whose own sources import
+its own module needs. **An exported module must define nothing but its own interface**, because the
+strip removes whole objects. A unit that defines a non-inline function loses it for a consumer on the
+header fallback, so every strip warns.
 
 **The exported library is the stripped one.** A consumer that builds this dependency from source
-links `exported_libs` directly, so the packaging step points it at a copy under `mama-nomodules/`
-that carries the same file name. The original stays where `export_lib` found it, because the binaries
-of that target need those objects. A later run reads that original again, never the copy the run
-before recorded as the export. An archive that compiled no module keeps its own path, and a fetched
-package is already stripped, so both copy nothing.
+links `exported_libs` directly. The packaging step points it at a copy under `mama-nomodules/` that
+carries the same file name. The original stays where `export_lib` found it, because the binaries of
+that target need those objects. A later run reads that original again, never the copy the run before
+recorded. An archive that compiled no module keeps its own path, and a fetched package is already
+stripped, so both copy nothing.
 
 A package declares no compiler floor. Mama knows the versions that build a module, and the consumer
 moves `MAMA_MODULES_MIN_*` or sets `MAMA_ENABLE_MODULES=OFF`. See the consumer section of 12.
