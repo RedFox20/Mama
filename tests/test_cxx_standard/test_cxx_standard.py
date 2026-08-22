@@ -26,7 +26,7 @@ def _opts(tmp_path, monkeypatch, **kwargs) -> dict:
 # --- the standard reaches cmake ----------------------------------------------
 
 @pytest.mark.parametrize('enable,expected', [('11', '11'), ('14', '14'), ('17', '17'),
-                                             ('20', '20'), ('23', '23'), ('26', '23')])
+                                             ('20', '20'), ('23', '23'), ('26', '26')])
 def test_each_forced_standard_sets_the_cmake_standard(enable, expected, tmp_path, monkeypatch):
     # 26 maps to 23 on gcc and clang, because enable_cxx26 asks for c++2b, which IS C++23
     assert _opts(tmp_path, monkeypatch, enable=enable)['CMAKE_CXX_STANDARD'] == expected
@@ -94,10 +94,11 @@ def test_an_operator_std_flag_becomes_the_cmake_standard(tmp_path, monkeypatch):
     assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '23'
 
 
-def test_an_operator_std_cmake_cannot_name_keeps_the_default(tmp_path, monkeypatch):
+def test_an_operator_asking_for_the_newest_standard_keeps_it(tmp_path, monkeypatch):
+    # unset, cmake appends its own lower flag AFTER this one, and the target silently drops back
     target = _target(tmp_path, monkeypatch, enable='20')
     target.config.flags = '-std=c++latest'
-    assert 'CMAKE_CXX_STANDARD' not in _opts(tmp_path, monkeypatch, target=target)
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '26'
 
 
 def test_a_build_arg_never_outvotes_the_flag(tmp_path, monkeypatch):
@@ -109,11 +110,12 @@ def test_a_build_arg_never_outvotes_the_flag(tmp_path, monkeypatch):
     assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '17'
 
 
-def test_cxx_latest_names_no_standard_so_cmake_keeps_its_own(tmp_path, monkeypatch):
-    # enable_cxx26 asks MSVC for c++latest, which is not a number cmake can be told
+def test_msvc_takes_the_newest_standard_from_cxx_latest(tmp_path, monkeypatch):
+    # enable_cxx26 asks MSVC for /std:c++latest, and cmake would append /std:c++20 after it
     target = _target(tmp_path, monkeypatch, enable='26', platform=Windows, msvc=True, gcc=False)
     assert target.cmake_cxxflags['/std'] == 'c++latest'
-    assert target.cxx_standard() == ''
+    assert target.cxx_standard() == '26'
+    assert _opts(tmp_path, monkeypatch, target=target)['CMAKE_CXX_STANDARD'] == '26'
 
 
 # --- the msvc spelling -------------------------------------------------------

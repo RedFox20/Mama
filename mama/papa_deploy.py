@@ -308,7 +308,9 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # the modules come first, because the include copy needs their suffixes to carry them
     modules = _gather_modules(target)
     includes = _gather_includes(target, r_includes)
-    headers = _append_includes(target, package_full_path, detail_echo, descr, includes, modules)
+    # a recursive bundle copies the child include trees, so their modules must ride along with them
+    copied = [(target, m) for m in package.consumed_modules(target)] if r_includes else modules
+    headers = _append_includes(target, package_full_path, detail_echo, descr, includes, copied)
     _warn_about_duplicate_include_trees(target, package_full_path)
     shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
 

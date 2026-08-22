@@ -254,13 +254,13 @@ def _ambiguous_names(target: BuildTarget) -> set:
     a module this target does not export with its extension. Either one makes a bare member unsafe."""
     exported = {match_path(m) for m in target.exported_modules}
     names = set()
-    for root, _, files in os.walk(target.source_dir()):
-        for name in files:
-            stem, ext = os.path.splitext(name)
-            ext = ext.lower()
-            if ext in SOURCE_EXTENSIONS: names.add(match_path(stem))
-            elif ext in MODULE_EXTENSIONS and match_path(normalized_join(root, name)) not in exported:
-                names.add(match_path(name))
+    # the build dir gives sources alone: it also holds the deploy tree, whose module copies are ours
+    for root, exts in ((target.source_dir(), SOURCE_EXTENSIONS + MODULE_EXTENSIONS),
+                       (target.build_dir(), SOURCE_EXTENSIONS)):
+        for path in glob_with_extensions(root, list(exts)):
+            stem, ext = os.path.splitext(os.path.basename(path))
+            if ext.lower() in SOURCE_EXTENSIONS: names.add(match_path(stem))
+            elif match_path(path) not in exported: names.add(match_path(os.path.basename(path)))
     return names
 
 
@@ -324,7 +324,8 @@ def _unstripped_lib(lib: str) -> str:
     """The archive a stripped copy came from, and `lib` itself for any other path.
     A later run reads back the recorded export, which already names the copy."""
     head, tail = os.path.split(os.path.dirname(lib))
-    return normalized_join(head, os.path.basename(lib)) if tail == MODULE_STRIP_DIR else lib
+    original = normalized_join(head, os.path.basename(lib))
+    return original if tail == MODULE_STRIP_DIR and os.path.exists(original) else lib
 
 
 def export_stripped_module_libs(target: BuildTarget):

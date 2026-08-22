@@ -1003,11 +1003,12 @@ class BuildTarget:
     # fixed standard, so it maps to none and cmake keeps its own default.
     _CXX_STANDARD_OF_FLAG = {'c++11':'11', 'c++14':'14', 'c++17':'17', 'c++1z':'17',
                              'c++20':'20', 'c++2a':'20', 'c++23':'23', 'c++2b':'23',
-                             'c++26':'26', 'c++2c':'26'}
+                             'c++26':'26', 'c++2c':'26', 'c++latest':'26'}
 
     @staticmethod
     def cxx_standard_of(std_flag: str) -> str:
-        """The number cmake wants for a `-std` value, eg 'c++2a' gives '20'. '' when it names none."""
+        """The number cmake wants for a `-std` value, eg 'c++2a' gives '20'. '' when it names none.
+        `c++latest` takes the newest number mama knows: unset, cmake appends a lower flag after it."""
         for flag, number in BuildTarget._CXX_STANDARD_OF_FLAG.items():
             if std_flag.startswith(flag): return number
         return ''
@@ -1021,7 +1022,7 @@ class BuildTarget:
 
     def enable_cxx26(self):
         """ Enable C++26 standard """
-        self._set_cxx_std('c++latest' if self.msvc else 'c++2b')
+        self._set_cxx_std('c++latest' if self.msvc else 'c++2c')
 
     def is_enabled_cxx26(self):
         if 'CXX26' in self.args: return True

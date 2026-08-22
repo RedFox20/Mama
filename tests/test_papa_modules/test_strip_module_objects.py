@@ -308,3 +308,18 @@ def test_the_build_dir_lib_is_never_replaced_for_a_fetched_package(tmp_path):
     target.dep.from_artifactory = True
     package.export_stripped_module_libs(target)
     assert target.exported_libs == ['/pkg/lib/libfoo.a']
+
+
+def test_a_generated_source_of_the_same_name_keeps_the_object(tmp_path):
+    # MSVC drops the module extension, and a generated foo.cpp of that name lands in the build dir
+    write_files(f'{tmp_path}/build', {'gen/api.cpp': '// generated'})
+    target = _target(tmp_path, modules=('api.cppm',))
+    assert not _strip(target, listing='api.obj\n').called
+
+
+def test_a_directory_of_that_name_without_the_original_is_not_a_stripped_copy(tmp_path):
+    # a project may keep its own mama-nomodules/ dir, and only the archive beside it names ours
+    lib = f'{tmp_path}/mama-nomodules/libfoo.a'
+    assert package._unstripped_lib(lib) == lib
+    write_files(str(tmp_path), {'libfoo.a': '\0'})
+    assert package._unstripped_lib(lib) == f'{tmp_path}/libfoo.a'
