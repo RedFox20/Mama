@@ -221,6 +221,13 @@ def exported_modules_with_base(target: BuildTarget) -> list:
     return [m for m in target.exported_modules if module_base_dir(target, m)]
 
 
+def archived_modules_named(archived: list, declared: list) -> list:
+    """The archived module paths whose file name a declared one names. A fetched hook names its
+    modules in the source tree, and only the archive knows where the deploy put them."""
+    names = {match_path(os.path.basename(m)) for m in declared}
+    return [m for m in archived if match_path(os.path.basename(m)) in names]
+
+
 def warn_unreachable_modules(target: BuildTarget) -> None:
     """Warn once for a module no exported include dir holds. Every later step drops such a module
     without a word, so this is where the recipe author can still see the mistake."""

@@ -1897,7 +1897,10 @@ class BuildTarget:
             hook = self._exports()
             merged = [new or old for new, old in zip(hook, loaded)]
             # modules are last, and an opt-out or an explicit export decided them either way
-            if self.no_modules or self.modules_declared: merged[-1] = self.exported_modules
+            if self.no_modules: merged[-1] = self.exported_modules
+            elif self.modules_declared:  # a hook that left the includes alone still names the deploy tree
+                merged[-1] = self.exported_modules if hook[0] \
+                             else package.archived_modules_named(loaded[-1], self.exported_modules)
             # a module sits under an include dir of the same tree, so a hook that re-rooted the
             # includes drops the archived module paths and the default finds them again below
             elif hook[0]: merged[-1] = []

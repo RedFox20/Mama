@@ -65,3 +65,14 @@ def test_a_fetched_hook_that_re_roots_the_includes_finds_its_modules_again(tmp_p
     target = _run(tmp_path, _include_hook, fetched=True,
                   exports=([f'{tmp_path}/deploy/include'], [], [], [], [deployed]))
     assert _names(package_mod.exported_modules_with_base(target)) == BOTH
+
+
+def test_a_fetched_hook_that_narrows_modules_without_includes_keeps_the_archived_ones(tmp_path):
+    # the hook names its modules in the source tree, and an include category it left alone still names
+    # the deployed one. The two shared no base, so the fetched package exported no module at all.
+    deployed = f'{tmp_path}/deploy/include'
+    hook = lambda self: self.export_modules('include/rpp', ['rpp-strview.cppm'])
+    target = _run(tmp_path, hook, fetched=True,
+                  exports=([deployed], [], [], [], [f'{deployed}/rpp/rpp-strview.cppm',
+                                                    f'{deployed}/rpp/rpp-vec.cppm']))
+    assert _names(package_mod.exported_modules_with_base(target)) == ['rpp-strview.cppm']
