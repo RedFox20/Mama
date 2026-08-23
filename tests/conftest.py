@@ -10,7 +10,7 @@ sys.path.insert(0, _repo_root)
 
 
 from testutils import (git_init_commit, has_case_sensitive_fs, is_linux,  # after the sys.path setup above
-                       make_example_remote, set_repo_template_dir)
+                       make_example_remote, set_repo_template_dir, windows_path_problem)
 
 
 def pytest_runtest_setup(item):
@@ -69,6 +69,27 @@ def example_remote(tmp_path_factory):
     os.environ['MAMA_TEST_REMOTE_OLD'] = info['old']
     os.environ['MAMA_TEST_REMOTE_NEW'] = info['new']
     return info
+
+
+@pytest.fixture(autouse=True)
+def _windows_portable_paths(request):
+    """Fail a test that writes a name no Windows host can hold. Only the windows job finds one otherwise,
+    a push later, and it reads as a mama bug rather than a test-fixture bug. A `linux_host` test never
+    runs there, so it may name what it likes. Checks only a test that took `tmp_path`, so no other test
+    pays for a temp dir it never asked for."""
+    root = None   # taken at setup: pytest tears tmp_path down before an autouse fixture resumes
+    if os.name != 'nt' and 'tmp_path' in request.fixturenames \
+       and not request.node.get_closest_marker('linux_host'):
+        root = str(request.getfixturevalue('tmp_path'))
+    yield
+    if not root: return
+    for parent, dirs, files in os.walk(root):
+        for name in dirs + files:
+            rel = os.path.relpath(os.path.join(parent, name), root)
+            problem = windows_path_problem(rel)
+            if problem:
+                pytest.fail(f'this test writes a path the windows job cannot create: {problem}.'
+                            f' Give the fixture a portable name, or mark the test linux_host.')
 
 
 @pytest.fixture(autouse=True)

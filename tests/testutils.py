@@ -757,6 +757,24 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
     return build_files_dir
 
 
+# every character Windows refuses in a name, plus the device names it reserves whatever the extension
+_WINDOWS_ILLEGAL = '<>:"\\|?*'
+_WINDOWS_DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{dev}{n}' for dev in ('com', 'lpt') for n in range(1, 10)}
+
+
+def windows_path_problem(path: str) -> str:
+    """Why `path` cannot exist on Windows, or '' when every component of it is portable. A POSIX name
+    may hold a character Windows refuses. A test that builds a path from a parser fixture then passes
+    on Linux and fails the windows job with WinError 123."""
+    for part in path.replace('\\', '/').split('/'):
+        if not part or part in ('.', '..') or part.endswith(':'): continue  # a drive letter names nothing
+        held = sorted(repr(c) for c in set(part) if c in _WINDOWS_ILLEGAL or ord(c) < 32)
+        if held: return f'{part!r} holds {", ".join(held)}, which no Windows name may hold'
+        if part[-1] in ' .': return f'{part!r} ends in a space or a period, which Windows drops'
+        if part.split('.')[0].lower() in _WINDOWS_DEVICES: return f'{part!r} names a reserved Windows device'
+    return ''
+
+
 def write_files(root, files:dict):
     """Write {relative path: text} under `root`, creating each parent dir."""
     for rel, text in files.items():
