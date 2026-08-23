@@ -1,4 +1,4 @@
-import os, sys, threading, contextlib, time
+import os, re, sys, threading, contextlib, time
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -66,6 +66,12 @@ def _cgroup_rel_paths() -> tuple:
     return v2, v1
 
 
+def _unescape_mount(path: str) -> str:
+    """A mountinfo path with its octal escapes decoded. The kernel writes `\\040` for a space, and the
+    same form for a tab, a newline and a backslash."""
+    return re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), path)
+
+
 def _cgroup_mounts() -> tuple:
     """Every (mount point, mount root) of the v2 hierarchy and of the v1 cpu controller, in mountinfo
     order. Neither sits at a fixed path: a hybrid host mounts v2 under the v1 tree, and a v1 host names
@@ -78,8 +84,9 @@ def _cgroup_mounts() -> tuple:
         left, _, right = line.partition(' - ')
         fields, after = left.split(), right.split()
         if len(fields) < 5 or len(after) < 3: continue
-        if after[0] == 'cgroup2': v2.append((fields[4], fields[3]))
-        elif after[0] == 'cgroup' and 'cpu' in after[2].split(','): v1.append((fields[4], fields[3]))
+        point, mount_root = _unescape_mount(fields[4]), _unescape_mount(fields[3])
+        if after[0] == 'cgroup2': v2.append((point, mount_root))
+        elif after[0] == 'cgroup' and 'cpu' in after[2].split(','): v1.append((point, mount_root))
     return v2, v1
 
 

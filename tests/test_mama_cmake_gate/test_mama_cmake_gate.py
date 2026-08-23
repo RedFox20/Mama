@@ -364,3 +364,10 @@ def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/sub/mama.cmake')
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_an_escaped_space_in_a_subdirectory_is_followed(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src\\ dir)\n')
+    write_files(dep.src_dir, {'src dir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src dir/mama.cmake')

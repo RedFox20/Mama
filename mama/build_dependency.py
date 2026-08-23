@@ -94,9 +94,16 @@ def first_cmake_arg(args: str) -> str:
             pad = len(bracket.group(1)) + 2   # the `[[` or `[=[` open, and its matching close
             return bracket.group(0)[pad:-pad]
         else:
-            end = i
-            while end < len(args) and not args[end].isspace(): end += 1
-            return args[i:end]
+            out = []
+            while i < len(args):
+                if args[i] == '\\' and i + 1 < len(args):
+                    out.append(args[i + 1])   # cmake reads `\\ ` and `\\\\` as the plain character
+                    i += 2
+                elif args[i].isspace(): break
+                else:
+                    out.append(args[i])
+                    i += 1
+            return ''.join(out)
     return ''
 
 

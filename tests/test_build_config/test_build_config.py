@@ -100,7 +100,8 @@ def test_a_hybrid_host_reads_the_v1_quota_under_the_v1_path(monkeypatch, tmp_pat
     ('36 35 0:28 / /sys/fs/cgroup/cpuacct rw - cgroup cgroup rw,cpuacct\n', ([], [])),
     ('35 23 0:27 /docker/abc /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n',
      ([('/sys/fs/cgroup', '/docker/abc')], [])),                       # a delegated subtree bind mount
-], ids=['hybrid-v2-under-v1-tree', 'v2-only', 'cpuacct-is-not-cpu', 'bind-mounted-subtree'])
+    ('35 23 0:27 / /sys/fs/cg\\040odd rw - cgroup2 cgroup2 rw\n', ([('/sys/fs/cg odd', '/')], [])),
+], ids=['hybrid-v2-under-v1-tree', 'v2-only', 'cpuacct-is-not-cpu', 'bind-mounted-subtree', 'octal-escape'])
 def test_the_cgroup_mounts_come_from_mountinfo(monkeypatch, tmp_path, text, expect):
     info = tmp_path / 'mountinfo'
     info.write_text(text)
