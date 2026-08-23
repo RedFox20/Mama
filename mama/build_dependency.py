@@ -101,9 +101,9 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
 
 
 def first_cmake_arg(args: str) -> tuple:
-    """(value, literal) for the first argument of a cmake command. `literal` marks a bracket argument,
-    whose content cmake evaluates in no way. A comment may open the list, and a quoted or a bracket
-    argument may hold a space or a `#`."""
+    """(value, literal) for the first argument of a cmake command. `literal` marks an argument mama
+    must not expand: a bracket one, whose content cmake evaluates in no way, and one that escapes a `$`,
+    where the name holds the variable syntax. A comment may open the list."""
     i = 0
     while i < len(args):
         char = args[i]
@@ -113,7 +113,9 @@ def first_cmake_arg(args: str) -> tuple:
             i = _skip_span(args, i)  # a comment names no argument
         elif char == '"':
             match = _CMAKE_QUOTED.match(args, i)
-            return (_unescape_cmake(match.group(0)[1:-1], quoted=True) if match else ''), False
+            if not match: return '', False
+            raw = match.group(0)[1:-1]
+            return _unescape_cmake(raw, quoted=True), '\\$' in raw
         elif char == '[' and (bracket := _CMAKE_BRACKET.match(args, i)):
             pad = len(bracket.group(1)) + 2   # the `[[` or `[=[` open, and its matching close
             content = bracket.group(0)[pad:-pad]
@@ -127,7 +129,8 @@ def first_cmake_arg(args: str) -> tuple:
                 # an unquoted argument holds none of these, and `;` divides its value as a list
                 elif args[end].isspace() or args[end] in '()#";': break
                 else: end += 1
-            return _unescape_cmake(args[i:end]), False
+            raw = args[i:end]
+            return _unescape_cmake(raw), '\\$' in raw
     return '', False
 
 

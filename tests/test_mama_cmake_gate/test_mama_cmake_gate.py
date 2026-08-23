@@ -442,3 +442,13 @@ def test_an_unquoted_argument_ends_at_a_line_comment(tmp_path):
     write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_an_escaped_dollar_names_the_dir_it_spells(tmp_path):
+    # an identity escape makes the `$` a plain character, so the variable syntax is part of the name
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(\\${CMAKE_SOURCE_DIR}/src)\n')
+    write_files(dep.src_dir, {'${CMAKE_SOURCE_DIR}/src/CMakeLists.txt': 'include(mama.cmake)\n',
+                              'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/${{CMAKE_SOURCE_DIR}}/src/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
