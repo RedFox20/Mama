@@ -128,11 +128,14 @@ is a dir cmake configures. A dep whose every include is refused still takes the 
 `mama.cmake` is a generated name, and mama overwrites one wherever it does write.
 
 **The scan reads cmake. It does not run cmake.** Mama follows `add_subdirectory()` through
-`CMakeLists.txt` files and takes each `project()` call in source order. It evaluates no `if()`. It
-reads the body of a `function()` or a `macro()` where that body is written, not where a call runs it.
-It reads no cmake script that an `include()` names. A proxy include that only one of those reaches
-gets no file, or one under another project scope. cmake then names the path it wanted, and naming the
-proxy at the top level of the `CMakeLists.txt` fixes that project.
+`CMakeLists.txt` files and takes each `project()` call in source order. Above the first one it
+resolves `PROJECT_SOURCE_DIR` to the dir cmake configures, where cmake itself answers an empty string.
+It evaluates no `if()`. It reads the body of a `function()` or a `macro()` where that body is written,
+not where a call runs it. It reads no cmake script that an `include()` names. So a `PROJECT_SOURCE_DIR`
+include under a conditional or a function can land under the wrong project scope. An include that only
+an unread script names is never seen. The shape rule below still covers a bare `include(mama.cmake)`
+in a dep that has children and a mamafile. Every other case ends with cmake naming the path it wanted,
+and one top-level `include(mama.cmake)` fixes that project.
 
 **A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** An
 `include()` whose first argument has the basename `mama.cmake`, in either case, asks for it, whatever
