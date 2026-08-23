@@ -38,9 +38,10 @@ _CMAKE_QUOTED = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
 _CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
 # a command invocation: a name, then the paren that opens its argument list
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
-# cmake dir variables: the dir of the file that names them, and the top dir mama configures
+# cmake dir variables: the dir of the file that names them, the nearest project(), and the top dir
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
-_CMAKE_TOP_DIR_VARS = ('${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
+_CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
+_CMAKE_TOP_DIR_VAR = '${CMAKE_SOURCE_DIR}'
 
 
 def _skip_span(text: str, i: int) -> int:
@@ -120,25 +121,26 @@ def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
 
 
 def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
-    """(dir, argument) for every `include()` naming the `mama.cmake` proxy. `source_dir` holds
-    `cmakelists`. The first file that names it answers with every path it names, because cmake alone
-    knows which branch of a conditional include runs. A file naming none follows its
-    `add_subdirectory()` calls, one read per subdirectory."""
-    pending, seen = [(cmakelists, source_dir)], set()
+    """(dir, project_dir, argument) for every `include()` naming the `mama.cmake` proxy, in every file
+    cmake reads from `cmakelists`, which `source_dir` holds. The scan follows `add_subdirectory()`, and
+    an argument holding a `$` stops that branch. `project_dir` is the dir of the nearest `project()`
+    call, which is what `PROJECT_SOURCE_DIR` expands to."""
+    pending, seen, found = [(cmakelists, source_dir, source_dir)], set(), []
     while pending:
-        path, cwd = pending.pop(0)
+        path, cwd, project_dir = pending.pop(0)
         real = os.path.realpath(path)
         if real in seen or not os.path.exists(path): continue
         seen.add(real)
-        commands = scan_cmake_commands(path, ('include', 'add_subdirectory'))
+        commands = scan_cmake_commands(path, ('include', 'add_subdirectory', 'project'))
+        if commands['project']: project_dir = cwd
         # the basename must match, or a write would replace a real module such as grandmama.cmake
-        found = [(cwd, a) for a in commands['include'] if os.path.basename(a).lower() == MAMA_CMAKE]
-        if found: return found
+        found += [(cwd, project_dir, a) for a in commands['include']
+                  if os.path.basename(a).lower() == MAMA_CMAKE]
         for arg in commands['add_subdirectory']:
             if '$' in arg: continue   # mama expands no variable a CMakeLists.txt sets
             sub = normalized_join(cwd, arg)
-            pending.append((normalized_join(sub, 'CMakeLists.txt'), sub))
-    return []
+            pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
+    return found
 
 
 def read_shim_marker_at(build_dir: str) -> dict:
@@ -936,9 +938,9 @@ class BuildDependency:
         # realpath, because a symlink inside the source dir leads out of it, and a plain prefix test misses that
         roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))
         paths = []
-        for source_dir, arg in find_mama_cmake_includes(self.cmakelists_path(), cmake_dir):
+        for source_dir, project_dir, arg in find_mama_cmake_includes(self.cmakelists_path(), cmake_dir):
             for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, source_dir)
-            for var in _CMAKE_TOP_DIR_VARS: arg = arg.replace(var, cmake_dir)
+            arg = arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, cmake_dir)
             # a `$` that survived names a form mama does not expand, such as $ENV{}, so the default answers
             path = normalized_join(source_dir, MAMA_CMAKE if '$' in arg else arg)
             if not os.path.realpath(path).startswith(roots):

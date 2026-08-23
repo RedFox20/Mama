@@ -55,8 +55,8 @@ so cut every word that a reader of the fix does not need.
 - **The default job count read the host cpus, so a container build started far too many compilers.**
   Fix: `usable_cpu_count` caps it by the cgroup cpu quota and the cpuset affinity mask.
 
-- **A proxy `include()` that only a subdirectory CMakeLists.txt named got no proxy, and cmake failed.**
-  Fix: a file naming no proxy makes the scan follow its `add_subdirectory()` calls.
+- **Only the root CMakeLists.txt named the proxy, so an `include()` in a subdirectory got none.**
+  Fix: the scan follows `add_subdirectory()`, and every file it reads contributes its own includes.
 
 - **`enable_cxx26()` wrote `c++2b` for GCC and Clang, which is C++23.** Fix: write `c++2c`.
 

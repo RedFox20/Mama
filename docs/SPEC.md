@@ -108,15 +108,16 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 it export, and mama writes one for every dep that has a build dir. `mama.cmake` is the proxy a
 consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them, then
 includes that build dir's `mama-dependencies.cmake`. **It goes to every path the `include()` commands
-name.** The `CMakeLists.txt` of the dep answers first. Only when a file names no proxy does the scan
-follow its `add_subdirectory()` calls, breadth first, and an argument holding a `$` stops that branch.
-The first file that names the proxy wins, and mama writes every path THAT file names, because cmake
-alone knows which branch of a conditional include runs. Mama resolves a relative path against the dir
-of the file that named it, and expands `CMAKE_CURRENT_LIST_DIR` and `CMAKE_CURRENT_SOURCE_DIR` to that
-dir. `CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` expand to the dir cmake configures. That dir
-is `<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile
-points `cmake_lists_path` at a nested or an absolute one. An argument that
-still holds a `$` after that names a form mama does not expand, and it takes the default `mama.cmake`
+name.** The scan reads the `CMakeLists.txt` of the dep, then follows its `add_subdirectory()` calls,
+breadth first. An argument holding a `$` stops that branch. Every file it reads contributes its own
+proxy includes, because cmake resolves each one against its own dir. Mama writes every path a file
+names, because cmake alone knows which branch of a conditional include runs. Mama resolves a relative
+path against the dir of the file that named it, and expands `CMAKE_CURRENT_LIST_DIR` and
+`CMAKE_CURRENT_SOURCE_DIR` to that dir. `CMAKE_SOURCE_DIR` expands to the dir cmake configures. That
+dir is `<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile
+points `cmake_lists_path` at a nested or an absolute one. `PROJECT_SOURCE_DIR` expands to the dir of
+the nearest `project()` call, which a subdirectory rebinds to itself when it calls one. An argument
+that still holds a `$` after that names a form mama does not expand. It takes the default `mama.cmake`
 beside the file that named it. **A path that leaves the source dir and the dir cmake configures gets a
 warning and no file.** The test resolves every symlink first, so a link inside the source dir leads
 nowhere new. An absolute `cmake_lists_path` widens the area mama may write to, because the dir it names
@@ -746,8 +747,8 @@ A mamafile that overrides `build()` runs whole in the build phase. It reserves i
 `enable_multiprocess_build` always gets one. A dep takes the count its translation-unit probe sized,
 and `config.jobs` when the probe found none. The root always takes `config.jobs`. `jobs=N` sets
 `config.jobs`. Without it, mama counts the cpus this process may use. Linux caps that count by the
-cgroup cpu quota and the cpuset affinity mask, then keeps one cpu free. Windows and macOS take every
-host cpu. msbuild takes
+cpuset affinity mask, and by the smallest cpu quota on its own cgroup or any ancestor. Linux then keeps
+one cpu free. Windows and macOS take every host cpu. msbuild takes
 `/maxcpucount:N`, xcodebuild takes `-jobs N`, and make and ninja take `-jN`. A target that clears
 `enable_multiprocess_build` passes no job count, except under ninja, which takes `-j1`.
 **Why:** ninja with no flag reads the host core count. A container CPU limit does not bound that count.

@@ -13,8 +13,9 @@ def _fresh_cpu_memo(monkeypatch):
 @pytest.fixture
 def cpus(monkeypatch, tmp_path):
     """usable_cpu_count() on a Linux host of `host` cpus, with a cgroup tree under tmp_path."""
-    def measure(*files, host=32, affinity=32):
+    def measure(*files, host=32, affinity=32, rel=''):
         monkeypatch.setattr(system, '_CGROUP_ROOT', tmp_path.as_posix())
+        monkeypatch.setattr(system, '_cgroup_rel_path', lambda: rel)
         monkeypatch.setattr(system, 'is_linux', True)
         monkeypatch.setattr(psutil, 'cpu_count', lambda: host)
         # raising=False: Windows has no sched_getaffinity, and these tests force the Linux branch
@@ -44,6 +45,32 @@ def test_a_cgroup_v1_quota_caps_the_cpu_count(cpus):
 ], ids=['v2-max', 'v1-unlimited', 'unreadable', 'no-controller'])
 def test_no_cgroup_limit_keeps_the_host_count(cpus, files):
     assert cpus(*files) == 32
+
+
+def test_a_quota_in_the_process_cgroup_caps_the_cpu_count(cpus):
+    # with no private cgroup namespace the mount root is an unlimited ancestor, not this process
+    assert cpus(('cpu.max', 'max 100000'), ('svc/cpu.max', '200000 100000'), rel='svc') == 2
+
+
+def test_the_smallest_quota_in_the_chain_wins(cpus):
+    assert cpus(('svc/cpu.max', '400000 100000'), ('svc/app/cpu.max', '200000 100000'), rel='svc/app') == 2
+
+
+def test_an_ancestor_quota_caps_a_child_that_sets_none(cpus):
+    assert cpus(('svc/cpu.max', '400000 100000'), ('svc/app/cpu.max', 'max 100000'), rel='svc/app') == 4
+
+
+@pytest.mark.parametrize('text, expect', [
+    ('0::/svc/app\n', 'svc/app'),                              # v2 unified hierarchy
+    ('4:cpu,cpuacct:/svc/app\n2:memory:/other\n', 'svc/app'),  # v1, cpu grouped with cpuacct
+    ('0::/\n', ''),                                            # a private cgroup namespace
+    ('2:memory:/other\n', ''),                                 # no cpu controller
+], ids=['v2', 'v1', 'namespaced', 'no-cpu-controller'])
+def test_the_proc_cgroup_line_names_the_process_cgroup(monkeypatch, tmp_path, text, expect):
+    proc = tmp_path / 'cgroup'
+    proc.write_text(text)
+    monkeypatch.setattr(system, '_PROC_CGROUP', proc.as_posix())
+    assert system._cgroup_rel_path() == expect
 
 
 def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):

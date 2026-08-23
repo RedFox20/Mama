@@ -35,23 +35,52 @@ is_x86_64 = _arch == 'x86_64' or _arch == 'amd64'
 is_x86 = _arch == 'x86' or _arch == 'i386'
 
 _CGROUP_ROOT = '/sys/fs/cgroup'
+_PROC_CGROUP = '/proc/self/cgroup'
 _cpu_count = 0
 
 
-def _cgroup_cpu_quota() -> int:
-    """Cpus the cgroup cpu controller allows, rounded up. 0 when it sets no limit."""
-    def read(*names) -> list:
-        fields = []
-        for name in names:
-            with open(f'{_CGROUP_ROOT}/{name}', encoding='utf-8') as f: fields += f.read().split()
-        return fields
-    try: fields = read('cpu.max')                                            # v2 writes `<quota> <period>`
-    except OSError:
-        try: fields = read('cpu/cpu.cfs_quota_us', 'cpu/cpu.cfs_period_us')  # v1 splits them in two files
-        except OSError: return 0
-    try: quota, period = int(fields[0]), int(fields[1])   # v2 writes `max` and v1 writes -1 for no limit
+def _read_fields(*paths) -> list:
+    """The whitespace-separated tokens of every named file, or [] when one of them is missing."""
+    fields = []
+    for path in paths:
+        try:
+            with open(path, encoding='utf-8') as f: fields += f.read().split()
+        except OSError: return []
+    return fields
+
+
+def _cgroup_rel_path() -> str:
+    """The cgroup of this process, relative to the mount root. Empty when it sits at the root, which is
+    what a private cgroup namespace reports."""
+    try:
+        with open(_PROC_CGROUP, encoding='utf-8') as f: lines = f.read().splitlines()
+    except OSError: return ''
+    for line in lines:                        # `<hierarchy>:<controllers>:<path>`
+        ids, _, rest = line.partition(':')
+        names, _, path = rest.partition(':')
+        if ids == '0' or 'cpu' in names.split(','): return path.strip('/')
+    return ''
+
+
+def _quota_in(cgroup_dir: str) -> int:
+    """Cpus the cpu controller of one cgroup dir allows, rounded up. 0 when it sets no limit."""
+    fields = _read_fields(f'{cgroup_dir}/cpu.max') \
+          or _read_fields(f'{cgroup_dir}/cpu.cfs_quota_us', f'{cgroup_dir}/cpu.cfs_period_us')
+    try: quota, period = int(fields[0]), int(fields[1])  # v2 writes `max` and v1 writes -1 for no limit
     except (IndexError, ValueError): return 0
     return (quota + period - 1) // period if quota > 0 and period > 0 else 0
+
+
+def _cgroup_cpu_quota() -> int:
+    """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
+    on any ancestor caps it too, so the smallest one wins."""
+    rel, dirs = _cgroup_rel_path(), []
+    for root in (_CGROUP_ROOT, f'{_CGROUP_ROOT}/cpu', f'{_CGROUP_ROOT}/cpu,cpuacct'):  # v2 mount, then v1
+        dirs.append(root)
+        for part in rel.split('/') if rel else []:
+            dirs.append(f'{dirs[-1]}/{part}')
+    limits = [n for n in map(_quota_in, dirs) if n]
+    return min(limits) if limits else 0
 
 
 def usable_cpu_count() -> int:

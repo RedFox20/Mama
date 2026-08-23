@@ -300,10 +300,26 @@ def test_a_subdirectory_bare_include_gets_the_proxy_beside_it(tmp_path):
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
-def test_a_dep_that_names_the_proxy_reads_no_subdirectory(tmp_path):
-    # the chain walk costs one read per subdirectory, so a file that names the proxy stops it
-    dep = _subdir_dep(tmp_path, 'include(deeper/mama.cmake)\n', 'include(mama.cmake)\nadd_subdirectory(src)\n')
-    assert dc._proxy_paths(dep) == [f'{dep.src_dir}/mama.cmake']
+def test_a_root_and_a_subdirectory_that_both_include_get_a_proxy_each(tmp_path):
+    # cmake resolves each relative include against its own dir, so one proxy cannot serve both
+    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n', 'include(mama.cmake)\nadd_subdirectory(src)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_subproject_resolves_project_source_dir_to_its_own_dir(tmp_path):
+    # project() in the subdirectory rebinds PROJECT_SOURCE_DIR, and CMAKE_SOURCE_DIR stays the top
+    dep = _subdir_dep(tmp_path, 'project(Sub)\ninclude(${PROJECT_SOURCE_DIR}/mama.cmake)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_subdirectory_with_no_project_keeps_the_top_project_source_dir(tmp_path):
+    dep = _subdir_dep(tmp_path, 'include(${PROJECT_SOURCE_DIR}/mama.cmake)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
 def test_a_subdirectory_that_adds_itself_ends_the_scan(tmp_path):
