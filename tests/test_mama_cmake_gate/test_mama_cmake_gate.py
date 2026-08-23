@@ -512,3 +512,47 @@ def test_a_make_style_reference_names_the_dir_it_spells(tmp_path, written):
 def test_a_bracket_counts_however_the_argument_spells_it(written, spelled):
     # cmake counts the brackets of the decoded value, so a `;` after an unequal count divides nothing
     assert first_cmake_arg(written) == (spelled, False)
+
+
+@pytest.mark.parametrize('written, value', [
+    ('src\\;dir',      'src;dir'),        # `\\;` protects the semicolon, then the backslash goes
+    ('src\\\\;dir', 'src;dir'),       # an identity escape leaves a backslash that protects it too
+    ('src\\\\\\;dir', 'src\\;dir'),  # and a third backslash keeps both of them
+    ('src\\\\dir', 'src\\dir'),   # no semicolon, so the escaped backslash is plain content
+    ('src;out',            'src'),            # a bare semicolon still divides
+], ids=['escaped', 'double', 'triple', 'no-semicolon', 'divides'])
+def test_a_backslash_before_a_semicolon_divides_no_list(written, value):
+    # cmake resolves the escapes first, then divides that value, so a `\\` reaches the divider as one `\`
+    assert first_cmake_arg(written) == (value, False)
+
+
+@pytest.mark.linux_host
+def test_a_trailing_space_names_the_dir_it_spells(tmp_path):
+    # a POSIX name may end in a space and Windows drops one, so only this host runs the case
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src ")\n')
+    write_files(dep.src_dir, {'src /CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src /mama.cmake')
+
+
+@pytest.mark.linux_host
+def test_two_symlink_aliases_of_one_dir_each_get_a_proxy(tmp_path):
+    # cmake reads each alias as its own source dir, so each one resolves CMAKE_CURRENT_SOURCE_DIR itself
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(x/a)\nadd_subdirectory(y/b)\n')
+    # `..` leaves the shared dir, so each alias names a proxy of its own rather than the one file both hold
+    write_files(dep.src_dir, {'shared/CMakeLists.txt': 'include(${CMAKE_CURRENT_SOURCE_DIR}/../mama.cmake)\n'})
+    for alias in ('x', 'y'):
+        os.makedirs(f'{dep.src_dir}/{alias}', exist_ok=True)
+    os.symlink(f'{dep.src_dir}/shared', f'{dep.src_dir}/x/a')
+    os.symlink(f'{dep.src_dir}/shared', f'{dep.src_dir}/y/b')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/x/mama.cmake') and os.path.exists(f'{dep.src_dir}/y/mama.cmake')
+
+
+@pytest.mark.linux_host
+def test_a_symlink_loop_stops_the_walk(tmp_path):
+    # a dir that symlinks to its own parent gives every level a new name, so only the depth cap ends it
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(sub)\n')
+    write_files(dep.src_dir, {'sub/CMakeLists.txt': 'add_subdirectory(loop)\n'})
+    os.symlink(f'{dep.src_dir}/sub', f'{dep.src_dir}/sub/loop')
+    dc._save_cmake_files(dep)   # it returns, rather than walking the alias chain forever

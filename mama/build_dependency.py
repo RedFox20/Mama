@@ -46,6 +46,8 @@ _ESCAPED_DOLLAR = '\x00'
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
 _CMAKE_TOP_DIR_VAR = '${CMAKE_SOURCE_DIR}'
+# a symlink that names its own parent gives every level a new dir, so the walk stops at a depth no project reaches
+_MAX_SUBDIR_DEPTH = 64
 
 
 def _skip_span(text: str, i: int) -> int:
@@ -95,7 +97,9 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
             elif quoted and text[i + 1] == '\n': i += 2
             else:
                 nxt = text[i + 1]
-                out.append(_ESCAPED_DOLLAR if nxt == '$' else _CMAKE_ENCODED.get(nxt, nxt))
+                # `\\;` survives an unquoted argument, because the list divider is what resolves it
+                out.append(_ESCAPED_DOLLAR if nxt == '$' else '\\;' if nxt == ';' and not quoted
+                           else _CMAKE_ENCODED.get(nxt, nxt))
                 i += 2
         # a make-style reference names no cmake variable, so it holds its `$` as content. It never nests
         elif text[i] == '$' and text[i + 1:i + 2] == '(' and (close := text.find(')', i + 2)) != -1:
@@ -103,6 +107,25 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
             i = close + 1
         else:
             out.append(text[i])
+            i += 1
+    return ''.join(out)
+
+
+def _divide_cmake_list(value: str) -> str:
+    """The first non-empty element of an unquoted cmake value. A `;` divides the value only where the
+    `[` and `]` before it are equal in number and no backslash protects it, which yields a `;`."""
+    out, brackets, i = [], 0, 0
+    while i < len(value):
+        char = value[i]
+        if char == '\\' and value[i + 1:i + 2] == ';':
+            out.append(';')
+            i += 2
+        elif char == ';' and brackets == 0:
+            if out: break   # an empty element reaches no command, so the scan reads on
+            i += 1
+        else:
+            brackets += (char == '[') - (char == ']')
+            out.append(char)
             i += 1
     return ''.join(out)
 
@@ -128,21 +151,17 @@ def first_cmake_arg(args: str) -> tuple:
             if content.startswith('\r\n'): return content[2:], True
             return (content[1:] if content.startswith('\n') else content), True
         else:
-            end, brackets = i, 0
+            end = i
             while end < len(args):
-                span = end
                 if args[end] == '\\' and end + 1 < len(args): end += 2   # an escape holds any character
                 # a legacy unquoted argument holds a balanced quoted span and a `$(VAR)`, both as content
                 elif args[end] == '"' and (quoted := _CMAKE_QUOTED.match(args, end)): end = quoted.end()
                 elif args[end] == '$' and args[end + 1:end + 2] == '(' and (close := args.find(')', end + 2)) != -1:
                     end = close + 1
-                # `;` divides a value as a list only where the `[` and `]` before it are equal in number
-                elif args[end] == ';' and brackets == 0: break
                 elif args[end].isspace() or args[end] in '()#"': break
                 else: end += 1
-                # cmake counts every bracket of the value, so an escaped or a quoted one balances too
-                brackets += args.count('[', span, end) - args.count(']', span, end)
-            return _unescape_cmake(args[i:end]), False
+            # cmake resolves the escapes of the whole argument, and divides the value it gets from that
+            return _divide_cmake_list(_unescape_cmake(args[i:end])), False
     return '', False
 
 
@@ -189,12 +208,12 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
     cmake reads from `cmakelists`, which `source_dir` holds. The scan follows `add_subdirectory()`, and
     an argument holding a `$` stops that branch. `project_dir` is the dir of the last `project()` call
     ABOVE the include, which is what `PROJECT_SOURCE_DIR` expands to there."""
-    pending, seen, found = [(cmakelists, source_dir, source_dir)], set(), []
+    pending, seen, found = [(cmakelists, source_dir, source_dir, 0)], set(), []
     while pending:
-        path, cwd, project_dir = pending.pop(0)
-        # cmake reads one source dir once per project scope, so the scope belongs in the cycle key
-        key = (os.path.realpath(path), project_dir)
-        if key in seen or not os.path.exists(path): continue
+        path, cwd, project_dir, depth = pending.pop(0)
+        # cmake reads one source dir once per project scope, and two symlink aliases are two source dirs
+        key = (cwd, project_dir)
+        if key in seen or depth > _MAX_SUBDIR_DEPTH or not os.path.exists(path): continue
         seen.add(key)
         for name, arg, literal in scan_cmake_commands(path, ('include', 'add_subdirectory', 'project')):
             if name == 'project':
@@ -203,11 +222,11 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
                 # the basename must match, or a write would replace a real module such as grandmama.cmake
                 if os.path.basename(arg).lower() == MAMA_CMAKE: found.append((cwd, project_dir, arg, literal))
             elif literal:
-                sub = normalized_join(cwd, arg)   # a bracket argument names the dir it spells
-                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
+                sub = normalized_join(cwd, arg, strip=False)   # a bracket argument names the dir it spells
+                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, depth + 1))
             elif not has_unknown_cmake_var(arg):   # mama expands no variable a CMakeLists.txt sets
-                sub = normalized_join(cwd, expand_cmake_dirs(arg, cwd, project_dir, source_dir))
-                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
+                sub = normalized_join(cwd, expand_cmake_dirs(arg, cwd, project_dir, source_dir), strip=False)
+                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, depth + 1))
     return found
 
 

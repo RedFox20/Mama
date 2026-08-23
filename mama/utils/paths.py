@@ -52,15 +52,16 @@ def short_path(path) -> str:
     return '/'.join(forward_slashes(path).split('/')[-2:]) if path else ''
 
 
-def normalized_path(pathstring: str) -> str:
-    """Normalizes a path to an ABSOLUTE path with all forward/ slashes."""
-    pathstring = os.path.abspath(pathstring)
-    return pathstring.replace('\\', '/').rstrip()
+def normalized_path(pathstring: str, strip: bool = True) -> str:
+    """Normalizes a path to an ABSOLUTE path with all forward/ slashes.
+    @param strip False keeps trailing whitespace, which a POSIX name may hold and cmake may name"""
+    pathstring = os.path.abspath(pathstring).replace('\\', '/')
+    return pathstring.rstrip() if strip else pathstring
 
 
-def normalized_join(path1: str, *pathsN) -> str:
+def normalized_join(path1: str, *pathsN, strip: bool = True) -> str:
     """Joins N paths and then calls normalized_path()."""
-    return normalized_path(os.path.join(path1, *pathsN))
+    return normalized_path(os.path.join(path1, *pathsN), strip=strip)
 
 
 @lru_cache(maxsize=1)
