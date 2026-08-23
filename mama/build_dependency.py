@@ -38,7 +38,7 @@ _CMAKE_QUOTED = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
 _CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
 # a command invocation: a name, then the paren that opens its argument list
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
-# cmake variables that expand to the dir of the file that names them, and to the top dir mama configures
+# cmake dir variables: the dir of the file that names them, and the top dir mama configures
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_TOP_DIR_VARS = ('${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
 
@@ -98,10 +98,9 @@ def first_cmake_arg(args: str) -> str:
 
 def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
     """The first argument of every named command, in file order, keyed by the lowercased command name.
-    One pass reads the whole file, because a cmake command may span lines. It runs at command positions
-    only: every other command hides its whole argument list, so a nested `include(...)` names nothing.
-    'surrogateescape': cmake reads an 8-bit-clean file, and a byte mama cannot decode still has to
-    reach the path it writes."""
+    One pass reads the whole file, because a cmake command may span lines. It matches at command
+    positions only, so a nested `include(...)` names nothing. 'surrogateescape': a byte mama cannot
+    decode still has to reach the path it writes."""
     text = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
     found, i = {name: [] for name in commands}, 0
     while i < len(text):
@@ -121,11 +120,10 @@ def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
 
 
 def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
-    """(dir, argument) for every `include()` that names the `mama.cmake` proxy, in the order cmake reads
-    them. `source_dir` holds `cmakelists`. The first file that names the proxy answers. Mama takes
-    every path THAT file names, because cmake alone knows which branch of a conditional include runs.
-    Only a file that names none makes the scan follow its `add_subdirectory()` calls, which costs one
-    read per subdirectory. Reading nothing else keeps a plain third-party dep at a single read."""
+    """(dir, argument) for every `include()` naming the `mama.cmake` proxy. `source_dir` holds
+    `cmakelists`. The first file that names it answers with every path it names, because cmake alone
+    knows which branch of a conditional include runs. A file naming none follows its
+    `add_subdirectory()` calls, one read per subdirectory."""
     pending, seen = [(cmakelists, source_dir)], set()
     while pending:
         path, cwd = pending.pop(0)
@@ -932,9 +930,8 @@ class BuildDependency:
 
 
     def mama_cmake_paths(self) -> list:
-        """Every path a proxy `include()` names, resolved against the dir of the file that names it.
-        Empty when the dep includes none. The scan never caches: a configure() hook can rewrite the
-        CMakeLists.txt with no change a stat can see."""
+        """Every path a proxy `include()` names, resolved against the dir of the file that names it. The
+        scan never caches: a configure() hook can rewrite the CMakeLists.txt with no change a stat sees."""
         cmake_dir = self.cmake_source_dir()
         # realpath, because a symlink inside the source dir leads out of it, and a plain prefix test misses that
         roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))

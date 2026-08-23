@@ -1,5 +1,4 @@
-"""Pins BuildConfig: default jobs (the container limit, Linux leaves a core free), the once-only
-compiler-conflict note, flag aliases."""
+"""Pins BuildConfig: default jobs (container limit, Linux leaves a core free), the compiler-conflict note, flag aliases."""
 import os, psutil, threading
 import pytest
 from mama.build_config import BuildConfig
@@ -13,7 +12,7 @@ def _fresh_cpu_memo(monkeypatch):
 
 @pytest.fixture
 def cpus(monkeypatch, tmp_path):
-    """usable_cpu_count() on a Linux host of `host` cpus, reading a cgroup tree written under tmp_path."""
+    """usable_cpu_count() on a Linux host of `host` cpus, with a cgroup tree under tmp_path."""
     def measure(*files, host=32, affinity=32):
         monkeypatch.setattr(system, '_CGROUP_ROOT', tmp_path.as_posix())
         monkeypatch.setattr(system, 'is_linux', True)
@@ -33,7 +32,7 @@ def test_a_cgroup_v2_quota_caps_the_cpu_count(cpus):
 
 
 def test_a_cgroup_v1_quota_caps_the_cpu_count(cpus):
-    # 1.5 cpus rounds UP: two compiles timeshare, where one would leave the quota unused
+    # 1.5 cpus rounds UP: two compiles timeshare, one would leave the quota unused
     assert cpus(('cpu/cpu.cfs_quota_us', '150000'), ('cpu/cpu.cfs_period_us', '100000')) == 2
 
 
@@ -58,7 +57,7 @@ def test_the_default_jobs_read_the_container_limit(cpus, monkeypatch):
 
 
 def test_default_jobs_leaves_one_core_free_on_linux(cpus, monkeypatch):
-    cpus()                                           # 32 cpus, and the host imposes no container limit
+    cpus()                                           # 32 cpus, no container limit
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 31   # N-1: do not saturate the box into an OOM/freeze
     monkeypatch.setattr(system.System, 'linux', False)

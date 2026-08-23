@@ -16,10 +16,8 @@ so cut every word that a reader of the fix does not need.
 - **The RAM cap for parallel compiles reads the host memory.** `_mem_capped_budget` divides
   `psutil.virtual_memory().total` by `_GB_PER_COMPILE` (`dependency_chain.py:696`), and psutil reads
   `/proc/meminfo`, which reports the host inside a memory-limited cgroup. A container held to 2 GB on a
-  64 GB host allows 42 concurrent heavy compiles, and the OOM killer stops the build. The cpu count now
-  reads its cgroup limit, and this is the same failure through the memory controller. Fix: read
-  `memory.max` (v2) or `memory/memory.limit_in_bytes` (v1) beside `_cgroup_cpu_quota` in
-  `utils/system.py`, and take the smaller.
+  64 GB host then allows 42 heavy compiles. Fix: read `memory.max` (v2) or
+  `memory/memory.limit_in_bytes` (v1) beside `_cgroup_cpu_quota`, and take the smaller.
 
 - **The module strip runs the target-wide matcher against every exported archive.**
   `export_stripped_module_libs` loops `target.exported_libs` and calls `_module_object_members(target, src)`

@@ -55,11 +55,10 @@ def _cgroup_cpu_quota() -> int:
 
 
 def usable_cpu_count() -> int:
-    """Cpus this process may use. Inside a container psutil reports the host count, so a cgroup quota
-    or a cpuset affinity mask caps it. Memoized: no limit changes while mama runs."""
+    """Cpus this process may use. psutil reports the HOST count inside a container, so Linux caps it."""
     global _cpu_count
     if _cpu_count: return _cpu_count
-    import psutil  # deferred: psutil costs about 32ms to import, and only this line needs it
+    import psutil  # deferred: psutil costs about 32ms to import
     cpu = psutil.cpu_count() or 4
     if is_linux:
         affinity = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else 0
