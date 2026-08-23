@@ -1,5 +1,7 @@
 """Pins the module half of the generated cmake: the helper, its guard, and the per-package variables."""
+import os
 import shutil
+from unittest.mock import patch
 
 import pytest
 from testutils import make_includes_dep, make_includes_target
@@ -135,3 +137,14 @@ def test_the_gate_answers_the_compiler_and_the_lever(tmp_path, defines, ok):
 def test_the_written_ninja_version_decides_the_generator(tmp_path, version, expected):
     # mama measures ninja once and writes the number, so no configure spawns it again
     assert f'generator={expected}' in _probe(tmp_path, ninja_version=version)
+
+
+@pytest.mark.case_sensitive_fs
+def test_two_case_distinct_roots_are_two_trees(tmp_path):
+    # a case-sensitive volume keeps Include/ and include/ apart, and folding merged them, so the
+    # module of the inner tree lost the one base dir cmake accepts for it
+    root = forward_slashes(str(tmp_path))
+    os.makedirs(f'{root}/Include'); os.makedirs(f'{root}/include/sub')
+    with patch.object(package.System, 'macos', True):  # the platform that folds case
+        assert package.drop_nested_dirs([f'{root}/Include', f'{root}/include/sub']) \
+            == [f'{root}/Include', f'{root}/include/sub']

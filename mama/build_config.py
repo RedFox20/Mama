@@ -636,16 +636,20 @@ class BuildConfig:
         """Find the root path that holds the compiler and the discovered name suffix.
         Returns (root_path, suffix, version)."""
         def resolve_compiler(cxx_path, suffix) -> tuple[str, str, str]:
+            original_path = cxx_path
             cxx_path = os.path.realpath(cxx_path) # resolve symlinks
             if not os.path.exists(cxx_path):
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
             root = forward_slashes(os.path.dirname(cxx_path)) + '/'
-            # The caller composes `root + compiler + suffix`, so that path has to exist at the resolved
-            # root. Each of the link and its target carries a name the other does not, so try both.
+            # The caller composes `root + compiler + suffix`, so that path has to exist. Each of the
+            # link and its target carries a name the other does not, so try both, then the link itself.
             name = os.path.basename(cxx_path)
             real = name[len(compiler):] if name.startswith(compiler) else ''
-            spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
+            spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), None)
+            if spelling is None:  # a target-prefixed name composes nothing here, and the link does
+                root = forward_slashes(os.path.dirname(original_path)) + '/'
+                spelling = next((s for s in (suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
             return root, spelling, version
 
         # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install

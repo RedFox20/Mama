@@ -109,3 +109,17 @@ def test_the_cxx_env_var_reads_the_suffix_off_the_real_file_too(tmp_path):
         root, suffix, _ = config.find_compiler_root('', CXX, ['-14', ''], dumpfullversion=False)
     assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
     assert os.path.exists(f'{root}{CC}{suffix}'), f'{root}{CC}{suffix}'
+
+
+def test_a_link_to_a_target_prefixed_compiler_keeps_a_name_that_exists(tmp_path):
+    # bin/cc++ -> gcc/bin/x86_64-linux-gnu-cc++-14, whose name starts with neither the compiler nor
+    # any spelling the resolved root holds, so only the link itself names a file that exists
+    real_bin, link_bin = tmp_path / 'gcc-14' / 'bin', tmp_path / 'bin'
+    real_bin.mkdir(parents=True); link_bin.mkdir()
+    for name in (CC, CXX):
+        _fake(str(real_bin), f'x86_64-linux-gnu-{name}-14')
+        _link(real_bin / f'x86_64-linux-gnu-{name}-14', link_bin / name)
+
+    root, suffix, _ = _find(str(link_bin) + '/', ['-14', ''])
+    assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
+    assert os.path.exists(f'{root}{CC}{suffix}'), f'{root}{CC}{suffix}'

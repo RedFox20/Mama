@@ -187,12 +187,18 @@ def module_base_dir(target: BuildTarget, module: str) -> str:
     return best
 
 
+def _nested_in(inner: str, outer: str) -> bool:
+    """True when `outer` really holds `inner`. Only a match that needed case folding asks the
+    filesystem, so a case-sensitive volume keeps two dirs whose folded names are equal."""
+    if not match_path(inner).startswith(match_path(outer) + '/'): return False
+    return inner.startswith(outer + '/') or _holds_path(outer, inner)
+
+
 def drop_nested_dirs(dirs) -> list:
     """The given dirs, sorted, with every dir that sits inside another one removed. Cmake refuses a
     file set whose base dirs contain each other, and the outer dir already holds them all."""
     uniq = sorted({forward_slashes(d) for d in dirs if d})
-    return [d for d in uniq
-            if not any(match_path(d).startswith(match_path(o) + '/') for o in uniq if o != d)]
+    return [d for d in uniq if not any(_nested_in(d, o) for o in uniq if o != d)]
 
 
 def module_base_dirs(target: BuildTarget) -> list:
@@ -290,7 +296,8 @@ def _ambiguous_names(target: BuildTarget, modules: list) -> set:
         base = os.path.basename(path)
         stem, ext = os.path.splitext(base)
         if ext.lower() in SOURCE_EXTENSIONS: names.add(match_path(stem))
-        elif not _is_ours(path, exported, build): names.add(match_path(base))
+        # the bare stem too: MSVC drops the module extension, and the fallback probes that spelling
+        elif not _is_ours(path, exported, build): names |= {match_path(base), match_path(stem)}
     return names
 
 
