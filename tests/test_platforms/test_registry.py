@@ -1,10 +1,12 @@
 """Pins the CLI arg to platform mapping and the class contract every platform must satisfy."""
 import inspect
+from unittest.mock import patch
 import pytest
 
 from mama.build_config import BuildConfig
 from mama.platforms.platform import Platform
 from types import SimpleNamespace
+import mama.platforms.raspi as raspi_mod
 from mama.platforms.registry import PLATFORMS, platform_for_arg, host_platform, platform_named
 from mama.build_names import build_dir_name
 
@@ -118,9 +120,12 @@ def test_every_cross_platform_says_so(platform_class):
     assert platform_class.is_host_runnable == (not cross)
 
 
-def test_a_cross_platform_names_a_full_path_for_its_archiver():
-    # the host keeps a cross ar off PATH, and a bare name then edits the archive with the wrong tool
+@pytest.mark.parametrize('windows, suffix', [(False, ''), (True, '.exe')])
+def test_a_cross_platform_names_a_full_path_for_its_archiver(windows, suffix):
+    # the host keeps a cross ar off PATH, and a bare name then edits the archive with the wrong tool.
+    # A full path never gains .exe from PATHEXT, so a Windows host launched nothing and the strip died.
     from mama.platforms.raspi import Raspi
     raspi = Raspi(SimpleNamespace(verbose=False, arch='arm64'))
     raspi.compilers = '/opt/rpi/bin/'
-    assert raspi.archiver() == f'/opt/rpi/bin/{raspi.triple()}-ar'
+    with patch.object(raspi_mod.System, 'windows', windows):
+        assert raspi.archiver() == f'/opt/rpi/bin/{raspi.triple()}-ar{suffix}'

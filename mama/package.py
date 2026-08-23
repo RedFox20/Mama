@@ -121,13 +121,13 @@ def export_modules(target: BuildTarget, module_path: str, modules, build_dir: bo
     else:
         found = [normalized_join(module_path, m) for m in modules]
     added = False
-    seen = {match_path(m) for m in target.exported_modules}  # one file, whatever case the caller spelled
+    seen = list(target.exported_modules)  # one file, whatever case the caller spelled
     for module in found:
         if not os.path.exists(module):
             warning(f'export_modules failed to find: {module}')
             continue
-        if match_path(module) not in seen:
-            seen.add(match_path(module))
+        if not any(_one_file(module, s) for s in seen):  # a case-sensitive volume holds both variants
+            seen.append(module)
             target.exported_modules.append(module)
             added = True
     return added

@@ -18,9 +18,10 @@ def _include_hook_none(self): pass  # a recipe from before export_modules existe
 
 def _run(tmp_path, package, fetched=False, exports=None, files=None):
     """Run the packaging of a target whose package() hook is `package`. Returns the target."""
-    target = make_package_target(tmp_path, package=package, exports=exports,
-                                 dep_attrs={'from_artifactory': fetched, 'should_rebuild': True})
-    write_files(target.source_dir(), files or FILES)
+    attrs = {'from_artifactory': fetched, 'should_rebuild': True}
+    if files == {}: attrs['is_artifactory_shim'] = lambda: True  # no checkout, the shim shape
+    target = make_package_target(tmp_path, package=package, exports=exports, dep_attrs=attrs)
+    write_files(target.source_dir(), FILES if files is None else files)
     target._run_packaging()
     assert target.exported_includes, 'the packaging never ran, so every assert below passes for free'
     return target
@@ -96,3 +97,14 @@ def test_a_fetched_narrowing_hook_tells_two_modules_of_one_name_apart(tmp_path):
     target = _run(tmp_path, hook, fetched=True, files={'include/a/api.cppm': CPPM, 'include/b/api.cppm': CPPM},
                   exports=([deployed], [], [], [], [f'{deployed}/a/api.cppm', f'{deployed}/b/api.cppm']))
     assert target.exported_modules == [f'{deployed}/a/api.cppm']
+
+
+def test_a_shim_keeps_the_archived_modules_its_recipe_could_not_resolve(tmp_path):
+    # a shim has no checkout, so export_modules() resolves nothing and still sets modules_declared.
+    # Reading that empty result as the answer dropped every module the archive recorded.
+    deployed = f'{tmp_path}/deploy/include'
+    hook = lambda self: (self.export_include('include'),
+                         self.export_modules('include/rpp', ['rpp-strview.cppm']))
+    target = _run(tmp_path, hook, fetched=True, files={},  # no source tree: that is what a shim is
+                  exports=([deployed], [], [], [], [f'{deployed}/rpp/rpp-strview.cppm']))
+    assert target.exported_modules == [f'{deployed}/rpp/rpp-strview.cppm']

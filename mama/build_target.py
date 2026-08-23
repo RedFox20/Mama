@@ -1898,7 +1898,9 @@ class BuildTarget:
             merged = [new or old for new, old in zip(hook, loaded)]
             # modules are last, and an opt-out or an explicit export decided them either way
             if self.no_modules: merged[-1] = self.exported_modules
-            elif self.modules_declared:  # a hook that left the includes alone still names the deploy tree
+            elif self.modules_declared and (self.exported_modules or not self.dep.is_artifactory_shim()):
+                # a hook that left the includes alone still names the deploy tree, and a shim has no
+                # checkout at all, so its declaration resolves to nothing and answers for nothing
                 merged[-1] = self.exported_modules if hook[0] \
                              else package.archived_modules_named(loaded[-1], self.exported_modules)
             # a module sits under an include dir of the same tree, so a hook that re-rooted the

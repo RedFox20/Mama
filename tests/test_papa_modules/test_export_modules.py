@@ -132,7 +132,19 @@ def test_two_spellings_of_one_file_export_once(tmp_path):
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
     # a case-merging filesystem answers for both spellings, so the export must merge them too
-    with patch('mama.package.System') as system, patch('mama.package.os.path.exists', return_value=True):
+    # samefile is what a case-merging volume answers for two spellings, and only it proves they are one
+    with patch('mama.package.System') as system, patch('mama.package.os.path.exists', return_value=True), \
+         patch('mama.package.os.path.samefile', return_value=True):
         system.windows = True
         package.export_modules(target, 'src/rpp', ['RPP-Strview.cppm'], build_dir=False)
     assert len(target.exported_modules) == 1
+
+
+@pytest.mark.case_sensitive_fs
+def test_two_case_distinct_modules_both_export(tmp_path):
+    # a case-sensitive volume holds Api.cppm and api.cppm apart, and folding dropped the second export
+    target = _target(tmp_path)
+    write_files(f'{tmp_path}/src/rpp', {'Api.cppm': 'export module a;', 'api.cppm': 'export module b;'})
+    with patch.object(package.System, 'macos', True):  # the platform that folds case
+        package.export_modules(target, 'src/rpp', ['Api.cppm', 'api.cppm'], build_dir=False)
+    assert len(target.exported_modules) == 2

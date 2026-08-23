@@ -55,8 +55,9 @@ class Raspi(Platform):
 
 
     def archiver(self) -> str:
-        """The cross binutils sit beside the compiler, and the host keeps them off PATH."""
-        return f'{self.compiler_prefix()}ar'
+        """The cross binutils sit beside the compiler, and the host keeps them off PATH. The name is a
+        full path, which Windows never completes from PATHEXT, so it carries its own suffix."""
+        return f'{self.compiler_prefix()}ar' + ('.exe' if System.windows else '')
 
 
     def get_sysroot(self) -> str:
