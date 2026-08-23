@@ -117,7 +117,7 @@ same dir. Mama expands `CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` to the dir cm
 is `<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile
 points `cmake_lists_path` at a nested or an absolute one. An argument that
 still holds a `$` after that names a form mama does not expand, and it takes the default `mama.cmake`
-beside the `CMakeLists.txt`. **A path that leaves the source dir and the dir cmake configures gets a
+beside the file that named it. **A path that leaves the source dir and the dir cmake configures gets a
 warning and no file.** The test resolves every symlink first, so a link inside the source dir leads
 nowhere new. An absolute `cmake_lists_path` widens the area mama may write to, because the dir it names
 is a dir cmake configures. A dep whose every include is refused still takes the shape rule below.
@@ -745,9 +745,9 @@ A mamafile that overrides `build()` runs whole in the build phase. It reserves i
 **Build parallelism**: the native build tool takes an explicit job count, and a target that keeps
 `enable_multiprocess_build` always gets one. A dep takes the count its translation-unit probe sized,
 and `config.jobs` when the probe found none. The root always takes `config.jobs`. `jobs=N` sets
-`config.jobs`. Without it, mama counts the cpus this process may use. That is the host count, capped by
-the cgroup cpu quota and by the cpuset affinity mask. Linux then keeps one of those free, and Windows
-and macOS take them all. msbuild takes
+`config.jobs`. Without it, mama counts the cpus this process may use. Linux caps that count by the
+cgroup cpu quota and by the cpuset affinity mask. Linux then keeps one cpu free. Windows and macOS read
+the host count and take every cpu. msbuild takes
 `/maxcpucount:N`, xcodebuild takes `-jobs N`, and make and ninja take `-jN`. A target that clears
 `enable_multiprocess_build` passes no job count, except under ninja, which takes `-j1`.
 **Why:** ninja with no flag reads the host core count. A container CPU limit does not bound that count.
@@ -1175,7 +1175,10 @@ which is 15 seconds. A GNU source archive, an NDK zip and a mamafile `self.downl
 **A transport failure marks the network unavailable for the rest of the run, and a server answer never
 does.** A DNS failure, a refused or a reset connection and a timeout are transport failures. An HTTP
 status, an authentication refusal and a TLS failure all mean the server answered, so the run keeps
-trying. Every artifactory fetch that starts after the mark returns at once.
+trying. Three calls set the mark: the git self-version probe, `git ls-remote`, and the artifactory
+package download. A failed clone or pull sets nothing. After the mark, every remote probe answers None.
+The package download returns nothing, and a cached zip still loads. Mama skips a pull and builds the
+cached source. A clone into an empty source dir raises.
 
 **Why:** the timeout is the wait for the next byte, not a budget for the whole transfer, so a slow but
 live download never trips it. A dead network pays the wait once per fetch already in flight.
