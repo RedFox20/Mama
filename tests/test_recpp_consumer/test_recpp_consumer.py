@@ -1,9 +1,5 @@
 """Pins that mama clones a well known C++ package, builds it, and links an app against it.
-
-The app imports the C++20 module when that package exports one, and includes the header when it does
-not, so this test follows whichever path the package and the toolchain allow. This is the one test
-that reaches the network, because a real dependency is the point of it.
-Excluded from the default run: `python -m pytest tests/test_recpp_consumer -m slow`."""
+The one test that reaches the network. Slow-gated: `pytest tests/test_recpp_consumer -m slow`."""
 import os
 import shutil
 import socket

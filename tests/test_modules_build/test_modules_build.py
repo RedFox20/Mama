@@ -154,9 +154,8 @@ def test_a_generator_without_module_support_falls_back_to_headers(tmp_path):
 
 def _serve_package(package_dir, name) -> tuple:
     """Zip a deployed package and serve it the way artifactory does. Returns (url, the http server).
-
     The consumer composes the archive name from its own platform and compiler, so the handler answers
-    every request with the one zip. That keeps the naming rules out of this test."""
+    every request with the one zip, keeping the naming rules out of this test."""
     served = tempfile.mkdtemp(prefix='mama_artifactory_')
     archive = os.path.join(served, f'{name}.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zip:

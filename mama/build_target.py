@@ -564,8 +564,8 @@ class BuildTarget:
 
     def no_export_modules(self):
         """
-        Declares that this target exports no C++20 module interface units. This prevents the
-        automatic module search, which reads every exported include dir.
+        Declares that this target exports no C++20 module interface units, which stops the
+        automatic search of every exported include dir.
         ```
             def package(self):
                 self.no_export_modules()
@@ -644,31 +644,27 @@ class BuildTarget:
     def export_modules(self, module_path, modules=None, build_dir=False, recursive=True,
                        strip_objects=True):
         """
-        Exports C++20 module interface units to consumers of this package.
-
-        A binary module interface is not portable, so a consumer compiles these sources itself.
-        The generated `mama.cmake` carries them, and `mama_target_modules(MyApp)` adds them to a
-        target. A toolchain without module support keeps the headers. A consumer that needs a
-        newer compiler than the default raises `MAMA_MODULES_MIN_CLANG`, or turns the whole
-        feature off with `MAMA_ENABLE_MODULES=OFF`.
+        Exports C++20 module interface units. A binary module interface is not portable, so the
+        consumer compiles these sources: `mama.cmake` carries them and `mama_target_modules(MyApp)`
+        adds them. A toolchain without module support keeps the headers.
         ```
             self.export_include('src/rpp', as_includes_root=True)
             self.export_modules('src/rpp', ['rpp-strview.cppm'])
         ```
-        The modules deploy inside the exported include tree, so a module reaches its own header.
-        A module that sits under no exported include path cannot ship.
+        Modules deploy inside the exported include tree, so a module reaches its own header. One
+        under no exported include path cannot ship.
 
         - module_path: the folder holding the module interface units
-        - modules: [None] the file names. None globs every known module extension under module_path
+        - modules: [None] the file names. None globs every module extension under module_path
         - build_dir: [False] resolve module_path against the build directory
-        - recursive: [True] the glob reads every subdirectory too. False reads module_path alone
-        - strip_objects: [True] remove the module objects from the exported static library. The flag
-          applies to the whole target, and one False keeps the objects whatever a later call passes.
+        - recursive: [True] the glob reads subdirectories too. False reads module_path alone
+        - strip_objects: [True] remove module objects from the exported static library. Target-wide,
+          and one False sticks whatever a later call passes.
 
         **An exported module must define nothing but its own interface.** The strip removes whole
-        objects, so a module unit that defines a non-inline function loses that definition, and a
-        consumer whose toolchain builds no module then fails to link it. Pass `strip_objects=False`
-        for a unit that carries a definition. Its consumers then cannot whole-archive link.
+        objects, so a unit defining a non-inline function loses it and a header-fallback consumer
+        fails to link. Pass `strip_objects=False` for such a unit, whose consumers then cannot
+        whole-archive link.
         """
         # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
         if not strip_objects: self.strip_module_objects = False

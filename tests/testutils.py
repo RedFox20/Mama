@@ -544,9 +544,8 @@ def _probe_module_compiler() -> dict:
 
 def module_capable_compiler() -> dict:
     """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
-    The paths are explicit, because compiler discovery composes a suffixed path a symlinked toolchain
-    does not have. A job that pinned MAMA_TEST_COMPILER raises instead of answering {}. A skipped cell
-    reports green and proves nothing, so a broken module path would reach a release unseen."""
+    The paths are explicit, because discovery composes a suffixed path a symlinked toolchain lacks. A
+    job that pinned MAMA_TEST_COMPILER raises instead: a skipped cell reports green and proves nothing."""
     found = _probe_module_compiler()
     pinned = os.getenv('MAMA_TEST_COMPILER', '')
     if not found and pinned:

@@ -137,10 +137,9 @@ def _cmake_opt_key(opt:str) -> str:
 
 
 def _cxx_standard_opts(target:BuildTarget) -> list:
-    """The cmake C++ standard, taken from the standard the mamafile forced. A raw `-std` flag tells
-    cmake nothing, so `target_compile_features` and a `CXX_MODULES` file set both fail without this.
-    A mamafile that names one of these through add_cmake_options() keeps its own value, and an
-    operator who passes a standard through `flags=` keeps that one."""
+    """The cmake C++ standard the mamafile forced. A raw `-std` flag tells cmake nothing, so
+    `target_compile_features` and a `CXX_MODULES` file set both fail without it. A mamafile naming
+    one through add_cmake_options() keeps its value, and an operator `flags=` standard keeps that."""
     if not target.enable_cxx_build: return []
     # cmake appends its own standard flag last, so an operator standard has to win here instead.
     # The compiler reads the last -std of the line, so a repeated flag decides by its last spelling.
@@ -201,10 +200,9 @@ def _seed_probe(target:BuildTarget) -> str:
 
 
 def _clang_scan_deps(cxx:str) -> str:
-    """The clang-scan-deps that answers for `cxx`, or ''. cmake reads a clang import graph with it, and
-    it searches for one inside compiler detection alone, which a seeded build dir skips. So the seed has
-    to carry whether the tool was there. The search only has to flip when the tool arrives or goes, so
-    it need not resolve the same path cmake picks."""
+    """The clang-scan-deps that answers for `cxx`, or ''. cmake finds one inside compiler detection
+    alone, which a seeded build dir skips, so the seed carries whether the tool was there. It only has
+    to flip when the tool arrives or goes, so it need not resolve the path cmake picks."""
     suffix = os.path.basename(cxx).replace('clang++', '')
     beside = os.path.dirname(os.path.realpath(cxx))  # a custom install keeps its own bin off PATH
     return shutil.which('clang-scan-deps' + suffix, path=beside) \

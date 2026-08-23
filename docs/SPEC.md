@@ -948,21 +948,18 @@ target compiled. The modules of every package below it count too, because `mama_
 dependency tree into this target.
 
 An archiver lists the path it stored, so each module takes the members sharing the most trailing path
-components. MSVC drops the module extension, so a module that shares none falls back to its bare
-name. A member stays whenever its name is ambiguous. That covers a non-module source of the same name, a
-copy the exported modules cannot account for, and a module of that name this target does not export.
-Mama reads the source tree and the build tree for those names, and skips every deployed package tree
-below them. A build tree file that carries the name of an exported module, and matches its size and
-SHA1, is that module. An install step writes it there.
-**Why:** removing the object of a private unit loses its definitions, and every consumer then fails
-to link. Both the
-listing and the removal go through the archiver of the platform. Windows, Android and every prefixed
-cross platform name a full path there, because the host keeps that tool off PATH. An `ar` archive
-that stored a member path needs the full-path match modifier. The removal passes it exactly when a
-selected member holds a path. Without it `ar` strips the path from the name it is given, so a stored
-path matches nothing. With it a stored bare name matches no path.
-A GNU thin archive names each member by a path, so it keeps its
-module objects and says so.
+components. MSVC drops the module extension, so a module sharing none falls back to its bare name. A
+member stays whenever its name is ambiguous: a non-module source of that name, a copy the exported
+modules cannot account for, or a module of that name this target does not export. Mama reads the
+source and build trees for those names and skips every deployed package tree below them. A build tree
+file carrying an exported module's name, size and SHA1 is that module, written there by an install step.
+**Why:** removing a private unit's object loses its definitions, and every consumer fails to link.
+
+Both the listing and the removal go through the platform archiver. Windows, Android and every
+prefixed cross platform name a full path there, because the host keeps that tool off PATH. An `ar`
+archive that stored member paths needs the full-path modifier, which the removal passes exactly when
+a selected member holds a path. `ar` matches a stored path only with it, and a stored bare name only
+without it. A GNU thin archive names each member by a path, so it keeps its module objects and says so.
 
 The strip touches the packaged copy alone, so the producer's own binaries still link.
 `export_modules(..., strip_objects=False)` keeps the objects, which a target whose own sources import
@@ -971,11 +968,10 @@ strip removes whole objects. A unit that defines a non-inline function loses it 
 header fallback, so every strip warns.
 
 **The exported library is the stripped one.** A consumer that builds this dependency from source
-links `exported_libs` directly. The packaging step points it at a copy under `mama-nomodules/` that
-carries the same file name. The original stays where `export_lib` found it, because the binaries of
-that target need those objects. A later run reads that original again, never the copy the run before
-recorded. An archive that compiled no module keeps its own path, and a fetched package is already
-stripped, so both copy nothing.
+links `exported_libs` directly, and packaging points it at a copy under `mama-nomodules/` with the
+same file name. The original stays where `export_lib` found it, because that target's binaries need
+those objects, and a later run reads the original again, never the recorded copy. An archive that
+compiled no module keeps its own path, and a fetched package is already stripped, so both copy nothing.
 
 A package declares no compiler floor. Mama knows the versions that build a module, and the consumer
 moves `MAMA_MODULES_MIN_*` or sets `MAMA_ENABLE_MODULES=OFF`. See the consumer section of 12.

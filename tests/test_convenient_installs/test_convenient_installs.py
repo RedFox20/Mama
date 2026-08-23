@@ -1,9 +1,5 @@
 """Pins that every `mama install-<tool>` reaches its commands with arguments they accept.
-
-autospec binds the real signature of execute and execute_piped, so a call naming a keyword
-the function does not have raises TypeError here. A plain Mock swallows any keyword, which
-is why install_gcc shipped `execute(..., exit_on_fail=False)` and failed in a consumer CI.
-"""
+autospec binds the real signatures, so a call naming a keyword the function lacks raises here."""
 from unittest.mock import patch
 
 import pytest

@@ -249,10 +249,9 @@ def warn_unreachable_modules(target: BuildTarget) -> None:
 
 
 def consumed_modules(target: BuildTarget) -> list:
-    """(owner, module) for every module whose object this archive can hold: the ones this target
-    exports, and the ones every package below it exports. `mama_target_modules` compiles the whole
-    dependency tree into this target, so a grandchild module the strip misses defines its initializer
-    twice. The owner answers for the base dir, which only its own export list resolves."""
+    """(owner, module) for every module whose object this archive can hold: this target's, and every
+    package below it, because `mama_target_modules` compiles the whole tree into this target. A
+    grandchild the strip misses defines its initializer twice. The owner answers for the base dir."""
     modules = [(target, m) for m in exported_modules_with_base(target)]
     seen = set()
     def walk(parent: BuildTarget):
@@ -330,12 +329,11 @@ def _ambiguous_names(target: BuildTarget, modules: list) -> set:
 
 
 def _module_object_members(target: BuildTarget, lib: str) -> list:
-    """The archive members that hold a module initializer, read from the archive itself.
-
-    Each module takes the members sharing the most trailing path components, which keeps an exported
-    `pub/api.cppm` away from the private `api.cppm` beside it. MSVC drops the module extension, so a
-    module that shares none falls back to its bare name. A name this target cannot account for is
-    ambiguous, and every member of that name stays."""
+    """The archive members that hold a module initializer, read from the archive itself. Each module
+    takes the members sharing the most trailing path components, keeping an exported `pub/api.cppm`
+    away from the private `api.cppm` beside it. MSVC drops the module extension, so a module sharing
+    none falls back to its bare name. A name this target cannot account for is ambiguous, and every
+    member of that name stays."""
     objects = _archive_members(target, lib)
     # an archiver lists the path it stored, and the compare walks that path from its end
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
@@ -395,11 +393,10 @@ def _unstripped_lib(lib: str) -> str:
 
 
 def export_stripped_module_libs(target: BuildTarget):
-    """Point every exported static library at a copy that holds no module object.
-
-    A consumer that builds this target from source links `exported_libs` directly, and the build dir
-    archive must keep those objects for the binaries of this target. An archive that holds no module
-    object keeps its own path, and a fetched package is already stripped, so both copy nothing."""
+    """Point every exported static library at a copy that holds no module object. A consumer that
+    builds this target from source links `exported_libs` directly, and the build dir archive keeps
+    those objects for this target's own binaries. An archive holding no module object keeps its own
+    path, and a fetched package is already stripped, so both copy nothing."""
     if target.dep.from_artifactory or not target.strip_module_objects: return
     modules = consumed_modules(target)  # (owner, module), and only the count decides here
     for i, lib in enumerate(target.exported_libs):
@@ -435,11 +432,10 @@ def _remove_members(target: BuildTarget, lib: str, members: list):
 
 
 def strip_module_objects(target: BuildTarget, lib: str):
-    """Removes the module objects from a packaged static library.
-
-    A module interface unit emits a strong `initializer for module X` symbol. The consumer compiles
-    the same source, so a whole-archive link finds two definitions and fails. The consumer always
-    supplies that symbol, so the package does not need it."""
+    """Removes the module objects from a packaged static library. A module interface unit emits a
+    strong `initializer for module X` symbol, and the consumer compiles the same source, so a
+    whole-archive link would find two definitions. The consumer always supplies it, so the package
+    does not need it."""
     if not strips_module_objects(target, lib): return
     members = _module_object_members(target, lib)
     if members: _remove_members(target, lib, members)
