@@ -127,6 +127,8 @@ def first_cmake_arg(args: str) -> tuple:
             end = i
             while end < len(args):
                 if args[end] == '\\' and end + 1 < len(args): end += 2   # an escape holds any character
+                # a legacy unquoted argument holds a balanced quoted span, quotes and all, as content
+                elif args[end] == '"' and (quoted := _CMAKE_QUOTED.match(args, end)): end = quoted.end()
                 # an unquoted argument holds none of these, and `;` divides its value as a list
                 elif args[end].isspace() or args[end] in '()#";': break
                 else: end += 1

@@ -74,12 +74,12 @@ def _unescape_mount(path: str) -> str:
 
 def _cgroup_mounts() -> tuple:
     """Every (mount point, mount root) of the v2 hierarchy and of the v1 cpu controller, in mountinfo
-    order. Neither sits at a fixed path: a hybrid host mounts v2 under the v1 tree, and a v1 host names
-    the mount after its controller list."""
+    order, or (None, None) when mountinfo does not read. Neither sits at a fixed path: a hybrid host
+    mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
     v2, v1 = [], []
     try:
         with open(_PROC_MOUNTINFO, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
-    except OSError: return v2, v1
+    except OSError: return None, None   # unread, so a caller guesses. An empty list means none exists
     for line in lines:            # `<id> <parent> <dev> <root> <point> <opts> - <fstype> <src> <super>`
         left, _, right = line.partition(' - ')
         fields, after = left.split(), right.split()
@@ -102,9 +102,10 @@ def _visible_rel(rel: str, mount_root: str):
 def _mount_dirs(mounts: list, rel: str, default: str) -> list:
     """Every dir that can hold a quota for this process, under every mount that shows its cgroup. A
     mount of its delegated subtree hides an ancestor limit that a whole-hierarchy mount still shows,
-    and a mount delegated to another service shows none of this process at all."""
+    and a mount delegated to another service shows none of this process at all. `default` answers only
+    an unread mountinfo: a hierarchy this host does not mount contributes no dir."""
     dirs = []
-    for point, mount_root in mounts or [(default, '/')]:
+    for point, mount_root in ([(default, '/')] if mounts is None else mounts):
         visible = _visible_rel(rel, mount_root)
         if visible is None: continue
         dirs.append(point)

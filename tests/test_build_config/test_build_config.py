@@ -171,6 +171,14 @@ def test_an_undecodable_byte_in_a_proc_path_never_ends_the_run(monkeypatch, tmp_
     assert system._cgroup_rel_paths() == ('svc\udcff', '')
 
 
+@pytest.mark.parametrize('mounts, expect', [
+    (None, ['/fallback', '/fallback/svc']),   # mountinfo did not read, so the hard-coded path is the guess
+    ([], []),                # it read and named no mount of this hierarchy, so there is nothing to read
+], ids=['unread-mountinfo', 'hierarchy-absent'])
+def test_a_hierarchy_this_host_does_not_mount_contributes_no_dir(mounts, expect):
+    assert system._mount_dirs(mounts, 'svc', '/fallback') == expect
+
+
 def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):
     assert cpus(affinity=2) == 2                            # --cpuset-cpus=0-1 writes no quota
 

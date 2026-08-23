@@ -468,3 +468,18 @@ def test_an_empty_list_element_names_no_argument(tmp_path):
     write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_legacy_quoted_segment_is_content_not_a_quoted_argument():
+    # a `"` that opens the argument quotes it; one inside a legacy unquoted argument is part of the name
+    assert first_cmake_arg('src" dir"') == ('src" dir"', False)
+    assert first_cmake_arg('"src dir"') == ('src dir', False)
+
+
+@pytest.mark.linux_host
+def test_a_legacy_quoted_segment_names_the_dir_it_spells(tmp_path):
+    # a `"` is legal in a POSIX name and illegal in a Windows one, so only the parse above runs there
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src" dir")\n')
+    write_files(dep.src_dir, {'src" dir"/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src" dir"/mama.cmake')
