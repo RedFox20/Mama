@@ -483,3 +483,22 @@ def test_a_legacy_quoted_segment_names_the_dir_it_spells(tmp_path):
     write_files(dep.src_dir, {'src" dir"/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src" dir"/mama.cmake')
+
+
+@pytest.mark.parametrize('spelled', ['src[;]dir', 'src];]dir', 'src[[;]]dir'],
+                         ids=['open', 'close', 'nested'])
+def test_a_semicolon_inside_unequal_brackets_divides_no_list(tmp_path, spelled):
+    # cmake splits a list on `;` only where the `[` and `]` before it are equal in number
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), f'add_subdirectory({spelled})\n')
+    write_files(dep.src_dir, {f'{spelled}/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/{spelled}/mama.cmake')
+
+
+@pytest.mark.parametrize('written', ['$(MAKEVAR)/src', '"$(MAKEVAR)/src"'], ids=['unquoted', 'quoted'])
+def test_a_make_style_reference_names_the_dir_it_spells(tmp_path, written):
+    # cmake expands no make-style reference, so the `$` is content and the branch reads on
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), f'add_subdirectory({written})\n')
+    write_files(dep.src_dir, {'$(MAKEVAR)/src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/$(MAKEVAR)/src/mama.cmake')

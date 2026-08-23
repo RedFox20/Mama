@@ -87,7 +87,7 @@ def _end_of_args(text: str, i: int) -> int:
 def _unescape_cmake(text: str, quoted: bool = False) -> str:
     """A cmake argument with its escape sequences resolved. `\\t`, `\\r` and `\\n` encode a character, and
     every other pair names the plain character after the backslash. In a quoted argument a backslash
-    before a newline is a line continuation, and both go."""
+    before a newline is a line continuation, and both go. A make-style `$(VAR)` stays literal."""
     out, i = [], 0
     while i < len(text):
         if text[i] == '\\' and i + 1 < len(text):
@@ -97,6 +97,10 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
                 nxt = text[i + 1]
                 out.append(_ESCAPED_DOLLAR if nxt == '$' else _CMAKE_ENCODED.get(nxt, nxt))
                 i += 2
+        # a make-style reference names no cmake variable, so it holds its `$` as content. It never nests
+        elif text[i] == '$' and text[i + 1:i + 2] == '(' and (close := text.find(')', i + 2)) != -1:
+            out.append(_ESCAPED_DOLLAR + text[i + 1:close + 1])
+            i = close + 1
         else:
             out.append(text[i])
             i += 1
@@ -124,14 +128,19 @@ def first_cmake_arg(args: str) -> tuple:
             if content.startswith('\r\n'): return content[2:], True
             return (content[1:] if content.startswith('\n') else content), True
         else:
-            end = i
+            end, brackets = i, 0
             while end < len(args):
                 if args[end] == '\\' and end + 1 < len(args): end += 2   # an escape holds any character
-                # a legacy unquoted argument holds a balanced quoted span, quotes and all, as content
+                # a legacy unquoted argument holds a balanced quoted span and a `$(VAR)`, both as content
                 elif args[end] == '"' and (quoted := _CMAKE_QUOTED.match(args, end)): end = quoted.end()
-                # an unquoted argument holds none of these, and `;` divides its value as a list
-                elif args[end].isspace() or args[end] in '()#";': break
-                else: end += 1
+                elif args[end] == '$' and args[end + 1:end + 2] == '(' and (close := args.find(')', end + 2)) != -1:
+                    end = close + 1
+                # `;` divides a value as a list only where the `[` and `]` before it are equal in number
+                elif args[end] == ';' and brackets == 0: break
+                elif args[end].isspace() or args[end] in '()#"': break
+                else:
+                    brackets += (args[end] == '[') - (args[end] == ']')
+                    end += 1
             return _unescape_cmake(args[i:end]), False
     return '', False
 
