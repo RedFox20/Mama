@@ -34,6 +34,41 @@ is_aarch64 = _arch == 'aarch64' or _arch == 'arm64'
 is_x86_64 = _arch == 'x86_64' or _arch == 'amd64'
 is_x86 = _arch == 'x86' or _arch == 'i386'
 
+_CGROUP_ROOT = '/sys/fs/cgroup'
+_cpu_count = 0
+
+
+def _cgroup_cpu_quota() -> int:
+    """Cpus the cgroup cpu controller allows, rounded up. 0 when it sets no limit."""
+    def read(*names) -> list:
+        fields = []
+        for name in names:
+            with open(f'{_CGROUP_ROOT}/{name}', encoding='utf-8') as f: fields += f.read().split()
+        return fields
+    try: fields = read('cpu.max')                                            # v2 writes `<quota> <period>`
+    except OSError:
+        try: fields = read('cpu/cpu.cfs_quota_us', 'cpu/cpu.cfs_period_us')  # v1 splits them in two files
+        except OSError: return 0
+    try: quota, period = int(fields[0]), int(fields[1])   # v2 writes `max` and v1 writes -1 for no limit
+    except (IndexError, ValueError): return 0
+    return (quota + period - 1) // period if quota > 0 and period > 0 else 0
+
+
+def usable_cpu_count() -> int:
+    """Cpus this process may use. Inside a container psutil reports the host count, so a cgroup quota
+    or a cpuset affinity mask caps it. Memoized: no limit changes while mama runs."""
+    global _cpu_count
+    if _cpu_count: return _cpu_count
+    import psutil  # deferred: psutil costs about 32ms to import, and only this line needs it
+    cpu = psutil.cpu_count() or 4
+    if is_linux:
+        affinity = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else 0
+        for limit in (affinity, _cgroup_cpu_quota()):
+            if limit: cpu = min(cpu, limit)
+    _cpu_count = max(1, cpu)
+    return _cpu_count
+
+
 class System:
     windows = is_windows
     linux   = is_linux

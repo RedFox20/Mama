@@ -1,19 +1,72 @@
-"""Pins BuildConfig: default jobs (Linux leaves a core free), the once-only compiler-conflict note, flag aliases."""
-import psutil, threading
+"""Pins BuildConfig: default jobs (the container limit, Linux leaves a core free), the once-only
+compiler-conflict note, flag aliases."""
+import os, psutil, threading
+import pytest
 from mama.build_config import BuildConfig
 from mama.utils import system
 
 
-def test_default_jobs_leaves_one_core_free_on_linux(monkeypatch):
-    monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
+@pytest.fixture(autouse=True)
+def _fresh_cpu_memo(monkeypatch):
+    monkeypatch.setattr(system, '_cpu_count', 0)   # usable_cpu_count memoizes, so clear it per test
+
+
+@pytest.fixture
+def cpus(monkeypatch, tmp_path):
+    """usable_cpu_count() on a Linux host of `host` cpus, reading a cgroup tree written under tmp_path."""
+    def measure(*files, host=32, affinity=32):
+        monkeypatch.setattr(system, '_CGROUP_ROOT', tmp_path.as_posix())
+        monkeypatch.setattr(system, 'is_linux', True)
+        monkeypatch.setattr(psutil, 'cpu_count', lambda: host)
+        # raising=False: Windows has no sched_getaffinity, and these tests force the Linux branch
+        monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(affinity)), raising=False)
+        for name, text in files:
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return system.usable_cpu_count()
+    return measure
+
+
+def test_a_cgroup_v2_quota_caps_the_cpu_count(cpus):
+    assert cpus(('cpu.max', '300000 100000')) == 3          # --cpus=3
+
+
+def test_a_cgroup_v1_quota_caps_the_cpu_count(cpus):
+    # 1.5 cpus rounds UP: two compiles timeshare, where one would leave the quota unused
+    assert cpus(('cpu/cpu.cfs_quota_us', '150000'), ('cpu/cpu.cfs_period_us', '100000')) == 2
+
+
+@pytest.mark.parametrize('files', [
+    [('cpu.max', 'max 100000')],
+    [('cpu/cpu.cfs_quota_us', '-1'), ('cpu/cpu.cfs_period_us', '100000')],
+    [('cpu.max', 'garbage')],
+    [],
+], ids=['v2-max', 'v1-unlimited', 'unreadable', 'no-controller'])
+def test_no_cgroup_limit_keeps_the_host_count(cpus, files):
+    assert cpus(*files) == 32
+
+
+def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):
+    assert cpus(affinity=2) == 2                            # --cpuset-cpus=0-1 writes no quota
+
+
+def test_the_default_jobs_read_the_container_limit(cpus, monkeypatch):
+    monkeypatch.setattr(system.System, 'linux', True)
+    cpus(('cpu.max', '300000 100000'))
+    assert BuildConfig._default_build_jobs() == 2           # 3 usable, minus the core Linux keeps free
+
+
+def test_default_jobs_leaves_one_core_free_on_linux(cpus, monkeypatch):
+    cpus()                                           # 32 cpus, and the host imposes no container limit
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 31   # N-1: do not saturate the box into an OOM/freeze
     monkeypatch.setattr(system.System, 'linux', False)
     assert BuildConfig._default_build_jobs() == 32   # Windows/macOS use all cores
 
 
-def test_default_jobs_never_below_one(monkeypatch):
-    monkeypatch.setattr(psutil, 'cpu_count', lambda: 1)
+def test_default_jobs_never_below_one(cpus, monkeypatch):
+    cpus(host=1, affinity=1)
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 1
 

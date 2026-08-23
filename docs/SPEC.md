@@ -108,11 +108,14 @@ keeps it at the user home dir. A root with no `mamafile.py` at all keeps the pro
 it export, and mama writes one for every dep that has a build dir. `mama.cmake` is the proxy a
 consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them, then
 includes that build dir's `mama-dependencies.cmake`. **It goes to every path the `include()` commands
-name.** A conditional include names one path per branch, and mama writes them all, because cmake alone
-knows which branch runs. Mama resolves each path against the dir cmake configures. That dir is
-`<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile points
-`cmake_lists_path` at a nested or an absolute one. Mama expands `CMAKE_CURRENT_LIST_DIR`,
-`CMAKE_CURRENT_SOURCE_DIR`, `CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` to that dir. An argument that
+name.** The `CMakeLists.txt` of the dep answers first. Only when that file names no proxy does the scan
+follow its `add_subdirectory()` calls, breadth first, and an argument holding a `$` stops that branch.
+The first file that names the proxy answers. Mama writes every path THAT file names, because cmake
+alone knows which branch of a conditional include runs. Mama resolves a relative path against the dir of
+the file that named it, and it expands `CMAKE_CURRENT_LIST_DIR` and `CMAKE_CURRENT_SOURCE_DIR` to that
+same dir. Mama expands `CMAKE_SOURCE_DIR` and `PROJECT_SOURCE_DIR` to the dir cmake configures. That dir
+is `<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile
+points `cmake_lists_path` at a nested or an absolute one. An argument that
 still holds a `$` after that names a form mama does not expand, and it takes the default `mama.cmake`
 beside the `CMakeLists.txt`. **A path that leaves the source dir and the dir cmake configures gets a
 warning and no file.** The test resolves every symlink first, so a link inside the source dir leads
@@ -741,7 +744,10 @@ A mamafile that overrides `build()` runs whole in the build phase. It reserves i
 
 **Build parallelism**: the native build tool takes an explicit job count, and a target that keeps
 `enable_multiprocess_build` always gets one. A dep takes the count its translation-unit probe sized,
-and `config.jobs` when the probe found none. The root always takes `config.jobs`. msbuild takes
+and `config.jobs` when the probe found none. The root always takes `config.jobs`. `jobs=N` sets
+`config.jobs`. Without it, mama counts the cpus this process may use. That is the host count, capped by
+the cgroup cpu quota and by the cpuset affinity mask. Linux then keeps one of those free, and Windows
+and macOS take them all. msbuild takes
 `/maxcpucount:N`, xcodebuild takes `-jobs N`, and make and ninja take `-jN`. A target that clears
 `enable_multiprocess_build` passes no job count, except under ninja, which takes `-j1`.
 **Why:** ninja with no flag reads the host core count. A container CPU limit does not bound that count.
@@ -1166,9 +1172,13 @@ which is 15 seconds. A GNU source archive, an NDK zip and a mamafile `self.downl
 `self.download_and_unzip` call are that kind. A `GnuProject` reads the wait back from
 `self.download_timeout`, so a mamafile can raise it for a slow mirror.
 
+**A transport failure marks the network unavailable for the rest of the run, and a server answer never
+does.** A DNS failure, a refused or a reset connection and a timeout are transport failures. An HTTP
+status, an authentication refusal and a TLS failure all mean the server answered, so the run keeps
+trying. Every artifactory fetch that starts after the mark returns at once.
+
 **Why:** the timeout is the wait for the next byte, not a budget for the whole transfer, so a slow but
-live download never trips it. A dead network pays the wait once per fetch already in flight. The first
-failure marks the network unavailable, and every artifactory fetch that starts after it returns at once.
+live download never trips it. A dead network pays the wait once per fetch already in flight.
 Five seconds keeps that cost near the build time of a small target. A server that sends nothing for 15
 seconds has already dropped the request, so a longer wait buys no download.
 

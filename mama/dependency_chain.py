@@ -290,9 +290,10 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
 
 
 def _proxy_paths(dep: BuildDependency) -> list:
-    """Every path this dep needs a `mama.cmake` proxy at. The `include()` commands of its CMakeLists.txt
-    name them. A dep that names none, and whose shape needs a proxy, takes the path beside that file. A
-    leaf that names none gets nothing, because it has no dependency includes or libs to name."""
+    """Every path this dep needs a `mama.cmake` proxy at. The `include()` commands of its CMakeLists.txt,
+    or of one it adds, name them. A dep that names none, and whose shape needs a proxy, takes the path
+    beside that file. A leaf that names none gets nothing, because it has no dependency includes or
+    libs to name."""
     if not dep.src_dir or not dep.cmakelists_exists(): return []
     paths = dep.mama_cmake_paths()
     if paths: return paths
@@ -701,7 +702,7 @@ def _make_scheduler(config, **extra):
     """The build Scheduler with a stable psutil CPU sampler and the Ctrl+C child-killer."""
     import psutil, time
     from .build_scheduler import Scheduler
-    cpu = psutil.cpu_count() or 4
+    cpu = system.usable_cpu_count()
     psutil.cpu_percent(interval=None)  # prime the sampler (first call always returns 0.0)
     win = system.System.windows
     budget = config.jobs if win else _mem_capped_budget(config.jobs)  # Linux: avoid OOM on parallel C++ compiles

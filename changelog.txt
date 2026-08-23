@@ -1,6 +1,11 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+unreleased
+ - bugfix: a TLS certificate failure no longer skips every later fetch and clone
+ - bugfix: the default job count reads the container cpu limit, not the host
+ - bugfix: a mama.cmake include in a subdirectory CMakeLists.txt gets a proxy
+
 release: 0.14.0 (2026-Aug-23)
  - feature: a package exports its C++20 modules, and the consumer compiles them
      mama exports every .cppm under an exported include dir, no recipe change

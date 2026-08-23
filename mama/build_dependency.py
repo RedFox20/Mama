@@ -38,9 +38,9 @@ _CMAKE_QUOTED = re.compile(r'"(?:\\.|[^"\\])*"', re.S)
 _CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
 # a command invocation: a name, then the paren that opens its argument list
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
-# every cmake variable that expands to the dir of the CMakeLists.txt mama configures
-_CMAKE_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}',
-                   '${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
+# cmake variables that expand to the dir of the file that names them, and to the top dir mama configures
+_CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
+_CMAKE_TOP_DIR_VARS = ('${CMAKE_SOURCE_DIR}', '${PROJECT_SOURCE_DIR}')
 
 
 def _skip_span(text: str, i: int) -> int:
@@ -96,14 +96,14 @@ def first_cmake_arg(args: str) -> str:
     return ''
 
 
-def find_mama_cmake_includes(cmakelists: str) -> list:
-    """Every argument of an `include()` that names the `mama.cmake` proxy, in file order. One pass reads
-    the whole file, because a cmake command may span lines. It runs at command positions only: every
-    other command hides its whole argument list, so a nested `include(...)` there names nothing.
+def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
+    """The first argument of every named command, in file order, keyed by the lowercased command name.
+    One pass reads the whole file, because a cmake command may span lines. It runs at command positions
+    only: every other command hides its whole argument list, so a nested `include(...)` names nothing.
     'surrogateescape': cmake reads an 8-bit-clean file, and a byte mama cannot decode still has to
     reach the path it writes."""
     text = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
-    found, i = [], 0
+    found, i = {name: [] for name in commands}, 0
     while i < len(text):
         skipped = _skip_span(text, i)
         if skipped != i:
@@ -114,12 +114,33 @@ def find_mama_cmake_includes(cmakelists: str) -> list:
             i += 1
             continue
         end = _end_of_args(text, match.end())
-        if match.group(1).lower() == 'include':
-            arg = first_cmake_arg(text[match.end():end])
-            # the basename must match, or a write would replace a real module such as grandmama.cmake
-            if os.path.basename(arg).lower() == MAMA_CMAKE: found.append(arg)
+        args = found.get(match.group(1).lower())
+        if args is not None: args.append(first_cmake_arg(text[match.end():end]))
         i = end + 1
     return found
+
+
+def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
+    """(dir, argument) for every `include()` that names the `mama.cmake` proxy, in the order cmake reads
+    them. `source_dir` holds `cmakelists`. The first file that names the proxy answers. Mama takes
+    every path THAT file names, because cmake alone knows which branch of a conditional include runs.
+    Only a file that names none makes the scan follow its `add_subdirectory()` calls, which costs one
+    read per subdirectory. Reading nothing else keeps a plain third-party dep at a single read."""
+    pending, seen = [(cmakelists, source_dir)], set()
+    while pending:
+        path, cwd = pending.pop(0)
+        real = os.path.realpath(path)
+        if real in seen or not os.path.exists(path): continue
+        seen.add(real)
+        commands = scan_cmake_commands(path, ('include', 'add_subdirectory'))
+        # the basename must match, or a write would replace a real module such as grandmama.cmake
+        found = [(cwd, a) for a in commands['include'] if os.path.basename(a).lower() == MAMA_CMAKE]
+        if found: return found
+        for arg in commands['add_subdirectory']:
+            if '$' in arg: continue   # mama expands no variable a CMakeLists.txt sets
+            sub = normalized_join(cwd, arg)
+            pending.append((normalized_join(sub, 'CMakeLists.txt'), sub))
+    return []
 
 
 def read_shim_marker_at(build_dir: str) -> dict:
@@ -911,18 +932,18 @@ class BuildDependency:
 
 
     def mama_cmake_paths(self) -> list:
-        """Every path the `include()` commands of the CMakeLists.txt name for the proxy, resolved
-        against the dir cmake configures. Empty when the file includes none. A conditional include names
-        one path per branch, and mama writes them all, because cmake alone knows which branch runs.
-        The scan never caches: a configure() hook can rewrite the file with no change a stat can see."""
+        """Every path a proxy `include()` names, resolved against the dir of the file that names it.
+        Empty when the dep includes none. The scan never caches: a configure() hook can rewrite the
+        CMakeLists.txt with no change a stat can see."""
         cmake_dir = self.cmake_source_dir()
         # realpath, because a symlink inside the source dir leads out of it, and a plain prefix test misses that
         roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))
         paths = []
-        for arg in find_mama_cmake_includes(self.cmakelists_path()):
-            for var in _CMAKE_DIR_VARS: arg = arg.replace(var, cmake_dir)
+        for source_dir, arg in find_mama_cmake_includes(self.cmakelists_path(), cmake_dir):
+            for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, source_dir)
+            for var in _CMAKE_TOP_DIR_VARS: arg = arg.replace(var, cmake_dir)
             # a `$` that survived names a form mama does not expand, such as $ENV{}, so the default answers
-            path = normalized_join(cmake_dir, MAMA_CMAKE if '$' in arg else arg)
+            path = normalized_join(source_dir, MAMA_CMAKE if '$' in arg else arg)
             if not os.path.realpath(path).startswith(roots):
                 warning(f'{self.name}: mama writes no proxy outside its source dir: include({arg})')
             elif path not in paths:

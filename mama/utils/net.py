@@ -150,13 +150,16 @@ def download_and_unzip(remote_file, extract_dir, local_file, timeout:int=DOWNLOA
 def is_network_error(e: Exception) -> bool:
     """True only if the exception clearly indicates network unavailability: DNS failure, connection
     refused or reset, timeout. False for auth errors (SSH key rejected, HTTP 401/403), HTTP 404,
-    and anything ambiguous."""
-    import subprocess, socket
+    a TLS failure, and anything ambiguous."""
+    import subprocess, socket, ssl
     from urllib.error import HTTPError, URLError
 
     if isinstance(e, subprocess.TimeoutExpired):
         return True
     if isinstance(e, HTTPError):
+        return False
+    # a TLS failure means the server answered: its certificate or protocol is wrong, not the route
+    if isinstance(e, ssl.SSLError) or isinstance(getattr(e, 'reason', None), ssl.SSLError):
         return False
     if isinstance(e, URLError):
         reason = getattr(e, 'reason', None)

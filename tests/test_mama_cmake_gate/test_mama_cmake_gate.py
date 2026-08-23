@@ -277,3 +277,34 @@ def test_a_missing_proxy_the_cmakelists_includes_names_the_dep(tmp_path):
     with patch('mama.dependency_chain._save_mama_cmake'):
         with pytest.raises(BuildError, match='wrote no '):
             dc._save_cmake_files(dep)
+
+
+def _subdir_dep(tmp_path, sub_line, root_line='add_subdirectory(src)\n'):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), root_line)
+    write_files(dep.src_dir, {'src/CMakeLists.txt': sub_line})
+    return dep
+
+
+def test_a_leaf_whose_subdirectory_includes_the_proxy_gets_one(tmp_path):
+    # cmake reads src/CMakeLists.txt through add_subdirectory, so an include there names the proxy too
+    dep = _subdir_dep(tmp_path, 'include(${CMAKE_SOURCE_DIR}/mama.cmake)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_subdirectory_bare_include_gets_the_proxy_beside_it(tmp_path):
+    # a bare include resolves against the dir of the file that names it, never the top dir
+    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
+
+
+def test_a_dep_that_names_the_proxy_reads_no_subdirectory(tmp_path):
+    # the chain walk costs one read per subdirectory, so a file that names the proxy stops it
+    dep = _subdir_dep(tmp_path, 'include(deeper/mama.cmake)\n', 'include(mama.cmake)\nadd_subdirectory(src)\n')
+    assert dc._proxy_paths(dep) == [f'{dep.src_dir}/mama.cmake']
+
+
+def test_a_subdirectory_that_adds_itself_ends_the_scan(tmp_path):
+    assert dc._proxy_paths(_subdir_dep(tmp_path, 'add_subdirectory(../src)\n')) == []

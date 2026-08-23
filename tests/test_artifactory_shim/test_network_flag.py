@@ -1,5 +1,6 @@
 """Reactive network-availability flag: which failures mean `the network is gone`, and the sticky config flag."""
 import socket
+import ssl
 import subprocess
 from urllib.error import URLError, HTTPError
 
@@ -29,6 +30,9 @@ def test_a_transport_failure_marks_the_network_unavailable(error):
     RuntimeError('fatal: Permission denied (publickey)'),
     RuntimeError('Host key verification failed.'),
     RuntimeError('something unexpected happened'),   # ambiguous, so never assume the network is gone
+    URLError(reason=ssl.SSLCertVerificationError(1, 'certificate verify failed: self-signed certificate')),
+    URLError(reason=ssl.SSLError('unknown protocol')),
+    URLError(reason=ssl.SSLEOFError('EOF occurred in violation of protocol')),
 ], ids=lambda e: type(e).__name__ + ':' + str(e)[:40])
 def test_the_server_answering_is_never_a_network_error(error):
     # the server replied, so the network works. Marking it down would skip every later fetch of the run.
