@@ -173,6 +173,26 @@ A reviewer comment is a thread, and a thread stays open until someone closes it.
 and close the ones you fixed.** A reader who opens the pull request has to see which findings are
 gone and which are still live, without reading the diff.
 
+### Verify the premise before you write the fix
+
+**A review comment is a hypothesis, not an instruction.** Read the code it names, and run the case it
+describes, before you change a line. A reviewer sees a diff, never the whole call chain. So a finding
+names a real risk and still gets the mechanism, the remedy or both wrong.
+
+Check these three, in order:
+
+1. **Does the failure the comment describes actually reach that line?** An earlier guard often
+   rejects the input first, and a fix below it is dead code.
+2. **Does the proposed remedy work?** Name what it changes, then prove that it changes it. A remedy
+   that reads one file misses a value the run also gets from another.
+3. **What else does the remedy catch?** A wider predicate fires on the healthy case too. Measure the
+   normal case before you widen anything.
+
+A fix that passes its own new test still regresses the build when the premise was wrong. Reply with
+the measurement either way: it closes a wrong finding and it strengthens a right one.
+
+### Then answer, in one of three ways
+
 1. **You fixed it.** Reply with the commit hash, one sentence on what the code does now, and the test
    that pins it. Then resolve the thread.
 2. **The reviewer is right, and the fix is not in this pull request.** Reply with that, name the entry
@@ -180,7 +200,12 @@ gone and which are still live, without reading the diff.
 3. **The reviewer is wrong, or the fix would be wrong.** Reply with the reasoning and the `file:line`
    that proves it. **Leave the thread open**, because the author decides, not you.
 
-Never resolve a thread you did not answer, and never resolve one you argued against.
+**A reply and a resolve are one action, not two.** The moment a fix is pushed, reply with the commit
+hash and resolve the thread in the same step. A fixed finding left open reads as unfixed, and the next
+reader has to open the diff to learn otherwise.
+
+Never resolve a thread you did not answer, and never resolve one you argued against. Those two alone
+stay open. Sweep every page before reporting a count: the threads endpoint pages at 100.
 
 ```bash
 # every thread, with its resolved state and its first comment
@@ -248,9 +273,9 @@ one line. Nobody reads a changelog to learn which function moved.
    entries reach the project page. `tests/test_release_metadata/` fails when the README and
    `changelog.txt` disagree.
 4. Run both gates. Release only when both pass. The full suite is
-   `python -m pytest tests/`. The slow platform gate is
-   `python -m pytest tests/test_platform_configure -m slow`. The default run excludes the
-   slow gate, so a release that skips it ships a platform nobody configured.
+   `python -m pytest tests/`. The slow gate is `python -m pytest tests/ -m slow`, which
+   names the whole tree, so a slow test in a new dir runs too. The default run excludes the
+   slow gate, so a release that skips it ships a toolchain nobody configured.
 5. On Windows, run both gates again inside WSL. A Windows-only run has shipped a broken
    Linux build. The mirror lives at `~/Mama`. Clone it there when it is missing:
    `git clone git@github.com:RedFox20/Mama.git ~/Mama`. Sync it to the release commit
@@ -330,6 +355,9 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
   builds, so they stay fast and they never fail on a flaky connection.
 - When you patch, write `patch('mama.<module>.<name>')`. Patch where the code looks
   the name up, not where the code defines it.
+- **Patch a mama function with `autospec=True`.** A plain `Mock` accepts any argument,
+  so a call that names a keyword the real function does not have still passes. That gap
+  shipped `execute(cmd, exit_on_fail=False)`, which only a consumer CI caught.
 - Always run the **full** suite (`python -m pytest tests/`) before you commit. It runs on 8
   worker processes and takes about 5 seconds on Linux, 13 on Windows. Add `-n0` to debug one
   test or to read a traceback in order. It also lets a profiler see what a test spawns.

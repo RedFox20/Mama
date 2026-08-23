@@ -182,6 +182,11 @@ because a comment gets written while the attention is on the code it explains.
 - **One name for one thing.** A `BuildDependency` is "the dep" in every line, or "the target" in every
   line, never both.
 - **A comment says WHY.** A comment that restates the code is a finding on its own.
+- **A comment names things, not shapes.** Every noun must resolve to an identifier, a literal, a flag
+  or a file the reader can see. "the two shapes it writes", "that path", "the half the version
+  decides" resolve to nothing. Report each one, and rewrite it to name what the code holds.
+- **A justification tail that restates the code is noise.** Cut a "because"/"so that" clause unless
+  it stops a specific edit. One line is the target: a second line must add a fact, not a reason.
 - **A comment runs two lines at most.** A third line is a finding. Move it into a docstring, or give
   the code a name that needs no comment.
 - **A comment states the general rule, never the incident.** The project, dependency or version that
@@ -215,6 +220,20 @@ for s in re.split(r'(?<=[.!?])\s+', blob):
     if len(s.split()) > 25: print(len(s.split()), s[:140])
 "
 ```
+
+**Shapes and metaphors.** These two greps catch the prose that reads precise and names nothing. An
+abstract noun with no referent ("the two shapes it writes", "the half the version decides") and a
+verb that treats a value as an actor ("must not travel", "answers for the build"). Read each hit: it
+either names a thing the reader can find, or it goes.
+
+```bash
+D='git diff -U0'
+$D | grep -E '^\+\s*#' | grep -inE '\b(the|its|that|this|both|two|three|each) +(\w+ +)?(shapes?|forms?|halves?|kinds?|ways?|parts?|styles?)\b'
+$D | grep -E '^\+\s*#' | grep -inE '\b(travels?|answers? for|rides?|ride along|speaks? for|reach(es)? \w+ empty)\b'
+```
+
+Both over-fire on concrete uses ("spell one name two ways" is fine), so they produce a short list to
+read, never a verdict. The rule they serve is in `ste-writing`: name the thing, never its shape.
 
 Idiom, passive voice and one-name-one-thing still need judgment: read every comment, docstring and
 doc paragraph the diff adds, once, on purpose.

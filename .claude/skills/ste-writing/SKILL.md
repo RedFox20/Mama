@@ -60,9 +60,23 @@ sentence, paragraph and active-voice discipline, but keep enough vocabulary to r
 
 **Comments**
 - Max two lines. A comment that needs a third line is a docstring, or the code needs a better name.
+- One line is the target. A second line must add a FACT, never a reason for the fact above it.
+- **Name the thing, never its shape.** Every noun has to resolve to something the reader can see:
+  an identifier, a literal, a flag, a file. "the two shapes it writes" resolves to nothing. Write
+  `CMAKE_AR and CMAKE_CXX_COMPILER_AR`, or drop the clause.
+- **Cut the justification tail.** A clause after "because", "so that" or "which means" that only
+  restates the code is noise. Keep it only when it stops a specific edit someone would make.
+- No metaphor for what code does. Values do not "travel", "answer for" or "reach empty". They are
+  copied, matched, or unset. This is a build system, not an essay.
 - State the general rule, not the incident. Name the failure mode. Do not name the project, the
   dependency or the version that hit it. The next reader does not use that one.
 - The incident goes in the commit message. A reader who wants the history looks there.
+
+```python
+# Bad:  Every tool the binutils search finds, in the two shapes it writes. A closed set, because one
+#       seed serves every target of a compiler config, and a project's find_program must not travel.
+# Good: Every known GNU binutils tool a CMake target needs, both spellings CMake writes.
+```
 
 Write only the requested text. No preamble, no summary, no closing remarks.
 
@@ -78,6 +92,8 @@ Run this over the text you just wrote, including every comment and docstring in 
 5. Any "-ing" main verb, nominalization, or phrasal verb ("spin up", "clean up", "wait out")? Use a
    plain verb.
 6. Any idiom ("says it all", "in the first place", "en masse")? Name the action instead.
+6b. Any abstract noun with no referent ("the two shapes", "the half", "that path")? Name the thing.
+6c. Any value acting like a person (it "travels", "answers for", "rides")? Say what the code does.
 7. The same thing named two ways? Pick one name.
 8. A comment over two lines? Cut it, or move it into a docstring.
 9. A comment that names the dependency, project or version that hit the bug? State the rule instead,

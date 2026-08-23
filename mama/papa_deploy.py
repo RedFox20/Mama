@@ -51,6 +51,12 @@ def _gather_includes(target:BuildTarget, recurse):
     return _gather(target, recurse, includes, lambda t: t.exported_includes)
 
 
+def _gather_modules(target:BuildTarget):
+    """The modules of this target alone, never a child's. A child package writes its own `M` records,
+    and a consumer that compiles one module from two packages declares that module twice."""
+    return [(target, m) for m in package.exported_modules_with_base(target)]
+
+
 def _gather_libs(target:BuildTarget, recurse):
     libs = [(target,l) for l in target.exported_libs]
 
@@ -104,7 +110,21 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
-def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes) -> int:
+def _refuse_in_place(what: str) -> RuntimeError:
+    """The refusal both in-place checks raise. The strip would take the module objects the binaries of
+    the producer link, so a package and a build artifact must not be one file."""
+    return RuntimeError(f'papa_deploy refused: {what} is the build output itself, so the module ' + \
+                        'objects cannot be dropped from the package alone. Deploy to a separate dir, ' + \
+                        'or pass strip_objects=False to export_modules().')
+
+
+def _module_paths(modules) -> set:
+    """The exact path of every gathered module, in the one spelling every path compare uses. The copy
+    predicate reads the whole path, so a private module whose name ends the same way stays out."""
+    return {package.match_path(m) for _, m in modules}
+
+
+def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, includes, modules=()) -> int:
     """Deploy every exported include dir. Returns how many header files they hold, because one record
     names a whole dir and the record count alone never says how much a package ships."""
     if not includes:
@@ -112,16 +132,34 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     config = target.config
     includes_root = package_full_path + '/include' # output root
     # TODO: should we include .cpp files for easier debugging?
-    suffixes = tuple(target.include_glob_filter)
-    stems = _header_stems(includes, suffixes)
+    # A module ships inside the include tree, so the copy carries it whatever order the hook used.
+    module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
+    # The exported include dir nearest a file decides whether that file's tree exports modules.
+    roots = sorted({package.match_path(i) for _, i in includes}, key=len, reverse=True)
+    bases = {package.match_path(b) for b in (package.module_base_dir(t, m) for t, m in modules) if b}
+    module_paths = _module_paths(modules)
+
+    def exports_modules(fwd:str) -> bool:
+        """True when the exported include dir nearest to `fwd` exported a module of its own."""
+        return next((r in bases for r in roots if fwd.startswith(r + '/')), False)
+
+    suffixes = tuple(package.match_path(s) for s in target.include_glob_filter)
+    stems = _header_stems(includes, suffixes + module_sfx)
     shipped = 0  # copy_dir runs this filter once per file, so the count costs no extra walk
 
     def is_header(path:str) -> bool:
         nonlocal shipped
-        name = os.path.basename(path)
-        # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
-        # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
-        header = name.endswith(suffixes) or ('.' not in name and name.lower() in stems)
+        # the recipe and the filesystem can spell one name two ways, so the suffix reads the same rule
+        name = package.match_path(os.path.basename(path))
+        # a module source ships only when export_modules named it, so a private one beside it stays out
+        fwd = package.match_path(path)
+        # the compiler reads Api.IXX as a module, so the extension test folds case on every filesystem
+        if name.lower().endswith(package.MODULE_EXTENSIONS) and exports_modules(fwd):
+            header = fwd in module_paths
+        else:
+            # Extensionless Qt-style stubs (`#include <QCoro/QCoroTask>`) ship only when the header
+            # they forward to is in the tree, so LICENSE and AUTHORS never ship.
+            header = name.endswith(suffixes) or ('.' not in name and name.lower() in stems)
         if header: shipped += 1
         return header
 
@@ -148,6 +186,30 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if src_dir != dst_dir:
             if config.verbose: console(f'    copy {src_dir}\n      -> {dst_dir}')
             copy_dir(src_dir, dst_dir, is_header, remap_root_dirname=True)
+    return shipped
+
+
+def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, modules) -> int:
+    """Record every exported module. It copies nothing, because the include deploy already shipped the
+    file. Two copies of one module would double the archive and give a consumer an ambiguous source."""
+    includes_root = package_full_path + '/include'
+    shipped = 0
+    for modtarget, module in modules:
+        base = package.module_base_dir(modtarget, module)
+        # Deploy the module through its own base dir, so it lands where the include copy put that tree.
+        src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
+        fwd = forward_slashes(module)  # one backslash here would drop the module with no error
+        if not package.match_path(module).startswith(package.match_path(src_dir) + '/'):
+            warning(f'export_modules skipped {module}: the include deploy did not carry it.')
+            continue
+        deployed = dst_dir + fwd[len(src_dir):]
+        if not os.path.exists(deployed):
+            warning(f'export_modules skipped {module}: the include filter did not ship it.')
+            continue
+        record = f'M {os.path.relpath(deployed, package_full_path)}'.replace('\\', '/')
+        descr.append(record)
+        shipped += 1
+        if detail_echo: console(f'    M ({modtarget.name+")": <16}  {record[2:]}')
     return shipped
 
 
@@ -239,12 +301,22 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
 
+    # the loop below refuses too, but only after the include tree is gone, so check before that
+    if package.same_file(package_full_path, target.build_dir()) and \
+       any(package.strips_module_objects(target, l) for l in target.exported_libs):
+        raise _refuse_in_place(package_full_path)
+
     # Delete the include tree the last deploy wrote. A header this target no longer exports must not
     # ship. The copy below keeps every mtime, so a consumer still sees no change in an unchanged header.
     remove_tree(f'{package_full_path}/include')
+    # the modules come first, because the include copy needs their suffixes to carry them
+    modules = _gather_modules(target)
     includes = _gather_includes(target, r_includes)
-    headers = _append_includes(target, package_full_path, detail_echo, descr, includes)
+    # a recursive bundle copies the child include trees, so it copies their modules too
+    copied = package.consumed_modules(target) if r_includes else modules
+    headers = _append_includes(target, package_full_path, detail_echo, descr, includes, copied)
     _warn_about_duplicate_include_trees(target, package_full_path)
+    shipped_modules = _append_modules(target, package_full_path, detail_echo, descr, modules)
 
     build_dir = target.build_dir()
     source_dir = target.source_dir()
@@ -258,9 +330,13 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         outpath = normalized_join(package_full_path, relpath)
         os.makedirs(os.path.dirname(outpath), exist_ok=True)
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
-        if lib != outpath:
+        if not package.same_file(lib, outpath):
             if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
             copy_if_needed(lib, outpath)
+            # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.
+            package.strip_module_objects(libtarget, outpath)
+        elif package.strips_module_objects(libtarget, outpath):
+            raise _refuse_in_place(outpath)
 
     syslibs = _gather_syslibs(target, r_syslibs)
     for systarget, syslib in syslibs:
@@ -283,7 +359,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
 
     config.deploy_stats.record(package_full_path, (len(includes), len(libs), len(syslibs), len(assets)))
     if config.print:
-        console(f'  PAPA Deployed: {len(includes)} includes ({headers} files), {len(libs)} libs, ' + \
+        mods = f', {shipped_modules} modules' if shipped_modules else ''
+        console(f'  PAPA Deployed: {len(includes)} includes ({headers} files){mods}, {len(libs)} libs, ' + \
                 f'{len(syslibs)} syslibs, {len(assets)} assets')
 
 
@@ -308,6 +385,7 @@ class PapaFileInfo:
         self.includes = []
         self.libs = []
         self.syslibs = []
+        self.modules = [] # C++20 module sources. [] predates the M record
         self.assets: List[Asset] = []
 
         suffixes = {}  # dep name -> version_suffix, applied below once every `D` record is in
@@ -326,6 +404,7 @@ class PapaFileInfo:
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
+            elif line.startswith('M '): append_to(self.modules, line)
             elif line.startswith('A '):
                 relpath = line[2:].strip()
                 fullpath = normalized_join(self.papa_dir, relpath)

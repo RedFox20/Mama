@@ -182,6 +182,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.disable_artifactory = False
     cfg.is_network_available.return_value = True
     cfg.unshallow = False
+    cfg.git_timeout = 30  # run_git compares it against a float, and a Mock attribute raises there
     cfg.git_url_override = None
     cfg.update_stats = Mock()
     cfg.deploy_stats = DeployStats()
@@ -225,6 +226,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
+    cfg.ninja_version.return_value = ''  # the generated mama.cmake writes this number verbatim
     cfg.cmake_command = 'cmake'
     # artifactory_archive_name and the papa `O` record use these
     cfg.get_distro_info.return_value = ('ubuntu', 22, 4)
@@ -299,7 +301,7 @@ def grep_mama_sources(needles, skip=()) -> list:
 def make_package_target(tmp_path, package=None, exports=None, dep_attrs=None, **config):
     """A BuildTarget wired to a mock dep, for the packaging tests.
     package: the mamafile hook, or None for a Mock that only records that it ran
-    exports: the (includes, libs, syslibs, assets) papa.txt would have loaded
+    exports: the (includes, libs, syslibs, assets[, modules]) papa.txt would have loaded
     dep_attrs: BuildDependency fields this test needs, eg from_artifactory"""
     from mama.build_target import BuildTarget
     dep = make_mock_dep(tmp_path, **config)
@@ -309,7 +311,8 @@ def make_package_target(tmp_path, package=None, exports=None, dep_attrs=None, **
     target = cls(name=dep.name, config=dep.config, dep=dep, args=[])
     dep.target = target
     if not package: target.package = Mock()
-    if exports: target._set_exports(tuple(list(x) for x in exports))
+    # a caller that names no modules still gets the full export tuple, so the categories stay optional
+    if exports: target._set_exports(tuple(list(x) for x in exports) + ([],) * (5 - len(exports)))
     return target
 
 
@@ -409,6 +412,8 @@ def make_includes_target(source_dir, build_dir=None):
     target.build_dir.return_value = normalized_path(build_dir or path_join(source_dir, 'build'))
     target.exported_includes, target.exported_libs = [], []
     target.exported_syslibs, target.exported_assets = [], []
+    target.exported_modules = []
+    target.strip_module_objects = True
     target.includes_root = ('', '', '')
     target.include_glob_filter = ['.h', '.hpp', '.hxx', '.hh']
     target.name = 'TestLib'
@@ -418,6 +423,7 @@ def make_includes_target(source_dir, build_dir=None):
     target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
     target.dep.build_dir = target.build_dir()
     target.dep.variant_suffix = ''        # the papa `O` record appends it
+    target.children.return_value = []     # a Mock is not iterable, and the module strip walks these
     return target
 
 
@@ -485,14 +491,67 @@ def should_build_reasons(dep, build_products=(), loaded_from_pkg=True, isolate=F
     return built, ' '.join(str(call) for call in warned.call_args_list)
 
 
-def make_exporting_target(dep, includes, libs, version='abc1234'):
+def make_exporting_target(dep, includes, libs, version='abc1234', modules=None):
     """A BuildTarget that exports `includes` and `libs`, the way a mamafile package() leaves it."""
     from mama.build_target import BuildTarget
     target = BuildTarget(name=dep.name, config=dep.config, dep=dep, args=[])
     target.version = version
     target.exported_includes = includes
     target.exported_libs = libs
+    target.exported_modules = modules or []
     return target
+
+
+def module_compilers() -> tuple:
+    """(name, cc, cxx, least major version) for each compiler a module test may use, best first.
+    MAMA_TEST_COMPILER pins one, so a CI job reports which toolchain works instead of taking whichever
+    the host happens to prefer. MSVC names no paths, because mama resolves its own toolset."""
+    named = os.getenv('MAMA_TEST_COMPILER', '')
+    # the same floors the generated cmake ships, so a capable host here is a capable host there
+    every = (('clang', 'clang', 'clang++', 18), ('gcc', 'gcc', 'g++', 14), ('msvc', '', '', 0))
+    if named: return tuple(c for c in every if c[0] == named)
+    return every if is_windows() else every[:2]
+
+
+def clang_scan_deps(cxx_path: str) -> str:
+    """The clang-scan-deps that reads the import graph of `cxx_path`, or '' when the install ships none.
+    cmake looks beside the real compiler first, so a symlinked clang++ resolves into its own llvm dir."""
+    beside = shutil.which('clang-scan-deps', path=os.path.dirname(os.path.realpath(cxx_path)))
+    suffix = os.path.basename(cxx_path).replace('clang++', '')
+    return beside or shutil.which('clang-scan-deps' + suffix) or shutil.which('clang-scan-deps') or ''
+
+
+@lru_cache(maxsize=1)
+def _probe_module_compiler() -> dict:
+    """The first compiler of module_compilers() that really builds a module on this host, or {}."""
+    cmake = execute_piped(['cmake', '--version'], throw=False) or ''
+    version = re.search(r'(\d+)\.(\d+)', cmake)
+    if not version or (int(version.group(1)), int(version.group(2))) < (3, 28): return {}
+    ninja = shutil.which('ninja')  # only a Ninja generator writes the dyndep file a module build reads
+    for name, cc, cxx, least in module_compilers():
+        # the Visual Studio generator scans the graph itself, and mama picks the toolset and the paths
+        if name == 'msvc':
+            if is_windows(): return {'name': name, 'cc': '', 'cxx': '', 'version': ''}
+            continue
+        if not ninja: continue
+        cxx_path = shutil.which(cxx)
+        if not cxx_path or (name == 'clang' and not clang_scan_deps(cxx_path)): continue
+        dumped = (execute_piped([cxx_path, '-dumpversion'], throw=False) or '').strip()
+        if dumped and int(dumped.split('.')[0]) >= least:
+            return {'name': name, 'cc': shutil.which(cc), 'cxx': cxx_path, 'version': dumped}
+    return {}
+
+
+def module_capable_compiler() -> dict:
+    """The host compiler that builds C++20 modules: {name, cc, cxx, version}, or {} when there is none.
+    The paths are explicit, because discovery composes a suffixed path a symlinked toolchain lacks. A
+    job that pinned MAMA_TEST_COMPILER raises instead: a skipped cell reports green and proves nothing."""
+    found = _probe_module_compiler()
+    pinned = os.getenv('MAMA_TEST_COMPILER', '')
+    if not found and pinned:
+        raise RuntimeError(f'MAMA_TEST_COMPILER={pinned} names no toolchain that builds C++20 modules '
+                           'here. Install it, or unset the variable and let the module tests skip.')
+    return found
 
 
 def archive_papa_package(package_path, archive_path) -> str:
@@ -509,14 +568,21 @@ def archive_papa_package(package_path, archive_path) -> str:
     return archive
 
 
-def deploy_and_archive(tmp_path, target, package_path) -> str:
-    """papa_deploy the target, then archive and validate what it deployed."""
+def papa_deploy_target(target, package_path, r_includes=False, children=()):
+    """papa_deploy `target` into `package_path`, answering `children` for it and none for a child.
+    The patch replaces the method on the class, so every target in the run reads the same one."""
     from unittest.mock import patch
     from mama import papa_deploy
     from mama.build_target import BuildTarget
-    with patch.object(BuildTarget, 'children', lambda self: []):
-        papa_deploy.papa_deploy_to(target, package_path, r_includes=False, r_dylibs=False,
+    answer = lambda self: list(children) if self is target else []
+    with patch.object(BuildTarget, 'children', answer), patch.object(type(target), 'children', answer):
+        papa_deploy.papa_deploy_to(target, package_path, r_includes=r_includes, r_dylibs=False,
                                    r_syslibs=False, r_assets=False)
+
+
+def deploy_and_archive(tmp_path, target, package_path) -> str:
+    """papa_deploy the target, then archive and validate what it deployed."""
+    papa_deploy_target(target, package_path)
     return archive_papa_package(package_path, tmp_path / 'package.zip')
 
 
@@ -575,12 +641,12 @@ def git_init_commit(cwd, branch='', files=None):
     if os.path.isdir(cwd) and os.listdir(cwd): return _build_git_repo(cwd, branch, files)
     key = (branch, tuple(sorted((files or {}).items())))
     if key in _repo_templates:
-        shutil.copytree(_repo_templates[key], cwd, dirs_exist_ok=True)
+        shutil.copytree(_repo_templates[key], cwd, dirs_exist_ok=True, ignore=_TRANSIENT)
         return
     _build_git_repo(cwd, branch, files)
     if _repo_template_dir:
         _repo_templates[key] = template = path_join(_repo_template_dir, str(len(_repo_templates)))
-        shutil.copytree(cwd, template)
+        shutil.copytree(cwd, template, ignore=_TRANSIENT)
 
 
 def git_run(args, cwd):
@@ -711,6 +777,8 @@ def write_build_file(build_dir, name='build.ninja'):
 
 # What mama generates into a test project. The copy starts without them, so no test has to remove them.
 _GENERATED = shutil.ignore_patterns('packages', 'bin', 'build', '__pycache__', '*.pyc')
+# git maintenance writes a lock beside the objects and removes it again, so a copy can race the delete
+_TRANSIENT = shutil.ignore_patterns('*.lock')
 
 
 def init(caller_file: str, workdir) -> str:

@@ -452,3 +452,11 @@ def test_a_child_that_never_ran_reports_no_status_not_a_fake_signal(monkeypatch)
     monkeypatch.setattr(sp.SubProcess, 'run', Mock(side_effect=OSError('cc not found in PATH')))
     status, output = sp.execute_piped_echo('.', 'cc', echo=False)
     assert status is None and 'not found in PATH' in output  # a made-up -1 would read as 'killed by SIGHUP'
+
+
+def test_the_mock_config_names_an_idle_bound_the_compare_accepts(tmp_path):
+    # run_git passes config.git_timeout to the idle bound, and a Mock reaches the compare only once
+    # the child outlives the first 0.25s wait, so it fails by load and not by platform
+    from testutils import make_mock_config
+    SubProcess.run([PY, '-c', 'import time; time.sleep(0.4)'], io_func=lambda p, l: None,
+                   idle_timeout=make_mock_config(str(tmp_path)).git_timeout)

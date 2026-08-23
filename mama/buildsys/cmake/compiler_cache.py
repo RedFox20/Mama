@@ -2,7 +2,7 @@
 publish() captures only the toolchain detection files, never project flags, and inject() replays them."""
 
 from __future__ import annotations
-import os, shutil, hashlib, json, time, threading
+import os, re, shutil, hashlib, json, time, threading
 from mama.utils.fileio import read_text_from
 from mama.utils.paths import path_join, normalized_path
 
@@ -15,15 +15,20 @@ _LANG_FILES = {
 _SHARED_FILES = ['CMakeSystem.cmake']
 _VS_FILES = ['VCTargetsPath.txt']  # VS-generator MSBuild probe result (reusable, toolset-bound)
 _MANIFEST = 'seed.json'
-# Cache entries the injected CMakeCache.txt must carry, replayed verbatim from the probe's own cache.
-# The ABI probe writes its result to the CACHE only, and seeding skips the probe, so without the
-# replay every install-RPATH executable fails. The compiler and toolchain entries must match the -D
-# options mama passes, or cmake wipes the cache MID-CONFIGURE and re-detects a cross build as the host.
+# Cache entries the injected CMakeCache.txt must carry. Seeding skips the ABI probe that writes them,
+# and a compiler entry that mismatches mama's -D options makes cmake wipe the cache mid-configure.
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
                       'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
 
+# Every known GNU binutils tool a CMake target needs, both spellings CMake writes.
+_TOOLS = 'AR|RANLIB|STRIP|LINKER|NM|OBJDUMP|OBJCOPY|READELF|DLLTOOL|ADDR2LINE|TAPI|MT|INSTALL_NAME_TOOL'
+_REPLAY_TOOL_KEY = re.compile(rf'^CMAKE_(({_TOOLS})|[A-Za-z]+_COMPILER_(AR|RANLIB|CLANG_SCAN_DEPS))$')
+
+# CMakeCXXCompiler.cmake records these three, so a seed naming one NOTFOUND poisons every reuse.
+_REQUIRED_TOOLS = ('CMAKE_AR', 'CMAKE_RANLIB', 'CMAKE_LINKER')
+
 # Bumped when the seed shape changes. is_valid rejects an older format, so the probe runs again.
-_SEED_FORMAT = 3
+_SEED_FORMAT = 6
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds. The fingerprint is the real gate. This TTL is only a backstop.
 
 
@@ -114,12 +119,23 @@ def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
     compiles with "". `compilers` fills the missing entries, so the cache always names the compiler."""
     try: text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: text = ''
-    lines = [ln for ln in text.splitlines() if ln.split(':', 1)[0] in _REPLAY_CACHE_KEYS]
+    lines = [ln for ln in text.splitlines()
+             if (key := ln.split(':', 1)[0]) in _REPLAY_CACHE_KEYS or _REPLAY_TOOL_KEY.match(key)]
     cached = {ln.split(':', 1)[0] for ln in lines}
     for lang, compiler in (compilers or {}).items():
         key = f'CMAKE_{lang}_COMPILER'
         if key not in cached: lines.append(f'{key}:FILEPATH={compiler}')
     return lines
+
+
+def detection_misses_a_tool(build_files_dir: str) -> bool:
+    """True when a compiler module records a required binutil as NOTFOUND. TAPI and DLLTOOL are absent
+    on most hosts by design, so only the archiving and linking tools answer here."""
+    for mod, _ in _LANG_FILES.values():
+        try: text = read_text_from(path_join(build_files_dir, mod))
+        except OSError: continue  # a language this dir never detected records no tool at all
+        if any(f'{tool}-NOTFOUND' in text for tool in _REQUIRED_TOOLS): return True
+    return False
 
 
 def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build_dir='', clock=time.time) -> bool:
@@ -136,6 +152,7 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
     compilers = usable_compilers(build_files_dir)
     # never publish a half-detected toolchain or one naming a compiler this machine does not have
     if not covers_core_langs(langs) or detection_is_partial(build_files_dir) or not compilers: return False
+    if detection_misses_a_tool(build_files_dir): return False  # installing it would not re-seed
     os.makedirs(seed_dir, exist_ok=True)
     copied = []
     for name in _seed_file_names(langs):

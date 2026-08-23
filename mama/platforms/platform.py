@@ -246,6 +246,24 @@ class Platform:
         return ('.a', '.so')
 
 
+    def archiver(self) -> str:
+        """The archiver that edits a static library. A cross toolchain prefixes its own name."""
+        return f'{self.toolchain().tool_prefix}ar'
+
+
+    def list_archive_members_cmd(self, lib: str) -> list:
+        """The command that lists the object members of a static library, one name per line."""
+        return [self.archiver(), 't', lib]
+
+
+    def remove_from_archive_cmd(self, lib: str, members: list) -> list:
+        """The command that removes object members from a static library.
+        `P` matches the full stored name, which an archive that kept the path needs. A bare-name archive
+        matches no path under `P`, so it is not the default. The members are the ones the listing printed."""
+        mode = 'dP' if any('/' in m for m in members) else 'd'
+        return [self.archiver(), mode, lib, *members]
+
+
     def gnu_host_triple(self) -> str:
         """The --host value for a GNU configure script. '' for a native build."""
         return ''

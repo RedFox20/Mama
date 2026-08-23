@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_cmake_detection, make_configured_target, set_mock_platform
+from testutils import is_windows, make_cmake_detection, make_configured_target, set_mock_platform
 from mama import build_names
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -150,3 +150,53 @@ def test_a_seed_published_for_one_platform_never_validates_for_another(tmp_path)
         for other in ids:
             if other != seed_id:
                 assert not seedcache.is_valid(manifest, other), f'{seed_id} accepted as {other}'
+
+
+# --- the seed carries whether clang-scan-deps was there ---
+
+def _clang_target(tmp_path, scanner):
+    """A clang target whose seed inputs see `scanner` as the clang-scan-deps of this host."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    t, _ = make_configured_target(tmp_path, compiler=('/usr/bin/clang', '/usr/bin/clang++', '18.1'),
+                                  clang=True, gcc=False)
+    with patch.object(cc, '_clang_scan_deps', return_value=scanner):
+        return cc._seed_inputs(t)
+
+
+def test_installing_the_module_scanner_reseeds_the_compiler_cache(tmp_path):
+    # cmake finds the scanner inside compiler detection alone, which a seeded dir skips, so a seed made
+    # without it would keep modules off until the backstop TTL expired
+    without = _clang_target(tmp_path / 'a', '')
+    with_it = _clang_target(tmp_path / 'b', '/usr/bin/clang-scan-deps-18')
+    assert seedcache.compute_fingerprint(without) != seedcache.compute_fingerprint(with_it)
+
+
+def test_a_gcc_target_carries_no_scanner_input(tmp_path):
+    # gcc reports its own import graph, so the tool is a clang fact and must not reshape a gcc seed
+    (tmp_path / 'g').mkdir(parents=True, exist_ok=True)
+    t, _ = make_configured_target(tmp_path / 'g')
+    assert 'scandeps' not in cc._seed_inputs(t)
+
+
+def test_a_cross_clang_toolchain_carries_the_scanner_input(tmp_path):
+    # a cross platform names its own clang, and config.clang stays false because it is a host flag
+    (tmp_path / 'x').mkdir(parents=True, exist_ok=True)
+    ndk = '/opt/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin'
+    t, _ = make_configured_target(tmp_path / 'x', compiler=(f'{ndk}/clang', f'{ndk}/clang++', '18.0'),
+                                  clang=False, gcc=True)
+    with patch.object(cc, '_clang_scan_deps', return_value=f'{ndk}/clang-scan-deps'):
+        assert 'scandeps' in cc._seed_inputs(t)
+
+
+def test_the_scanner_search_reads_a_versioned_name_beside_the_compiler(tmp_path, monkeypatch):
+    # a custom llvm install keeps its own bin off PATH, and the versioned scanner sits next to the
+    # compiler. Reading only the bare name there left modules off with the tool already installed.
+    ext = '.exe' if is_windows() else ''  # shutil.which reads PATHEXT, so a bare name is invisible there
+    for name in (f'clang++-18{ext}', f'clang-scan-deps-18{ext}'):
+        exe = tmp_path / name
+        exe.write_text('#!/bin/sh\n')
+        exe.chmod(0o755)
+    monkeypatch.setenv('PATH', str(tmp_path / 'nowhere'))
+    found = cc._clang_scan_deps(str(tmp_path / f'clang++-18{ext}'))
+    # which spells the extension from PATHEXT, which is upper case, so normcase compares the two
+    assert os.path.normcase(found) == os.path.normcase(str(tmp_path / f'clang-scan-deps-18{ext}'))

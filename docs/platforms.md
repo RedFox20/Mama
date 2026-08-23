@@ -113,4 +113,5 @@ header of the object each platform produced:
 python -m pytest tests/test_platform_configure -m slow
 ```
 
-A platform whose SDK is not installed on the machine skips.
+A platform whose SDK is not installed on the machine skips. A release runs `python -m pytest tests/ -m slow`,
+which adds every other slow test to this one.

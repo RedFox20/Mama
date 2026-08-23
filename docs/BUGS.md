@@ -13,6 +13,16 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **The module strip runs the target-wide matcher against every exported archive.**
+  `export_stripped_module_libs` loops `target.exported_libs` and calls `_module_object_members(target, src)`
+  for each (`package.py:405`), which knows no archive-to-module ownership. A target that exports both its
+  own `libcore.a` and a prebuilt `libvendor.a` loses a vendor member named `api.cppm.o` when the target
+  exports any `api.cppm`. `_ambiguous_names` cannot protect it: it scans the source and build trees, and
+  the vendor sources are in neither. Repro: export two static libs, put `api.cppm.o` in the prebuilt one,
+  export `api.cppm` from the other. Fix: record which archive compiled each module. Do NOT skip an
+  archive no scanned tree accounts for: an intermediary archive holds the module objects of a package
+  below it, whose source is in another tree by design, and that skip breaks every chain build.
+
 - **Only the configured `CMakeLists.txt` names the proxy, never one a subdirectory adds.** The scan
   reads `dep.cmakelists_path()` alone (`build_dependency.py:850`). A root that calls
   `add_subdirectory(src)`, where `src/CMakeLists.txt` holds `include(${CMAKE_SOURCE_DIR}/mama.cmake)`,
@@ -53,8 +63,58 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **`enable_cxx26()` wrote `c++2b` for GCC and Clang, which is C++23.** Fix: write `c++2c`.
+
+- **An intermediary archive kept the module objects of the packages below.** Fix: the strip walks them all.
+
+- **A module no exported include dir held vanished silently.** Fix: packaging warns before the filters run.
+
+- **Compiler discovery split PATH on `:`, cutting the drive letter off Windows entries.**
+  Fix: use the platform separator.
+
+- **Compiler discovery named a compiler the host lacks: a link and its target carry different suffixes.**
+  Fix: keep the spelling that exists at the resolved root.
+
 - **The release-CRT enforcement never reached a project on cmake 3.15 or later.** Policy CMP0091 moved
   the flag, and `mama.cmake` reaches no third-party project. Fix: set it on the configure command line.
+
+- **A seeded configure dropped every binutil, so `ar` and `ranlib` reached the build empty.**
+  Fix: the seed replays a closed set of cache keys.
+
+- **The module strip asked for a bare `ar`, which the Android NDK lacks.** Fix: it answers `llvm-ar`.
+
+- **A copy of a thin archive lost every member, which it names by path.** Fix: the strip leaves it alone.
+
+- **A cached ninja version outlived its executable, so an upgrade never reached the guard.**
+  Fix: probe on every configure.
+
+- **The module strip deleted an object no exported module named, because a bare name matched anything.**
+  Fix: a member goes to the module sharing the most path.
+
+- **A casing variant dropped a module on macOS: the path compare merged case on Windows alone.**
+  Fix: `match_path` follows the filesystem.
+
+- **The second build published the archive of the first: the strip read its own recorded copy.**
+  Fix: it reads the archive the build wrote.
+
+- **An empty compiler floor left the cmake `if` with no right side.** Fix: an empty floor refuses.
+
+- **The Windows strip found neither `lib.exe` nor its archive members.**
+  Fix: read the MSVC toolset, and match the full path it lists.
+
+- **A source-built dependency exported the archive that still held its module objects.**
+  Fix: `exported_libs` points at a copy under `mama-nomodules/`.
+
+- **The module strip removed every definition the interface unit compiled.** Fix: the API states an
+  exported module defines only its interface, and every strip warns.
+
+- **One lowered compiler floor enabled every module package.** Fix: one floor per compiler family.
+
+- **A recursive package shipped a child module twice, so a consumer declared it twice.**
+  Fix: write `M` records for the deployed target alone.
+
+- **A `PUBLIC` module file set broke a consumer that installs and exports its own target.**
+  Fix: `mama_target_modules(target [scope])` takes a scope.
 
 - **A Windows abort left a grandchild running.** The tree sweep walked from a child that had already
   exited. Fix: read the descendant pids before the signal, and kill each orphan after it.

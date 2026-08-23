@@ -20,6 +20,7 @@ from . import build_names
 import mama.buildsys.msbuild as msbuild
 from .utils.fileio import copy_if_needed, read_text_from
 from .utils.errors import BuildError
+from .utils.versions import version_at_least
 from .utils.net import REQUIRED_DOWNLOAD_TIMEOUT, download_and_unzip, download_file
 from .utils.paths import glob_with_extensions, normalized_join, path_join
 from .utils.progress import get_time_str
@@ -104,11 +105,15 @@ class BuildTarget:
         self.build_products = [] # executables/libs products from last build
         self.no_includes = False # no includes to export
         self.no_libs = False # no libs to export
+        self.no_modules = False # no C++20 module interface units to export
+        self.modules_declared = False # the recipe called export_modules(), whatever it resolved to
         self.no_upload = False # nothing_to_upload(): an upload skips this target
         self.exported_includes = [] # include folders to export from this target
         self.exported_libs     = [] # libs to export from this target
         self.exported_syslibs  = [] # exported system libraries
         self.exported_assets: List[Asset] = [] # exported asset files
+        self.exported_modules = [] # C++20 module interface units a consumer compiles itself
+        self.strip_module_objects = True # drop the module objects from the packaged static lib
         self.packaging_result = '' # result of the package() step
         self._fetched = None # set by configure_phase: artifactory auto-fetch result, read by build_phase
         self._did_configure = False # guards configure() to run once across configure/build phases
@@ -243,9 +248,7 @@ class BuildTarget:
         # cwd is the root project, so the child resolves the same dependency graph.
         host_view = build_names.host_view(self.config)
         child_args = [host, 'build', f'target={self.name}', f'arch={host_view.platform.arch()}']
-        # Only a command line choice travels: a mamafile preference belongs to the child's own config,
-        # and forcing it here would build a host tool with a compiler the project refused. Only a linux
-        # build dir names a compiler at all, which is what the host view answers.
+        # Only a command line compiler choice passes to the child. A mamafile preference is its own.
         if host_view.linux and self.config.compiler_from_args:
             child_args.append('clang' if self.config.clang else 'gcc')
         child_cmd = 'mama ' + ' '.join(child_args)
@@ -261,9 +264,7 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        # The predicted dir first: a dep arg may spell a token the scan refuses, such as args=['ASAN'],
-        # and the child just wrote exactly that dir. Otherwise take what the child produced, and NOTHING
-        # a warm tree already held: an exit code of 0 does not prove this tool belongs to this request.
+        # Prefer the predicted path, else the newest tool this run rewrote: a warm tree keeps a stale one.
         if os.path.exists(binary): return binary
         fresh = [p for p, mtime in self._host_tools_on_disk(relpath).items() if before.get(p) != mtime]
         return max(fresh, key=os.path.getmtime) if fresh else None
@@ -559,6 +560,19 @@ class BuildTarget:
         self.no_libs = True
 
 
+    def no_export_modules(self):
+        """
+        Declares that this target exports no C++20 module interface units, which stops the
+        automatic search of every exported include dir.
+        ```
+            def package(self):
+                self.no_export_modules()
+                self.export_include('include')
+        ```
+        """
+        self.no_modules = True
+
+
     def nothing_to_upload(self):
         """
         Declares that this target publishes no package, so `mama upload` skips it and reports
@@ -623,6 +637,37 @@ class BuildTarget:
             self.include_glob_filter = includes_filter
         return package.export_includes(self, include_paths, build_dir=build_dir)
 
+
+
+    def export_modules(self, module_path, modules=None, build_dir=False, recursive=True,
+                       strip_objects=True):
+        """
+        Exports C++20 module interface units. A binary module interface is not portable, so the
+        consumer compiles these sources: `mama.cmake` carries them and `mama_target_modules(MyApp)`
+        adds them. A toolchain without module support keeps the headers.
+        ```
+            self.export_include('src/rpp', as_includes_root=True)
+            self.export_modules('src/rpp', ['rpp-strview.cppm'])
+        ```
+        Modules deploy inside the exported include tree, so a module reaches its own header. One
+        under no exported include path cannot ship.
+
+        - module_path: the folder holding the module interface units
+        - modules: [None] the file names. None globs every module extension under module_path
+        - build_dir: [False] resolve module_path against the build directory
+        - recursive: [True] the glob reads subdirectories too. False reads module_path alone
+        - strip_objects: [True] remove module objects from the exported static library. Target-wide,
+          and one False sticks whatever a later call passes.
+
+        **An exported module must define nothing but its own interface.** The strip removes whole
+        objects, so a unit defining a non-inline function loses it and a header-fallback consumer
+        fails to link. Pass `strip_objects=False` for such a unit, whose consumers then cannot
+        whole-archive link.
+        """
+        # only an opt-out sticks, so a second call taking the default cannot re-arm the strip
+        if not strip_objects: self.strip_module_objects = False
+        self.modules_declared = True  # a call that resolves to nothing still states what this ships
+        return package.export_modules(self, module_path, modules, build_dir=build_dir, recursive=recursive)
 
 
     def export_lib(self, relative_path, src_dir=False, build_dir=True):
@@ -948,9 +993,36 @@ class BuildTarget:
         self.cmake_cxxflags['/std' if self.msvc else '-std'] = std
 
 
+    # The number cmake wants, for each spelling the enable_cxxNN family writes. `c++latest` names no
+    # fixed standard, so it takes the newest number mama knows.
+    _CXX_STANDARD_OF_FLAG = {'c++11':'11', 'c++14':'14', 'c++17':'17', 'c++1z':'17',
+                             'c++20':'20', 'c++2a':'20', 'c++23':'23', 'c++2b':'23',
+                             'c++26':'26', 'c++2c':'26', 'c++latest':'26'}
+
+    @staticmethod
+    def cxx_standard_of(std_flag: str) -> str:
+        """The number cmake wants for a `-std` value, eg 'c++2a' gives '20'. '' when it names none.
+        `c++latest` takes the newest number mama knows: unset, cmake appends a lower flag after it.
+        A `gnu++NN` dialect names the same standard, and cmake carries the extensions separately."""
+        if std_flag.startswith('gnu++'): std_flag = 'c++' + std_flag[5:]
+        for flag, number in BuildTarget._CXX_STANDARD_OF_FLAG.items():
+            if std_flag.startswith(flag): return number
+        return ''
+
+    def cxx_std_flag(self) -> str:
+        """The `-std` value this mamafile forced, eg 'c++2a' or 'gnu++23'. '' when it forced none."""
+        return self._get_cxx_std()
+
+    def cxx_standard(self) -> str:
+        """The C++ standard this mamafile forced, as the number cmake wants, eg '20'.
+        It reads the flag alone, never the build args, because the flag is what reaches the compiler.
+        Returns '' when the mamafile forced none, so the caller leaves the cmake default alone."""
+        return BuildTarget.cxx_standard_of(self._get_cxx_std())
+
+
     def enable_cxx26(self):
         """ Enable C++26 standard """
-        self._set_cxx_std('c++latest' if self.msvc else 'c++2b')
+        self._set_cxx_std('c++latest' if self.msvc else 'c++2c')
 
     def is_enabled_cxx26(self):
         if 'CXX26' in self.args: return True
@@ -960,7 +1032,8 @@ class BuildTarget:
 
     def enable_cxx23(self):
         """ Enable C++23 standard """
-        self._set_cxx_std('/std:c++23preview' if self.msvc else 'c++2b')
+        # _set_cxx_std adds the `/std:` prefix, so the value carries the standard alone
+        self._set_cxx_std('c++23preview' if self.msvc else 'c++2b')
 
     def is_enabled_cxx23(self):
         if 'CXX23' in self.args: return True
@@ -1390,10 +1463,12 @@ class BuildTarget:
 
     def default_package(self):
         """Performs the default packaging steps. Mama calls this when self.package() exported nothing.
-        A package() override can also call it to collect the default includes and libs.
-        `no_export_includes()` and `no_export_libs()` opt each half out."""
+        A package() override can also call it to collect the default includes, libs and modules.
+        `no_export_includes()`, `no_export_libs()` and `no_export_modules()` opt each part out."""
         if not self.no_includes: self.default_package_includes()
         if not self.no_libs: self.default_package_libs()
+        # a recipe that already named its modules calls this for the rest, so the default cannot widen
+        if not self.no_modules and not self.modules_declared: self.default_package_modules()
 
 
     ## TODO: move this into `package.py`
@@ -1404,6 +1479,12 @@ class BuildTarget:
         elif self.export_include('include', build_dir=False): pass
         elif self.export_include('src',     build_dir=False, as_includes_root=self.name): pass
         elif self.export_include('',        build_dir=False): pass
+
+
+    def default_package_modules(self):
+        """Performs the default MODULE packaging steps. It reads the exported include dirs, so it runs
+        after the includes. A package() override can call it to collect modules."""
+        return package.default_package_modules(self)
 
 
     ## TODO: move this into `package.py`
@@ -1770,11 +1851,13 @@ class BuildTarget:
 
 
     def _exports(self) -> tuple:
-        return (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets)
+        return (self.exported_includes, self.exported_libs, self.exported_syslibs,
+                self.exported_assets, self.exported_modules)
 
 
     def _set_exports(self, exports: tuple):
-        (self.exported_includes, self.exported_libs, self.exported_syslibs, self.exported_assets) = exports
+        (self.exported_includes, self.exported_libs, self.exported_syslibs,
+         self.exported_assets, self.exported_modules) = exports
 
 
     def _packaging_source(self) -> str:
@@ -1798,20 +1881,42 @@ class BuildTarget:
         fetched = self.dep.from_artifactory
         loaded = self._exports()  # what artifactory_load_target read out of papa.txt
         if fetched:
-            self._set_exports(([], [], [], []))  # start empty, so the hook decides the whole export set
+            self._set_exports(([], [], [], [], []))  # start empty, so the hook decides the whole export set
 
         # must populate exports via export_include()/export_libs()/export_syslib()/export_asset()
         self._run_package_hook()
         if fetched:
             # The hook owns the export RULES. papa.txt owns the LIST for every category the hook left
             # alone, so a recipe that exports includes only keeps the libs the archive recorded.
-            self._set_exports(tuple(new or old for new, old in zip(self._exports(), loaded)))
+            hook = self._exports()
+            merged = [new or old for new, old in zip(hook, loaded)]
+            # modules are last, and an opt-out or an explicit export decided them either way
+            if self.no_modules: merged[-1] = self.exported_modules
+            elif self.modules_declared and (self.exported_modules or not self.dep.is_artifactory_shim()):
+                # a shim has no checkout, so its export_modules() resolves nothing and answers nothing
+                merged[-1] = self.exported_modules if hook[0] \
+                             else package.archived_modules_named(loaded[-1], self.exported_modules)
+            # a module sits under an include dir of the same tree, so a hook that re-rooted the
+            # includes drops the archived module paths and the default finds them again below
+            elif hook[0]: merged[-1] = []
+            self._set_exports(tuple(merged))
+            # only when the archive DID record modules: an empty M list is the publisher saying this
+            # package ships none, and rediscovery would export a .cppm its include filter merely carried
+            if loaded[-1] and not self.exported_modules and not self.no_modules and not self.modules_declared:
+                self.default_package_modules()
         else:
             # the user provided no packaging, use the default packaging instead
             if not self.exported_includes and not self.no_includes:
                 self.default_package_includes()
             if not (self.exported_libs or self.exported_syslibs) and not self.no_libs:
                 self.default_package_libs()
+            # after the includes: a module ships inside an exported include tree, or it cannot ship
+            if not self.modules_declared and not self.no_modules:
+                self.default_package_modules()
+        package.warn_unreachable_modules(self)
+
+        # Strip before publishing exported_libs, not only on deploy: a source build links that path too.
+        package.export_stripped_module_libs(self)
 
         # A target that exports nothing has nothing to publish. Marking it here means a docs or bundle
         # target needs no declaration, and the upload validation stays a backstop rather than the rule.
@@ -1943,11 +2048,12 @@ class BuildTarget:
     def print_exports(self, abs_paths=False):
         if not self.config.print:
             return
-        if not (self.exported_includes or self.exported_libs or self.exported_syslibs or self.exported_assets):
+        if not any(self._exports()):
             return
 
         console(f'  - Package {self.name}  ({self.packaging_result})')
         for include in self.exported_includes: self._print_ws_path('<I>', include, abs_paths)
+        for module in self.exported_modules:   self._print_ws_path('<M>', module, abs_paths)
         for library in self.exported_libs:     self._print_ws_path('[L]', library, abs_paths)
         for library in self.exported_syslibs:  self._print_ws_path('[S]', library, abs_paths, check_exists=False)
         if self.config.deploy or self.config.upload:

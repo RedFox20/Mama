@@ -1,0 +1,59 @@
+"""Pins that every `mama install-<tool>` reaches its commands with arguments they accept.
+autospec binds the real signatures, so a call naming a keyword the function lacks raises here."""
+from unittest.mock import patch
+
+import pytest
+
+from mama.build_config import BuildConfig
+
+
+# every tool run_convenient_installs dispatches on, with a substring only that installer produces
+TOOLS = [('gcc-14', 'g++-14'), ('clang-21', 'clang-tidy-21'),
+         ('raspi-arm64', 'aarch64-linux-gnu'), ('msbuild', 'dotnet-sdk')]
+
+
+def _linux_ubuntu(cfg):
+    """The installers refuse a non-ubuntu host early, which would skip every command."""
+    cfg.distro = ('ubuntu', '24', '04')
+    return patch.multiple('mama.build_config.System', windows=False, macos=False, linux=True)
+
+
+def _run(tool, exists=True):
+    """Runs one convenient install with every outbound call mocked, and returns the execute mock.
+
+    distro imports only on linux, so create=True gives a windows host an attribute to patch.
+    """
+    cfg = BuildConfig(['build'])
+    cfg.convenient_install = [tool]
+    with _linux_ubuntu(cfg), \
+         patch('mama.build_config.execute', autospec=True, return_value=0) as ex, \
+         patch('mama.build_config.execute_piped', autospec=True, return_value='14.2.0'), \
+         patch('mama.build_config.console'), patch('mama.build_config.warning'), \
+         patch('mama.build_config.distro', create=True) as dist, \
+         patch('mama.build_config.os.path.exists', return_value=exists):
+        dist.info.return_value = {'codename': 'noble'}
+        cfg.run_convenient_installs()
+    return ex
+
+
+@pytest.mark.parametrize('tool,marker', TOOLS)
+def test_install_reaches_its_commands_with_arguments_they_accept(tool, marker):
+    ex = _run(tool)
+    commands = [call.args[0] if call.args else '' for call in ex.call_args_list]
+    assert commands, f'{tool} ran no command, so the mocks skipped the installer'
+    assert any(marker in str(cmd) for cmd in commands), \
+           f'{tool} ran {len(commands)} commands and none named {marker}: {commands}'
+
+
+def test_a_failing_apt_update_warns_and_keeps_going():
+    """install_gcc reads the status code instead of raising, so a blocked PPA is not fatal."""
+    cfg = BuildConfig(['build'])
+    cfg.convenient_install = ['gcc-14']
+    with _linux_ubuntu(cfg), \
+         patch('mama.build_config.execute', autospec=True) as ex, \
+         patch('mama.build_config.console'), patch('mama.build_config.warning') as warn:
+        ex.side_effect = lambda cmd, *a, **kw: 1 if 'apt-get update' in cmd else 0
+        cfg.run_convenient_installs()
+    assert warn.called, 'a failed apt-get update must warn'
+    assert any('update-alternatives' in str(c.args[0]) for c in ex.call_args_list), \
+           'the install stopped at the failed update instead of continuing'

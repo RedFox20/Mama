@@ -185,5 +185,19 @@ class Windows(Platform):
         return ('.lib',)
 
 
+    def archiver(self) -> str:
+        """lib.exe sits beside cl.exe, and only a developer prompt puts that dir on PATH."""
+        lib_exe = f'{self.msvc_bin64()}lib.exe'
+        return lib_exe if os.path.exists(lib_exe) else 'lib.exe'
+
+
+    def list_archive_members_cmd(self, lib: str) -> list:
+        return [self.archiver(), '/NOLOGO', '/LIST', lib]
+
+
+    def remove_from_archive_cmd(self, lib: str, members: list) -> list:
+        return [self.archiver(), '/NOLOGO', lib, *[f'/REMOVE:{m}' for m in members]]
+
+
     def debugger(self) -> str:
         return ''  # no batch-mode debugger exists here, so the test exe runs directly

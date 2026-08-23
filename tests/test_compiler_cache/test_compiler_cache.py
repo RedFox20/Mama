@@ -90,6 +90,35 @@ def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path
         assert f'CMAKE_{lang}_COMPILER:FILEPATH={cc.compiler_from_module(bf, lang)}' in cache
 
 
+def test_seeded_cache_replays_the_module_scanner_the_probe_found(tmp_path):
+    # seeding skips detection, so without the replay every module target runs the scan command "".
+    cache = _published_then_injected(tmp_path, 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18\n')
+    assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18' in cache
+
+
+# every binutil CMake writes, as CMAKE_<TOOL> and CMAKE_<lang>_COMPILER_<TOOL>
+_BINUTILS_CACHE = ''.join(f'CMAKE_{tool}:FILEPATH=/usr/bin/llvm-{tool.lower()}-18\n'
+                          for tool in ('AR', 'RANLIB', 'STRIP', 'LINKER', 'NM', 'OBJDUMP', 'OBJCOPY',
+                                       'READELF', 'ADDR2LINE', 'DLLTOOL', 'MT', 'INSTALL_NAME_TOOL')) \
+                + 'CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND\n' \
+                + 'CMAKE_C_COMPILER_AR:FILEPATH=/usr/bin/llvm-ar-18\n' \
+                + 'CMAKE_Fortran_COMPILER_RANLIB:FILEPATH=/usr/bin/llvm-ranlib-18\n'
+
+
+def test_seeded_cache_replays_every_tool_the_binutils_search_found(tmp_path):
+    # the search runs inside detection, so seeding skips it and each tool reaches the build empty
+    cache = _published_then_injected(tmp_path, _BINUTILS_CACHE)
+    for line in _BINUTILS_CACHE.splitlines():
+        assert line in cache
+
+
+def test_the_replay_takes_no_project_find_program_result(tmp_path):
+    # one seed serves every target of a compiler config, so a project's find_program must not reuse it
+    cache = _published_then_injected(tmp_path, 'CMAKE_CXX_CPPCHECK:FILEPATH=/usr/bin/cppcheck\n'
+                                               'MY_TOOL:FILEPATH=/usr/bin/mytool\n')
+    assert 'CPPCHECK' not in cache and 'MY_TOOL' not in cache
+
+
 def test_a_cached_compiler_wins_over_the_compiler_module(tmp_path):
     build = str(tmp_path / 'A')
     bf = make_cmake_detection(os.path.join(build, 'CMakeFiles', '4.2.3'))
@@ -486,3 +515,14 @@ def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
     old = _live_manifest(tmp_path); old.pop('format')           # no 'format' key
     assert not cc.is_valid(old, 'FP')
     assert cc.is_valid({**old, 'format': cc._SEED_FORMAT}, 'FP')
+
+
+def test_publish_refuses_a_detection_that_found_no_archiver(tmp_path):
+    # a replayed CMAKE_AR-NOTFOUND breaks every static library, and installing ar changes no
+    # fingerprint. TAPI is absent by design and must still publish.
+    bf = make_cmake_detection(str(tmp_path / '4.2.3'))
+    mod = os.path.join(bf, 'CMakeCXXCompiler.cmake')
+    open(mod, 'a').write('set(CMAKE_TAPI "CMAKE_TAPI-NOTFOUND")\n')
+    assert cc.publish(str(tmp_path / 'ok'), bf)
+    open(mod, 'a').write('set(CMAKE_AR "CMAKE_AR-NOTFOUND")\n')
+    assert not cc.publish(str(tmp_path / 'poisoned'), bf)

@@ -15,6 +15,29 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.0** (2026-Aug-23)
+- feature: a package exports its C++20 modules, and the consumer compiles them
+    mama exports every .cppm under an exported include dir, no recipe change
+    export_modules() narrows that list, no_export_modules() opts out
+    papa.txt records each one as  M include/rpp/rpp-strview.cppm
+    the consumer calls mama_target_modules(MyApp), which adds a CXX_MODULES
+      file set, cxx_std_20 and MAMA_HAS_MODULES=1
+    the deployed static lib drops its module objects, so a whole-archive
+      consumer link does not hit a duplicate module initializer
+    export_modules(strip_objects=False) keeps them, for a module that
+      carries a non-inline definition
+    needs cmake 3.28, and Ninja 1.11 or Visual Studio 2022
+    needs GCC 14, Clang 18 with clang-scan-deps, or MSVC 19.34
+    clang builds no module under the Visual Studio generator
+    a consumer raises a floor with MAMA_MODULES_MIN_CLANG=21, or turns the
+      feature off with MAMA_ENABLE_MODULES=OFF
+- feature: enable_cxxNN() sets CMAKE_CXX_STANDARD and CMAKE_CXX_EXTENSIONS
+    target_compile_features() reads the standard as a property, not a flag
+    a gnu++NN flag keeps the extensions on
+- bugfix: enable_cxx23() emitted /std:/std:c++23preview on MSVC
+- bugfix: compiler discovery composed a path no symlinked toolchain has,
+    and it split PATH on ':' on Windows
+
 **0.13.17** (2026-Aug-18)
 - feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
     it lands beside that CMakeLists.txt, so a nested one finds it too
@@ -44,15 +67,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - bugfix: a failed artifactory download uses the cached archive instead
  - bugfix: noart builds every git dep from source, and a pkg dep is read-only
  - bugfix: a build no longer hangs when a pipe closes on a pending read
-
-**0.13.14** (2026-Aug-07)
-- feature: deploy_after_build deploys a target, and the build says where
-- feature: nothing_to_upload() skips a target that publishes no package
-- feature: papa.txt records the build type, platform and arch of its objects
-- bugfix: a fetched debug package no longer hides in a release build
-- bugfix: an upload names the build type of the artifacts, not of the run
-- bugfix: a targeted build no longer drops the libs of a shared dependency
-- bugfix: a git dep names its package by the commit, not the ls-remote line
 
 ## Why Mama
 
@@ -502,6 +516,7 @@ self.export_include('src', as_includes_root='mylib') # Deploy as src/*.h as incl
 self.export_libs('.', ['.lib', '.a'])                # Find and export libs matching patterns
 self.export_libs('.', ['.lib', '.a'], order=['core', 'utils'])  # Control linker order (important on Linux)
 self.export_lib('lib/mylib.a')                       # Export a specific library file
+self.export_modules('src/rpp', ['rpp-strview.cppm']) # Narrow the C++20 modules exported (default: every one an include dir holds)
 self.export_syslib('GL')                             # Export a system library
 self.export_syslib('GL', apt='libgl-dev')            # With apt package hint on failure
 self.export_syslib('optional_lib', required=False)   # Silently skip if not found
@@ -509,7 +524,64 @@ self.export_asset('data/model.bin', category='models')  # Export asset files
 self.export_assets('data/', ['.bin', '.dat'])         # Export multiple assets by pattern
 self.no_export_includes()                            # Suppress automatic include exports
 self.no_export_libs()                                # Suppress automatic lib exports
+self.no_export_modules()                             # Suppress automatic C++20 module exports
 ```
+
+### C++20 modules
+
+A binary module interface is not portable, so a package ships the `.cppm` source and the consumer
+compiles it. Mama exports every module interface unit under an exported include dir, with no declaration.
+
+```py
+def package(self):
+    self.export_include('src/rpp', as_includes_root=True)  # the modules under it come along
+```
+
+Call `export_modules()` only to narrow that list:
+
+```py
+self.export_modules('src/rpp', ['rpp-strview.cppm'])  # only this one
+self.export_modules('src/rpp', recursive=False)       # that directory, not its subdirectories
+self.export_modules('src/rpp', strip_objects=False)   # a unit that defines more than its interface
+self.no_export_modules()                              # this package publishes no module
+```
+
+A consumer adds them to a target in one line, after the target exists:
+
+```cmake
+include(mama.cmake)
+include_directories(${MAMA_INCLUDES})
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE ${MAMA_LIBS})
+mama_target_modules(MyApp)          # PRIVATE if MyApp installs itself through install(EXPORT)
+```
+
+`mama init` writes that call already. It does nothing until a package exports a module.
+
+One source then follows either path, so a toolchain without module support still builds:
+
+```cpp
+#include <cstdio>          // EVERY #include comes first
+#include <string>
+#ifdef MAMA_HAS_MODULES
+import rpp.strview;        // then the imports, and nothing includes after them
+#else
+#include <rpp/strview.h>
+#endif
+```
+
+**Put every `#include` before the first `import`.** A module makes the declarations of its own
+included headers reachable, so a header parsed after the import re-declares them and GCC 14 rejects
+it. The rule applies inside a header too.
+
+Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
+MSVC 19.34. Only the running cmake has to be that new, because `mama_target_modules()` asks for the
+scan by name. A toolchain that misses a part keeps the headers and says so, as does
+`-DMAMA_ENABLE_MODULES=OFF`.
+
+The packaged static library drops its module objects, because the consumer compiles the same source
+and a whole-archive link would find two `initializer for module X` symbols. **An exported module must
+define nothing but its own interface.** Pass `strip_objects=False` for a unit that carries a definition.
 
 ### Execution utilities
 ```py

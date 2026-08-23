@@ -114,3 +114,27 @@ def test_a_toolchain_file_build_never_reports_the_compiler_as_moved(tmp_path):
     write_cmake_cache(t.build_dir(), 'CMAKE_GENERATOR:INTERNAL=Ninja\n'
                                      'CMAKE_C_COMPILER:STRING=/opt/ndk-A/clang\n')
     assert cc._toolchain_moved_unfingerprinted(t.build_dir(), t) is False
+
+
+# --- option spelling and the standard the compiler really reads ----------------
+
+def test_an_option_that_spells_its_own_prefix_names_the_right_variable():
+    # two prefixes name a cmake variable literally called `-DFOO`, and the project never sees FOO
+    assert cc._opts_to_defines(['-DFOO=1', 'BAR=2']) == '-DFOO=1 -DBAR=2 '
+
+
+def test_the_last_std_flag_decides_the_standard(tmp_path):
+    # the compiler reads the last -std of the line, so an earlier one does not decide the build
+    target, _ = make_configured_target(tmp_path)
+    target.config.flags = '-std=c++17 -std=c++20'
+    target.enable_cxx20()
+    assert 'CMAKE_CXX_STANDARD=20' in cc._cxx_standard_opts(target)
+
+
+def test_a_standard_spelling_inside_a_macro_value_is_not_an_operator_flag(tmp_path):
+    # an unanchored search read the macro value as the operator standard, and cmake then appended a
+    # C++17 flag after the C++23 one the mamafile forced
+    target, _ = make_configured_target(tmp_path)
+    target.config.flags = '-DDEFAULT_STD=-std=c++17'
+    target.enable_cxx23()
+    assert 'CMAKE_CXX_STANDARD=23' in cc._cxx_standard_opts(target)

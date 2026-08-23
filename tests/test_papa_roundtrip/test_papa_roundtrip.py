@@ -11,6 +11,8 @@ from mama.utils.archive import try_unzip
 BUILD_FILES = ['include/foo/foo.h', 'include/foo/foo.hpp', 'include/foo/detail.inc',
                'include/foo/table.txt', 'include/foo/readme.md',
                'src/api.h', 'src/detail.inc', 'lib/libfoo.a', 'bin/tool']
+# an exported include dir holding a .cppm turns on the module export
+MODULE_FILE = 'include/foo/foo.cppm'
 
 
 SOURCE_FILES = ['data/table.txt', 'data/params.xml', 'notes.md']
@@ -23,8 +25,8 @@ def _write_source_tree(src_dir):
         with open(path, 'w') as f: f.write(f'; {rel}\n')
 
 
-def _write_build_output(build_dir):
-    for rel in BUILD_FILES:
+def _write_build_output(build_dir, with_module: bool):
+    for rel in BUILD_FILES + ([MODULE_FILE] if with_module else []):
         path = os.path.join(build_dir, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w') as f: f.write(f'// {rel}\n')
@@ -72,6 +74,12 @@ def _root_over_include(self):
     # the pathological shape: the rooted dir name is one the archive also has
     self.export_include('include', build_dir=True, as_includes_root='foo', includes_filter=['.h', '.inc'])
 
+def _modules(self):
+    # a fetched package must keep its M records, so the 5th export category survives the reload
+    self.export_include('include', build_dir=True)
+    # strip_objects=False: this fixture writes a stub lib, and a real archiver cannot read it
+    self.export_modules('include/foo', ['foo.cppm'], build_dir=True, strip_objects=False)
+
 def _everything(self):
     self.export_include('include', build_dir=True, includes_filter=['.h', '.hpp', '.inc', '.txt'])
     self.export_libs('lib', ['.a'], build_dir=True)
@@ -81,7 +89,7 @@ def _everything(self):
 STYLES = {'default': _default, 'filter_inc': _filter_inc, 'filter_txt': _filter_txt,
           'source_root_payload': _source_root_payload, 'root_over_include': _root_over_include,
           'includes_root': _includes_root, 'libs_only': _libs_only, 'syslibs': _syslibs,
-          'assets': _assets, 'everything': _everything}
+          'assets': _assets, 'modules': _modules, 'everything': _everything}
 
 
 def _deploy(root, recipe, *, fetched_from=None, shape='shim', source_of=None):
@@ -101,7 +109,7 @@ def _deploy(root, recipe, *, fetched_from=None, shape='shim', source_of=None):
         assert artifactory_load_target(target, build_dir, num_files_copied=0)[0]
         assert target.dep.from_artifactory
     else:
-        _write_build_output(build_dir)
+        _write_build_output(build_dir, recipe is _modules)
         _write_source_tree(target.dep.src_dir)
     target._run_packaging()
     target.papa_deploy('pkg')
