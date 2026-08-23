@@ -409,3 +409,27 @@ def test_an_escaped_paren_does_not_close_the_argument_list(tmp_path):
     write_files(dep.src_dir, {'src)dir/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src)dir/mama.cmake')
+
+
+def test_a_bracket_argument_names_the_dir_it_spells(tmp_path):
+    # cmake evaluates nothing inside a bracket argument, so the variable syntax is part of the name
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory([[${CMAKE_SOURCE_DIR}/src]])\n')
+    write_files(dep.src_dir, {'${CMAKE_SOURCE_DIR}/src/CMakeLists.txt': 'include(mama.cmake)\n',
+                              'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/${{CMAKE_SOURCE_DIR}}/src/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_an_encoded_escape_becomes_its_character(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\tdir")\n')
+    write_files(dep.src_dir, {'src\tdir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src\tdir/mama.cmake')
+
+
+def test_an_unquoted_argument_ends_at_a_line_comment(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src#names the binary dir\n)\n')
+    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
