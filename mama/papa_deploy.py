@@ -111,9 +111,9 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
 
 
 def _same_file(a:str, b:str) -> bool:
-    """True when both paths name one file. A case-variant spelling, or a deploy dir reached through a
-    symlink, compares unequal as a string, and the strip would then edit the build artifact itself."""
-    if package.match_path(a) == package.match_path(b): return True
+    """True when both paths name one file. Only the filesystem separates a case-variant spelling of one
+    file from two real files, and it answers the symlinked deploy dir with the same call."""
+    if forward_slashes(a) == forward_slashes(b): return True
     try: return os.path.samefile(a, b)
     except OSError: return False  # one of them does not exist yet, so they are two files
 

@@ -516,3 +516,14 @@ def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
     old = _live_manifest(tmp_path); old.pop('format')           # no 'format' key
     assert not cc.is_valid(old, 'FP')
     assert cc.is_valid({**old, 'format': cc._SEED_FORMAT}, 'FP')
+
+
+def test_publish_refuses_a_detection_that_found_no_archiver(tmp_path):
+    # a seed skips detection, so a replayed CMAKE_AR-NOTFOUND breaks every static library built from
+    # it, and installing ar changes no fingerprint. TAPI is absent by design and must still publish.
+    bf = make_cmake_detection(str(tmp_path / '4.2.3'))
+    mod = os.path.join(bf, 'CMakeCXXCompiler.cmake')
+    open(mod, 'a').write('set(CMAKE_TAPI "CMAKE_TAPI-NOTFOUND")\n')
+    assert cc.publish(str(tmp_path / 'ok'), bf)
+    open(mod, 'a').write('set(CMAKE_AR "CMAKE_AR-NOTFOUND")\n')
+    assert not cc.publish(str(tmp_path / 'poisoned'), bf)

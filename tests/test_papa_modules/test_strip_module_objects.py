@@ -30,9 +30,10 @@ def _target(tmp_path, modules=('rpp-strview.cppm',), strip=True, libs=('/pkg/lib
     return target
 
 
-def _child(root, modules, children=()):
+def _child(root, modules, children=(), strip=True):
     """A dependency target exporting `modules`, wrapped the way `children()` answers it."""
     target = make_includes_target(root)
+    target.strip_module_objects = strip
     target.exported_includes = [f'{root}/src']
     target.exported_modules = [f'{root}/src/{m}' for m in modules]
     target.children.return_value = list(children)
@@ -365,3 +366,11 @@ def test_a_case_distinct_private_module_keeps_its_object(tmp_path):
     target = _target(tmp_path, modules=('api.cppm',), root=f'{tmp_path}/Include')
     with patch.object(package.System, 'macos', True):  # the platform that folds case
         assert not _strip(target, listing='api.cppm.o\nother.cpp.o\n').called
+
+
+def test_a_child_that_opted_out_keeps_its_object_in_the_parent_archive(tmp_path):
+    # strip_objects=False says the module holds a definition no other archive carries. A parent that
+    # compiles that module owns the only copy, so reading the parent flag alone dropped the definition.
+    target = _target(tmp_path, modules=())
+    target.children.return_value = [_child(f'{tmp_path}/child', ['rpp/rpp-strview.cppm'], strip=False)]
+    assert not _strip(target).called

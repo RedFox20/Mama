@@ -27,8 +27,12 @@ _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
 _TOOLS = 'AR|RANLIB|STRIP|LINKER|NM|OBJDUMP|OBJCOPY|READELF|DLLTOOL|ADDR2LINE|TAPI|MT|INSTALL_NAME_TOOL'
 _REPLAY_TOOL_KEY = re.compile(rf'^CMAKE_(({_TOOLS})|[A-Za-z]+_COMPILER_(AR|RANLIB|CLANG_SCAN_DEPS))$')
 
+# Tools whose absence breaks archiving and linking. A compiler module records these three, so a seed
+# that names one NOTFOUND replays that miss forever: the fingerprint does not stat a binutil.
+_REQUIRED_TOOLS = ('CMAKE_AR', 'CMAKE_RANLIB', 'CMAKE_LINKER')
+
 # Bumped when the seed shape changes. is_valid rejects an older format, so the probe runs again.
-_SEED_FORMAT = 5
+_SEED_FORMAT = 6
 BACKSTOP_TTL = 7 * 24 * 3600  # seconds. The fingerprint is the real gate. This TTL is only a backstop.
 
 
@@ -128,6 +132,16 @@ def read_replay_cache_lines(build_dir: str, compilers: dict = None) -> list:
     return lines
 
 
+def detection_misses_a_tool(build_files_dir: str) -> bool:
+    """True when a compiler module records a required binutil as NOTFOUND. TAPI and DLLTOOL are absent
+    on most hosts by design, so only the archiving and linking tools answer here."""
+    for mod, _ in _LANG_FILES.values():
+        try: text = read_text_from(path_join(build_files_dir, mod))
+        except OSError: continue  # a language this dir never detected records no tool at all
+        if any(f'{tool}-NOTFOUND' in text for tool in _REQUIRED_TOOLS): return True
+    return False
+
+
 def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build_dir='', clock=time.time) -> bool:
     """Capture detection artifacts from a freshly configured build dir into `seed_dir`. Returns False
     when the detection is not usable. Each file lands via a temp + os.replace, so a concurrent
@@ -142,6 +156,7 @@ def publish(seed_dir: str, build_files_dir: str, fingerprint='', probe='', build
     compilers = usable_compilers(build_files_dir)
     # never publish a half-detected toolchain or one naming a compiler this machine does not have
     if not covers_core_langs(langs) or detection_is_partial(build_files_dir) or not compilers: return False
+    if detection_misses_a_tool(build_files_dir): return False  # installing it would not re-seed
     os.makedirs(seed_dir, exist_ok=True)
     copied = []
     for name in _seed_file_names(langs):

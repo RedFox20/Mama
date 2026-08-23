@@ -215,3 +215,16 @@ def test_a_bundled_child_module_gates_its_own_tree_and_no_other(tmp_path):
     # parent answered '', which gated every absolute path and dropped the parent's own sources.
     deployed = _recursive_deploy(tmp_path, [], ['include/child/extra.cppm'])
     assert os.path.exists(f'{deployed}/include/rpp/loose.cppm')
+
+
+@pytest.mark.case_sensitive_fs
+def test_a_case_variant_deploy_dir_is_not_the_build_dir(tmp_path):
+    # a case-sensitive volume holds build/ and BUILD/ apart, and folding read the deploy dir as the
+    # build dir. That refused the deploy, and on the lib loop it skipped the copy and recorded nothing.
+    build, target = _built(tmp_path, ['include'], [MODULE])
+    target.strip_module_objects = True
+    variant = f'{os.path.dirname(build)}/{os.path.basename(build).upper()}'
+    with patch.object(package.System, 'macos', True), \
+         patch.object(package, 'strip_module_objects'):  # the fixture lib is not a real archive
+        papa_deploy_target(target, variant)
+    assert os.path.exists(f'{variant}/papa.txt') and os.path.exists(f'{variant}/lib/libfoo.a')

@@ -322,7 +322,9 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     parts = [(o, match_path(os.path.splitext(forward_slashes(o))[0]).split('/')) for o in objects]
     claims, names = {}, None
     modules = consumed_modules(target)
-    for _, module in modules:
+    for owner, module in modules:
+        # the owner keeps its own objects, and its module rides this archive when a parent compiles it
+        if not owner.strip_module_objects: continue
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
         best = max((n for _, n in scored), default=0)
