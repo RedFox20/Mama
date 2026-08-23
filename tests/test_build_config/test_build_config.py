@@ -17,7 +17,7 @@ def cpus(monkeypatch, tmp_path):
         root = tmp_path.as_posix()
         monkeypatch.setattr(system, '_CGROUP_ROOT', root)
         monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: (rel, rel))
-        monkeypatch.setattr(system, '_cgroup_mounts', lambda: (root, f'{root}/cpu'))
+        monkeypatch.setattr(system, '_cgroup_mounts', lambda: ((root, '/'), (f'{root}/cpu', '/')))
         monkeypatch.setattr(system, 'is_linux', True)
         monkeypatch.setattr(psutil, 'cpu_count', lambda: host)
         # raising=False: Windows has no sched_getaffinity, and these tests force the Linux branch
@@ -81,7 +81,8 @@ def test_a_hybrid_host_reads_the_v1_quota_under_the_v1_path(monkeypatch, tmp_pat
     monkeypatch.setattr(system, '_cpu_count', 0)
     monkeypatch.setattr(system, '_CGROUP_ROOT', tmp_path.as_posix())
     monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: ('unified', 'v1path'))
-    monkeypatch.setattr(system, '_cgroup_mounts', lambda: (tmp_path.as_posix(), f'{tmp_path.as_posix()}/cpu'))
+    monkeypatch.setattr(system, '_cgroup_mounts',
+                        lambda: ((tmp_path.as_posix(), '/'), (f'{tmp_path.as_posix()}/cpu', '/')))
     monkeypatch.setattr(system, 'is_linux', True)
     monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
     monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(32)), raising=False)
@@ -93,15 +94,27 @@ def test_a_hybrid_host_reads_the_v1_quota_under_the_v1_path(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize('text, expect', [
     ('45 35 0:37 / /sys/fs/cgroup/unified rw - cgroup2 cgroup2 rw\n'
-     '36 35 0:28 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu\n', ('/sys/fs/cgroup/unified', '/sys/fs/cgroup/cpu')),
-    ('35 23 0:27 / /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n', ('/sys/fs/cgroup', '')),
-    ('36 35 0:28 / /sys/fs/cgroup/cpuacct rw - cgroup cgroup rw,cpuacct\n', ('', '')),  # no cpu controller
-], ids=['hybrid-v2-under-v1-tree', 'v2-only', 'cpuacct-is-not-cpu'])
+     '36 35 0:28 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu\n',
+     (('/sys/fs/cgroup/unified', '/'), ('/sys/fs/cgroup/cpu', '/'))),
+    ('35 23 0:27 / /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n', (('/sys/fs/cgroup', '/'), ('', ''))),
+    ('36 35 0:28 / /sys/fs/cgroup/cpuacct rw - cgroup cgroup rw,cpuacct\n', (('', ''), ('', ''))),
+    ('35 23 0:27 /docker/abc /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n',
+     (('/sys/fs/cgroup', '/docker/abc'), ('', ''))),                    # a delegated subtree bind mount
+], ids=['hybrid-v2-under-v1-tree', 'v2-only', 'cpuacct-is-not-cpu', 'bind-mounted-subtree'])
 def test_the_cgroup_mounts_come_from_mountinfo(monkeypatch, tmp_path, text, expect):
     info = tmp_path / 'mountinfo'
     info.write_text(text)
     monkeypatch.setattr(system, '_PROC_MOUNTINFO', info.as_posix())
     assert system._cgroup_mounts() == expect
+
+
+@pytest.mark.parametrize('rel, root, expect', [
+    ('docker/abc/service', '/docker/abc', 'service'),   # the mount point already stands for the root
+    ('svc/app', '/', 'svc/app'),                        # a whole-hierarchy mount strips nothing
+    ('other/x', '/docker', ''),                         # this mount shows no cgroup of the process
+], ids=['delegated-subtree', 'whole-hierarchy', 'outside-the-mount'])
+def test_the_mount_root_comes_off_the_process_cgroup_path(rel, root, expect):
+    assert system._visible_rel(rel, root) == expect
 
 
 def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):

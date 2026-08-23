@@ -67,19 +67,28 @@ def _cgroup_rel_paths() -> tuple:
 
 
 def _cgroup_mounts() -> tuple:
-    """The v2 and the v1 cpu mount point, from /proc/self/mountinfo. Neither sits at a fixed path: a
-    hybrid host mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
-    v2 = v1 = ''
+    """(mount point, mount root) for the v2 mount and for the v1 cpu mount, from /proc/self/mountinfo.
+    Neither sits at a fixed path: a hybrid host mounts v2 under the v1 tree, and a v1 host names the
+    mount after its controller list."""
+    v2 = v1 = ('', '')
     try:
         with open(_PROC_MOUNTINFO, encoding='utf-8') as f: lines = f.read().splitlines()
     except OSError: return v2, v1
-    for line in lines:                       # `<...> <point> <opts> - <fstype> <source> <super opts>`
+    for line in lines:            # `<id> <parent> <dev> <root> <point> <opts> - <fstype> <src> <super>`
         left, _, right = line.partition(' - ')
         fields, after = left.split(), right.split()
         if len(fields) < 5 or len(after) < 3: continue
-        if after[0] == 'cgroup2' and not v2: v2 = fields[4]
-        elif after[0] == 'cgroup' and not v1 and 'cpu' in after[2].split(','): v1 = fields[4]
+        if after[0] == 'cgroup2' and not v2[0]: v2 = (fields[4], fields[3])
+        elif after[0] == 'cgroup' and not v1[0] and 'cpu' in after[2].split(','): v1 = (fields[4], fields[3])
     return v2, v1
+
+
+def _visible_rel(rel: str, mount_root: str) -> str:
+    """The cgroup of this process as one mount shows it. A bind mount of a delegated subtree carries
+    that subtree in its root, and the mount point already stands for it, so the prefix comes off."""
+    root = mount_root.strip('/')
+    if not root: return rel
+    return rel[len(root) + 1:] if rel.startswith(f'{root}/') else ''
 
 
 def _quota_in(cgroup_dir: str) -> int:
@@ -94,11 +103,11 @@ def _quota_in(cgroup_dir: str) -> int:
 def _cgroup_cpu_quota() -> int:
     """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
     on any ancestor caps it too, so the smallest one wins."""
-    (v2, v1), (v2_mount, v1_mount), dirs = _cgroup_rel_paths(), _cgroup_mounts(), []
-    for root, rel in ((v2_mount or _CGROUP_ROOT, v2), (v1_mount or f'{_CGROUP_ROOT}/cpu', v1)):
-        dirs.append(root)
-        for part in rel.split('/') if rel else []:
-            dirs.append(f'{dirs[-1]}/{part}')
+    (v2_rel, v1_rel), (v2, v1), dirs = _cgroup_rel_paths(), _cgroup_mounts(), []
+    for (point, mount_root), rel, default in ((v2, v2_rel, _CGROUP_ROOT), (v1, v1_rel, f'{_CGROUP_ROOT}/cpu')):
+        dirs.append(point or default)
+        for part in _visible_rel(rel, mount_root).split('/'):
+            if part: dirs.append(f'{dirs[-1]}/{part}')
     limits = [n for n in map(_quota_in, dirs) if n]
     return min(limits) if limits else 0
 
