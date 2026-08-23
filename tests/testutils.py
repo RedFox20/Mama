@@ -182,6 +182,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.disable_artifactory = False
     cfg.is_network_available.return_value = True
     cfg.unshallow = False
+    cfg.git_timeout = 30  # run_git compares it against a float, and a Mock attribute raises there
     cfg.git_url_override = None
     cfg.update_stats = Mock()
     cfg.deploy_stats = DeployStats()
