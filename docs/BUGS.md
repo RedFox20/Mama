@@ -19,9 +19,10 @@ so cut every word that a reader of the fix does not need.
   own `libcore.a` and a prebuilt `libvendor.a` loses a vendor member named `api.cppm.o` when the target
   exports any `api.cppm`. `_ambiguous_names` cannot protect it: it scans the source and build trees, and
   the vendor sources are in neither. Repro: export two static libs, put `api.cppm.o` in the prebuilt one,
-  export `api.cppm` from the other. Fix: record which archive each module compiled into, or skip an
-  archive whose matching members no scanned tree accounts for. The narrow shape and the cost of threading
-  ownership through the build kept it out of the module PR.
+  export `api.cppm` from the other. Fix: record which archive each module compiled into. Do NOT skip an
+  archive whose members no scanned tree accounts for: an intermediary archive holds the module objects of
+  a package below it, whose source is in another tree by design, and that skip breaks every chain build.
+  The cost of threading ownership through the build kept this out of the module PR.
 
 - **Only the configured `CMakeLists.txt` names the proxy, never one a subdirectory adds.** The scan
   reads `dep.cmakelists_path()` alone (`build_dependency.py:850`). A root that calls
