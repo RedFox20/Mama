@@ -313,22 +313,24 @@ def test_a_second_run_strips_the_archive_this_build_wrote(tmp_path):
 ])
 def test_the_export_points_at_the_archive_this_build_wrote(tmp_path, kw, files, listing, keeps_copy):
     if files: write_files(str(tmp_path), files)
-    copy = f'{tmp_path}/{NOMOD}/libfoo.a'
+    root = forward_slashes(str(tmp_path))
+    copy = f'{root}/{NOMOD}/libfoo.a'
     target = _target(tmp_path, libs=(copy,), **kw)
     _export_stripped(target, listing=listing)
-    assert target.exported_libs[0] == (copy if keeps_copy else f'{forward_slashes(str(tmp_path))}/libfoo.a')
+    assert target.exported_libs[0] == (copy if keeps_copy else f'{root}/libfoo.a')
 
 
 @pytest.mark.parametrize('recorded_copy', [False, True])
 def test_a_thin_archive_keeps_its_own_path_and_says_so(tmp_path, recorded_copy):
     # a thin archive names each member by a path, so a copy resolves every one against the wrong dir
-    lib = f'{tmp_path}/libfoo.a'
+    root = forward_slashes(str(tmp_path))  # an export always carries forward slashes, on every host
+    lib = f'{root}/libfoo.a'
     open(lib, 'wb').write(b'!<thin>\n//   ')
-    if recorded_copy: os.makedirs(f'{tmp_path}/{NOMOD}', exist_ok=True)
-    target = _target(tmp_path, libs=(f'{tmp_path}/{NOMOD}/libfoo.a' if recorded_copy else lib,))
+    if recorded_copy: os.makedirs(f'{root}/{NOMOD}', exist_ok=True)
+    target = _target(tmp_path, libs=(f'{root}/{NOMOD}/libfoo.a' if recorded_copy else lib,))
     with patch('mama.package.warning') as warned:
         _export_stripped(target)
-    assert target.exported_libs == [forward_slashes(lib)]
+    assert target.exported_libs == [lib]
     assert 'thin archive' in warned.call_args[0][0]
 
 
