@@ -371,3 +371,18 @@ def test_an_escaped_space_in_a_subdirectory_is_followed(tmp_path):
     write_files(dep.src_dir, {'src dir/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src dir/mama.cmake')
+
+
+def test_a_quoted_escape_in_a_subdirectory_is_decoded(tmp_path):
+    # cmake evaluates escape sequences inside a quoted argument
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\ dir")\n')
+    write_files(dep.src_dir, {'src dir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src dir/mama.cmake')
+
+
+def test_a_bracket_argument_drops_only_its_opening_newline(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory([[\nsrc]])\n')
+    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')

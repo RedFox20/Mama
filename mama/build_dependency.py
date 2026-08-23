@@ -77,6 +77,20 @@ def _end_of_args(text: str, i: int) -> int:
     return len(text)
 
 
+def _unescape_cmake(text: str) -> str:
+    """A cmake argument with its escape sequences resolved. A backslash names the plain character after
+    it, which is how an argument holds a space or a quote."""
+    out, i = [], 0
+    while i < len(text):
+        if text[i] == '\\' and i + 1 < len(text):
+            out.append(text[i + 1])
+            i += 2
+        else:
+            out.append(text[i])
+            i += 1
+    return ''.join(out)
+
+
 def first_cmake_arg(args: str) -> str:
     """The first argument of a cmake command, with its quotes removed. A comment may open the list, and
     a quoted argument may hold a space or a `#`."""
@@ -89,21 +103,20 @@ def first_cmake_arg(args: str) -> str:
             i = _skip_span(args, i)  # a comment names no argument
         elif char == '"':
             match = _CMAKE_QUOTED.match(args, i)
-            return match.group(0)[1:-1] if match else ''
+            return _unescape_cmake(match.group(0)[1:-1]) if match else ''
         elif char == '[' and (bracket := _CMAKE_BRACKET.match(args, i)):
             pad = len(bracket.group(1)) + 2   # the `[[` or `[=[` open, and its matching close
-            return bracket.group(0)[pad:-pad]
+            content = bracket.group(0)[pad:-pad]
+            # cmake drops ONE newline that opens a bracket argument, and keeps every escape verbatim
+            if content.startswith('\r\n'): return content[2:]
+            return content[1:] if content.startswith('\n') else content
         else:
-            out = []
-            while i < len(args):
-                if args[i] == '\\' and i + 1 < len(args):
-                    out.append(args[i + 1])   # cmake reads `\\ ` and `\\\\` as the plain character
-                    i += 2
-                elif args[i].isspace(): break
-                else:
-                    out.append(args[i])
-                    i += 1
-            return ''.join(out)
+            end = i
+            while end < len(args):
+                if args[end] == '\\' and end + 1 < len(args): end += 2   # an escape holds any character
+                elif args[end].isspace(): break
+                else: end += 1
+            return _unescape_cmake(args[i:end])
     return ''
 
 
