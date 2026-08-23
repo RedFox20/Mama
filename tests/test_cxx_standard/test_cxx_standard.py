@@ -33,8 +33,7 @@ def test_each_forced_standard_sets_the_cmake_standard(enable, expected, tmp_path
 
 
 def test_the_extensions_are_off_and_the_standard_is_never_required(tmp_path, monkeypatch):
-    # OFF keeps the flag cmake adds equal to the -std the mamafile asked for. REQUIRED would turn a
-    # compiler that cannot give the standard into a failed configure, where the flag alone decayed.
+    # OFF keeps cmake's flag equal to the mamafile -std. REQUIRED would fail where the flag decayed.
     opts = _opts(tmp_path, monkeypatch, enable='20')
     assert opts['CMAKE_CXX_EXTENSIONS'] == 'OFF'
     assert 'CMAKE_CXX_STANDARD_REQUIRED' not in opts
@@ -78,8 +77,7 @@ def test_an_unreadable_cmake_version_sets_nothing(tmp_path, monkeypatch):
 @pytest.mark.parametrize('spelling', ['CMAKE_CXX_STANDARD=17', 'CMAKE_CXX_STANDARD:STRING=17',
                                       '-DCMAKE_CXX_STANDARD=17', '-D CMAKE_CXX_STANDARD=17'])
 def test_the_mamafile_keeps_the_standard_it_named_itself(spelling, tmp_path, monkeypatch):
-    # add_cmake_options comes first on the command line, and cmake takes the last -D, so a default of
-    # ours would silently win. Every legal spelling of the name has to defer to it.
+    # add_cmake_options comes first and cmake takes the last -D, so every spelling must defer to it.
     target = _target(tmp_path, monkeypatch, enable='20')
     target.add_cmake_options(spelling)
     added = cc._default_options(target)

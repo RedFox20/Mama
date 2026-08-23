@@ -111,8 +111,7 @@ def test_the_cxx_env_var_reads_the_suffix_off_the_real_file_too(tmp_path):
 
 
 def test_a_link_to_a_target_prefixed_compiler_keeps_a_name_that_exists(tmp_path):
-    # bin/cc++ -> gcc/bin/x86_64-linux-gnu-cc++-14, whose name starts with neither the compiler nor
-    # any spelling the resolved root holds, so only the link itself names a file that exists
+    # bin/cc++ -> gcc/bin/x86_64-linux-gnu-cc++-14: only the link itself names a file that exists.
     real_bin, link_bin = tmp_path / 'gcc-14' / 'bin', tmp_path / 'bin'
     real_bin.mkdir(parents=True); link_bin.mkdir()
     for name in (CC, CXX):

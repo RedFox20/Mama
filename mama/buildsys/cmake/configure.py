@@ -125,8 +125,7 @@ def _cmake_version(config, cmake_command=None) -> tuple:
     except (ValueError, IndexError): return (0, 0)
 
 
-# The cmake release that learned each standard. An older cmake fails the configure on a number it
-# does not know, so mama passes the flag alone and leaves the cmake default in place.
+# The cmake release that learned each standard. An older one fails on a number it does not know.
 _CXX_STANDARD_MIN_CMAKE = {'11': (3,1), '14': (3,1), '17': (3,8), '20': (3,12), '23': (3,20), '26': (3,25)}
 
 
@@ -141,8 +140,7 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     `target_compile_features` and a `CXX_MODULES` file set both fail without it. A mamafile naming
     one through add_cmake_options() keeps its value, and an operator `flags=` standard keeps that."""
     if not target.enable_cxx_build: return []
-    # cmake appends its own standard flag last, so an operator standard has to win here instead.
-    # The compiler reads the last -std of the line, so a repeated flag decides by its last spelling.
+    # cmake appends its flag last, so the operator standard must win here. Last -std of the line wins.
     operator = [m for tok in (target.config.flags or '').split()
                 for m in re.findall(r'^[-/]std[=:](\S+)$', tok)]
     std_flag = operator[-1] if operator else target.cxx_std_flag()
@@ -151,8 +149,7 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     least = _CXX_STANDARD_MIN_CMAKE.get(std)
     if not least or _cmake_version(target.config, target.cmake_command) < least: return []
     forced = {_cmake_opt_key(o) for o in target.cmake_opts}
-    # EXTENSIONS matches what the flag already asks for, and a `gnu++` dialect keeps them. No REQUIRED:
-    # a compiler that cannot give this standard must decay, not fail the configure.
+    # EXTENSIONS follows the flag. No REQUIRED: a compiler short of the standard decays, never fails.
     extensions = 'ON' if std_flag.startswith('gnu++') else 'OFF'
     defaults = {'CMAKE_CXX_STANDARD': std, 'CMAKE_CXX_EXTENSIONS': extensions}
     return [f'{k}={v}' for k, v in defaults.items() if k not in forced]
@@ -237,8 +234,7 @@ def _seed_inputs(target:BuildTarget) -> dict:
         # fingerprint once, so run_config wipes the dirs an older seed shaped and seeds them again.
         'seedfmt': seedcache._SEED_FORMAT,
     }
-    # read the resolved compiler, never config.clang: that flag is a host preference, and a cross
-    # platform such as the NDK names its own clang while it stays false
+    # read the resolved compiler, never config.clang: the NDK names clang while that host flag is false
     if cxx and 'clang' in os.path.basename(cxx):
         inputs['scandeps'] = seedcache.compiler_stat(_clang_scan_deps(cxx))
     if config.msvc:  # MSVC leaves cc/cxx empty, so stat cl.exe directly - else a toolset upgrade is invisible

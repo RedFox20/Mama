@@ -15,15 +15,12 @@ _LANG_FILES = {
 _SHARED_FILES = ['CMakeSystem.cmake']
 _VS_FILES = ['VCTargetsPath.txt']  # VS-generator MSBuild probe result (reusable, toolset-bound)
 _MANIFEST = 'seed.json'
-# Cache entries the injected CMakeCache.txt must carry, replayed verbatim from the probe's own cache.
-# The ABI probe writes its result to the CACHE only, and seeding skips the probe, so without the
-# replay every install-RPATH executable fails. The compiler and toolchain entries must match the -D
-# options mama passes, or cmake wipes the cache MID-CONFIGURE and re-detects a cross build as the host.
+# Cache entries the injected CMakeCache.txt must carry. Seeding skips the ABI probe that writes them,
+# and a compiler entry that mismatches mama's -D options makes cmake wipe the cache mid-configure.
 _REPLAY_CACHE_KEYS = ('CMAKE_EXECUTABLE_FORMAT', 'CMAKE_LIBRARY_ARCHITECTURE',
                       'CMAKE_C_COMPILER', 'CMAKE_CXX_COMPILER', 'CMAKE_TOOLCHAIN_FILE')
 
-# GNU binutils CMake finds, in both spellings: CMAKE_AR and CMAKE_CXX_COMPILER_AR. A closed list, so
-# one project's own find_program result never reaches another project through a shared seed.
+# Every known GNU binutils tool a CMake target needs, both spellings CMake writes.
 _TOOLS = 'AR|RANLIB|STRIP|LINKER|NM|OBJDUMP|OBJCOPY|READELF|DLLTOOL|ADDR2LINE|TAPI|MT|INSTALL_NAME_TOOL'
 _REPLAY_TOOL_KEY = re.compile(rf'^CMAKE_(({_TOOLS})|[A-Za-z]+_COMPILER_(AR|RANLIB|CLANG_SCAN_DEPS))$')
 

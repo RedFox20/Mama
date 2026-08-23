@@ -251,7 +251,7 @@ def warn_unreachable_modules(target: BuildTarget) -> None:
 def consumed_modules(target: BuildTarget) -> list:
     """(owner, module) for every module whose object this archive can hold: this target's, and every
     package below it, because `mama_target_modules` compiles the whole tree into this target. A
-    grandchild the strip misses defines its initializer twice. The owner answers for the base dir."""
+    grandchild the strip misses defines its initializer twice. The owner resolves the base dir."""
     modules = [(target, m) for m in exported_modules_with_base(target)]
     seen = set()
     def walk(parent: BuildTarget):
@@ -340,7 +340,7 @@ def _module_object_members(target: BuildTarget, lib: str) -> list:
     claims, names = {}, None
     modules = consumed_modules(target)
     for owner, module in modules:
-        # the owner keeps its own objects, and its module rides this archive when a parent compiles it
+        # the owner keeps its own objects, and a parent compiles that module into this archive
         if not owner.strip_module_objects: continue
         module_parts = match_path(module).split('/')
         scored = [(o, _shared_tail(p, module_parts)) for o, p in parts]
@@ -425,8 +425,7 @@ def _remove_members(target: BuildTarget, lib: str, members: list):
     # the arg list stays a list, because SubProcess splits a joined string on every space
     status = SubProcess.run(target.config.platform.remove_from_archive_cmd(lib, members))
     if status != 0: raise BuildError(f'Failed to remove {len(members)} module objects from {lib}')
-    # Always warn: this removes whole objects, so a module unit that defines a non-inline function
-    # loses that definition for a consumer whose toolchain builds no module.
+    # Always warn: whole objects go, so a non-inline definition is lost on the header fallback.
     warning(f'  Removed {len(members)} module objects from {os.path.basename(lib)}. ' + \
             'An exported module must define nothing but its own interface.')
 

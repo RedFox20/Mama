@@ -15,8 +15,8 @@ def _env() -> dict:
 
 @pytest.mark.slow
 def test_a_four_level_chain_resolves_every_module_it_imports(tmp_path):
-    # top -> LibConsumer2 -> LibConsumer1 -> ReCpp. Each middle archive compiles the modules below it,
-    # so an unstripped grandchild initializer breaks this link and nothing else catches that.
+    # top -> LibConsumer2 -> LibConsumer1 -> ReCpp. Each middle archive compiles the modules below,
+    # so an unstripped grandchild initializer breaks this link.
     if not module_capable_compiler(): pytest.skip('no C++20 module capable toolchain')
     project = testutils.init(__file__, tmp_path)
     build = subprocess.run(['mama', 'build', 'jobs=3'], cwd=project, env=_env(),

@@ -27,8 +27,8 @@ def _members(archive: str) -> str:
 
 @pytest.mark.slow
 def test_two_siblings_that_compile_one_module_link_into_one_consumer(tmp_path):
-    # LibA and LibB each compile shared.api into their own archive, so their initializers collide with
-    # each other before the consumer's own copy joins the link. A linear chain never makes that pair.
+    # LibA and LibB each compile shared.api, so the two initializers collide before the consumer's
+    # own copy joins the link. A linear chain never makes that pair.
     if not module_capable_compiler(): pytest.skip('no C++20 module capable toolchain')
     project = testutils.init(__file__, tmp_path)
     build = subprocess.run(['mama', 'build', 'jobs=3'], cwd=project, env=_env(),
@@ -42,12 +42,10 @@ def test_two_siblings_that_compile_one_module_link_into_one_consumer(tmp_path):
     # strict: a headers build proves nothing about a duplicate initializer, so it fails here
     assert 'OK: MODULES' in app.stdout, app.stdout
 
-    # one package below two parents stays one package. Two would each carry their own module objects,
-    # and the consumer would compile and link the same interface twice.
+    # one package below two parents stays one package, or the consumer links one interface twice
     assert len(glob.glob(f'{project}/packages/LibShared/*/')) == 1, 'the diamond built LibShared twice'
 
-    # MSVC names the archive LibA.lib under its config dir and lists members through lib.exe, and the
-    # whole-archive link the strip pays off in is UNIX-only, so the member checks below stay on UNIX.
+    # MSVC names it LibA.lib and lists through lib.exe, and whole-archive is UNIX-only.
     if is_windows(): return
     for side in ('LibA', 'LibB'):
         built = _one(f'{project}/packages/{side}/*/lib{side}.a')

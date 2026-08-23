@@ -7,8 +7,7 @@ import pytest
 from mama.build_config import BuildConfig
 
 
-# every tool string run_convenient_installs dispatches on, and a substring only that
-# installer produces, so a dispatch that reaches the wrong branch fails the case
+# every tool run_convenient_installs dispatches on, with a substring only that installer produces
 TOOLS = [('gcc-14', 'g++-14'), ('clang-21', 'clang-tidy-21'),
          ('raspi-arm64', 'aarch64-linux-gnu'), ('msbuild', 'dotnet-sdk')]
 

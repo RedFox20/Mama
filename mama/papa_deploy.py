@@ -157,8 +157,8 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
         if name.lower().endswith(package.MODULE_EXTENSIONS) and exports_modules(fwd):
             header = fwd in module_paths
         else:
-            # Qt-style stub headers carry no extension (`#include <QCoro/QCoroTask>`). Ship one only when
-            # the header it forwards to is in the tree, so a LICENSE or an AUTHORS file never ships.
+            # Extensionless Qt-style stubs (`#include <QCoro/QCoroTask>`) ship only when the header
+            # they forward to is in the tree, so LICENSE and AUTHORS never ship.
             header = name.endswith(suffixes) or ('.' not in name and name.lower() in stems)
         if header: shipped += 1
         return header
@@ -312,7 +312,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     # the modules come first, because the include copy needs their suffixes to carry them
     modules = _gather_modules(target)
     includes = _gather_includes(target, r_includes)
-    # a recursive bundle copies the child include trees, so their modules must ride along with them
+    # a recursive bundle copies the child include trees, so it copies their modules too
     copied = package.consumed_modules(target) if r_includes else modules
     headers = _append_includes(target, package_full_path, detail_echo, descr, includes, copied)
     _warn_about_duplicate_include_trees(target, package_full_path)

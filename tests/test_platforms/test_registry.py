@@ -122,8 +122,8 @@ def test_every_cross_platform_says_so(platform_class):
 
 @pytest.mark.parametrize('windows, suffix', [(False, ''), (True, '.exe')])
 def test_a_cross_platform_names_a_full_path_for_its_archiver(windows, suffix):
-    # the host keeps a cross ar off PATH, and a bare name then edits the archive with the wrong tool.
-    # A full path never gains .exe from PATHEXT, so a Windows host launched nothing and the strip died.
+    # a cross ar is off PATH, so a bare name edits with the wrong tool. A full path never gains .exe
+    # from PATHEXT, so a Windows host launched nothing.
     from mama.platforms.raspi import Raspi
     raspi = Raspi(SimpleNamespace(verbose=False, arch='arm64'))
     raspi.compilers = '/opt/rpi/bin/'

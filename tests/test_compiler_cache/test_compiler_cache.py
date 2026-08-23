@@ -91,8 +91,7 @@ def test_seeded_cache_names_the_compiler_a_toolchain_file_left_uncached(tmp_path
 
 
 def test_seeded_cache_replays_the_module_scanner_the_probe_found(tmp_path):
-    # clang-scan-deps is a find_program result of detection, and seeding skips detection. Without the
-    # replay every C++20 module target runs the scan command "" and the build fails.
+    # seeding skips detection, so without the replay every module target runs the scan command "".
     cache = _published_then_injected(tmp_path, 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18\n')
     assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18' in cache
 
@@ -114,7 +113,7 @@ def test_seeded_cache_replays_every_tool_the_binutils_search_found(tmp_path):
 
 
 def test_the_replay_takes_no_project_find_program_result(tmp_path):
-    # one seed serves every target of a compiler config, so a project's own tool must not travel
+    # one seed serves every target of a compiler config, so a project's find_program must not reuse it
     cache = _published_then_injected(tmp_path, 'CMAKE_CXX_CPPCHECK:FILEPATH=/usr/bin/cppcheck\n'
                                                'MY_TOOL:FILEPATH=/usr/bin/mytool\n')
     assert 'CPPCHECK' not in cache and 'MY_TOOL' not in cache
@@ -519,8 +518,8 @@ def test_a_seed_from_an_older_mama_is_rejected_not_reused(tmp_path):
 
 
 def test_publish_refuses_a_detection_that_found_no_archiver(tmp_path):
-    # a seed skips detection, so a replayed CMAKE_AR-NOTFOUND breaks every static library built from
-    # it, and installing ar changes no fingerprint. TAPI is absent by design and must still publish.
+    # a replayed CMAKE_AR-NOTFOUND breaks every static library, and installing ar changes no
+    # fingerprint. TAPI is absent by design and must still publish.
     bf = make_cmake_detection(str(tmp_path / '4.2.3'))
     mod = os.path.join(bf, 'CMakeCXXCompiler.cmake')
     open(mod, 'a').write('set(CMAKE_TAPI "CMAKE_TAPI-NOTFOUND")\n')

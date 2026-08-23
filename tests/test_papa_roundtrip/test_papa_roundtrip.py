@@ -11,7 +11,7 @@ from mama.utils.archive import try_unzip
 BUILD_FILES = ['include/foo/foo.h', 'include/foo/foo.hpp', 'include/foo/detail.inc',
                'include/foo/table.txt', 'include/foo/readme.md',
                'src/api.h', 'src/detail.inc', 'lib/libfoo.a', 'bin/tool']
-# only the module style writes this: an exported include dir that holds one turns on the module export
+# an exported include dir holding a .cppm turns on the module export
 MODULE_FILE = 'include/foo/foo.cppm'
 
 

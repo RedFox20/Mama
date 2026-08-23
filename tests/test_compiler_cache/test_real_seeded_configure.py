@@ -8,8 +8,8 @@ import pytest
 
 from mama.buildsys.cmake import compiler_cache as cc
 
-# CMake writes each binutil as CMAKE_<TOOL> and CMAKE_<lang>_COMPILER_<TOOL>. A seeded configure
-# skips that search, so a dropped entry reaches the build empty and a project reading CMAKE_AR gets ''.
+# Every known GNU binutils tool, both spellings CMake writes. A seeded configure skips that search,
+# so a dropped entry reaches the build empty.
 _TOOL_KEYS = ('CMAKE_AR', 'CMAKE_RANLIB', 'CMAKE_STRIP', 'CMAKE_LINKER', 'CMAKE_NM', 'CMAKE_OBJDUMP',
               'CMAKE_OBJCOPY', 'CMAKE_READELF', 'CMAKE_ADDR2LINE', 'CMAKE_C_COMPILER_AR',
               'CMAKE_C_COMPILER_RANLIB', 'CMAKE_CXX_COMPILER_AR', 'CMAKE_CXX_COMPILER_RANLIB')

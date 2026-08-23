@@ -174,8 +174,7 @@ def test_an_in_place_deploy_without_the_strip_still_works(tmp_path):
 
 
 def test_a_recursive_deploy_writes_no_m_record_for_a_child_module(tmp_path):
-    # the parent writes a D record for the child, and the child package ships its own M record. Two
-    # copies would make a consumer compile one module twice, and cmake refuses the second declaration.
+    # the child package ships its own M record, and two copies make cmake refuse the second one
     build, parent = _built(tmp_path, ['include'], [], filter=['.h'])
     child = make_mock_dep(tmp_path / 'child', name='libchild')
     write_files(child.build_dir, FILES)
@@ -202,8 +201,8 @@ def _recursive_deploy(tmp_path, parent_modules, child_modules):
 
 
 def test_a_bundled_child_tree_that_exports_no_module_falls_back_to_the_filter(tmp_path):
-    # the child exports no module, so its .cppm rides the include filter of the deploy. One flat root
-    # set gated every descendant of the parent's module base, and dropped the file with no error.
+    # the child exports no module, so the deploy include filter ships its .cppm. One flat root set
+    # gated every descendant of the parent's module base and dropped it silently.
     deployed = _recursive_deploy(tmp_path, [MODULE], [])
     assert os.path.exists(f'{deployed}/include/child/extra.cppm')
     # the parent DID export a module, so its own tree still answers from that list alone

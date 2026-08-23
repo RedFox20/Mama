@@ -20,8 +20,7 @@ class Consumer(mama.BuildTarget):
         self.config.cxx_version = os.getenv('MAMA_TEST_CXX_VERSION')
 
     def dependencies(self):
-        # the artifactory mode fetches the very package the source mode deployed, so the consumer
-        # reads the modules back from the `M` records instead of from the producer source tree
+        # artifactory mode fetches what source mode deployed, so modules come from the `M` records
         url = os.getenv('MAMA_TEST_ARTIFACTORY')
         if url:
             self.set_artifactory_ftp(url, auth='none')

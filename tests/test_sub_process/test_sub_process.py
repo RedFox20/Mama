@@ -455,8 +455,8 @@ def test_a_child_that_never_ran_reports_no_status_not_a_fake_signal(monkeypatch)
 
 
 def test_the_mock_config_names_an_idle_bound_the_compare_accepts(tmp_path):
-    # run_git hands config.git_timeout straight to the idle bound, and a bare Mock attribute reaches
-    # the compare only once the child outlives the first 0.25s wait. That fails by load, not by platform.
+    # run_git passes config.git_timeout to the idle bound, and a Mock reaches the compare only once
+    # the child outlives the first 0.25s wait, so it fails by load and not by platform
     from testutils import make_mock_config
     SubProcess.run([PY, '-c', 'import time; time.sleep(0.4)'], io_func=lambda p, l: None,
                    idle_timeout=make_mock_config(str(tmp_path)).git_timeout)

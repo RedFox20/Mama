@@ -124,7 +124,7 @@ def test_an_option_that_spells_its_own_prefix_names_the_right_variable():
 
 
 def test_the_last_std_flag_decides_the_standard(tmp_path):
-    # the compiler reads the last -std of the line, so an earlier one cannot answer for the build
+    # the compiler reads the last -std of the line, so an earlier one does not decide the build
     target, _ = make_configured_target(tmp_path)
     target.config.flags = '-std=c++17 -std=c++20'
     target.enable_cxx20()

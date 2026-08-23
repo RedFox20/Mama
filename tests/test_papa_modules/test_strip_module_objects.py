@@ -99,7 +99,7 @@ def test_the_strip_matches_the_object_name_the_archiver_wrote(tmp_path, modules,
     # both members carry the file name, so only the deeper path tells the exported one apart
     (('pub/api.cppm',), 'src/pub/api.cppm.o\nsrc/private/api.cppm.o\n',
      'src/pub/api.cppm.o', 'src/private/api.cppm.o'),
-    # a foo.o built from foo.cpp must not answer for the foo.cppm beside it
+    # a foo.o built from foo.cpp must not match the foo.cppm beside it
     (('rpp-strview.cppm',), 'rpp-strview.cppm.o\nrpp-strview.o\n',
      'rpp-strview.cppm.o', 'rpp-strview.o'),
 ])
@@ -175,7 +175,7 @@ def test_a_generated_module_of_the_same_name_keeps_the_object(tmp_path):
 @pytest.mark.parametrize('files', [
     # an install step writes the exported module into the build tree, and that copy is ours
     {'src/rpp/api.cppm': 'module rpp.api;\n'},
-    # a deployed package holds its own modules, and its tree answers for them through its own records
+    # a deployed package holds its own modules, recorded in its own papa.txt
     {'deploy/TestLib/papa.txt': 'P TestLib\n', 'deploy/TestLib/include/rpp/api.cppm': 'drifted\n'},
 ])
 def test_a_build_tree_copy_of_our_own_module_still_strips(tmp_path, files):
@@ -369,8 +369,8 @@ def test_a_case_distinct_private_module_keeps_its_object(tmp_path):
 
 
 def test_a_child_that_opted_out_keeps_its_object_in_the_parent_archive(tmp_path):
-    # strip_objects=False says the module holds a definition no other archive carries. A parent that
-    # compiles that module owns the only copy, so reading the parent flag alone dropped the definition.
+    # strip_objects=False means no other archive carries the definition, and the parent owns the
+    # only copy, so reading the parent flag alone dropped it
     target = _target(tmp_path, modules=())
     target.children.return_value = [_child(f'{tmp_path}/child', ['rpp/rpp-strview.cppm'], strip=False)]
     assert not _strip(target).called

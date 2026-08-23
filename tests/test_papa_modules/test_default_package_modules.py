@@ -70,8 +70,8 @@ def test_a_fetched_hook_that_re_roots_the_includes_finds_its_modules_again(tmp_p
 
 
 def test_a_fetched_hook_that_narrows_modules_without_includes_keeps_the_archived_ones(tmp_path):
-    # the hook names its modules in the source tree, and an include category it left alone still names
-    # the deployed one. The two shared no base, so the fetched package exported no module at all.
+    # the hook names source-tree modules while the untouched includes name the deploy tree, so the
+    # two shared no base and the fetched package exported nothing
     deployed = f'{tmp_path}/deploy/include'
     hook = lambda self: self.export_modules('include/rpp', ['rpp-strview.cppm'])
     target = _run(tmp_path, hook, fetched=True,
@@ -81,8 +81,7 @@ def test_a_fetched_hook_that_narrows_modules_without_includes_keeps_the_archived
 
 
 def test_a_fetched_package_with_no_m_records_exports_no_module(tmp_path):
-    # an empty M list is the publisher saying this package ships none. Rediscovery exported a .cppm
-    # the include filter merely carried, so a consumer compiled a module the archive never declared.
+    # an empty M list means the package ships none. Rediscovery exported a .cppm the filter carried.
     deployed = f'{tmp_path}/deploy/include'
     write_files(f'{tmp_path}/deploy', {'include/rpp/carried.cppm': CPPM, 'include/rpp/strview.h': '#pragma once\n'})
     target = _run(tmp_path, _include_hook_none, fetched=True, exports=([deployed], [], [], [], []))
@@ -100,8 +99,7 @@ def test_a_fetched_narrowing_hook_tells_two_modules_of_one_name_apart(tmp_path):
 
 
 def test_a_shim_keeps_the_archived_modules_its_recipe_could_not_resolve(tmp_path):
-    # a shim has no checkout, so export_modules() resolves nothing and still sets modules_declared.
-    # Reading that empty result as the answer dropped every module the archive recorded.
+    # a shim resolves nothing but still sets modules_declared, which dropped the archived modules
     deployed = f'{tmp_path}/deploy/include'
     hook = lambda self: (self.export_include('include'),
                          self.export_modules('include/rpp', ['rpp-strview.cppm']))

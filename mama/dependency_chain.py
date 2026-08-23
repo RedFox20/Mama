@@ -431,8 +431,8 @@ set({name}_LIB {own_libs_list})
 # includes {name} libs and all dependency libs
 set({name}_LIBS {all_libs_list})
 '''
-    # A dep with no modules emits nothing here, so an upgrade reconfigures no existing project.
-    # A module under no exported include dir is dropped: cmake refuses a FILES entry with no base dir.
+    # A dep with no modules emits nothing, so an upgrade reconfigures nothing. A module under no
+    # exported include dir is dropped: cmake refuses a FILES entry with no base dir.
     modules = package.exported_modules_with_base(dep.target)
     if modules:
         text += f'''# C++20 module sources a consumer compiles itself
@@ -473,8 +473,7 @@ set(MAMA_INCLUDES ${{MAMA_INCLUDES}} {includes})
 set(MAMA_LIBS     ${{MAMA_LIBS}}     {libs})
 '''
     if module_refs:
-        # the consolidated bases are literal paths, because one package's base dir can sit inside
-        # another package's, and cmake refuses a file set whose base dirs contain each other
+        # literal paths: cmake refuses a file set whose base dirs contain each other
         bases = _get_cmake_path_list(package.drop_nested_dirs(module_bases))
         text += \
 f'''set(MAMA_MODULES           ${{MAMA_MODULES}}           {' '.join(module_refs)})
