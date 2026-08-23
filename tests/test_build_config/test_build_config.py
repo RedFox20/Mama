@@ -135,6 +135,30 @@ def test_a_mount_delegated_elsewhere_never_answers(monkeypatch, tmp_path):
     assert system.usable_cpu_count() == 4
 
 
+def test_a_denied_affinity_probe_never_ends_the_run(cpus, monkeypatch):
+    # a seccomp profile can deny sched_getaffinity, and BuildConfig builds it on every run
+    def denied(pid): raise OSError(1, 'Operation not permitted')
+    monkeypatch.setattr(os, 'sched_getaffinity', denied, raising=False)
+    assert cpus(('cpu.max', '200000 100000')) == 2      # the cgroup quota still answers
+
+
+def test_every_mount_that_shows_this_process_contributes_a_dir(monkeypatch, tmp_path):
+    # the delegated subtree mount cannot show an ancestor limit, and the whole-hierarchy mount can
+    root = tmp_path.as_posix()
+    monkeypatch.setattr(system, '_cpu_count', 0)
+    monkeypatch.setattr(system, 'is_linux', True)
+    monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(32)), raising=False)
+    monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: ('svc/mine', ''))
+    monkeypatch.setattr(system, '_cgroup_mounts', lambda: ([(f'{root}/leaf', '/svc/mine'),
+                                                            (f'{root}/whole', '/')], []))
+    (tmp_path / 'leaf').mkdir()
+    (tmp_path / 'leaf' / 'cpu.max').write_text('max 100000')       # the process cgroup sets none
+    (tmp_path / 'whole' / 'svc').mkdir(parents=True)
+    (tmp_path / 'whole' / 'svc' / 'cpu.max').write_text('300000 100000')   # the ancestor caps at 3
+    assert system.usable_cpu_count() == 3
+
+
 def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):
     assert cpus(affinity=2) == 2                            # --cpuset-cpus=0-1 writes no quota
 

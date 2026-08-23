@@ -100,17 +100,17 @@ def _visible_rel(rel: str, mount_root: str):
 
 
 def _mount_dirs(mounts: list, rel: str, default: str) -> list:
-    """Every dir that can hold a quota for this process, under the first mount that shows its cgroup.
-    A namespace may expose several mounts of one hierarchy, and one delegated to another service
-    shows none of this process."""
+    """Every dir that can hold a quota for this process, under every mount that shows its cgroup. A
+    mount of its delegated subtree hides an ancestor limit that a whole-hierarchy mount still shows,
+    and a mount delegated to another service shows none of this process at all."""
+    dirs = []
     for point, mount_root in mounts or [(default, '/')]:
         visible = _visible_rel(rel, mount_root)
         if visible is None: continue
-        dirs = [point]
+        dirs.append(point)
         for part in visible.split('/'):
             if part: dirs.append(f'{dirs[-1]}/{part}')
-        return dirs
-    return []
+    return dirs
 
 
 def _quota_in(cgroup_dir: str) -> int:
@@ -138,7 +138,8 @@ def usable_cpu_count() -> int:
     import psutil  # deferred: psutil costs about 32ms to import
     cpu = psutil.cpu_count() or 4
     if is_linux:
-        affinity = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else 0
+        try: affinity = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError): affinity = 0   # a seccomp profile can deny the probe
         for limit in (affinity, _cgroup_cpu_quota()):
             if limit: cpu = min(cpu, limit)
     _cpu_count = max(1, cpu)
