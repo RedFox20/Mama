@@ -27,5 +27,5 @@ def test_a_four_level_chain_resolves_every_module_it_imports(tmp_path):
     assert os.path.exists(exe), 'mama built no top consumer executable'
     app = subprocess.run([exe], capture_output=True, text=True)
     assert app.returncode == 0, app.stdout + app.stderr
-    assert 'OK:' in app.stdout, app.stdout
-    print(f'the chain took the {"modules" if "MODULES" in app.stdout else "headers"} path')
+    # strict: a headers build links no module initializer at all, so it proves nothing here
+    assert 'OK: MODULES' in app.stdout, app.stdout
