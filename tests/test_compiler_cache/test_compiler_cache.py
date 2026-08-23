@@ -97,7 +97,7 @@ def test_seeded_cache_replays_the_module_scanner_the_probe_found(tmp_path):
     assert 'CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS:FILEPATH=/usr/bin/clang-scan-deps-18' in cache
 
 
-# every tool the binutils search writes, in the two shapes it writes them
+# every binutil CMake writes, as CMAKE_<TOOL> and CMAKE_<lang>_COMPILER_<TOOL>
 _BINUTILS_CACHE = ''.join(f'CMAKE_{tool}:FILEPATH=/usr/bin/llvm-{tool.lower()}-18\n'
                           for tool in ('AR', 'RANLIB', 'STRIP', 'LINKER', 'NM', 'OBJDUMP', 'OBJCOPY',
                                        'READELF', 'ADDR2LINE', 'DLLTOOL', 'MT', 'INSTALL_NAME_TOOL')) \

@@ -248,8 +248,7 @@ class BuildTarget:
         # cwd is the root project, so the child resolves the same dependency graph.
         host_view = build_names.host_view(self.config)
         child_args = [host, 'build', f'target={self.name}', f'arch={host_view.platform.arch()}']
-        # Only a command line choice travels. A mamafile preference belongs to the child's own config,
-        # and forcing it here builds a host tool with a compiler the project refused.
+        # Only a command line compiler choice passes to the child. A mamafile preference is its own.
         if host_view.linux and self.config.compiler_from_args:
             child_args.append('clang' if self.config.clang else 'gcc')
         child_cmd = 'mama ' + ' '.join(child_args)
@@ -265,8 +264,7 @@ class BuildTarget:
         if status != 0:
             warning(f'  - {self.name: <16} host binary bootstrap failed ({child_cmd} exited {status})')
             return None
-        # The predicted dir first, because a dep arg may spell a token the scan refuses. Never take
-        # what a warm tree held: an exit code of 0 does not prove that tool answers this request.
+        # Prefer the predicted path, else the newest tool this run rewrote: a warm tree keeps a stale one.
         if os.path.exists(binary): return binary
         fresh = [p for p, mtime in self._host_tools_on_disk(relpath).items() if before.get(p) != mtime]
         return max(fresh, key=os.path.getmtime) if fresh else None
@@ -1895,8 +1893,7 @@ class BuildTarget:
             # modules are last, and an opt-out or an explicit export decided them either way
             if self.no_modules: merged[-1] = self.exported_modules
             elif self.modules_declared and (self.exported_modules or not self.dep.is_artifactory_shim()):
-                # a hook that left the includes alone still names the deploy tree, and a shim has no
-                # checkout at all, so its declaration resolves to nothing and answers for nothing
+                # a shim has no checkout, so its export_modules() resolves nothing and answers nothing
                 merged[-1] = self.exported_modules if hook[0] \
                              else package.archived_modules_named(loaded[-1], self.exported_modules)
             # a module sits under an include dir of the same tree, so a hook that re-rooted the
@@ -1918,8 +1915,7 @@ class BuildTarget:
                 self.default_package_modules()
         package.warn_unreachable_modules(self)
 
-        # A consumer links the exported lib whether it fetched this package or built it here, so the
-        # module objects come out before that path is published, not only on the way into a package.
+        # Strip before publishing exported_libs, not only on deploy: a source build links that path too.
         package.export_stripped_module_libs(self)
 
         # A target that exports nothing has nothing to publish. Marking it here means a docs or bundle

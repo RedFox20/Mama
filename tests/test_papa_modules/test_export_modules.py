@@ -131,8 +131,7 @@ def test_two_spellings_of_one_file_export_once(tmp_path):
     # the file set would name one interface twice, and the scanner reads that as two providers
     target = _target(tmp_path)
     package.export_modules(target, 'src/rpp', ['rpp-strview.cppm'], build_dir=False)
-    # a case-merging filesystem answers for both spellings, so the export must merge them too
-    # samefile is what a case-merging volume answers for two spellings, and only it proves they are one
+    # A case-merging volume answers samefile for both spellings, and only that proves they are one file.
     with patch('mama.package.System') as system, patch('mama.package.os.path.exists', return_value=True), \
          patch('mama.package.os.path.samefile', return_value=True):
         system.windows = True

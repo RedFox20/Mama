@@ -134,8 +134,7 @@ def _append_includes(target:BuildTarget, package_full_path, detail_echo, descr, 
     # TODO: should we include .cpp files for easier debugging?
     # A module ships inside the include tree, so the copy carries it whatever order the hook used.
     module_sfx = tuple(package.match_path(s) for s in package.module_suffixes(m for _, m in modules))
-    # A target that exports a module answers for every module file of ITS OWN tree, and of no other.
-    # The exported include dir nearest a file names that tree, whatever tree physically holds it.
+    # The exported include dir nearest a file decides whether that file's tree exports modules.
     roots = sorted({package.match_path(i) for _, i in includes}, key=len, reverse=True)
     bases = {package.match_path(b) for b in (package.module_base_dir(t, m) for t, m in modules) if b}
     module_paths = _module_paths(modules)
@@ -197,8 +196,7 @@ def _append_modules(target:BuildTarget, package_full_path, detail_echo, descr, m
     shipped = 0
     for modtarget, module in modules:
         base = package.module_base_dir(modtarget, module)
-        # the copy maps src_dir onto dst_dir, so the module follows the same pair. An includes root
-        # ships one subdir of the export, so its src_dir is deeper than the exported include.
+        # Deploy the module through its own base dir, so it lands where the include copy put that tree.
         src_dir, dst_dir, _ = _include_deploy(modtarget, includes_root, base)
         fwd = forward_slashes(module)  # one backslash here would drop the module with no error
         if not package.match_path(module).startswith(package.match_path(src_dir) + '/'):

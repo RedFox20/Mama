@@ -642,8 +642,8 @@ class BuildConfig:
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
             root = forward_slashes(os.path.dirname(cxx_path)) + '/'
-            # The caller composes `root + compiler + suffix`, so that path has to exist. Each of the
-            # link and its target carries a name the other does not, so try both, then the link itself.
+            # A symlinked compiler and its target have different names, and the caller composes
+            # `root + compiler + suffix`, so try both names, then the dir of the link itself.
             name = os.path.basename(cxx_path)
             real = name[len(compiler):] if name.startswith(compiler) else ''
             spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), None)

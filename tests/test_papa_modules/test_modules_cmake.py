@@ -13,8 +13,8 @@ from mama.utils.paths import forward_slashes
 from mama.utils.sub_process import execute_piped_echo
 
 
-# Reads one variable, with no compiler and no target, so one probe covers every case the caller
-# names through -D. `ok` reads the gate, `generator` reads the half the ninja version decides.
+# One variable, no compiler, no target: one probe covers every case a caller names through -D.
+# `ok` reads the whole gate, `generator` reads the generator half the ninja version decides.
 _PROBE = '''cmake_minimum_required(VERSION 3.20)
 project(T NONE)
 include(${CMAKE_CURRENT_SOURCE_DIR}/mama.cmake)

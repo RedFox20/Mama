@@ -6,8 +6,7 @@ import pytest
 
 from mama.build_config import BuildConfig
 
-# A name no host carries, so /etc/alternatives and /usr/bin cannot answer the search. The suffix
-# logic reads the name back off the resolved file, so the name itself never matters.
+# A name no host carries, so /etc/alternatives and /usr/bin cannot answer the search.
 CC, CXX = 'mamacc', 'mamacc++'
 VERSION = '18.1.3'
 
@@ -45,8 +44,8 @@ def _bin_with(tmp_path, *names) -> str:
 
 
 def test_a_suffixed_symlink_answers_the_name_the_real_file_carries(tmp_path):
-    # The real chain has two links, bin/cc++-18 -> llvm/bin/cc++ -> llvm/bin/cc, so the suffix belongs
-    # to the first link alone and a realpath lands on a name the compiler name does not even start.
+    # The chain is bin/cc++-18 -> llvm/bin/cc++ -> llvm/bin/cc: only the first link carries the
+    # suffix, and realpath lands on a name that is not the compiler name at all.
     real_bin, link_bin = tmp_path / 'llvm-18' / 'bin', tmp_path / 'bin'
     real_bin.mkdir(parents=True); link_bin.mkdir()
     _fake(str(real_bin), CC)

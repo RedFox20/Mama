@@ -61,8 +61,8 @@ def test_mama_clones_builds_and_consumes_a_real_package(tmp_path, compiler):
     took = 'modules' if 'built with MODULES' in out else 'headers'
     print(f'the consumer took the {took} path')
 
-    # One compiler, both paths, one report. A facade that re-exports through using-declarations is
-    # where a compiler tends to differ, and only this comparison can see that.
+    # One compiler builds both paths, because a facade that re-exports through using-declarations
+    # is where the module path and the header path tend to disagree.
     if took == 'modules':
         other = _build_and_run(project, compiler, _env(NO_MODULES='1'))
         assert other.splitlines()[1:] == out.splitlines()[1:], 'the two paths disagree'
