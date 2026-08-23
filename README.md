@@ -15,6 +15,28 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.0** (2026-Aug-23)
+- feature: a package exports its C++20 modules, and the consumer compiles them
+    mama collects every .cppm under an exported include dir
+    export_modules() narrows that list, no_export_modules() opts out
+    papa.txt records each one as  M include/rpp/rpp-strview.cppm
+    the consumer calls mama_target_modules(MyApp) in its CMakeLists
+    that adds a CXX_MODULES file set and defines MAMA_HAS_MODULES=1
+    the deployed archive drops the module objects, so a --whole-archive
+      link no longer hits multiple definition of the module initializer
+    needs cmake 3.28, Ninja 1.11 or VS 2022, GCC 14 / Clang 18 / MSVC 19.34
+    a consumer sets -DMAMA_ENABLE_MODULES=OFF to keep the headers instead
+- feature: enable_cxxNN() sets CMAKE_CXX_STANDARD and CMAKE_CXX_EXTENSIONS
+    target_compile_features() reads the standard as a property, not a flag
+    a gnu++NN flag keeps the extensions on
+- bugfix: enable_cxx23() doubled the /std: prefix on MSVC
+- bugfix: a seeded compiler cache dropped ar, ranlib and clang-scan-deps
+    that broke every clang C++20 module build until the cache expired
+    installing clang-scan-deps re-seeds instead of waiting 7 days
+- bugfix: compiler discovery composed a path no symlinked toolchain has,
+    and it read PATH with the UNIX separator on Windows
+- bugfix: mama install-gcc-N raised a TypeError before it installed anything
+
 **0.13.17** (2026-Aug-18)
 - feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
     it lands beside that CMakeLists.txt, so a nested one finds it too
@@ -44,15 +66,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - bugfix: a failed artifactory download uses the cached archive instead
  - bugfix: noart builds every git dep from source, and a pkg dep is read-only
  - bugfix: a build no longer hangs when a pipe closes on a pending read
-
-**0.13.14** (2026-Aug-07)
-- feature: deploy_after_build deploys a target, and the build says where
-- feature: nothing_to_upload() skips a target that publishes no package
-- feature: papa.txt records the build type, platform and arch of its objects
-- bugfix: a fetched debug package no longer hides in a release build
-- bugfix: an upload names the build type of the artifacts, not of the run
-- bugfix: a targeted build no longer drops the libs of a shared dependency
-- bugfix: a git dep names its package by the commit, not the ls-remote line
 
 ## Why Mama
 
