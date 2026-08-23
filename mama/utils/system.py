@@ -67,10 +67,10 @@ def _cgroup_rel_paths() -> tuple:
 
 
 def _cgroup_mounts() -> tuple:
-    """(mount point, mount root) for the v2 mount and for the v1 cpu mount, from /proc/self/mountinfo.
-    Neither sits at a fixed path: a hybrid host mounts v2 under the v1 tree, and a v1 host names the
-    mount after its controller list."""
-    v2 = v1 = ('', '')
+    """Every (mount point, mount root) of the v2 hierarchy and of the v1 cpu controller, in mountinfo
+    order. Neither sits at a fixed path: a hybrid host mounts v2 under the v1 tree, and a v1 host names
+    the mount after its controller list."""
+    v2, v1 = [], []
     try:
         with open(_PROC_MOUNTINFO, encoding='utf-8') as f: lines = f.read().splitlines()
     except OSError: return v2, v1
@@ -78,17 +78,32 @@ def _cgroup_mounts() -> tuple:
         left, _, right = line.partition(' - ')
         fields, after = left.split(), right.split()
         if len(fields) < 5 or len(after) < 3: continue
-        if after[0] == 'cgroup2' and not v2[0]: v2 = (fields[4], fields[3])
-        elif after[0] == 'cgroup' and not v1[0] and 'cpu' in after[2].split(','): v1 = (fields[4], fields[3])
+        if after[0] == 'cgroup2': v2.append((fields[4], fields[3]))
+        elif after[0] == 'cgroup' and 'cpu' in after[2].split(','): v1.append((fields[4], fields[3]))
     return v2, v1
 
 
-def _visible_rel(rel: str, mount_root: str) -> str:
-    """The cgroup of this process as one mount shows it. A bind mount of a delegated subtree carries
-    that subtree in its root, and the mount point already stands for it, so the prefix comes off."""
+def _visible_rel(rel: str, mount_root: str):
+    """The cgroup of this process as one mount shows it, or None when that mount shows another subtree.
+    A bind mount of a delegated subtree carries it in the root, which the mount point stands for."""
     root = mount_root.strip('/')
     if not root: return rel
-    return rel[len(root) + 1:] if rel.startswith(f'{root}/') else ''
+    if rel == root: return ''
+    return rel[len(root) + 1:] if rel.startswith(f'{root}/') else None
+
+
+def _mount_dirs(mounts: list, rel: str, default: str) -> list:
+    """Every dir that can hold a quota for this process, under the first mount that shows its cgroup.
+    A namespace may expose several mounts of one hierarchy, and one delegated to another service
+    shows none of this process."""
+    for point, mount_root in mounts or [(default, '/')]:
+        visible = _visible_rel(rel, mount_root)
+        if visible is None: continue
+        dirs = [point]
+        for part in visible.split('/'):
+            if part: dirs.append(f'{dirs[-1]}/{part}')
+        return dirs
+    return []
 
 
 def _quota_in(cgroup_dir: str) -> int:
@@ -103,11 +118,8 @@ def _quota_in(cgroup_dir: str) -> int:
 def _cgroup_cpu_quota() -> int:
     """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
     on any ancestor caps it too, so the smallest one wins."""
-    (v2_rel, v1_rel), (v2, v1), dirs = _cgroup_rel_paths(), _cgroup_mounts(), []
-    for (point, mount_root), rel, default in ((v2, v2_rel, _CGROUP_ROOT), (v1, v1_rel, f'{_CGROUP_ROOT}/cpu')):
-        dirs.append(point or default)
-        for part in _visible_rel(rel, mount_root).split('/'):
-            if part: dirs.append(f'{dirs[-1]}/{part}')
+    (v2_rel, v1_rel), (v2, v1) = _cgroup_rel_paths(), _cgroup_mounts()
+    dirs = _mount_dirs(v2, v2_rel, _CGROUP_ROOT) + _mount_dirs(v1, v1_rel, f'{_CGROUP_ROOT}/cpu')
     limits = [n for n in map(_quota_in, dirs) if n]
     return min(limits) if limits else 0
 

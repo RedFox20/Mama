@@ -90,11 +90,21 @@ def first_cmake_arg(args: str) -> str:
         elif char == '"':
             match = _CMAKE_QUOTED.match(args, i)
             return match.group(0)[1:-1] if match else ''
+        elif char == '[' and (bracket := _CMAKE_BRACKET.match(args, i)):
+            pad = len(bracket.group(1)) + 2   # the `[[` or `[=[` open, and its matching close
+            return bracket.group(0)[pad:-pad]
         else:
             end = i
             while end < len(args) and not args[end].isspace(): end += 1
             return args[i:end]
     return ''
+
+
+def has_unknown_cmake_var(arg: str) -> bool:
+    """True when the argument names a variable mama does not expand, such as $ENV{} or a project one.
+    It tests before substitution, because a checkout path may hold a literal `$` of its own."""
+    for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR): arg = arg.replace(var, '')
+    return '$' in arg
 
 
 def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str) -> str:
@@ -145,10 +155,8 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
             elif name == 'include':
                 # the basename must match, or a write would replace a real module such as grandmama.cmake
                 if os.path.basename(arg).lower() == MAMA_CMAKE: found.append((cwd, project_dir, arg))
-            else:
-                sub = expand_cmake_dirs(arg, cwd, project_dir, source_dir)
-                if '$' in sub: continue   # mama expands no variable a CMakeLists.txt sets
-                sub = normalized_join(cwd, sub)
+            elif not has_unknown_cmake_var(arg):   # mama expands no variable a CMakeLists.txt sets
+                sub = normalized_join(cwd, expand_cmake_dirs(arg, cwd, project_dir, source_dir))
                 pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
     return found
 
@@ -949,9 +957,10 @@ class BuildDependency:
         roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))
         paths = []
         for source_dir, project_dir, arg in find_mama_cmake_includes(self.cmakelists_path(), cmake_dir):
+            # a variable mama does not expand, such as $ENV{}, means the default answers
+            unknown = has_unknown_cmake_var(arg)
             arg = expand_cmake_dirs(arg, source_dir, project_dir, cmake_dir)
-            # a `$` that survived names a form mama does not expand, such as $ENV{}, so the default answers
-            path = normalized_join(source_dir, MAMA_CMAKE if '$' in arg else arg)
+            path = normalized_join(source_dir, MAMA_CMAKE if unknown else arg)
             if not os.path.realpath(path).startswith(roots):
                 warning(f'{self.name}: mama writes no proxy outside its source dir: include({arg})')
             elif path not in paths:

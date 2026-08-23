@@ -349,3 +349,18 @@ def test_a_shared_dir_added_by_two_subprojects_resolves_in_each_scope(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/a/mama.cmake')
     assert os.path.exists(f'{dep.src_dir}/b/mama.cmake')
+
+
+def test_a_bracket_quoted_subdirectory_is_followed(tmp_path):
+    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n', 'add_subdirectory([[src]])\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
+    # the expanded path holds a literal `$`, which must not read as a variable mama cannot expand
+    dep = _includes_proxy(_dep(tmp_path, 'le$af'), 'include(${CMAKE_SOURCE_DIR}/sub/mama.cmake)\n')
+    write_files(dep.src_dir, {'sub/keep.txt': ''})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/sub/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
