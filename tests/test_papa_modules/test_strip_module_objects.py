@@ -355,3 +355,13 @@ def test_a_private_module_keeps_its_object_when_msvc_drops_the_extension(tmp_pat
     write_files(tmp_path, {'src/priv/api.cppm': 'module priv.api;\n'})
     target = _target(tmp_path, modules=('pub/api.cppm',))
     assert not _strip(target, listing='api.obj\nother.cpp.obj\n').called
+
+
+@pytest.mark.case_sensitive_fs
+def test_a_case_distinct_private_module_keeps_its_object(tmp_path):
+    # a case-sensitive volume keeps Include/ and include/ apart, and folding read the private unit
+    # as the exported one, so nothing stopped the strip from taking its definitions
+    write_files(tmp_path, {'Include/api.cppm': 'module pub.api;\n', 'include/api.cppm': 'module priv;\n'})
+    target = _target(tmp_path, modules=('api.cppm',), root=f'{tmp_path}/Include')
+    with patch.object(package.System, 'macos', True):  # the platform that folds case
+        assert not _strip(target, listing='api.cppm.o\nother.cpp.o\n').called

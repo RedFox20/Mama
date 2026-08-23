@@ -170,6 +170,15 @@ def _holds_path(directory: str, path: str) -> bool:
     return False
 
 
+def _one_file(a: str, b: str) -> bool:
+    """True when `a` and `b` name one file. A folded name match is not enough on its own, because a
+    case-sensitive volume holds two files whose folded names are equal."""
+    if match_path(a) != match_path(b): return False
+    if forward_slashes(a) == forward_slashes(b): return True
+    try: return os.path.samefile(a, b)
+    except OSError: return False  # one of them is gone, so nothing proves they are one file
+
+
 def module_base_dir(target: BuildTarget, module: str) -> str:
     """The exported include dir that holds `module`, longest match first, or '' when none does.
     Cmake needs every module of a file set to sit under one of its base dirs."""
@@ -273,7 +282,7 @@ def _is_ours(path: str, exported: dict, build: str) -> bool:
     originals = exported.get(match_path(os.path.basename(path)))
     if not originals: return False
     fwd = match_path(path)
-    if any(fwd == match_path(o) for o in originals): return True
+    if any(_one_file(path, o) for o in originals): return True
     if not fwd.startswith(build): return False  # two units of one name in the source tree are two units
     try:  # hash only what the size already matched, because a hash reads the whole file
         same = [o for o in originals if os.path.getsize(o) == os.path.getsize(path)]
