@@ -3,25 +3,26 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 
 release: 0.14.0 (2026-Aug-23)
  - feature: a package exports its C++20 modules, and the consumer compiles them
-     mama collects every .cppm under an exported include dir
+     mama exports every .cppm under an exported include dir, no recipe change
      export_modules() narrows that list, no_export_modules() opts out
      papa.txt records each one as  M include/rpp/rpp-strview.cppm
-     the consumer calls mama_target_modules(MyApp) in its CMakeLists
-     that adds a CXX_MODULES file set and defines MAMA_HAS_MODULES=1
-     the deployed archive drops the module objects, so a --whole-archive
-       link no longer hits multiple definition of the module initializer
-     needs cmake 3.28, Ninja 1.11 or VS 2022, GCC 14 / Clang 18 / MSVC 19.34
-     a consumer sets -DMAMA_ENABLE_MODULES=OFF to keep the headers instead
+     the consumer calls mama_target_modules(MyApp), which adds a CXX_MODULES
+       file set, cxx_std_20 and MAMA_HAS_MODULES=1
+     the deployed static lib drops its module objects, so a whole-archive
+       consumer link does not hit a duplicate module initializer
+     export_modules(strip_objects=False) keeps them, for a module that
+       carries a non-inline definition
+     needs cmake 3.28, and Ninja 1.11 or Visual Studio 2022
+     needs GCC 14, Clang 18 with clang-scan-deps, or MSVC 19.34
+     clang builds no module under the Visual Studio generator
+     a consumer raises a floor with MAMA_MODULES_MIN_CLANG=21, or turns the
+       feature off with MAMA_ENABLE_MODULES=OFF
  - feature: enable_cxxNN() sets CMAKE_CXX_STANDARD and CMAKE_CXX_EXTENSIONS
      target_compile_features() reads the standard as a property, not a flag
      a gnu++NN flag keeps the extensions on
- - bugfix: enable_cxx23() doubled the /std: prefix on MSVC
- - bugfix: a seeded compiler cache dropped ar, ranlib and clang-scan-deps
-     that broke every clang C++20 module build until the cache expired
-     installing clang-scan-deps re-seeds instead of waiting 7 days
+ - bugfix: enable_cxx23() emitted /std:/std:c++23preview on MSVC
  - bugfix: compiler discovery composed a path no symlinked toolchain has,
-     and it read PATH with the UNIX separator on Windows
- - bugfix: mama install-gcc-N raised a TypeError before it installed anything
+     and it split PATH on ':' on Windows
 
 release: 0.13.17 (2026-Aug-18)
  - feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
