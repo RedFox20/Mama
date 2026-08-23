@@ -130,6 +130,7 @@ def first_cmake_arg(args: str) -> tuple:
         else:
             end, brackets = i, 0
             while end < len(args):
+                span = end
                 if args[end] == '\\' and end + 1 < len(args): end += 2   # an escape holds any character
                 # a legacy unquoted argument holds a balanced quoted span and a `$(VAR)`, both as content
                 elif args[end] == '"' and (quoted := _CMAKE_QUOTED.match(args, end)): end = quoted.end()
@@ -138,9 +139,9 @@ def first_cmake_arg(args: str) -> tuple:
                 # `;` divides a value as a list only where the `[` and `]` before it are equal in number
                 elif args[end] == ';' and brackets == 0: break
                 elif args[end].isspace() or args[end] in '()#"': break
-                else:
-                    brackets += (args[end] == '[') - (args[end] == ']')
-                    end += 1
+                else: end += 1
+                # cmake counts every bracket of the value, so an escaped or a quoted one balances too
+                brackets += args.count('[', span, end) - args.count(']', span, end)
             return _unescape_cmake(args[i:end]), False
     return '', False
 

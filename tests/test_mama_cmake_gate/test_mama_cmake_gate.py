@@ -502,3 +502,13 @@ def test_a_make_style_reference_names_the_dir_it_spells(tmp_path, written):
     write_files(dep.src_dir, {'$(MAKEVAR)/src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/$(MAKEVAR)/src/mama.cmake')
+
+
+@pytest.mark.parametrize('written, spelled', [
+    (r'src\[;]dir',  'src[;]dir'),      # an identity escape yields a `[` that still counts
+    (r'src\[;\]dir', 'src[;]dir'),      # and an escaped `]` balances it back
+    ('src"["dir;x',  'src"["dir;x'),    # a bracket inside a legacy quoted span counts as well
+], ids=['escaped-open', 'escaped-both', 'quoted'])
+def test_a_bracket_counts_however_the_argument_spells_it(written, spelled):
+    # cmake counts the brackets of the decoded value, so a `;` after an unequal count divides nothing
+    assert first_cmake_arg(written) == (spelled, False)
