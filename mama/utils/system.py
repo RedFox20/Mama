@@ -49,17 +49,20 @@ def _read_fields(*paths) -> list:
     return fields
 
 
-def _cgroup_rel_path() -> str:
-    """The cgroup of this process, relative to the mount root. Empty when it sits at the root, which is
-    what a private cgroup namespace reports."""
+def _cgroup_rel_paths() -> tuple:
+    """The cgroup of this process under the v2 unified mount and under the v1 cpu mount, each relative
+    to its own root. A hybrid host runs both, and the two paths differ. Empty means the mount root,
+    which is what a private cgroup namespace reports."""
+    v2 = v1 = ''
     try:
         with open(_PROC_CGROUP, encoding='utf-8') as f: lines = f.read().splitlines()
-    except OSError: return ''
+    except OSError: return v2, v1
     for line in lines:                        # `<hierarchy>:<controllers>:<path>`
         ids, _, rest = line.partition(':')
         names, _, path = rest.partition(':')
-        if ids == '0' or 'cpu' in names.split(','): return path.strip('/')
-    return ''
+        if ids == '0': v2 = path.strip('/')
+        elif 'cpu' in names.split(','): v1 = path.strip('/')
+    return v2, v1
 
 
 def _quota_in(cgroup_dir: str) -> int:
@@ -74,8 +77,8 @@ def _quota_in(cgroup_dir: str) -> int:
 def _cgroup_cpu_quota() -> int:
     """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
     on any ancestor caps it too, so the smallest one wins."""
-    rel, dirs = _cgroup_rel_path(), []
-    for root in (_CGROUP_ROOT, f'{_CGROUP_ROOT}/cpu', f'{_CGROUP_ROOT}/cpu,cpuacct'):  # v2 mount, then v1
+    v2, v1, dirs = *_cgroup_rel_paths(), []
+    for root, rel in ((_CGROUP_ROOT, v2), (f'{_CGROUP_ROOT}/cpu', v1), (f'{_CGROUP_ROOT}/cpu,cpuacct', v1)):
         dirs.append(root)
         for part in rel.split('/') if rel else []:
             dirs.append(f'{dirs[-1]}/{part}')

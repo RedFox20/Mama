@@ -97,13 +97,13 @@ def first_cmake_arg(args: str) -> str:
     return ''
 
 
-def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
-    """The first argument of every named command, in file order, keyed by the lowercased command name.
-    One pass reads the whole file, because a cmake command may span lines. It matches at command
-    positions only, so a nested `include(...)` names nothing. 'surrogateescape': a byte mama cannot
-    decode still has to reach the path it writes."""
+def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
+    """(command, first argument) for every named command, in source order, so a caller can follow a
+    variable a command rebinds. One pass reads the whole file, because a cmake command may span lines.
+    It matches at command positions only, so a nested `include(...)` names nothing. 'surrogateescape':
+    a byte mama cannot decode still has to reach the path it writes."""
     text = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
-    found, i = {name: [] for name in commands}, 0
+    found, i = [], 0
     while i < len(text):
         skipped = _skip_span(text, i)
         if skipped != i:
@@ -114,8 +114,8 @@ def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
             i += 1
             continue
         end = _end_of_args(text, match.end())
-        args = found.get(match.group(1).lower())
-        if args is not None: args.append(first_cmake_arg(text[match.end():end]))
+        name = match.group(1).lower()
+        if name in commands: found.append((name, first_cmake_arg(text[match.end():end])))
         i = end + 1
     return found
 
@@ -123,23 +123,23 @@ def scan_cmake_commands(cmakelists: str, commands: tuple) -> dict:
 def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
     """(dir, project_dir, argument) for every `include()` naming the `mama.cmake` proxy, in every file
     cmake reads from `cmakelists`, which `source_dir` holds. The scan follows `add_subdirectory()`, and
-    an argument holding a `$` stops that branch. `project_dir` is the dir of the nearest `project()`
-    call, which is what `PROJECT_SOURCE_DIR` expands to."""
+    an argument holding a `$` stops that branch. `project_dir` is the dir of the last `project()` call
+    ABOVE the include, which is what `PROJECT_SOURCE_DIR` expands to there."""
     pending, seen, found = [(cmakelists, source_dir, source_dir)], set(), []
     while pending:
         path, cwd, project_dir = pending.pop(0)
         real = os.path.realpath(path)
         if real in seen or not os.path.exists(path): continue
         seen.add(real)
-        commands = scan_cmake_commands(path, ('include', 'add_subdirectory', 'project'))
-        if commands['project']: project_dir = cwd
-        # the basename must match, or a write would replace a real module such as grandmama.cmake
-        found += [(cwd, project_dir, a) for a in commands['include']
-                  if os.path.basename(a).lower() == MAMA_CMAKE]
-        for arg in commands['add_subdirectory']:
-            if '$' in arg: continue   # mama expands no variable a CMakeLists.txt sets
-            sub = normalized_join(cwd, arg)
-            pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
+        for name, arg in scan_cmake_commands(path, ('include', 'add_subdirectory', 'project')):
+            if name == 'project':
+                project_dir = cwd
+            elif name == 'include':
+                # the basename must match, or a write would replace a real module such as grandmama.cmake
+                if os.path.basename(arg).lower() == MAMA_CMAKE: found.append((cwd, project_dir, arg))
+            elif '$' not in arg:   # mama expands no variable a CMakeLists.txt sets
+                sub = normalized_join(cwd, arg)
+                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
     return found
 
 

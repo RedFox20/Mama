@@ -316,6 +316,14 @@ def test_a_subproject_resolves_project_source_dir_to_its_own_dir(tmp_path):
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
+def test_an_include_above_project_keeps_the_parent_project_source_dir(tmp_path):
+    # cmake evaluates the include before project() rebinds PROJECT_SOURCE_DIR to the subdirectory
+    dep = _subdir_dep(tmp_path, 'include(${PROJECT_SOURCE_DIR}/mama.cmake)\nproject(Sub)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
 def test_a_subdirectory_with_no_project_keeps_the_top_project_source_dir(tmp_path):
     dep = _subdir_dep(tmp_path, 'include(${PROJECT_SOURCE_DIR}/mama.cmake)\n')
     dc._save_cmake_files(dep)

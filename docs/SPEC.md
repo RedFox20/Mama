@@ -116,7 +116,8 @@ path against the dir of the file that named it, and expands `CMAKE_CURRENT_LIST_
 `CMAKE_CURRENT_SOURCE_DIR` to that dir. `CMAKE_SOURCE_DIR` expands to the dir cmake configures. That
 dir is `<src_dir>` for the default `cmake_lists_path`. It is the dir of the named file when a mamafile
 points `cmake_lists_path` at a nested or an absolute one. `PROJECT_SOURCE_DIR` expands to the dir of
-the nearest `project()` call, which a subdirectory rebinds to itself when it calls one. An argument
+the last `project()` call above the include. A subdirectory that calls one rebinds it to itself, and an
+include above that call keeps the dir of the parent. An argument
 that still holds a `$` after that names a form mama does not expand. It takes the default `mama.cmake`
 beside the file that named it. **A path that leaves the source dir and the dir cmake configures gets a
 warning and no file.** The test resolves every symlink first, so a link inside the source dir leads
