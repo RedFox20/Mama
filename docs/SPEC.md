@@ -696,12 +696,10 @@ Mama never passes `CMAKE_CXX_STANDARD_REQUIRED`. A compiler that cannot give the
 decay to the newest one it has, the way the flag alone already did. `REQUIRED` would turn that into a
 failed configure, and the gate above reads the cmake version, never the compiler version.
 
-**Why:** `target_compile_features()` and a `CXX_MODULES` file set both read the cmake standard, not
-the compiler flags. Without this a C++20 project cannot use either, although every compile line
-already carries `-std=c++20`. `EXTENSIONS` matters because cmake appends its own standard flag
-after `CMAKE_CXX_FLAGS`. The cmake default would append `-std=gnu++20` after the `-std=c++20` mama
-already passed, and silently turn on the extensions that flag leaves off. ON for a `gnu++` flag stops
-the mirror of that: a strict `-std=c++20` appended after it, which refuses the extensions the source uses.
+**Why:** `target_compile_features()` and a `CXX_MODULES` file set read the cmake standard, not the
+compiler flags, so without this a C++20 project can use neither. `EXTENSIONS` matters because cmake
+appends its own flag after `CMAKE_CXX_FLAGS`: the default appends `-std=gnu++20` after mama's
+`-std=c++20` and turns on extensions, and ON for a `gnu++` flag stops the mirror of that.
 
 ### The compiler seed
 
@@ -761,9 +759,8 @@ empty gets a default: includes, then libs and syslibs, then modules. A fetched d
 `default_package()` runs the same three, so collecting the rest cannot widen a narrowed list.
 
 **A fetched module list belongs to the include tree of the same run.** A hook that re-roots the
-exported includes drops the module paths the archive recorded, and the module default finds them
-again under the new roots. **Why:** a deployed module path sits under no source include dir, and
-every consumer variable then loses it.
+exported includes drops the archived module paths, and the default finds them under the new roots.
+**Why:** a deployed module path sits under no source include dir, so every consumer variable loses it.
 
 **A call to `export_modules()` decides, whatever it resolves to.** A recipe that names a module only
 some platforms carry gets the empty result it asked for, never the automatic export. `papa.txt`
@@ -803,12 +800,10 @@ reconfigures no existing project.
 
 `mama_target_modules(target [scope])` in `mama.cmake` adds a `FILE_SET mama_modules TYPE
 CXX_MODULES`, asks for `cxx_std_20`, sets `CXX_SCAN_FOR_MODULES ON`, defines `MAMA_HAS_MODULES=1`,
-and names the modules it added in a cmake STATUS line. The scope is `PUBLIC` unless the call names
-one, and a library that installs itself through `install(EXPORT)` passes `PRIVATE`. The consumer
-source reads `#ifdef MAMA_HAS_MODULES` to import or to include the header.
+and names the modules in a cmake STATUS line. Scope is `PUBLIC` unless the call names one, and a
+library installing itself through `install(EXPORT)` passes `PRIVATE`.
 **Why:** cmake scans for `import` only under CMP0155 NEW, which a consumer whose
-`cmake_minimum_required` predates 3.28 never gets. It also refuses to export a target whose `PUBLIC`
-file set it does not install.
+`cmake_minimum_required` predates 3.28 never gets, and it refuses to export an uninstalled file set.
 
 **Every `#include` of a consumer must precede its first `import`.** A module makes the declarations
 of its own included headers reachable, so a header parsed after the import re-declares them. GCC 14
@@ -830,13 +825,13 @@ the tool to ask again. **Why:** a toolchain that misses one part keeps the expor
 build never fails because a compiler cannot read modules.
 
 **Mama knows the floor, and no package declares one.** The three `MAMA_MODULES_MIN_*` values are
-cache strings a consumer on an odd toolchain can move. An empty one refuses, and never passes.
+cache strings a consumer on an odd toolchain can move, and an empty one refuses.
 `MAMA_ENABLE_MODULES=OFF` keeps the exported headers whatever the toolchain can do. **Why:** a floor
-per package weighed a list `mama_target_modules` then took all or nothing, so it computed one
-maximum the long way around.
+per package computed one maximum the long way around, since the file set is all or nothing.
 
-`MAMA_HAS_MODULES=1` is one define for the whole target, so a consumer cannot import from one
-package and read the headers of another. A refusal prints a cmake STATUS line.
+`MAMA_HAS_MODULES=1` is one define for the whole target, which the consumer source reads with
+`#ifdef` to import or include, so it cannot import one package and read the headers of another. A
+refusal prints a cmake STATUS line.
 
 A failing `package()` names its target and stops the run. Two runs carry on instead, and report the
 gap. A `list` run builds nothing, so a `package()` that reads a build product cannot pass there. A
@@ -936,16 +931,14 @@ An `M` record holds one package-relative path, inside the include tree an `I` re
 record loads the child package, which carries its own modules. Two copies would make a consumer
 compile one module twice, which cmake refuses.
 
-A module under no exported include path ships nothing, and the packaging step warns. So does a
-module outside the subtree `as_includes_root` deploys, because the copy carries only that subtree. The upload refuses an
-`M` record whose file the include filter dropped, because the consumer would compile a source the
-archive does not carry. A package written before the `M` record carries no module.
+A module under no exported include path ships nothing and the packaging step warns, as does one
+outside the subtree `as_includes_root` deploys. The upload refuses an `M` record whose file the
+include filter dropped, because the consumer would compile a source the archive does not carry.
 
 **The packaged static library loses its module objects.** A module interface unit emits a strong
-`initializer for module X`. The consumer compiles the same source, so a whole-archive link of an
-unstripped package finds two definitions. The strip removes each member named after a module the
-target compiled. The modules of every package below it count too, because `mama_target_modules` compiles the whole
-dependency tree into this target.
+`initializer for module X`, and the consumer compiles the same source, so a whole-archive link of an
+unstripped package finds two definitions. The strip removes each member named after a module this
+target compiled, including every package below it, which `mama_target_modules` compiles in too.
 
 An archiver lists the path it stored, so each module takes the members sharing the most trailing path
 components. MSVC drops the module extension, so a module sharing none falls back to its bare name. A
@@ -961,11 +954,10 @@ archive that stored member paths needs the full-path modifier, which the removal
 a selected member holds a path. `ar` matches a stored path only with it, and a stored bare name only
 without it. A GNU thin archive names each member by a path, so it keeps its module objects and says so.
 
-The strip touches the packaged copy alone, so the producer's own binaries still link.
-`export_modules(..., strip_objects=False)` keeps the objects, which a target whose own sources import
-its own module needs. **An exported module must define nothing but its own interface**, because the
-strip removes whole objects. A unit that defines a non-inline function loses it for a consumer on the
-header fallback, so every strip warns.
+The strip touches the packaged copy alone, so the producer's own binaries still link, and
+`export_modules(..., strip_objects=False)` keeps them for a target that imports its own module.
+**An exported module must define nothing but its own interface**, because the strip removes whole
+objects: a non-inline definition is lost for a consumer on the header fallback, so every strip warns.
 
 **The exported library is the stripped one.** A consumer that builds this dependency from source
 links `exported_libs` directly, and packaging points it at a copy under `mama-nomodules/` with the

@@ -530,8 +530,7 @@ self.no_export_modules()                             # Suppress automatic C++20 
 ### C++20 modules
 
 A binary module interface is not portable, so a package ships the `.cppm` source and the consumer
-compiles it. Mama exports every module interface unit under an exported include dir, with no
-declaration.
+compiles it. Mama exports every module interface unit under an exported include dir, with no declaration.
 
 ```py
 def package(self):
@@ -576,14 +575,13 @@ included headers reachable, so a header parsed after the import re-declares them
 it. The rule applies inside a header too.
 
 Modules need cmake 3.28, the Ninja 1.11+ or Visual Studio 2022+ generator, and GCC 14, Clang 18 or
-MSVC 19.34. Only the cmake that runs has to be that new: `mama_target_modules()` asks for the module
-scan by name, so your own `cmake_minimum_required` can stay where it is. A toolchain that misses one
-part keeps the exported headers and says so. `-DMAMA_ENABLE_MODULES=OFF` turns the feature off.
+MSVC 19.34. Only the running cmake has to be that new, because `mama_target_modules()` asks for the
+scan by name. A toolchain that misses a part keeps the headers and says so, as does
+`-DMAMA_ENABLE_MODULES=OFF`.
 
-The packaged static library drops its module objects. The consumer compiles the same source, so a
-whole-archive link would otherwise find two `initializer for module X` symbols. **An exported module
-must define nothing but its own interface.** Pass `strip_objects=False` for a unit that carries a
-definition.
+The packaged static library drops its module objects, because the consumer compiles the same source
+and a whole-archive link would find two `initializer for module X` symbols. **An exported module must
+define nothing but its own interface.** Pass `strip_objects=False` for a unit that carries a definition.
 
 ### Execution utilities
 ```py

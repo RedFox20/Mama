@@ -188,10 +188,8 @@ Check these three, in order:
 3. **What else does the remedy catch?** A wider predicate fires on the healthy case too. Measure the
    normal case before you widen anything.
 
-A fix that passes its own new test still regresses the build when the premise was wrong. Three
-findings in one pull request proved this. One named a path an earlier check already rejected. One
-offered two remedies that both failed a measurement. One widened a scan until two real module builds
-broke. Reply with the measurement either way. It closes a wrong finding and it strengthens a right one.
+A fix that passes its own new test still regresses the build when the premise was wrong. Reply with
+the measurement either way: it closes a wrong finding and it strengthens a right one.
 
 ### Then answer, in one of three ways
 
@@ -206,9 +204,8 @@ broke. Reply with the measurement either way. It closes a wrong finding and it s
 hash and resolve the thread in the same step. A fixed finding left open reads as unfixed, and the next
 reader has to open the diff to learn otherwise.
 
-Never resolve a thread you did not answer, and never resolve one you argued against. Those two are the
-only threads that stay open. Sweep every page before you report the count. The threads endpoint pages
-at 100, and a partial read reports a clean board that is not clean.
+Never resolve a thread you did not answer, and never resolve one you argued against. Those two alone
+stay open. Sweep every page before reporting a count: the threads endpoint pages at 100.
 
 ```bash
 # every thread, with its resolved state and its first comment
