@@ -36,6 +36,7 @@ is_x86 = _arch == 'x86' or _arch == 'i386'
 
 _CGROUP_ROOT = '/sys/fs/cgroup'
 _PROC_CGROUP = '/proc/self/cgroup'
+_PROC_MOUNTINFO = '/proc/self/mountinfo'
 _cpu_count = 0
 
 
@@ -65,6 +66,22 @@ def _cgroup_rel_paths() -> tuple:
     return v2, v1
 
 
+def _cgroup_mounts() -> tuple:
+    """The v2 and the v1 cpu mount point, from /proc/self/mountinfo. Neither sits at a fixed path: a
+    hybrid host mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
+    v2 = v1 = ''
+    try:
+        with open(_PROC_MOUNTINFO, encoding='utf-8') as f: lines = f.read().splitlines()
+    except OSError: return v2, v1
+    for line in lines:                       # `<...> <point> <opts> - <fstype> <source> <super opts>`
+        left, _, right = line.partition(' - ')
+        fields, after = left.split(), right.split()
+        if len(fields) < 5 or len(after) < 3: continue
+        if after[0] == 'cgroup2' and not v2: v2 = fields[4]
+        elif after[0] == 'cgroup' and not v1 and 'cpu' in after[2].split(','): v1 = fields[4]
+    return v2, v1
+
+
 def _quota_in(cgroup_dir: str) -> int:
     """Cpus the cpu controller of one cgroup dir allows, rounded up. 0 when it sets no limit."""
     fields = _read_fields(f'{cgroup_dir}/cpu.max') \
@@ -77,8 +94,8 @@ def _quota_in(cgroup_dir: str) -> int:
 def _cgroup_cpu_quota() -> int:
     """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
     on any ancestor caps it too, so the smallest one wins."""
-    v2, v1, dirs = *_cgroup_rel_paths(), []
-    for root, rel in ((_CGROUP_ROOT, v2), (f'{_CGROUP_ROOT}/cpu', v1), (f'{_CGROUP_ROOT}/cpu,cpuacct', v1)):
+    (v2, v1), (v2_mount, v1_mount), dirs = _cgroup_rel_paths(), _cgroup_mounts(), []
+    for root, rel in ((v2_mount or _CGROUP_ROOT, v2), (v1_mount or f'{_CGROUP_ROOT}/cpu', v1)):
         dirs.append(root)
         for part in rel.split('/') if rel else []:
             dirs.append(f'{dirs[-1]}/{part}')

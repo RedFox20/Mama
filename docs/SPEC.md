@@ -109,7 +109,9 @@ it export, and mama writes one for every dep that has a build dir. `mama.cmake` 
 consumer's `CMakeLists.txt` includes. It detects the platform and the arch the way cmake sees them, then
 includes that build dir's `mama-dependencies.cmake`. **It goes to every path the `include()` commands
 name.** The scan reads the `CMakeLists.txt` of the dep, then follows its `add_subdirectory()` calls,
-breadth first. An argument holding a `$` stops that branch. Every file it reads contributes its own
+breadth first. Mama expands the dir variables it knows in that argument, and a `$` that survives stops
+that branch. It reads one source dir once per project scope, because cmake gives each scope its own
+`PROJECT_SOURCE_DIR`. Every file it reads contributes its own
 proxy includes, because cmake resolves each one against its own dir. Mama writes every path a file
 names, because cmake alone knows which branch of a conditional include runs. Mama resolves a relative
 path against the dir of the file that named it, and expands `CMAKE_CURRENT_LIST_DIR` and

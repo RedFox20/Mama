@@ -97,6 +97,13 @@ def first_cmake_arg(args: str) -> str:
     return ''
 
 
+def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str) -> str:
+    """The argument with every cmake dir variable mama knows replaced by the dir it names. An argument
+    that still holds a `$` names a form mama does not expand, such as $ENV{} or a project variable."""
+    for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, current_dir)
+    return arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
+
+
 def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
     """(command, first argument) for every named command, in source order, so a caller can follow a
     variable a command rebinds. One pass reads the whole file, because a cmake command may span lines.
@@ -128,17 +135,20 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
     pending, seen, found = [(cmakelists, source_dir, source_dir)], set(), []
     while pending:
         path, cwd, project_dir = pending.pop(0)
-        real = os.path.realpath(path)
-        if real in seen or not os.path.exists(path): continue
-        seen.add(real)
+        # cmake reads one source dir once per project scope, so the scope belongs in the cycle key
+        key = (os.path.realpath(path), project_dir)
+        if key in seen or not os.path.exists(path): continue
+        seen.add(key)
         for name, arg in scan_cmake_commands(path, ('include', 'add_subdirectory', 'project')):
             if name == 'project':
                 project_dir = cwd
             elif name == 'include':
                 # the basename must match, or a write would replace a real module such as grandmama.cmake
                 if os.path.basename(arg).lower() == MAMA_CMAKE: found.append((cwd, project_dir, arg))
-            elif '$' not in arg:   # mama expands no variable a CMakeLists.txt sets
-                sub = normalized_join(cwd, arg)
+            else:
+                sub = expand_cmake_dirs(arg, cwd, project_dir, source_dir)
+                if '$' in sub: continue   # mama expands no variable a CMakeLists.txt sets
+                sub = normalized_join(cwd, sub)
                 pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir))
     return found
 
@@ -939,8 +949,7 @@ class BuildDependency:
         roots = tuple(os.path.realpath(d) + os.sep for d in (self.src_dir, cmake_dir))
         paths = []
         for source_dir, project_dir, arg in find_mama_cmake_includes(self.cmakelists_path(), cmake_dir):
-            for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, source_dir)
-            arg = arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, cmake_dir)
+            arg = expand_cmake_dirs(arg, source_dir, project_dir, cmake_dir)
             # a `$` that survived names a form mama does not expand, such as $ENV{}, so the default answers
             path = normalized_join(source_dir, MAMA_CMAKE if '$' in arg else arg)
             if not os.path.realpath(path).startswith(roots):

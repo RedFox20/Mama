@@ -332,3 +332,20 @@ def test_a_subdirectory_with_no_project_keeps_the_top_project_source_dir(tmp_pat
 
 def test_a_subdirectory_that_adds_itself_ends_the_scan(tmp_path):
     assert dc._proxy_paths(_subdir_dep(tmp_path, 'add_subdirectory(../src)\n')) == []
+
+
+def test_a_subdirectory_named_by_a_cmake_variable_is_followed(tmp_path):
+    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n', 'add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_shared_dir_added_by_two_subprojects_resolves_in_each_scope(tmp_path):
+    # cmake reads one source dir once per project scope, and gives each a different PROJECT_SOURCE_DIR
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(a)\nadd_subdirectory(b)\n')
+    write_files(dep.src_dir, {'a/CMakeLists.txt': 'project(A)\nadd_subdirectory(${CMAKE_SOURCE_DIR}/shared sa)\n',
+                              'b/CMakeLists.txt': 'project(B)\nadd_subdirectory(${CMAKE_SOURCE_DIR}/shared sb)\n',
+                              'shared/CMakeLists.txt': 'include(${PROJECT_SOURCE_DIR}/mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/a/mama.cmake')
+    assert os.path.exists(f'{dep.src_dir}/b/mama.cmake')
