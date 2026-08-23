@@ -3,6 +3,7 @@ import os
 from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
+from mama.build_dependency import first_cmake_arg
 from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep, write_files
 
@@ -421,7 +422,15 @@ def test_a_bracket_argument_names_the_dir_it_spells(tmp_path):
     assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
 
 
-def test_an_encoded_escape_becomes_its_character(tmp_path):
+def test_an_encoded_escape_becomes_its_character():
+    # `\t`, `\r` and `\n` encode a character. Every other pair names the character after the backslash
+    assert first_cmake_arg(r'"src\tdir"') == ('src\tdir', False)
+    assert first_cmake_arg(r'"a\)b"') == ('a)b', False)
+
+
+@pytest.mark.linux_host
+def test_an_encoded_escape_names_a_dir_holding_that_character(tmp_path):
+    # a tab is legal in a POSIX name and illegal in a Windows one, so only the decode above runs there
     dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\tdir")\n')
     write_files(dep.src_dir, {'src\tdir/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
