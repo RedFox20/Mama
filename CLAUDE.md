@@ -202,7 +202,13 @@ broke. Reply with the measurement either way. It closes a wrong finding and it s
 3. **The reviewer is wrong, or the fix would be wrong.** Reply with the reasoning and the `file:line`
    that proves it. **Leave the thread open**, because the author decides, not you.
 
-Never resolve a thread you did not answer, and never resolve one you argued against.
+**A reply and a resolve are one action, not two.** The moment a fix is pushed, reply with the commit
+hash and resolve the thread in the same step. A fixed finding left open reads as unfixed, and the next
+reader has to open the diff to learn otherwise.
+
+Never resolve a thread you did not answer, and never resolve one you argued against. Those two are the
+only threads that stay open. Sweep every page before you report the count. The threads endpoint pages
+at 100, and a partial read reports a clean board that is not clean.
 
 ```bash
 # every thread, with its resolved state and its first comment
