@@ -11,7 +11,7 @@ from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory
 from .mamafile_version import pinned_version
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
-                         has_source_content, MAMA_SHIM_FILENAME
+                         has_source_content, forward_slashes, MAMA_SHIM_FILENAME
 from . import build_names
 from .parse_mamafile import parse_mamafile, update_mamafile_tag, update_cmakelists_tag
 import mama.package as package
@@ -46,8 +46,8 @@ _ESCAPED_DOLLAR = '\x00'
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
 _CMAKE_TOP_DIR_VAR = '${CMAKE_SOURCE_DIR}'
-# a symlink that names its own parent gives every level a new dir, so the walk stops at a depth no project reaches
-_MAX_SUBDIR_DEPTH = 64
+# cmake names a variable three ways. A `$` outside them is ordinary content of an argument
+_CMAKE_VAR_REF = re.compile(r'\$(?:ENV|CACHE)?\{')
 
 
 def _skip_span(text: str, i: int) -> int:
@@ -97,9 +97,8 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
             elif quoted and text[i + 1] == '\n': i += 2
             else:
                 nxt = text[i + 1]
-                # `\\;` survives an unquoted argument, because the list divider is what resolves it
-                out.append(_ESCAPED_DOLLAR if nxt == '$' else '\\;' if nxt == ';' and not quoted
-                           else _CMAKE_ENCODED.get(nxt, nxt))
+                # cmake keeps `\\;` in the value. Only the list divider of an unquoted argument resolves it
+                out.append(_ESCAPED_DOLLAR if nxt == '$' else '\\;' if nxt == ';' else _CMAKE_ENCODED.get(nxt, nxt))
                 i += 2
         # a make-style reference names no cmake variable, so it holds its `$` as content. It never nests
         elif text[i] == '$' and text[i + 1:i + 2] == '(' and (close := text.find(')', i + 2)) != -1:
@@ -169,7 +168,7 @@ def has_unknown_cmake_var(arg: str) -> bool:
     """True when the argument names a variable mama does not expand, such as $ENV{} or a project one.
     It tests before substitution, because a checkout path may hold a literal `$` of its own."""
     for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR): arg = arg.replace(var, '')
-    return '$' in arg
+    return _CMAKE_VAR_REF.search(arg) is not None
 
 
 def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str) -> str:
@@ -208,25 +207,29 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
     cmake reads from `cmakelists`, which `source_dir` holds. The scan follows `add_subdirectory()`, and
     an argument holding a `$` stops that branch. `project_dir` is the dir of the last `project()` call
     ABOVE the include, which is what `PROJECT_SOURCE_DIR` expands to there."""
-    pending, seen, found = [(cmakelists, source_dir, source_dir, 0)], set(), []
+    pending, seen, found = [(cmakelists, source_dir, source_dir, ())], set(), []
     while pending:
-        path, cwd, project_dir, depth = pending.pop(0)
+        path, cwd, project_dir, ancestors = pending.pop(0)
         # cmake reads one source dir once per project scope, and two symlink aliases are two source dirs
         key = (cwd, project_dir)
-        if key in seen or depth > _MAX_SUBDIR_DEPTH or not os.path.exists(path): continue
+        if key in seen or not os.path.exists(path): continue
         seen.add(key)
+        real = os.path.realpath(cwd)
+        if real in ancestors: continue   # a symlink that names an ancestor would walk that chain forever
+        ancestors += (real,)
         for name, arg, literal in scan_cmake_commands(path, ('include', 'add_subdirectory', 'project')):
             if name == 'project':
                 project_dir = cwd
             elif name == 'include':
                 # the basename must match, or a write would replace a real module such as grandmama.cmake
-                if os.path.basename(arg).lower() == MAMA_CMAKE: found.append((cwd, project_dir, arg, literal))
+                if os.path.basename(forward_slashes(arg)).lower() == MAMA_CMAKE:
+                    found.append((cwd, project_dir, arg, literal))
             elif literal:
                 sub = normalized_join(cwd, arg, strip=False)   # a bracket argument names the dir it spells
-                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, depth + 1))
+                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, ancestors))
             elif not has_unknown_cmake_var(arg):   # mama expands no variable a CMakeLists.txt sets
                 sub = normalized_join(cwd, expand_cmake_dirs(arg, cwd, project_dir, source_dir), strip=False)
-                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, depth + 1))
+                pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, ancestors))
     return found
 
 

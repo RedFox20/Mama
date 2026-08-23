@@ -3,7 +3,7 @@ import os
 from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
-from mama.build_dependency import first_cmake_arg
+from mama.build_dependency import first_cmake_arg, has_unknown_cmake_var
 from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep, write_files
 
@@ -556,3 +556,48 @@ def test_a_symlink_loop_stops_the_walk(tmp_path):
     write_files(dep.src_dir, {'sub/CMakeLists.txt': 'add_subdirectory(loop)\n'})
     os.symlink(f'{dep.src_dir}/sub', f'{dep.src_dir}/sub/loop')
     dc._save_cmake_files(dep)   # it returns, rather than walking the alias chain forever
+
+
+@pytest.mark.parametrize('arg, unknown', [
+    ('src$dir',       False),   # a bare `$` is ordinary content of an argument
+    ('${FOO}/x',      True),
+    ('$ENV{HOME}/x',  True),
+    ('$CACHE{C}/x',   True),
+], ids=['bare', 'brace', 'env', 'cache'])
+def test_only_a_reference_form_names_an_unknown_variable(arg, unknown):
+    assert has_unknown_cmake_var(arg) is unknown
+
+
+def test_a_bare_dollar_names_the_dir_it_spells(tmp_path):
+    # cmake names a variable with `${}`, `$ENV{}` or `$CACHE{}`, so this `$` stops no branch
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src$dir)\n')
+    write_files(dep.src_dir, {'src$dir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src$dir/mama.cmake')
+
+
+def test_a_quoted_escaped_semicolon_keeps_its_backslash():
+    # cmake holds `\\;` in the value of a quoted argument. Only an unquoted one divides as a list
+    assert first_cmake_arg('"src\\;dir"') == ('src\\;dir', False)
+
+
+def test_a_backslash_of_an_include_path_reads_as_a_separator(tmp_path):
+    # cmake opens `dir/mama.cmake` for `include([[dir\\mama.cmake]])`, so the basename test has to agree
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(sub)\n')
+    write_files(dep.src_dir, {'sub/CMakeLists.txt': 'include([[dir\\mama.cmake]])\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/sub/dir/mama.cmake')
+
+
+@pytest.mark.linux_host
+def test_a_tree_deeper_than_any_cap_still_reaches_its_leaf(tmp_path):
+    # cmake reads 65 nested levels, so only a real cycle may stop the walk, never a depth count
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(d)\n')
+    rel = ''
+    for level in range(65):
+        rel = os.path.join(rel, 'd')
+        leaf = level == 64
+        write_files(dep.src_dir, {f'{rel}/CMakeLists.txt':
+                                  'include(mama.cmake)\n' if leaf else 'add_subdirectory(d)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/{rel}/mama.cmake')
