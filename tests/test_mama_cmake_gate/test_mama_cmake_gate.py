@@ -452,3 +452,19 @@ def test_an_escaped_dollar_names_the_dir_it_spells(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/${{CMAKE_SOURCE_DIR}}/src/mama.cmake')
     assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_real_variable_expands_beside_an_escaped_dollar(tmp_path):
+    # cmake evaluates escape sequences AND variable references in one argument
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(${CMAKE_SOURCE_DIR}/src\\$dir)\n')
+    write_files(dep.src_dir, {'src$dir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src$dir/mama.cmake')
+
+
+def test_an_empty_list_element_names_no_argument(tmp_path):
+    # cmake passes each NON-empty element, so a leading `;` leaves `src` as the source dir
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(;src)\n')
+    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')

@@ -40,6 +40,8 @@ _CMAKE_LINE_COMMENT = re.compile(r'#[^\n]*')
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
 # the three escapes cmake encodes. Every other one names the character after the backslash
 _CMAKE_ENCODED = {'t': '\t', 'r': '\r', 'n': '\n'}
+# an escaped `$` waits as this byte while the expansion runs, where a `$` would read as syntax
+_ESCAPED_DOLLAR = '\x00'
 # cmake dir variables: the dir of the file that names them, the nearest project(), and the top dir
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
@@ -92,7 +94,8 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
             if quoted and text[i + 1:i + 3] == '\r\n': i += 3
             elif quoted and text[i + 1] == '\n': i += 2
             else:
-                out.append(_CMAKE_ENCODED.get(text[i + 1], text[i + 1]))
+                nxt = text[i + 1]
+                out.append(_ESCAPED_DOLLAR if nxt == '$' else _CMAKE_ENCODED.get(nxt, nxt))
                 i += 2
         else:
             out.append(text[i])
@@ -101,21 +104,19 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
 
 
 def first_cmake_arg(args: str) -> tuple:
-    """(value, literal) for the first argument of a cmake command. `literal` marks an argument mama
-    must not expand: a bracket one, whose content cmake evaluates in no way, and one that escapes a `$`,
-    where the name holds the variable syntax. A comment may open the list."""
+    """(value, literal) for the first argument of a cmake command. `literal` marks a bracket argument,
+    whose content cmake evaluates in no way. A comment may open the list, and an empty list element
+    names no argument."""
     i = 0
     while i < len(args):
         char = args[i]
-        if char.isspace():
+        if char.isspace() or char == ';':   # an empty list element reaches no command
             i += 1
         elif char == '#':
             i = _skip_span(args, i)  # a comment names no argument
         elif char == '"':
             match = _CMAKE_QUOTED.match(args, i)
-            if not match: return '', False
-            raw = match.group(0)[1:-1]
-            return _unescape_cmake(raw, quoted=True), '\\$' in raw
+            return (_unescape_cmake(match.group(0)[1:-1], quoted=True) if match else ''), False
         elif char == '[' and (bracket := _CMAKE_BRACKET.match(args, i)):
             pad = len(bracket.group(1)) + 2   # the `[[` or `[=[` open, and its matching close
             content = bracket.group(0)[pad:-pad]
@@ -129,8 +130,7 @@ def first_cmake_arg(args: str) -> tuple:
                 # an unquoted argument holds none of these, and `;` divides its value as a list
                 elif args[end].isspace() or args[end] in '()#";': break
                 else: end += 1
-            raw = args[i:end]
-            return _unescape_cmake(raw), '\\$' in raw
+            return _unescape_cmake(args[i:end]), False
     return '', False
 
 
@@ -145,7 +145,8 @@ def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str
     """The argument with every cmake dir variable mama knows replaced by the dir it names. An argument
     that still holds a `$` names a form mama does not expand, such as $ENV{} or a project variable."""
     for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, current_dir)
-    return arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
+    arg = arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
+    return arg.replace(_ESCAPED_DOLLAR, '$')
 
 
 def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
