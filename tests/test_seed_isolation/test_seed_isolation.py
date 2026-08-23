@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import make_cmake_detection, make_configured_target, set_mock_platform
+from testutils import is_windows, make_cmake_detection, make_configured_target, set_mock_platform
 from mama import build_names
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake import compiler_cache as seedcache
@@ -191,10 +191,12 @@ def test_a_cross_clang_toolchain_carries_the_scanner_input(tmp_path):
 def test_the_scanner_search_reads_a_versioned_name_beside_the_compiler(tmp_path, monkeypatch):
     # a custom llvm install keeps its own bin off PATH, and the versioned scanner sits next to the
     # compiler. Reading only the bare name there left modules off with the tool already installed.
-    import stat
-    for name in ('clang++-18', 'clang-scan-deps-18'):
+    ext = '.exe' if is_windows() else ''  # shutil.which reads PATHEXT, so a bare name is invisible there
+    for name in (f'clang++-18{ext}', f'clang-scan-deps-18{ext}'):
         exe = tmp_path / name
         exe.write_text('#!/bin/sh\n')
-        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        exe.chmod(0o755)
     monkeypatch.setenv('PATH', str(tmp_path / 'nowhere'))
-    assert cc._clang_scan_deps(str(tmp_path / 'clang++-18')) == str(tmp_path / 'clang-scan-deps-18')
+    found = cc._clang_scan_deps(str(tmp_path / f'clang++-18{ext}'))
+    # which spells the extension from PATHEXT, which is upper case, so normcase compares the two
+    assert os.path.normcase(found) == os.path.normcase(str(tmp_path / f'clang-scan-deps-18{ext}'))
