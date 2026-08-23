@@ -173,6 +173,28 @@ A reviewer comment is a thread, and a thread stays open until someone closes it.
 and close the ones you fixed.** A reader who opens the pull request has to see which findings are
 gone and which are still live, without reading the diff.
 
+### Verify the premise before you write the fix
+
+**A review comment is a hypothesis, not an instruction.** Read the code it names, and run the case it
+describes, before you change a line. A reviewer sees a diff, never the whole call chain. So a finding
+names a real risk and still gets the mechanism, the remedy or both wrong.
+
+Check these three, in order:
+
+1. **Does the failure the comment describes actually reach that line?** An earlier guard often
+   rejects the input first, and a fix below it is dead code.
+2. **Does the proposed remedy work?** Name what it changes, then prove that it changes it. A remedy
+   that reads one file misses a value the run also gets from another.
+3. **What else does the remedy catch?** A wider predicate fires on the healthy case too. Measure the
+   normal case before you widen anything.
+
+A fix that passes its own new test still regresses the build when the premise was wrong. Three
+findings in one pull request proved this. One named a path an earlier check already rejected. One
+offered two remedies that both failed a measurement. One widened a scan until two real module builds
+broke. Reply with the measurement either way. It closes a wrong finding and it strengthens a right one.
+
+### Then answer, in one of three ways
+
 1. **You fixed it.** Reply with the commit hash, one sentence on what the code does now, and the test
    that pins it. Then resolve the thread.
 2. **The reviewer is right, and the fix is not in this pull request.** Reply with that, name the entry
