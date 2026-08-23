@@ -13,6 +13,16 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **The module strip runs the target-wide matcher against every exported archive.**
+  `export_stripped_module_libs` loops `target.exported_libs` and calls `_module_object_members(target, src)`
+  for each (`package.py:405`), which knows no archive-to-module ownership. A target that exports both its
+  own `libcore.a` and a prebuilt `libvendor.a` loses a vendor member named `api.cppm.o` when the target
+  exports any `api.cppm`. `_ambiguous_names` cannot protect it: it scans the source and build trees, and
+  the vendor sources are in neither. Repro: export two static libs, put `api.cppm.o` in the prebuilt one,
+  export `api.cppm` from the other. Fix: record which archive each module compiled into, or skip an
+  archive whose matching members no scanned tree accounts for. The narrow shape and the cost of threading
+  ownership through the build kept it out of the module PR.
+
 - **Only the configured `CMakeLists.txt` names the proxy, never one a subdirectory adds.** The scan
   reads `dep.cmakelists_path()` alone (`build_dependency.py:850`). A root that calls
   `add_subdirectory(src)`, where `src/CMakeLists.txt` holds `include(${CMAKE_SOURCE_DIR}/mama.cmake)`,

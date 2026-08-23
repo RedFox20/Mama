@@ -13,13 +13,14 @@ BOTH = ['rpp-strview.cppm', 'rpp-vec.cppm']
 
 
 def _include_hook(self): self.export_include('include')
+def _include_hook_none(self): pass  # a recipe from before export_modules existed
 
 
-def _run(tmp_path, package, fetched=False, exports=None):
+def _run(tmp_path, package, fetched=False, exports=None, files=None):
     """Run the packaging of a target whose package() hook is `package`. Returns the target."""
     target = make_package_target(tmp_path, package=package, exports=exports,
                                  dep_attrs={'from_artifactory': fetched, 'should_rebuild': True})
-    write_files(target.source_dir(), FILES)
+    write_files(target.source_dir(), files or FILES)
     target._run_packaging()
     assert target.exported_includes, 'the packaging never ran, so every assert below passes for free'
     return target
@@ -76,3 +77,22 @@ def test_a_fetched_hook_that_narrows_modules_without_includes_keeps_the_archived
                   exports=([deployed], [], [], [], [f'{deployed}/rpp/rpp-strview.cppm',
                                                     f'{deployed}/rpp/rpp-vec.cppm']))
     assert _names(package_mod.exported_modules_with_base(target)) == ['rpp-strview.cppm']
+
+
+def test_a_fetched_package_with_no_m_records_exports_no_module(tmp_path):
+    # an empty M list is the publisher saying this package ships none. Rediscovery exported a .cppm
+    # the include filter merely carried, so a consumer compiled a module the archive never declared.
+    deployed = f'{tmp_path}/deploy/include'
+    write_files(f'{tmp_path}/deploy', {'include/rpp/carried.cppm': CPPM, 'include/rpp/strview.h': '#pragma once\n'})
+    target = _run(tmp_path, _include_hook_none, fetched=True, exports=([deployed], [], [], [], []))
+    assert target.exported_modules == []
+
+
+def test_a_fetched_narrowing_hook_tells_two_modules_of_one_name_apart(tmp_path):
+    # a/api.cppm and b/api.cppm share a file name, and a file-name match restored both, so the
+    # package shipped the very module the recipe excluded
+    deployed = f'{tmp_path}/deploy/include'
+    hook = lambda self: self.export_modules('include/a', ['api.cppm'])
+    target = _run(tmp_path, hook, fetched=True, files={'include/a/api.cppm': CPPM, 'include/b/api.cppm': CPPM},
+                  exports=([deployed], [], [], [], [f'{deployed}/a/api.cppm', f'{deployed}/b/api.cppm']))
+    assert target.exported_modules == [f'{deployed}/a/api.cppm']

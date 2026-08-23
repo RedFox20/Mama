@@ -129,3 +129,12 @@ def test_the_last_std_flag_decides_the_standard(tmp_path):
     target.config.flags = '-std=c++17 -std=c++20'
     target.enable_cxx20()
     assert 'CMAKE_CXX_STANDARD=20' in cc._cxx_standard_opts(target)
+
+
+def test_a_standard_spelling_inside_a_macro_value_is_not_an_operator_flag(tmp_path):
+    # an unanchored search read the macro value as the operator standard, and cmake then appended a
+    # C++17 flag after the C++23 one the mamafile forced
+    target, _ = make_configured_target(tmp_path)
+    target.config.flags = '-DDEFAULT_STD=-std=c++17'
+    target.enable_cxx23()
+    assert 'CMAKE_CXX_STANDARD=23' in cc._cxx_standard_opts(target)

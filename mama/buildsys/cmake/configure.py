@@ -145,7 +145,8 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     # cmake appends its own standard flag after CMAKE_CXX_FLAGS, so an operator standard that reaches
     # cmake as nothing would lose to it. That one wins, whether or not the mamafile forced its own.
     # the compiler reads the last -std of the line, so a repeated flag decides by its last spelling
-    operator = re.findall(r'[-/]std[=:](\S+)', target.config.flags or '')
+    operator = [m for tok in (target.config.flags or '').split()
+                for m in re.findall(r'^[-/]std[=:](\S+)$', tok)]
     std_flag = operator[-1] if operator else target.cxx_std_flag()
     std = target.cxx_standard_of(std_flag)
     if not std: return []  # nothing forced, or a value with no cmake number, so keep the default

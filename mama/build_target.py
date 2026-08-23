@@ -1905,7 +1905,9 @@ class BuildTarget:
             # includes drops the archived module paths and the default finds them again below
             elif hook[0]: merged[-1] = []
             self._set_exports(tuple(merged))
-            if not self.exported_modules and not self.no_modules and not self.modules_declared:
+            # only when the archive DID record modules: an empty M list is the publisher saying this
+            # package ships none, and rediscovery would export a .cppm its include filter merely carried
+            if loaded[-1] and not self.exported_modules and not self.no_modules and not self.modules_declared:
                 self.default_package_modules()
         else:
             # the user provided no packaging, use the default packaging instead

@@ -222,10 +222,17 @@ def exported_modules_with_base(target: BuildTarget) -> list:
 
 
 def archived_modules_named(archived: list, declared: list) -> list:
-    """The archived module paths whose file name a declared one names. A fetched hook names its
-    modules in the source tree, and only the archive knows where the deploy put them."""
-    names = {match_path(os.path.basename(m)) for m in declared}
-    return [m for m in archived if match_path(os.path.basename(m)) in names]
+    """The archived module paths a declared one names, each matched by the longest shared path tail.
+    A fetched hook names its modules in the source tree, and only the archive knows the deployed path.
+    The tail, not the file name, separates two exports that share a name under different dirs."""
+    parts = [(m, match_path(m).split('/')) for m in archived]
+    keep = set()
+    for module in declared:
+        declared_parts = match_path(module).split('/')
+        scored = [(m, _shared_tail(p, declared_parts)) for m, p in parts]
+        best = max((n for _, n in scored), default=0)
+        if best: keep |= {m for m, n in scored if n == best}
+    return [m for m in archived if m in keep]  # the order of the archive, never of the declaration
 
 
 def warn_unreachable_modules(target: BuildTarget) -> None:
