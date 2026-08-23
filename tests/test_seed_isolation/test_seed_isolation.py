@@ -186,3 +186,15 @@ def test_a_cross_clang_toolchain_carries_the_scanner_input(tmp_path):
                                   clang=False, gcc=True)
     with patch.object(cc, '_clang_scan_deps', return_value=f'{ndk}/clang-scan-deps'):
         assert 'scandeps' in cc._seed_inputs(t)
+
+
+def test_the_scanner_search_reads_a_versioned_name_beside_the_compiler(tmp_path, monkeypatch):
+    # a custom llvm install keeps its own bin off PATH, and the versioned scanner sits next to the
+    # compiler. Reading only the bare name there left modules off with the tool already installed.
+    import stat
+    for name in ('clang++-18', 'clang-scan-deps-18'):
+        exe = tmp_path / name
+        exe.write_text('#!/bin/sh\n')
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv('PATH', str(tmp_path / 'nowhere'))
+    assert cc._clang_scan_deps(str(tmp_path / 'clang++-18')) == str(tmp_path / 'clang-scan-deps-18')

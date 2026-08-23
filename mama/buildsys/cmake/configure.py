@@ -142,9 +142,8 @@ def _cxx_standard_opts(target:BuildTarget) -> list:
     A mamafile that names one of these through add_cmake_options() keeps its own value, and an
     operator who passes a standard through `flags=` keeps that one."""
     if not target.enable_cxx_build: return []
-    # cmake appends its own standard flag after CMAKE_CXX_FLAGS, so an operator standard that reaches
-    # cmake as nothing would lose to it. That one wins, whether or not the mamafile forced its own.
-    # the compiler reads the last -std of the line, so a repeated flag decides by its last spelling
+    # cmake appends its own standard flag last, so an operator standard has to win here instead.
+    # The compiler reads the last -std of the line, so a repeated flag decides by its last spelling.
     operator = [m for tok in (target.config.flags or '').split()
                 for m in re.findall(r'^[-/]std[=:](\S+)$', tok)]
     std_flag = operator[-1] if operator else target.cxx_std_flag()
@@ -207,8 +206,10 @@ def _clang_scan_deps(cxx:str) -> str:
     to carry whether the tool was there. The search only has to flip when the tool arrives or goes, so
     it need not resolve the same path cmake picks."""
     suffix = os.path.basename(cxx).replace('clang++', '')
-    beside = shutil.which('clang-scan-deps', path=os.path.dirname(os.path.realpath(cxx)))
-    return beside or find_executable_from_system('clang-scan-deps' + suffix) \
+    beside = os.path.dirname(os.path.realpath(cxx))  # a custom install keeps its own bin off PATH
+    return shutil.which('clang-scan-deps' + suffix, path=beside) \
+        or shutil.which('clang-scan-deps', path=beside) \
+        or find_executable_from_system('clang-scan-deps' + suffix) \
         or find_executable_from_system('clang-scan-deps')
 
 

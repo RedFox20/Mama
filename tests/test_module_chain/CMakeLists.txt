@@ -6,9 +6,8 @@ include_directories(${MAMA_INCLUDES})
 
 add_executable(TopConsumer ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 if(UNIX AND NOT APPLE)
-    # The link shape that finds a duplicate module initializer. A plain static link pulls a member only
-    # to resolve a symbol, so it tolerates the copy this chain must not carry. Only the archives go in:
-    # MAMA_LIBS also names system libs, which the linker takes as -l and not as a path.
+    # Whole-archive is the link shape that finds a duplicate module initializer, which a plain static
+    # link tolerates. Only the .a entries go in: MAMA_LIBS also names system libs, taken as -l.
     set(CHAIN_ARCHIVES "")
     set(CHAIN_SYSLIBS "")
     foreach(lib ${MAMA_LIBS})

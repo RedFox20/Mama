@@ -110,14 +110,6 @@ def _include_deploy(target:BuildTarget, includes_root:str, abs_include:str):
     return abs_include, f'{includes_root}/{name}', f'I include/{name}'
 
 
-def _same_file(a:str, b:str) -> bool:
-    """True when both paths name one file. Only the filesystem separates a case-variant spelling of one
-    file from two real files, and it answers the symlinked deploy dir with the same call."""
-    if forward_slashes(a) == forward_slashes(b): return True
-    try: return os.path.samefile(a, b)
-    except OSError: return False  # one of them does not exist yet, so they are two files
-
-
 def _refuse_in_place(what: str) -> RuntimeError:
     """The refusal both in-place checks raise. The strip would take the module objects the binaries of
     the producer link, so a package and a build artifact must not be one file."""
@@ -312,7 +304,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
 
     # the loop below refuses too, but only after the include tree is gone, so check before that
-    if _same_file(package_full_path, target.build_dir()) and \
+    if package.same_file(package_full_path, target.build_dir()) and \
        any(package.strips_module_objects(target, l) for l in target.exported_libs):
         raise _refuse_in_place(package_full_path)
 
@@ -340,7 +332,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         outpath = normalized_join(package_full_path, relpath)
         os.makedirs(os.path.dirname(outpath), exist_ok=True)
         if detail_echo: console(f'    L ({libtarget.name+")": <16}  {relpath}')
-        if not _same_file(lib, outpath):
+        if not package.same_file(lib, outpath):
             if config.verbose: console(f'    copy {lib}\n      -> {outpath}')
             copy_if_needed(lib, outpath)
             # Only the packaged copy loses its module objects. The build dir keeps a linkable archive.

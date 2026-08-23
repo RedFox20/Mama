@@ -170,13 +170,18 @@ def _holds_path(directory: str, path: str) -> bool:
     return False
 
 
-def _one_file(a: str, b: str) -> bool:
-    """True when `a` and `b` name one file. A folded name match is not enough on its own, because a
-    case-sensitive volume holds two files whose folded names are equal."""
-    if match_path(a) != match_path(b): return False
+def same_file(a: str, b: str) -> bool:
+    """True when both paths name one file. Only the filesystem separates a case-variant spelling of
+    one file from two real files, and it answers a symlinked dir with the same call."""
     if forward_slashes(a) == forward_slashes(b): return True
     try: return os.path.samefile(a, b)
-    except OSError: return False  # one of them is gone, so nothing proves they are one file
+    except OSError: return False  # one of them does not exist yet, so they are two files
+
+
+def _one_file(a: str, b: str) -> bool:
+    """True when one file answers both paths AND both fold to one spelling. A symlink into another
+    tree names the same file, and it is not the module this export named."""
+    return match_path(a) == match_path(b) and same_file(a, b)
 
 
 def module_base_dir(target: BuildTarget, module: str) -> str:
