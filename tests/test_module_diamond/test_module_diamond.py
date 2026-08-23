@@ -1,12 +1,11 @@
 """Pins the diamond: two sibling packages compile one module, and one consumer links both."""
 import glob
 import os
-import shutil
 import subprocess
 
 import pytest
 import testutils
-from testutils import executable_extension, module_capable_compiler
+from testutils import executable_extension, is_windows, module_capable_compiler
 
 
 def _env() -> dict:
@@ -47,7 +46,9 @@ def test_two_siblings_that_compile_one_module_link_into_one_consumer(tmp_path):
     # and the consumer would compile and link the same interface twice.
     assert len(glob.glob(f'{project}/packages/LibShared/*/')) == 1, 'the diamond built LibShared twice'
 
-    if not shutil.which('ar'): return  # MSVC keeps its members through lib.exe, which lists differently
+    # MSVC names the archive LibA.lib under its config dir and lists members through lib.exe, and the
+    # whole-archive link the strip pays off in is UNIX-only, so the member checks below stay on UNIX.
+    if is_windows(): return
     for side in ('LibA', 'LibB'):
         built = _one(f'{project}/packages/{side}/*/lib{side}.a')
         # the precondition: without it a change that stops compiling the module leaves this test green
