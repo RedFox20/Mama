@@ -386,3 +386,26 @@ def test_a_bracket_argument_drops_only_its_opening_newline(tmp_path):
     write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_a_quoted_line_continuation_joins_the_path(tmp_path):
+    # cmake drops a backslash-newline pair inside a quoted argument
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\\ndir")\n')
+    write_files(dep.src_dir, {'srcdir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/srcdir/mama.cmake')
+
+
+def test_an_unquoted_list_names_the_source_dir_first(tmp_path):
+    # add_subdirectory(src;out) gives cmake a source dir and a binary dir, not one path
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src;outbin)\n')
+    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+def test_an_escaped_paren_does_not_close_the_argument_list(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src\\)dir)\n')
+    write_files(dep.src_dir, {'src)dir/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src)dir/mama.cmake')

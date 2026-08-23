@@ -56,7 +56,7 @@ def _cgroup_rel_paths() -> tuple:
     which is what a private cgroup namespace reports."""
     v2 = v1 = ''
     try:
-        with open(_PROC_CGROUP, encoding='utf-8') as f: lines = f.read().splitlines()
+        with open(_PROC_CGROUP, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
     except OSError: return v2, v1
     for line in lines:                        # `<hierarchy>:<controllers>:<path>`
         ids, _, rest = line.partition(':')
@@ -78,7 +78,7 @@ def _cgroup_mounts() -> tuple:
     the mount after its controller list."""
     v2, v1 = [], []
     try:
-        with open(_PROC_MOUNTINFO, encoding='utf-8') as f: lines = f.read().splitlines()
+        with open(_PROC_MOUNTINFO, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
     except OSError: return v2, v1
     for line in lines:            # `<id> <parent> <dev> <root> <point> <opts> - <fstype> <src> <super>`
         left, _, right = line.partition(' - ')

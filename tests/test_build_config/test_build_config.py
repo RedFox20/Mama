@@ -159,6 +159,18 @@ def test_every_mount_that_shows_this_process_contributes_a_dir(monkeypatch, tmp_
     assert system.usable_cpu_count() == 3
 
 
+def test_an_undecodable_byte_in_a_proc_path_never_ends_the_run(monkeypatch, tmp_path):
+    # mountinfo octal-escapes only whitespace, so a path byte no codec decodes reaches the reader raw,
+    # and UnicodeDecodeError is no OSError
+    info, cg = tmp_path / 'mountinfo', tmp_path / 'cgroup'
+    info.write_bytes(b'35 23 0:27 / /sys/fs/cgroup\xff rw - cgroup2 cgroup2 rw\n')
+    cg.write_bytes(b'0::/svc\xff\n')
+    monkeypatch.setattr(system, '_PROC_MOUNTINFO', info.as_posix())
+    monkeypatch.setattr(system, '_PROC_CGROUP', cg.as_posix())
+    assert system._cgroup_mounts() == ([('/sys/fs/cgroup\udcff', '/')], [])
+    assert system._cgroup_rel_paths() == ('svc\udcff', '')
+
+
 def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):
     assert cpus(affinity=2) == 2                            # --cpuset-cpus=0-1 writes no quota
 
