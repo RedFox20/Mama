@@ -159,6 +159,8 @@ def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
                         children=list(children), target=target, from_artifactory=False, artifactory_archive='')
     d.get_children = lambda d=d: d.children
     d.has_usable_artifacts = lambda usable=usable: usable
+    d.has_stale_locked_artifacts = lambda: False
+    d.is_artifactory_shim = lambda: False
     d.load_is_free = lambda free=free: free
     d.get_enabled_coverage = lambda: False
     def revive(d=d): d.load_deferred = False; d.revived = True; d.already_loaded = False
@@ -173,6 +175,8 @@ def make_mock_config(tmp_path, **overrides):
     cfg.artifactory_ftp = 'ftp.example.com'
     cfg.workspaces_root = str(tmp_path)
     cfg.global_workspace = False
+    cfg.dependency_lock = None
+    cfg.lock_generation = False
     cfg.verbose = False
     cfg.print = False
     cfg.loaded_dependencies = {}
@@ -948,4 +952,3 @@ def native_platform_name() -> str:
         return 'macos'
     else:
         raise Exception("Unsupported platform")
-

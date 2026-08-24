@@ -65,15 +65,21 @@ def get_flat_child_deps(dep: BuildDependency):
 
 
 def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
-    """`build target=X` builds only X, so an unbuilt dep below X must also build, or X compiles against
-    a missing include dir. The scope stays the subtree of X: a wider mark would build unrelated targets,
-    and a mamafile that runs `mama build target=Y` would then re-enter itself - a fork bomb."""
+    """`build target=X` builds only X, so revive unusable or stale deps below X. Deepest-first lets a
+    changed leaf rebuild its source-built parents before X consumes them. The scope stays X's subtree:
+    a wider mark could re-enter a mamafile that runs `mama build target=Y` itself."""
     target = find_dependency(root, config.target)
     if target is None: return
-    for dep in get_flat_child_deps(target):
-        if dep.should_rebuild or dep.has_usable_artifacts(): continue
+    for dep in reversed(get_flat_child_deps(target)):
+        changed_child = None if dep.is_artifactory_shim() else \
+                        next((child for child in dep.get_children() if child.should_rebuild), None)
+        stale = dep.has_stale_locked_artifacts()
+        if dep.should_rebuild or (dep.has_usable_artifacts() and not stale and not changed_child): continue
         dep.should_rebuild = True
-        if config.print: warning(f'  - Target {dep.name: <16} BUILD [dependency of {target.name} not built yet]')
+        if config.print:
+            reason = 'locked commit changed' if stale else \
+                     (f'{changed_child.name} changed' if changed_child else 'not built yet')
+            warning(f'  - Target {dep.name: <16} BUILD [{reason}]')
 
 
 @contextlib.contextmanager

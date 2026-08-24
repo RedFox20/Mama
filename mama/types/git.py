@@ -70,7 +70,7 @@ _NETWORK_GIT_CMDS = ('fetch', 'pull', 'push', 'clone', 'ls-remote', 'submodule')
 # The list is an allowlist on purpose. An unknown subcommand drops the memo, because a missed drop
 # would hide a source edit from the next build.
 _READONLY_GIT_CMDS = ('status', 'diff', 'log', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'config',
-                      'remote', 'symbolic-ref', 'describe', 'cat-file', 'for-each-ref', 'fetch')
+                      'remote', 'symbolic-ref', 'describe', 'cat-file', 'for-each-ref', 'fetch', 'merge-base')
 
 _ERROR_TAIL = 40  # git lines kept for the failure report. A fetch's output is otherwise unbounded
 
@@ -90,7 +90,7 @@ def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
     return True
 
 def parse_git_url(url: str):
-    """Split a remote git url into (scheme, user, host, path). Returns None for
+    """Split a remote git url into (scheme, user, host, port, path). Returns None for
     local paths or anything without a network host, which overrides leave untouched."""
     m = _SCHEME_RE.match(url)
     if m:
@@ -98,10 +98,10 @@ def parse_git_url(url: str):
         if scheme == 'file': return None
         userhost, _, path = m.group('rest').partition('/')
         user, _, hostport = userhost.rpartition('@')
-        host = hostport.split(':', 1)[0]  # drop any :port
-        return (scheme, user, host, path) if host else None
+        host, separator, port = hostport.partition(':')
+        return (scheme, user, host, port if separator else '', path) if host else None
     m = _SCP_GIT_RE.match(url)
-    if m: return ('ssh', m.group('user'), m.group('host'), m.group('path'))
+    if m: return ('ssh', m.group('user'), m.group('host'), '', m.group('path'))
     return None  # local filesystem path
 
 def convert_git_url(url: str, target: str) -> str:
@@ -109,7 +109,7 @@ def convert_git_url(url: str, target: str) -> str:
     return unchanged. SSH custom-ports and embedded https credentials are dropped."""
     p = parse_git_url(url)
     if not p: return url
-    scheme, _, host, path = p
+    scheme, _, host, _, path = p
     path = path.lstrip('/')
     if target == 'https':
         return url if scheme in ('http', 'https') else f'https://{host}/{path}'
@@ -117,13 +117,26 @@ def convert_git_url(url: str, target: str) -> str:
 
 def same_git_remote(a: str, b: str) -> bool:
     """True if two urls point at the same repo ignoring protocol, credentials,
-    trailing slashes and a .git suffix - so an ssh<->https override is not a url change."""
-    return _canonical_remote(a) == _canonical_remote(b)
+    trailing slashes and a .git suffix - so an ssh<->https override is not a url change.
+    A custom port remains significant when the protocol did not change."""
+    pa, pb = parse_git_url(a), parse_git_url(b)
+    if _remote_with_port(a, pa) == _remote_with_port(b, pb): return True
+    return bool(pa and pb and pa[0] != pb[0] and _portless_remote(a, pa) == _portless_remote(b, pb))
 
-def _canonical_remote(url: str) -> str:
-    p = parse_git_url(url)
+def canonical_git_remote(url: str) -> str:
+    return _remote_with_port(url, parse_git_url(url))
+
+def _remote_with_port(url: str, p) -> str:
     if not p: return url.rstrip('/')
-    _, _, host, path = p
+    scheme, _, host, port, path = p
+    default_port = {'ssh': '22', 'http': '80', 'https': '443', 'git': '9418'}.get(scheme)
+    if port and port != default_port: host = f'{host}:{port}'
+    return f'{host}/{path.strip("/").removesuffix(".git")}'.lower()
+
+
+def _portless_remote(url: str, p) -> str:
+    if not p: return url.rstrip('/')
+    _, _, host, _, path = p
     return f'{host}/{path.strip("/").removesuffix(".git")}'.lower()
 
 
@@ -213,6 +226,8 @@ class Git(DepSource):
 
         self.from_source = False  # True forces a source build instead of an artifactory package
         self.commit_hash = None  # the git commit hash of this DepSource
+        self.locked_commit = None  # exact mama.lock commit, while branch/tag keep declaration intent
+        self.lock_commit_override = False  # lock command must verify this selected commit against branch/HEAD
         self.url_overridden = False  # True once apply_url_override rewrote self.url
 
         self.missing_status = False
@@ -329,11 +344,21 @@ class Git(DepSource):
 
 
     def _has_local_modifications(self, dep: BuildDependency) -> bool:
-        """True when the working tree has uncommitted modifications to tracked files.
+        """True when this operation must reject the working tree. Unlocked updates retain their
+        tracked-only behavior. Lock generation and locked checkouts also reject non-ignored untracked
+        files, because their commit must describe every source input.
 
         Asks git every time, and never a memo. This guard is what stops an update from resetting over
-        uncommitted work, so a cached `clean` from seconds ago is the one answer it must not give."""
-        return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
+        uncommitted work, so a cached `clean` from seconds ago is the one answer it must not give.
+        Uses raw subprocess.run because SubProcess merges stderr warnings into porcelain stdout; this
+        check needs them separate while retaining the timeout and exit status."""
+        if not dep.config.lock_generation and not self.locked_commit:
+            return self.run_git(dep, "diff --quiet HEAD", throw=False) != 0
+        command = ['git', f'--git-dir={dep.src_dir}/.git', f'--work-tree={dep.src_dir}',
+                   'status', '--porcelain', '--untracked-files=normal']
+        result = subprocess.run(command, cwd=dep.src_dir, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                timeout=dep.config.git_timeout)
+        return result.returncode != 0 or bool(result.stdout)
 
 
     def _ensure_no_local_modifications(self, dep: BuildDependency):
@@ -345,7 +370,7 @@ class Git(DepSource):
         name = dep.name
         error(f"  Target {name} has local modifications that would be overwritten by update.\n"
               f"  To discard local changes and re-fetch, run: `mama wipe {name}`")
-        self.run_git(dep, "status --porcelain") # show the modified files
+        self.run_git(dep, "status --porcelain --untracked-files=normal") # show the modified files
         raise RuntimeError(f"Target {name} has local modifications. Use 'mama wipe {name}' to discard changes.")
 
 
@@ -402,10 +427,18 @@ class Git(DepSource):
         a tag keeps its full name."""
         return commit[:SHORT_COMMIT_LEN] if commit and len(commit) > SHORT_COMMIT_LEN and Git.is_hex_string(commit) else commit
 
+    @staticmethod
+    def same_commit(a: str, b: str) -> bool:
+        """True when two full or abbreviated hashes identify the same commit."""
+        a, b = (a or '').lower(), (b or '').lower()
+        return min(len(a), len(b)) >= SHORT_COMMIT_LEN and Git.is_hex_string(a) and Git.is_hex_string(b) \
+            and (a.startswith(b) or b.startswith(a))
+
 
     def fetch_self_version_from_remote(self, dep: BuildDependency):
         """Fetch only the dep's mamafile, to read `self.version` without the full repo. The shim
-        probe uses this for version-pinned deps whose archive name does not track the commit hash.
+        probe uses this for version-pinned deps whose archive name does not track the commit hash. A
+        dependency lock reads the mamafile from its exact commit, even when the declared branch moves.
         The one-shot `git show` uses subprocess.run with stderr=DEVNULL and a timeout, to drop the
         lazy-fetch's `remote: ...` chatter and to bound a stuck fetch. Returns the version or None."""
         if dep.mamafile:
@@ -417,6 +450,7 @@ class Git(DepSource):
         mamafile_name = self.mamafile or 'mamafile.py'
         branch = self.branch or self.tag or ''
         branch_arg = f' --branch {branch}' if branch and not Git.is_hex_string(branch) else ''
+        revision = self.locked_commit or 'HEAD'
         try:
             # ignore_cleanup_errors: on Windows git sets read-only on .git/objects/*, which trips
             # shutil.rmtree. normalized_path: shlex.split inside SubProcess eats raw backslash paths.
@@ -429,10 +463,19 @@ class Git(DepSource):
                         progress(f'  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}',
                                  color=Color.RED, final=True)
                     return None
+                if self.locked_commit and not execute_piped(['git', 'rev-parse', '--verify', f'{revision}^{{commit}}'],
+                                                            cwd=tmp, throw=False):
+                    fetch_cmd = f'{_GIT_QUIET} -C "{tmp}" fetch --depth=1 --filter=blob:none origin {revision}'
+                    result, _, fetch_elapsed = self._run_git_with_filtered_progress(dep, fetch_cmd, label='PROBE')
+                    if result != 0:
+                        if dep.config.print:
+                            progress(f'  - Target {dep.name: <16} PROBE FAILED ({result}) after {fetch_elapsed}',
+                                     color=Color.RED, final=True)
+                        return None
                 # subprocess.run, not SubProcess.run: see the docstring above
                 try:
                     # 10s is enough: the clone already finished, and this fetches a <1KB blob over the same connection.
-                    cp = subprocess.run(['git', '-C', tmp, 'show', f'HEAD:{mamafile_name}'],
+                    cp = subprocess.run(['git', '-C', tmp, 'show', f'{revision}:{mamafile_name}'],
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
                 except subprocess.TimeoutExpired:
                     if dep.config.verbose: error(f'  {dep.name: <16} PROBE timed out fetching mamafile')
@@ -456,8 +499,9 @@ class Git(DepSource):
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
         """The latest commit hash, based on the git tag and branch options."""
-        if not dep.dep_source.is_git:
-            return None
+        if not dep.dep_source.is_git: return None
+
+        if self.locked_commit: return self.locked_commit
 
         # no update requested: the stored commit hash is enough
         if use_cache and not dep.config.update and os.path.exists(self.git_status_file(dep)):
@@ -556,6 +600,7 @@ class Git(DepSource):
 
 
     def fetch_origin(self, dep: BuildDependency):
+        if self.locked_commit: return
         branch = self.branch_or_tag()
         if Git.is_hex_string(branch):
             return # a commit-hash pin needs no fetch
@@ -586,6 +631,7 @@ class Git(DepSource):
         return f"{url}\n{tag}\n{branch}\n{commit}\n{tree}\n"
 
     def save_status(self, dep: BuildDependency):
+        """Record the source that produced the current artifacts, not the current checkout."""
         commit = self.get_commit_hash(dep)
         tree = self.working_tree_fingerprint(dep, 'record the tree this build used')
         record_source_walk(dep.src_dir, dep.build_dir)
@@ -658,6 +704,56 @@ class Git(DepSource):
                 if self.tag_changed:
                     self.run_git(dep, f"fetch origin tag {branch}")
                 self.run_git(dep, f"checkout {branch}")
+
+
+    def _full_local_commit(self, dep: BuildDependency, revision: str) -> str:
+        return (execute_piped(['git', 'rev-parse', '--verify', f'{revision}^{{commit}}'],
+                              cwd=dep.src_dir, throw=False) or '').strip().lower()
+
+
+    def _fetch_locked_commit(self, dep: BuildDependency):
+        if self.run_git(dep, f'cat-file -e {self.locked_commit}^{{commit}}', throw=False) == 0: return
+        if self.run_git(dep, f'fetch --depth 1 origin {self.locked_commit}', throw=False) == 0: return
+        self.unshallow(dep)
+        if self.branch:
+            self.run_git(dep, f'fetch origin +refs/heads/{self.branch}:refs/remotes/origin/{self.branch}')
+        else:
+            self.run_git(dep, 'fetch origin')
+        if self.run_git(dep, f'cat-file -e {self.locked_commit}^{{commit}}', throw=False) != 0:
+            raise RuntimeError(f'Locked commit {self.locked_commit} for {dep.name} does not exist in {self.url}')
+
+
+    def _resolve_lock_override(self, dep: BuildDependency):
+        self.unshallow(dep)
+        if self.branch:
+            remote_ref = f'origin/{self.branch}'
+            self.run_git(dep, f'fetch origin +refs/heads/{self.branch}:refs/remotes/origin/{self.branch}')
+        else:
+            self.run_git(dep, 'fetch origin HEAD')
+            remote_ref = 'FETCH_HEAD'
+        commit = self._full_local_commit(dep, self.locked_commit)
+        if not commit: raise RuntimeError(f'Commit {self.locked_commit} for {dep.name} is unknown or ambiguous in {self.url}')
+        if self.run_git(dep, f'merge-base --is-ancestor {commit} {remote_ref}', throw=False) != 0:
+            raise RuntimeError(f'Commit {commit} for {dep.name} is not reachable from {remote_ref}')
+        self.locked_commit = commit
+        self.lock_commit_override = False
+
+
+    def checkout_locked_commit(self, dep: BuildDependency) -> bool:
+        """Put a real clone at the exact commit from mama.lock."""
+        if self.lock_commit_override:
+            self._resolve_lock_override(dep)
+        else:
+            self._fetch_locked_commit(dep)
+            self.locked_commit = self._full_local_commit(dep, self.locked_commit)
+        if not self.locked_commit: raise RuntimeError(f'Could not resolve locked commit for {dep.name}')
+        current = self._full_local_commit(dep, 'HEAD')
+        self.commit_hash = self.locked_commit
+        self._ensure_no_local_modifications(dep)
+        if current == self.locked_commit: return False
+        self.run_git(dep, f'checkout {self.locked_commit}')
+        self.update_submodules(dep, shallow=not (dep.config.unshallow or not self.shallow))
+        return True
 
 
     def reclone_wipe(self, dep: BuildDependency, source_only: bool = False):
@@ -755,8 +851,11 @@ class Git(DepSource):
             depth = '' if unshallow else '--depth 1'
             clone_args = f"{depth} {checkout_branch} {self.url}"
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
-            self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
-            self.update_submodules(dep, shallow=not unshallow)
+            if self.locked_commit:
+                if not self.checkout_locked_commit(dep): self.update_submodules(dep, shallow=not unshallow)
+            else:
+                self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
+                self.update_submodules(dep, shallow=not unshallow)
         else:
             if not dep.config.is_network_available():
                 if dep.config.print:
@@ -820,23 +919,31 @@ class Git(DepSource):
 
     def dependency_checkout(self, dep: BuildDependency):
         """Do a git repository checkout, which can be expensive. An existing artifactory package skips this step."""
+        is_target = dep.is_current_target()
+        if is_target and dep.config.reclone:
+            self.reclone_wipe(dep, source_only=False)
+            self.clone_or_pull(dep, wiped=True)
+            return True
+
         # No valid working tree: nothing on disk, files without .git, or a corrupt .git. None of these
         # can pull, so wipe the leftovers and clone fresh. Real source (sandbox rsync, local dev work)
         # is never destroyed: build it as-is.
         if not dep.is_real_clone() or self._is_repo_broken(dep):
+            if self.locked_commit and has_source_content(dep.src_dir):
+                raise RuntimeError(f'Locked target {dep.name} has source without a usable Git repository. '
+                                   f'Run `mama wipe {dep.name}` to restore the locked commit')
             if self._refuse_destructive_clone(dep): return False
             # source_only: a broken tree here says nothing about the sibling platforms sharing this dep_dir.
-            # An explicit `mama wipe` still means everything, because the user asked for it. A shim has
-            # no source, so the wipe must not wait for a source dir, or the stale package would survive.
-            explicit_wipe = dep.is_current_target() and dep.config.reclone
-            if explicit_wipe or dep.source_dir_exists():
-                self.reclone_wipe(dep, source_only=not explicit_wipe)
+            if dep.source_dir_exists(): self.reclone_wipe(dep, source_only=True)
             self.clone_or_pull(dep)
             return True
 
         self._sync_remote_url(dep)
-        is_target = dep.is_current_target()
         config = dep.config
+        if self.locked_commit:
+            unshallow = config.unshallow and is_target
+            if unshallow: self.unshallow(dep)
+            return self.checkout_locked_commit(dep) or unshallow or self.check_status(dep)
         changed = False
 
         if config.update and is_target:
@@ -846,10 +953,9 @@ class Git(DepSource):
 
         wiped = False
         should_wipe = self.url_changed and not self.missing_status
-        explicit_wipe = is_target and config.reclone  # `mama wipe <target>`: the user asked for everything
-        if should_wipe or explicit_wipe:
+        if should_wipe:
             # a url change re-clones the source, but the sibling platform dirs are not ours to delete
-            self.reclone_wipe(dep, source_only=not explicit_wipe)
+            self.reclone_wipe(dep, source_only=True)
             wiped = True
         elif dep.config.unshallow and is_target:
             pass # unshallow requested: fall through to clone_or_pull

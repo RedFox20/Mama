@@ -43,6 +43,16 @@ def test_same_remote_ignores_protocol_creds_and_suffix():
     assert not same_git_remote(GH_HTTPS, 'https://github.com/example/other.git')
 
 
+def test_same_remote_preserves_nondefault_ports():
+    assert same_git_remote('ssh://git@example.com:22/x/y.git', 'git@example.com:x/y.git')
+    assert not same_git_remote('ssh://git@example.com:2222/x/y.git', 'git@example.com:x/y.git')
+
+
+def test_same_remote_allows_override_to_drop_custom_port():
+    ssh = 'ssh://git@example.com:2222/x/y.git'
+    assert same_git_remote(ssh, convert_git_url(ssh, 'https'))
+
+
 def test_apply_url_override_rewrites_dep_url(tmp_path):
     dep = make_mock_dep(tmp_path, url=GH_SSH, git_url_override='https')
     assert dep.dep_source.url == GH_HTTPS

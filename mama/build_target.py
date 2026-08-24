@@ -133,8 +133,8 @@ class BuildTarget:
 
     @property
     def windows(self):
-        """ An MSVC build running ON Windows, so the built exe can also be run here. """
-        return self.config.msvc and self.os_windows
+        """An MSVC build running here, or a Windows graph inspected by `mama lock`."""
+        return self.config.msvc and (self.os_windows or self.config.lock_generation)
 
 
     def _set_args(self, args: List[str]):
@@ -1801,10 +1801,10 @@ class BuildTarget:
                         self.build() # user override owns configure+build, and it may deploy too
             elif not self._fetched:
                 self._cmake_build_step(out=out)
-            self.dep.successful_build()
             if not self._fetched:
                 package.clean_intermediate_files(self)
         self._run_packaging()
+        if self.dep.should_rebuild: self.dep.successful_build()
         if build_work and self.deploy_after_build: self._deploy_once()
 
     def _execute_build_tasks(self):
@@ -1815,10 +1815,10 @@ class BuildTarget:
             if not fetched:
                 with self._recording_deploys():
                     self.build() # user build customization, which may deploy too
-            self.dep.successful_build()
             if not fetched:
                 package.clean_intermediate_files(self)
         self._run_packaging()
+        if self.dep.should_rebuild: self.dep.successful_build()
         if build_work and self.deploy_after_build: self._deploy_once()
 
     def _recording_deploys(self):
@@ -1868,6 +1868,11 @@ class BuildTarget:
 
 
     def _run_packaging(self):
+        consumes_artifacts = self.config.deploy or self.config.upload or self.config.test or self.config.start
+        if consumes_artifacts and not self.dep.should_rebuild and self.dep.has_stale_locked_artifacts():
+            raise BuildError(f'Target {self.name} has stale artifacts from a different locked commit. '
+                             f'Run `mama build {self.name}` first.')
+
         # package() is user mamafile code that asserts on build outputs. Wipe, upload, deploy and test walk
         # the task chain without building, so they would package artifacts never produced or just deleted.
         if not self._build_work_enabled() and not self.dep.has_usable_artifacts():

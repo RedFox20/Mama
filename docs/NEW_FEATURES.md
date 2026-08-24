@@ -23,6 +23,10 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`mama lock platforms=...` freezes Git dependencies across platform graphs.** The generated
+  `mama.lock` records repositories, declared selectors and exact commits. Normal builds honor it,
+  while targeted lock refreshes can select the current declared ref or an older reachable commit.
+
 - **A package ships its C++20 module interface units, and the consumer compiles them.** A binary
   module interface is not portable. Mama exports every module under an exported include dir with no
   declaration, and `export_modules(path, [names])` only narrows it. Modules deploy inside the include

@@ -242,6 +242,8 @@ class BuildConfig:
         # machine. MAMA_GLOBAL_COMPILER_CACHE=1 turns it on for a whole test session or CI job.
         self.global_compiler_cache = os.getenv('MAMA_GLOBAL_COMPILER_CACHE') == '1'
         self.global_workspace = False
+        self.dependency_lock = None
+        self.lock_generation = False
         # The root project dir, set by mamabuild from source_dir. A `mama <host> build` bootstrap child
         # uses it as cwd, so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).
         self.root_source_dir = None
@@ -1095,4 +1097,3 @@ class BuildConfig:
         if self._network_available is not False:
             if self.print: warning('  Network unavailable - using cached packages where possible')
             self._network_available = False
-

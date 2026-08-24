@@ -19,6 +19,16 @@ class TestPlainBuildHonoursShim:
         mock_probe.assert_not_called()
         assert mock_load.call_args.args[1] == dep.build_dir
 
+    def test_locked_version_suffix_keeps_the_cached_path(self, tmp_path):
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True)
+        dep.dep_source.locked_commit = 'abc1234567890123456789012345678901234567'
+        dep.dep_source.version_suffix = 'recipe 2'
+        dep.write_shim_marker('libfoo-linux-22-gcc11.3-x64-release-8.1.0-abc1234-recipe-2', 'abc1234')
+        with patch('mama.build_dependency.pinned_version', return_value='8.1.0'), \
+             patch('mama.artifactory.artifactory_load_target', return_value=(True, [])):
+            assert dep.try_load_cached_shim(check_staleness=False)
+        assert dep.is_artifactory_shim()
+
     def test_update_skips_cached_path(self, tmp_path):
         dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, update=True)
         with patch.object(BuildDependency, 'try_load_cached_shim') as mock_cached, \
@@ -54,3 +64,10 @@ class TestCachedShimStalenessGate:
         assert target is None
         assert not dep.is_artifactory_shim()
         mock_load.assert_not_called()
+
+    def test_locked_full_hash_keeps_matching_short_marker(self, tmp_path):
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, stored_hash='abc1234')
+        dep.dep_source.locked_commit = 'abc1234567890123456789012345678901234567'
+        with patch('mama.artifactory.artifactory_load_target', return_value=(True, [])):
+            assert dep.try_load_cached_shim(check_staleness=True)
+        assert dep.is_artifactory_shim()

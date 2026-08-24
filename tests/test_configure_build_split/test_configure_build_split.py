@@ -37,7 +37,7 @@ def test_default_build_runs_configure_in_configure_phase_build_in_build_phase(tm
         t.configure_phase()
         assert ev == ['inject_env', 'run_config']  # configure half only
         t.build_phase()
-    assert ev == ['inject_env', 'run_config', 'run_build', 'successful_build', 'clean', 'package']
+    assert ev == ['inject_env', 'run_config', 'run_build', 'clean', 'package', 'successful_build']
 
 
 def test_noop_node_skips_cmake_but_still_packages(tmp_path):
@@ -46,7 +46,7 @@ def test_noop_node_skips_cmake_but_still_packages(tmp_path):
     es, ev = _wire(t, dep)
     with es:
         t.configure_phase(); t.build_phase()
-    assert ev == ['package']  # packaging still runs, in dependency order
+    assert ev == ['package', 'successful_build']  # packaging commits the header-only target's state
 
 
 def test_custom_build_collapses_into_build_phase(tmp_path):
@@ -58,8 +58,17 @@ def test_custom_build_collapses_into_build_phase(tmp_path):
         t.configure_phase()
         assert ev == []  # custom build owns its own configure, configure_phase is a no-op
         t.build_phase()
-    assert ev == ['user_build', 'successful_build', 'clean', 'package']
+    assert ev == ['user_build', 'clean', 'package', 'successful_build']
     assert 'run_config' not in ev and 'run_build' not in ev
+
+
+def test_failed_packaging_does_not_record_build_success(tmp_path):
+    t, dep = _target(tmp_path)
+    es, ev = _wire(t, dep)
+    es.enter_context(patch.object(t, '_run_packaging', side_effect=RuntimeError('failed package')))
+    with es, pytest.raises(RuntimeError, match='failed package'):
+        t.build_phase()
+    assert 'successful_build' not in ev
 
 
 def test_configure_runs_once_across_phases(tmp_path):

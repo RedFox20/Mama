@@ -30,6 +30,13 @@ class ArtifactoryCredentialsError(RuntimeError):
     pass
 
 
+def artifactory_archive_version(version: str | None, locked_commit: str = '', suffix: str = '') -> str | None:
+    """Add the locked commit and packaging suffix to an archive's version field."""
+    if version and locked_commit: version = f'{version}-{Git.short_hash(locked_commit)}'
+    if version and suffix: version += f'-{build_names.sanitize_version(suffix)}'
+    return version
+
+
 def artifactory_archive_name(target:BuildTarget, build_type=''):
     """
     Builds the archive name for a papa deploy package:
@@ -89,7 +96,8 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     # The parent declares this, so it renames the package on every platform and compiler at once. A
     # changed packaging recipe needs that: the version alone names the source, never the recipe.
     suffix = target.dep.dep_source.version_suffix
-    if suffix: version = f'{version}-{build_names.sanitize_version(suffix)}'
+    locked = p.locked_commit if target.version and p.is_git else ''
+    version = artifactory_archive_version(version, locked, suffix)
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 
