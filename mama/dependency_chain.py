@@ -292,7 +292,7 @@ def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependenc
 def _proxy_paths(dep: BuildDependency) -> list:
     """Every path this dep needs a `mama.cmake` proxy at, named by the `include()` commands of its
     CMakeLists.txt or of one it adds. A dep that names none, and whose shape needs a proxy, takes the
-    path beside that file. A leaf that names none gets nothing: it has no includes or libs to name."""
+    path beside that file. A leaf that names none gets nothing, having no includes or libs to name."""
     if not dep.src_dir or not dep.cmakelists_exists(): return []
     paths = dep.mama_cmake_paths()
     if paths: return paths

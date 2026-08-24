@@ -51,9 +51,8 @@ def _read_fields(*paths) -> list:
 
 
 def _cgroup_rel_paths() -> tuple:
-    """The cgroup of this process under the v2 unified mount and under the v1 cpu mount, each relative
-    to its own root. A hybrid host runs both, and the two paths differ. Empty means the mount root,
-    which is what a private cgroup namespace reports."""
+    """The cgroup of this process under the v2 unified mount and the v1 cpu mount, each relative to its
+    own root. A hybrid host runs both with differing paths. Empty means the mount root."""
     v2 = v1 = ''
     try:
         with open(_PROC_CGROUP, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
@@ -68,13 +67,13 @@ def _cgroup_rel_paths() -> tuple:
 
 def _unescape_mount(path: str) -> str:
     """A mountinfo path with its octal escapes decoded. The kernel writes `\\040` for a space, and the
-    same form for a tab, a newline and a backslash."""
+    same form for a tab, newline and backslash."""
     return re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), path)
 
 
 def _cgroup_mounts() -> tuple:
-    """Every (mount point, mount root) of the v2 hierarchy and of the v1 cpu controller, in mountinfo
-    order, or (None, None) when mountinfo does not read. Neither sits at a fixed path: a hybrid host
+    """Every (mount point, mount root) of the v2 hierarchy and the v1 cpu controller, in mountinfo
+    order, or (None, None) when mountinfo does not read. Neither sits at a fixed path. A hybrid host
     mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
     v2, v1 = [], []
     try:
@@ -101,9 +100,8 @@ def _visible_rel(rel: str, mount_root: str):
 
 def _mount_dirs(mounts: list, rel: str, default: str) -> list:
     """Every dir that can hold a quota for this process, under every mount that shows its cgroup. A
-    mount of its delegated subtree hides an ancestor limit that a whole-hierarchy mount still shows,
-    and a mount delegated to another service shows none of this process at all. `default` answers only
-    an unread mountinfo: a hierarchy this host does not mount contributes no dir."""
+    mount of its delegated subtree hides an ancestor limit a whole-hierarchy mount still shows.
+    `default` answers an unread mountinfo alone, so an unmounted hierarchy contributes no dir."""
     dirs = []
     for point, mount_root in ([(default, '/')] if mounts is None else mounts):
         visible = _visible_rel(rel, mount_root)
@@ -124,8 +122,8 @@ def _quota_in(cgroup_dir: str) -> int:
 
 
 def _cgroup_cpu_quota() -> int:
-    """Cpus the cgroup cpu controller allows, rounded up. 0 when no cgroup limits this process. A quota
-    on any ancestor caps it too, so the smallest one wins."""
+    """Cpus the cgroup cpu controller allows, rounded up, or 0 when no cgroup limits this process. A
+    quota on any ancestor caps it too, so the smallest wins."""
     (v2_rel, v1_rel), (v2, v1) = _cgroup_rel_paths(), _cgroup_mounts()
     dirs = _mount_dirs(v2, v2_rel, _CGROUP_ROOT) + _mount_dirs(v1, v1_rel, f'{_CGROUP_ROOT}/cpu')
     limits = [n for n in map(_quota_in, dirs) if n]

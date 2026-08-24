@@ -471,7 +471,7 @@ def test_an_empty_list_element_names_no_argument(tmp_path):
 
 
 def test_a_legacy_quoted_segment_is_content_not_a_quoted_argument():
-    # a `"` that opens the argument quotes it; one inside a legacy unquoted argument is part of the name
+    # a `"` that opens the argument quotes it. One inside a legacy unquoted argument is content
     assert first_cmake_arg('src" dir"') == ('src" dir"', False)
     assert first_cmake_arg('"src dir"') == ('src dir', False)
 

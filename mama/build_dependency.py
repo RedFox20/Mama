@@ -51,8 +51,8 @@ _CMAKE_VAR_REF = re.compile(r'\$(?:ENV|CACHE)?\{')
 
 
 def _skip_span(text: str, i: int) -> int:
-    """The index after the comment, the bracket argument or the quoted argument that starts at `i`, or
-    `i` itself when none starts there. An unterminated quote runs to the end, as it does for cmake."""
+    """The index after the comment or the bracket or quoted argument at `i`, or `i` when none starts
+    there. An unterminated quote runs to the end, as it does for cmake."""
     char = text[i]
     if char == '#':
         match = _CMAKE_BRACKET.match(text, i + 1) or _CMAKE_LINE_COMMENT.match(text, i)
@@ -67,8 +67,8 @@ def _skip_span(text: str, i: int) -> int:
 
 
 def _end_of_args(text: str, i: int) -> int:
-    """The index of the `)` that closes the argument list open at `i`, or the end of the text. A paren
-    inside a quoted or a bracket argument closes nothing, and an unquoted argument may nest one."""
+    """The index of the `)` closing the argument list open at `i`, or the end of the text. A paren in a
+    quoted or bracket argument closes nothing, and an unquoted argument may nest one."""
     depth = 1
     while i < len(text):
         if text[i] == '\\' and i + 1 < len(text):   # an identity escape hides the character after it
@@ -87,9 +87,9 @@ def _end_of_args(text: str, i: int) -> int:
 
 
 def _unescape_cmake(text: str, quoted: bool = False) -> str:
-    """A cmake argument with its escape sequences resolved. `\\t`, `\\r` and `\\n` encode a character, and
-    every other pair names the plain character after the backslash. In a quoted argument a backslash
-    before a newline is a line continuation, and both go. A make-style `$(VAR)` stays literal."""
+    """A cmake argument with its escapes resolved. `\\t`, `\\r` and `\\n` encode a character, and every
+    other pair names the character after the backslash. In a quoted argument a backslash before a
+    newline continues the line, and both go. A make-style `$(VAR)` stays literal."""
     out, i = [], 0
     while i < len(text):
         if text[i] == '\\' and i + 1 < len(text):
@@ -111,8 +111,8 @@ def _unescape_cmake(text: str, quoted: bool = False) -> str:
 
 
 def _divide_cmake_list(value: str) -> str:
-    """The first non-empty element of an unquoted cmake value. A `;` divides the value only where the
-    `[` and `]` before it are equal in number and no backslash protects it, which yields a `;`."""
+    """The first non-empty element of an unquoted cmake value. A `;` divides it only where the `[` and
+    `]` before it are equal in number and no backslash protects it, which yields a `;`."""
     out, brackets, i = [], 0, 0
     while i < len(value):
         char = value[i]
@@ -131,8 +131,7 @@ def _divide_cmake_list(value: str) -> str:
 
 def first_cmake_arg(args: str) -> tuple:
     """(value, literal) for the first argument of a cmake command. `literal` marks a bracket argument,
-    whose content cmake evaluates in no way. A comment may open the list, and an empty list element
-    names no argument."""
+    whose content cmake never evaluates. A comment may open the list, and an empty element names none."""
     i = 0
     while i < len(args):
         char = args[i]
@@ -166,24 +165,23 @@ def first_cmake_arg(args: str) -> tuple:
 
 def has_unknown_cmake_var(arg: str) -> bool:
     """True when the argument names a variable mama does not expand, such as $ENV{} or a project one.
-    It tests before substitution, because a checkout path may hold a literal `$` of its own."""
+    It tests before substitution, because a checkout path may hold a `$` of its own."""
     for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR): arg = arg.replace(var, '')
     return _CMAKE_VAR_REF.search(arg) is not None
 
 
 def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str) -> str:
-    """The argument with every cmake dir variable mama knows replaced by the dir it names. An argument
-    that still holds a `$` names a form mama does not expand, such as $ENV{} or a project variable."""
+    """The argument with every cmake dir variable mama knows replaced by the dir it names."""
     for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, current_dir)
     arg = arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
     return arg.replace(_ESCAPED_DOLLAR, '$')
 
 
 def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
-    """(command, first argument, literal) for every named command, in source order, so a caller can follow a
-    variable a command rebinds. One pass reads the whole file, because a cmake command may span lines.
-    It matches at command positions only, so a nested `include(...)` names nothing. 'surrogateescape':
-    a byte mama cannot decode still has to reach the path it writes."""
+    """(command, first argument, literal) for every named command, in source order, so a caller can
+    follow a variable a command rebinds. One pass reads the whole file, because a command may span
+    lines. It matches at command positions only, so a nested `include(...)` names nothing.
+    'surrogateescape' keeps a byte mama cannot decode, which still has to reach the path it writes."""
     text = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
     found, i = [], 0
     while i < len(text):
@@ -203,10 +201,10 @@ def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
 
 
 def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
-    """(dir, project_dir, argument) for every `include()` naming the `mama.cmake` proxy, in every file
-    cmake reads from `cmakelists`, which `source_dir` holds. The scan follows `add_subdirectory()`, and
-    an argument holding a `$` stops that branch. `project_dir` is the dir of the last `project()` call
-    ABOVE the include, which is what `PROJECT_SOURCE_DIR` expands to there."""
+    """(dir, project_dir, argument, literal) for every `include()` naming the `mama.cmake` proxy, in
+    every file cmake reads from `cmakelists`, which `source_dir` holds. The scan follows
+    `add_subdirectory()`, and an argument holding a `$` stops that branch. `project_dir` is the dir of
+    the last `project()` ABOVE the include, which is what `PROJECT_SOURCE_DIR` expands to there."""
     pending, seen, found = [(cmakelists, source_dir, source_dir, ())], set(), []
     while pending:
         path, cwd, project_dir, ancestors = pending.pop(0)

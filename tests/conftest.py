@@ -73,10 +73,9 @@ def example_remote(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _windows_portable_paths(request):
-    """Fail a test that writes a name no Windows host can hold. Only the windows job finds one otherwise,
-    a push later, and it reads as a mama bug rather than a test-fixture bug. A `linux_host` test never
-    runs there, so it may name what it likes. Checks only a test that took `tmp_path`, so no other test
-    pays for a temp dir it never asked for."""
+    """Fail a test that writes a name no Windows host can hold. Only the windows job finds one
+    otherwise, a push later, where it reads as a mama bug rather than a test-fixture bug. A
+    `linux_host` test never runs there. Checks only a test that already took `tmp_path`."""
     root = None   # taken at setup: pytest tears tmp_path down before an autouse fixture resumes
     if os.name != 'nt' and 'tmp_path' in request.fixturenames \
        and not request.node.get_closest_marker('linux_host'):
