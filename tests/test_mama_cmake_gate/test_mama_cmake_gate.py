@@ -352,12 +352,6 @@ def test_a_shared_dir_added_by_two_subprojects_resolves_in_each_scope(tmp_path):
     assert os.path.exists(f'{dep.src_dir}/b/mama.cmake')
 
 
-def test_a_bracket_quoted_subdirectory_is_followed(tmp_path):
-    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n', 'add_subdirectory([[src]])\n')
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
 def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
     # the expanded path holds a literal `$`, which must not read as a variable mama cannot expand
     dep = _includes_proxy(_dep(tmp_path, 'le$af'), 'include(${CMAKE_SOURCE_DIR}/sub/mama.cmake)\n')
@@ -367,172 +361,11 @@ def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
-def test_an_escaped_space_in_a_subdirectory_is_followed(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src\\ dir)\n')
-    write_files(dep.src_dir, {'src dir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src dir/mama.cmake')
-
-
-def test_a_quoted_escape_in_a_subdirectory_is_decoded(tmp_path):
-    # cmake evaluates escape sequences inside a quoted argument
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\ dir")\n')
-    write_files(dep.src_dir, {'src dir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src dir/mama.cmake')
-
-
-def test_a_bracket_argument_drops_only_its_opening_newline(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory([[\nsrc]])\n')
-    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_a_quoted_line_continuation_joins_the_path(tmp_path):
-    # cmake drops a backslash-newline pair inside a quoted argument
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\\ndir")\n')
-    write_files(dep.src_dir, {'srcdir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/srcdir/mama.cmake')
-
-
-def test_an_unquoted_list_names_the_source_dir_first(tmp_path):
-    # add_subdirectory(src;out) gives cmake a source dir and a binary dir, not one path
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src;outbin)\n')
-    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_an_escaped_paren_does_not_close_the_argument_list(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src\\)dir)\n')
-    write_files(dep.src_dir, {'src)dir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src)dir/mama.cmake')
-
-
-def test_a_bracket_argument_names_the_dir_it_spells(tmp_path):
-    # cmake evaluates nothing inside a bracket argument, so the variable syntax is part of the name
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory([[${CMAKE_SOURCE_DIR}/src]])\n')
-    write_files(dep.src_dir, {'${CMAKE_SOURCE_DIR}/src/CMakeLists.txt': 'include(mama.cmake)\n',
-                              'src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/${{CMAKE_SOURCE_DIR}}/src/mama.cmake')
-    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_an_encoded_escape_becomes_its_character():
-    # `\t`, `\r` and `\n` encode a character. Every other pair names the character after the backslash
-    assert first_cmake_arg(r'"src\tdir"') == ('src\tdir', False)
-    assert first_cmake_arg(r'"a\)b"') == ('a)b', False)
-
-
-@pytest.mark.linux_host
-def test_an_encoded_escape_names_a_dir_holding_that_character(tmp_path):
-    # a tab is legal in a POSIX name and illegal in a Windows one, so only the decode above runs there
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src\\tdir")\n')
-    write_files(dep.src_dir, {'src\tdir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src\tdir/mama.cmake')
-
-
 def test_an_unquoted_argument_ends_at_a_line_comment(tmp_path):
     dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src#names the binary dir\n)\n')
     write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_an_escaped_dollar_names_the_dir_it_spells(tmp_path):
-    # an identity escape makes the `$` a plain character, so the variable syntax is part of the name
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(\\${CMAKE_SOURCE_DIR}/src)\n')
-    write_files(dep.src_dir, {'${CMAKE_SOURCE_DIR}/src/CMakeLists.txt': 'include(mama.cmake)\n',
-                              'src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/${{CMAKE_SOURCE_DIR}}/src/mama.cmake')
-    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_a_real_variable_expands_beside_an_escaped_dollar(tmp_path):
-    # cmake evaluates escape sequences AND variable references in one argument
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(${CMAKE_SOURCE_DIR}/src\\$dir)\n')
-    write_files(dep.src_dir, {'src$dir/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src$dir/mama.cmake')
-
-
-def test_an_empty_list_element_names_no_argument(tmp_path):
-    # cmake passes each NON-empty element, so a leading `;` leaves `src` as the source dir
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(;src)\n')
-    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
-
-
-def test_a_legacy_quoted_segment_is_content_not_a_quoted_argument():
-    # a `"` that opens the argument quotes it. One inside a legacy unquoted argument is content
-    assert first_cmake_arg('src" dir"') == ('src" dir"', False)
-    assert first_cmake_arg('"src dir"') == ('src dir', False)
-
-
-@pytest.mark.linux_host
-def test_a_legacy_quoted_segment_names_the_dir_it_spells(tmp_path):
-    # a `"` is legal in a POSIX name and illegal in a Windows one, so only the parse above runs there
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(src" dir")\n')
-    write_files(dep.src_dir, {'src" dir"/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src" dir"/mama.cmake')
-
-
-@pytest.mark.parametrize('spelled', ['src[;]dir', 'src];]dir', 'src[[;]]dir'],
-                         ids=['open', 'close', 'nested'])
-def test_a_semicolon_inside_unequal_brackets_divides_no_list(tmp_path, spelled):
-    # cmake splits a list on `;` only where the `[` and `]` before it are equal in number
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), f'add_subdirectory({spelled})\n')
-    write_files(dep.src_dir, {f'{spelled}/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/{spelled}/mama.cmake')
-
-
-@pytest.mark.parametrize('written', ['$(MAKEVAR)/src', '"$(MAKEVAR)/src"'], ids=['unquoted', 'quoted'])
-def test_a_make_style_reference_names_the_dir_it_spells(tmp_path, written):
-    # cmake expands no make-style reference, so the `$` is content and the branch reads on
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), f'add_subdirectory({written})\n')
-    write_files(dep.src_dir, {'$(MAKEVAR)/src/CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/$(MAKEVAR)/src/mama.cmake')
-
-
-@pytest.mark.parametrize('written, spelled', [
-    (r'src\[;]dir',  'src[;]dir'),      # an identity escape yields a `[` that still counts
-    (r'src\[;\]dir', 'src[;]dir'),      # and an escaped `]` balances it back
-    ('src"["dir;x',  'src"["dir;x'),    # a bracket inside a legacy quoted span counts as well
-], ids=['escaped-open', 'escaped-both', 'quoted'])
-def test_a_bracket_counts_however_the_argument_spells_it(written, spelled):
-    # cmake counts the brackets of the decoded value, so a `;` after an unequal count divides nothing
-    assert first_cmake_arg(written) == (spelled, False)
-
-
-@pytest.mark.parametrize('written, value', [
-    ('src\\;dir',      'src;dir'),        # `\\;` protects the semicolon, then the backslash goes
-    ('src\\\\;dir', 'src;dir'),       # an identity escape leaves a backslash that protects it too
-    ('src\\\\\\;dir', 'src\\;dir'),  # and a third backslash keeps both of them
-    ('src\\\\dir', 'src\\dir'),   # no semicolon, so the escaped backslash is plain content
-    ('src;out',            'src'),            # a bare semicolon still divides
-], ids=['escaped', 'double', 'triple', 'no-semicolon', 'divides'])
-def test_a_backslash_before_a_semicolon_divides_no_list(written, value):
-    # cmake resolves the escapes first, then divides that value, so a `\\` reaches the divider as one `\`
-    assert first_cmake_arg(written) == (value, False)
-
-
-@pytest.mark.linux_host
-def test_a_trailing_space_names_the_dir_it_spells(tmp_path):
-    # a POSIX name may end in a space and Windows drops one, so only this host runs the case
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory("src ")\n')
-    write_files(dep.src_dir, {'src /CMakeLists.txt': 'include(mama.cmake)\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src /mama.cmake')
 
 
 @pytest.mark.linux_host
@@ -574,19 +407,6 @@ def test_a_bare_dollar_names_the_dir_it_spells(tmp_path):
     write_files(dep.src_dir, {'src$dir/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src$dir/mama.cmake')
-
-
-def test_a_quoted_escaped_semicolon_keeps_its_backslash():
-    # cmake holds `\\;` in the value of a quoted argument. Only an unquoted one divides as a list
-    assert first_cmake_arg('"src\\;dir"') == ('src\\;dir', False)
-
-
-def test_a_backslash_of_an_include_path_reads_as_a_separator(tmp_path):
-    # cmake opens `dir/mama.cmake` for `include([[dir\\mama.cmake]])`, so the basename test has to agree
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(sub)\n')
-    write_files(dep.src_dir, {'sub/CMakeLists.txt': 'include([[dir\\mama.cmake]])\n'})
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/sub/dir/mama.cmake')
 
 
 @pytest.mark.linux_host

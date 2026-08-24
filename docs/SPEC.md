@@ -120,16 +120,27 @@ names a form mama does not expand. That stops an `add_subdirectory()` branch, an
 default `mama.cmake` beside the file that named it. **A path that leaves the source dir and the dir
 cmake configures gets a warning and no file.** The test resolves every symlink first, so a link
 inside the source dir leads nowhere new. An absolute `cmake_lists_path` widens the area mama may
-write to, because the dir it names is a dir cmake configures. A dep whose every include is refused still takes the shape rule below.
+write to, because the dir it names is a dir cmake configures. A dep whose every include is refused
+still takes the shape rule below.
 `mama.cmake` is a generated name, and mama overwrites one wherever it does write.
 
-**The scan reads cmake. It does not run cmake.** It takes each `project()` call in source order.
-Above the first one it resolves `PROJECT_SOURCE_DIR` to the dir cmake configures, where cmake answers
-an empty string. It evaluates no `if()`. It reads a `function()` or a `macro()` body where that body is
-written, not where a call runs it. It reads no script an `include()` names. So a `PROJECT_SOURCE_DIR`
-include under a conditional or a function can land under the wrong scope, and an include only an unread
-script names is never seen. The shape rule below still covers a bare `include(mama.cmake)`. Every other
-case ends with cmake naming the path it wanted, and one top-level `include(mama.cmake)` fixes it.
+**The scan reads cmake. It does not run cmake.** It reads THREE argument forms and no others:
+
+| written | read as |
+|---|---|
+| `add_subdirectory(src)` | a plain word, up to the first space, paren, quote or `#` |
+| `add_subdirectory("src dir")` | a quoted string, taken between the quotes as it is written |
+| `include(${CMAKE_SOURCE_DIR}/x)` | either form, holding one of the four dir variables above |
+
+A bracket argument, an escape sequence, a `;` list and a make-style `$(VAR)` each read as one plain
+word. The scan also evaluates no `if()`, and it reads no script an `include()` names. It reads a
+`function()` or a `macro()` body where that body is written, not where a call runs it. It takes each
+`project()` call in source order. Above the first one it resolves `PROJECT_SOURCE_DIR` to the dir
+cmake configures, where cmake answers an empty string. Every case it misses ends the same way: cmake
+reports the file it wanted, and one top-level `include(mama.cmake)` answers it.
+**Why:** a regex does not parse the cmake language. A parser that tried cost more code than the
+failure it prevented, and that failure announces itself. The shape rule below still covers a bare
+`include(mama.cmake)`.
 
 **A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** An
 `include()` whose first argument has the basename `mama.cmake`, in either case, asks for it, whatever
