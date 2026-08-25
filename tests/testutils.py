@@ -765,8 +765,9 @@ _WINDOWS_DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{dev}{n}' for dev in ('com'
 def windows_path_problem(path: str) -> str:
     """Why `path` cannot exist on Windows, or '' when every component of it is portable. A POSIX name
     may hold a character Windows refuses, so a fixture built from one passes on Linux and fails the
-    windows job with WinError 123."""
-    for part in path.replace('\\', '/').split('/'):
+    windows job with WinError 123. It splits on the separators of THIS host: a backslash is a legal
+    POSIX name character, and rewriting it here would hide the very name Windows refuses."""
+    for part in re.split(f'[{re.escape(os.sep + (os.altsep or ""))}]', path):
         if not part or part in ('.', '..') or part.endswith(':'): continue  # a drive letter names nothing
         held = sorted(repr(c) for c in set(part) if c in _WINDOWS_ILLEGAL or ord(c) < 32)
         if held: return f'{part!r} holds {", ".join(held)}, which no Windows name may hold'

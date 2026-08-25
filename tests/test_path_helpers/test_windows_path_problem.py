@@ -29,3 +29,11 @@ def test_a_portable_path_reports_nothing(path):
 ])
 def test_a_path_windows_refuses_names_the_reason(path, holds):
     assert holds in windows_path_problem(path)
+
+
+@pytest.mark.linux_host
+def test_a_literal_backslash_in_a_posix_name_is_not_a_separator():
+    # a backslash is a legal POSIX name character, and rewriting it would hide the name Windows refuses
+    assert 'no Windows name may hold' in windows_path_problem('a\\b')
+    assert 'no Windows name may hold' in windows_path_problem('sub/a\\b')
+    assert windows_path_problem('sub/plain') == ''
