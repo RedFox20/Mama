@@ -15,10 +15,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
-**0.14.1** (2026-Aug-24)
-- feature: lock Git dependency commits across multiple platform graphs
-- bugfix: a targeted build relinks source-built parents after a child rebuilds
-
 **0.14.0** (2026-Aug-23)
 - feature: a package exports its C++20 modules, and the consumer compiles them
     mama exports every .cppm under an exported include dir, no recipe change
@@ -55,6 +51,22 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 - bugfix: unpublish reaches a bare target name, and names what it matched
 - bugfix: build_host_binary finds the host tool the bootstrap child built
 - bugfix: a Windows abort no longer leaves a grandchild process running
+
+**0.13.16** (2026-Aug-07)
+ There is no 0.13.15. It broke build dirs by adding -x64v3 suffix.
+ - feature: set_target_march pins the instruction set of a release build
+     config.set_target_march('x64', 'x86-64-v3')  in the root mamafile
+     the pin renames the archive, never the build dir:
+       build dir  packages/mylib/linux/
+       archive    mylib-ubuntu-22-gcc11.3-x64v3-release-df76b66
+       papa.txt   O release linux x64 march=x86-64-v3
+     x86-64 -> x64v1    armv8.2-a -> armv82a    haswell -> x64haswell
+ - feature: unpublish deletes published archives, and their local copies
+ - feature: version_suffix renames a package on every platform at once
+ - bugfix: a target that exports nothing no longer uploads an empty archive
+ - bugfix: a failed artifactory download uses the cached archive instead
+ - bugfix: noart builds every git dep from source, and a pkg dep is read-only
+ - bugfix: a build no longer hangs when a pipe closes on a pending read
 
 ## Why Mama
 

@@ -70,15 +70,21 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
     a wider mark could re-enter a mamafile that runs `mama build target=Y` itself."""
     target = find_dependency(root, config.target)
     if target is None: return
+    # Process deeper dependencies first. Mark parents of changed children so the target does not use stale artifacts.
     for dep in reversed(get_flat_child_deps(target)):
-        changed_child = None if dep.is_artifactory_shim() else \
-                        next((child for child in dep.get_children() if child.should_rebuild), None)
+        if dep.should_rebuild:
+            continue
+        child_to_rebuild = None
+        # A shim's archive stays fixed even when one of its declared children rebuilds.
+        if not dep.is_artifactory_shim():
+            child_to_rebuild = next((child for child in dep.get_children() if child.should_rebuild), None)
         stale = dep.has_stale_locked_artifacts()
-        if dep.should_rebuild or (dep.has_usable_artifacts() and not stale and not changed_child): continue
+        if dep.has_usable_artifacts() and not stale and not child_to_rebuild:
+            continue
         dep.should_rebuild = True
         if config.print:
             reason = 'locked commit changed' if stale else \
-                     (f'{changed_child.name} changed' if changed_child else 'not built yet')
+                     (f'{child_to_rebuild.name} changed' if child_to_rebuild else 'not built yet')
             warning(f'  - Target {dep.name: <16} BUILD [{reason}]')
 
 

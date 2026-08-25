@@ -242,7 +242,9 @@ class BuildConfig:
         # machine. MAMA_GLOBAL_COMPILER_CACHE=1 turns it on for a whole test session or CI job.
         self.global_compiler_cache = os.getenv('MAMA_GLOBAL_COMPILER_CACHE') == '1'
         self.global_workspace = False
+        # Active lock graph: a DependencyLock when consuming mama.lock, or a LockGeneration collector for `mama lock`.
         self.dependency_lock = None
+        # True only while `mama lock` resolves and records dependency commits instead of building them.
         self.lock_generation = False
         # The root project dir, set by mamabuild from source_dir. A `mama <host> build` bootstrap child
         # uses it as cwd, so it resolves the same dependency graph. None until mamabuild runs (direct-construct tests).

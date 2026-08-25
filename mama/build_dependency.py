@@ -148,7 +148,9 @@ class BuildDependency:
         """
         with self.config.dep_registry_lock:
             dependency_lock = self.config.dependency_lock
-            if dependency_lock and dep_source.is_git: dependency_lock.apply(dep_source, self)
+            # Clean keeps the checkout, so its parsed child graph may be stale.
+            if dependency_lock and dep_source.is_git and not self.config.clean_only():
+                dependency_lock.apply(dep_source, self)
             dep = self.config.loaded_dependencies.get(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
@@ -405,7 +407,8 @@ class BuildDependency:
 
     def _git_checkout_if_needed(self) -> bool:
         # A shim has no working tree. The ls-remote in try_load_artifactory_shim checks upstream.
-        if self.is_artifactory_shim(): return False
+        if self.is_artifactory_shim():
+            return False
         if not self.is_root and self.dep_source.is_git:
             git:Git = self.dep_source
             if self.config.lock_generation: return self.config.dependency_lock.checkout(self)
@@ -602,13 +605,16 @@ class BuildDependency:
             target.settings() ## customization point for project settings
             if self.is_root:
                 conf.lock_compiler()  # root settings() is the last prefer_clang/gcc call, lock before any dep loads
-                if not conf.lock_generation: conf.init_platform_toolchain()  # settings() overrides the default probe
+                # after settings(), so its set_*_toolchain() beats the default probe
+                if not conf.lock_generation: conf.init_platform_toolchain()
                 self._update_dep_name_and_dirs(self.name)  # the build_dir predates the compiler lock, so re-resolve it
             target.dependencies() ## customization point for additional dependencies
 
-        if not loaded_from_pkg and self.is_root and not conf.lock_generation: conf.get_preferred_compiler_paths()
+        if not loaded_from_pkg and self.is_root and not conf.lock_generation:
+            conf.get_preferred_compiler_paths()  # fetch the compiler immediately from root settings
 
-        if self.dep_source.is_git and conf.lock_generation: conf.dependency_lock.record(self)
+        if self.dep_source.is_git and conf.lock_generation:
+            conf.dependency_lock.record(self)
 
         # git_status describes artifacts, not the checkout. successful_build records it only after
         # packaging, so a non-build or failed build cannot consume a source change.

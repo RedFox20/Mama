@@ -89,6 +89,7 @@ def _filter_git_progress(dep, line: str, state: dict, label='') -> bool:
             progress(f'  {dep.name: <16} {tag}{st[0]} {st[1]:3}%')
     return True
 
+
 def parse_git_url(url: str):
     """Split a remote git url into (scheme, user, host, port, path). Returns None for
     local paths or anything without a network host, which overrides leave untouched."""
@@ -463,8 +464,7 @@ class Git(DepSource):
                         progress(f'  - Target {dep.name: <16} PROBE FAILED ({result}) after {elapsed}',
                                  color=Color.RED, final=True)
                     return None
-                if self.locked_commit and not execute_piped(['git', 'rev-parse', '--verify', f'{revision}^{{commit}}'],
-                                                            cwd=tmp, throw=False):
+                if self.locked_commit and not self._full_local_commit(tmp, revision):
                     fetch_cmd = f'{_GIT_QUIET} -C "{tmp}" fetch --depth=1 --filter=blob:none origin {revision}'
                     result, _, fetch_elapsed = self._run_git_with_filtered_progress(dep, fetch_cmd, label='PROBE')
                     if result != 0:
@@ -499,7 +499,8 @@ class Git(DepSource):
 
     def init_commit_hash(self, dep: BuildDependency, use_cache: bool, fetch_remote: bool):
         """The latest commit hash, based on the git tag and branch options."""
-        if not dep.dep_source.is_git: return None
+        if not dep.dep_source.is_git:
+            return None
 
         if self.locked_commit: return self.locked_commit
 
@@ -706,9 +707,11 @@ class Git(DepSource):
                 self.run_git(dep, f"checkout {branch}")
 
 
-    def _full_local_commit(self, dep: BuildDependency, revision: str) -> str:
+    @staticmethod
+    def _full_local_commit(cwd: str, revision: str) -> str:
+        """Resolve a local revision to its full commit hash, or return '' when it is unavailable."""
         return (execute_piped(['git', 'rev-parse', '--verify', f'{revision}^{{commit}}'],
-                              cwd=dep.src_dir, throw=False) or '').strip().lower()
+                              cwd=cwd, throw=False) or '').strip().lower()
 
 
     def _fetch_locked_commit(self, dep: BuildDependency):
@@ -731,7 +734,7 @@ class Git(DepSource):
         else:
             self.run_git(dep, 'fetch origin HEAD')
             remote_ref = 'FETCH_HEAD'
-        commit = self._full_local_commit(dep, self.locked_commit)
+        commit = self._full_local_commit(dep.src_dir, self.locked_commit)
         if not commit: raise RuntimeError(f'Commit {self.locked_commit} for {dep.name} is unknown or ambiguous in {self.url}')
         if self.run_git(dep, f'merge-base --is-ancestor {commit} {remote_ref}', throw=False) != 0:
             raise RuntimeError(f'Commit {commit} for {dep.name} is not reachable from {remote_ref}')
@@ -745,14 +748,13 @@ class Git(DepSource):
             self._resolve_lock_override(dep)
         else:
             self._fetch_locked_commit(dep)
-            self.locked_commit = self._full_local_commit(dep, self.locked_commit)
+            self.locked_commit = self._full_local_commit(dep.src_dir, self.locked_commit)
         if not self.locked_commit: raise RuntimeError(f'Could not resolve locked commit for {dep.name}')
-        current = self._full_local_commit(dep, 'HEAD')
+        current = self._full_local_commit(dep.src_dir, 'HEAD')
         self.commit_hash = self.locked_commit
         self._ensure_no_local_modifications(dep)
         if current == self.locked_commit: return False
         self.run_git(dep, f'checkout {self.locked_commit}')
-        self.update_submodules(dep, shallow=not (dep.config.unshallow or not self.shallow))
         return True
 
 
@@ -847,15 +849,15 @@ class Git(DepSource):
                 console(f"  - Target {dep.name: <16} CLONE because src is missing", color=Color.BLUE)
             br_or_tag = self.branch_or_tag()
             is_commit_pin = Git.is_hex_string(br_or_tag)
-            checkout_branch = '' if is_commit_pin or len(br_or_tag) == 0 else f' --branch {br_or_tag}'
+            checkout_branch = '' if self.locked_commit or is_commit_pin or len(br_or_tag) == 0 else f' --branch {br_or_tag}'
             depth = '' if unshallow else '--depth 1'
             clone_args = f"{depth} {checkout_branch} {self.url}"
             self.clone_with_filtered_progress(dep, clone_args, dep.src_dir)
             if self.locked_commit:
-                if not self.checkout_locked_commit(dep): self.update_submodules(dep, shallow=not unshallow)
+                self.checkout_locked_commit(dep)
             else:
                 self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
-                self.update_submodules(dep, shallow=not unshallow)
+            self.update_submodules(dep, shallow=not unshallow)
         else:
             if not dep.config.is_network_available():
                 if dep.config.print:
@@ -869,14 +871,17 @@ class Git(DepSource):
                 self.unshallow(dep)
             is_commit_pin = Git.is_hex_string(self.branch_or_tag())
             self.checkout_current_branch_or_tag(dep, is_commit_pin=is_commit_pin)
-            self.update_submodules(dep, shallow=not unshallow)
             if not self.tag: # pull if not a tag
                 if self.branch:
                     self.run_git(dep, f"fetch origin {self.branch} -q", throw=False)
                     self.run_git(dep, f"reset --hard origin/{self.branch} -q")
+                elif self._is_detached_head(dep):
+                    self.run_git(dep, 'fetch origin HEAD -q')
+                    self.run_git(dep, 'reset --hard FETCH_HEAD -q')
                 else:
                     self.run_git(dep, "fetch -q", throw=False)
                     self.run_git(dep, "reset --hard @{upstream} -q") # @{upstream}: see git docs on gitrevisions
+            self.update_submodules(dep, shallow=not unshallow)
             dep.config.update_stats.record_pull()
 
 
@@ -920,6 +925,8 @@ class Git(DepSource):
     def dependency_checkout(self, dep: BuildDependency):
         """Do a git repository checkout, which can be expensive. An existing artifactory package skips this step."""
         is_target = dep.is_current_target()
+        # An explicit `mama wipe` still means everything, because the user asked for it. A shim has
+        # no source, so the wipe must not wait for a source dir, or the stale package would survive.
         if is_target and dep.config.reclone:
             self.reclone_wipe(dep, source_only=False)
             self.clone_or_pull(dep, wiped=True)
@@ -943,7 +950,10 @@ class Git(DepSource):
         if self.locked_commit:
             unshallow = config.unshallow and is_target
             if unshallow: self.unshallow(dep)
-            return self.checkout_locked_commit(dep) or unshallow or self.check_status(dep)
+            changed = self.checkout_locked_commit(dep)
+            if changed:
+                self.update_submodules(dep, shallow=not (config.unshallow or not self.shallow))
+            return changed or unshallow or self.check_status(dep)
         changed = False
 
         if config.update and is_target:

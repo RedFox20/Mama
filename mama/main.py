@@ -9,6 +9,7 @@ from .utils.paths import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
+from .dependency_lock import read_lock, run_lock
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
@@ -313,7 +314,6 @@ def mamabuild(args, source_dir=os.getcwd()):
         exit(0)
 
     if 'lock' in args:
-        from .dependency_lock import run_lock
         run_lock(args, source_dir)
         return
 
@@ -340,7 +340,6 @@ def mamabuild(args, source_dir=os.getcwd()):
         config.run_convenient_installs()
         return
 
-    from .dependency_lock import read_lock
     config.dependency_lock = read_lock(source_dir)
     if config.dependency_lock: config.dependency_lock.validate_platform(config.name())
 

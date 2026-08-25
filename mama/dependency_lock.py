@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, os, re, tempfile
 from dataclasses import dataclass
 
-from .types.git import Git, canonical_git_remote, same_git_remote
+from .types.git import Git, canonical_git_remote, parse_git_url, same_git_remote
 from .utils.fileio import read_text_from
 from .utils.paths import normalized_path, path_join
 from .utils.sub_process import execute_piped
@@ -147,28 +147,35 @@ def _validate_checkout(dep, git: Git):
     if git._is_repo_broken(dep): raise RuntimeError(f'Cannot lock {git.name}: unusable Git repository at {dep.src_dir}')
 
     origin = execute_piped(['git', 'remote', 'get-url', 'origin'], cwd=dep.src_dir, throw=False) or ''
-    if not same_git_remote(origin, git.url):
+    # Clone URLs are relative to Mama's cwd; Git reads a checkout's relative origin from dep.src_dir.
+    cwd = os.getcwd()
+    if parse_git_url(origin) is None and not origin.lower().startswith('file://'):
+        origin = normalized_path(os.path.join(dep.src_dir, origin))
+    declared = git.url
+    if parse_git_url(declared) is None and not declared.lower().startswith('file://'):
+        declared = normalized_path(os.path.join(cwd, declared))
+    if not same_git_remote(origin, declared):
         raise RuntimeError(f'Cannot lock {git.name}: checkout origin {origin!r} does not match '
-                           f'effective repository {git.url!r}')
+                           f'effective repository {declared!r}')
 
 
 def _remote_selector_commit(dep, git: Git, selector: LockSelector) -> str:
     if selector.kind == 'branch':
         remote_ref = f'refs/remotes/origin/{selector.value}'
         git.run_git(dep, f'fetch origin +refs/heads/{selector.value}:{remote_ref}')
-        commit = git._full_local_commit(dep, remote_ref)
+        commit = git._full_local_commit(dep.src_dir, remote_ref)
     elif selector.kind == 'tag':
         tag_ref = f'refs/tags/{selector.value}'
         git.run_git(dep, f'fetch --force origin {tag_ref}:{tag_ref}')
-        commit = git._full_local_commit(dep, tag_ref)
+        commit = git._full_local_commit(dep.src_dir, tag_ref)
     elif selector.kind == 'commit':
-        commit = git._full_local_commit(dep, selector.value)
+        commit = git._full_local_commit(dep.src_dir, selector.value)
         if commit:
             git.run_git(dep, f'fetch origin {commit}')
-            if git._full_local_commit(dep, 'FETCH_HEAD') != commit: commit = ''
+            if git._full_local_commit(dep.src_dir, 'FETCH_HEAD') != commit: commit = ''
     else:
         git.run_git(dep, 'fetch origin HEAD')
-        commit = git._full_local_commit(dep, 'FETCH_HEAD')
+        commit = git._full_local_commit(dep.src_dir, 'FETCH_HEAD')
 
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         value = f'={selector.value}' if selector.value else ''
@@ -229,12 +236,15 @@ class LockGeneration(DependencyLock):
         _validate_checkout(dep, git)
         if not git.locked_commit:
             git.locked_commit = _remote_selector_commit(dep, git, declaration.selector)
-            changed = git.checkout_locked_commit(dep) or changed
+            locked_changed = git.checkout_locked_commit(dep)
+            if locked_changed:
+                git.update_submodules(dep, shallow=not (dep.config.unshallow or not git.shallow))
+            changed = locked_changed or changed
         return changed
 
     def record(self, dep):
         git: Git = dep.dep_source
-        commit = git._full_local_commit(dep, 'HEAD')
+        commit = git._full_local_commit(dep.src_dir, 'HEAD')
         if commit != git.locked_commit:
             raise RuntimeError(f'Cannot lock {git.name}: checkout HEAD changed while loading its mamafile')
         declaration = self._declarations[git.name]

@@ -1,8 +1,8 @@
 import json, os
-from unittest.mock import DEFAULT, patch
+from unittest.mock import DEFAULT, Mock, patch
 
 import pytest
-from testutils import git_run, make_git_and_mock_dep, make_mock_shim_dep, native_platform_name
+from testutils import git_run, make_git_and_mock_dep, make_mock_dep, make_mock_shim_dep, native_platform_name
 
 from mama.dependency_lock import (DependencyLock, LockEntry, LockGeneration, LockSelector, _entry, _parse_args,
                                   _validate_checkout, read_lock, run_lock)
@@ -15,7 +15,7 @@ from mama.utils.paths import normalized_path
 def test_full_local_commit_returns_empty_when_git_cannot_start():
     source, dep = make_git_and_mock_dep()
     with patch('mama.types.git.execute_piped', return_value=None):
-        assert source._full_local_commit(dep, 'HEAD') == ''
+        assert source._full_local_commit(dep.src_dir, 'HEAD') == ''
 
 
 def git(cwd, *args) -> str:
@@ -291,6 +291,49 @@ def test_checkout_validation_accepts_transport_override_with_custom_port():
         _validate_checkout(dep, git_source)
 
 
+def test_checkout_validation_accepts_absolute_origin_for_relative_local_url(tmp_path):
+    cwd = str(tmp_path)
+    declared = '.pytest_tmp/dep.git'
+    origin = normalized_path(os.path.join(cwd, declared))
+    git_source, dep = make_git_and_mock_dep(url=declared)
+    with patch.object(git_source, '_is_repo_broken', return_value=False), \
+         patch('mama.dependency_lock.os.getcwd', return_value=cwd), \
+         patch('mama.dependency_lock.execute_piped', return_value=origin):
+        _validate_checkout(dep, git_source)
+
+
+def test_checkout_validation_resolves_relative_origin_from_checkout(tmp_path):
+    cwd = tmp_path / 'project'
+    checkout = tmp_path / 'packages' / 'dep' / 'checkout'
+    repository = tmp_path / 'packages' / 'dep' / 'origin.git'
+    git_source, dep = make_git_and_mock_dep(url=normalized_path(str(repository)))
+    dep.src_dir = normalized_path(str(checkout))
+    with patch.object(git_source, '_is_repo_broken', return_value=False), \
+         patch('mama.dependency_lock.os.getcwd', return_value=str(cwd)), \
+         patch('mama.dependency_lock.execute_piped', return_value='../origin.git'):
+        _validate_checkout(dep, git_source)
+
+
+def test_checkout_validation_rejects_relative_urls_with_different_bases(tmp_path):
+    cwd = tmp_path / 'project'
+    checkout = tmp_path / 'packages' / 'dep' / 'checkout'
+    git_source, dep = make_git_and_mock_dep(url='../origin.git')
+    dep.src_dir = normalized_path(str(checkout))
+    with patch.object(git_source, '_is_repo_broken', return_value=False), \
+         patch('mama.dependency_lock.os.getcwd', return_value=str(cwd)), \
+         patch('mama.dependency_lock.execute_piped', return_value='../origin.git'), \
+         pytest.raises(RuntimeError, match='does not match'):
+        _validate_checkout(dep, git_source)
+
+
+def test_clean_does_not_validate_stale_child_declarations(tmp_path):
+    dep = make_mock_dep(tmp_path)
+    dep.config.clean_only.return_value = True
+    dep.config.dependency_lock = Mock()
+    dep.add_child(Git('child', 'https://example.com/child.git', 'main', '', None, True, []))
+    dep.config.dependency_lock.apply.assert_not_called()
+
+
 def test_full_lock_is_deterministic_and_covers_platform_union(tmp_path):
     linux_url, _, linux_head = remote(tmp_path, 'linux-dep', dep_mamafile())
     windows_url, _, windows_head = remote(tmp_path, 'windows-dep', dep_mamafile())
@@ -320,6 +363,46 @@ def test_full_lock_refreshes_remote_head(tmp_path):
     run_lock(['lock', 'platforms=linux', 'silent'], str(project))
 
     assert by_name(project / 'mama.lock')['dep']['commit'] == new
+
+
+def test_full_lock_refresh_updates_submodules_after_head_advances(tmp_path, monkeypatch):
+    for key, value in (('GIT_CONFIG_COUNT', '1'), ('GIT_CONFIG_KEY_0', 'protocol.file.allow'),
+                       ('GIT_CONFIG_VALUE_0', 'always')):
+        monkeypatch.setenv(key, value)
+
+    sub_work = tmp_path / 'sub-work'
+    sub_work.mkdir()
+    git(sub_work, 'init', '-q', '-b', 'main')
+    sub_old = commit(sub_work, {'version.txt': 'old\n'}, 'initial submodule')
+    sub_bare = tmp_path / 'sub.git'
+    git(tmp_path, 'clone', '--bare', '-q', str(sub_work), str(sub_bare))
+
+    dep_work = tmp_path / 'dep-work'
+    dep_work.mkdir()
+    git(dep_work, 'init', '-q', '-b', 'main')
+    commit(dep_work, {'mamafile.py': dep_mamafile()}, 'initial dependency')
+    git(dep_work, 'submodule', 'add', '-q', str(sub_bare), 'sub')
+    dep_old = commit(dep_work, {}, 'add submodule')
+    dep_bare = tmp_path / 'dep.git'
+    git(tmp_path, 'clone', '--bare', '-q', str(dep_work), str(dep_bare))
+    dep_url = f'file:///{normalized_path(str(dep_bare)).lstrip("/")}'
+
+    project = make_project(tmp_path, [f"self.add_git('dep', '{dep_url}')"])
+    run_lock(['lock', 'platforms=linux', 'silent'], str(project))
+    checkout = project / 'packages' / 'dep' / 'dep'
+    assert git(checkout, 'rev-parse', 'HEAD') == dep_old
+    assert git(checkout / 'sub', 'rev-parse', 'HEAD') == sub_old
+
+    sub_new = push(sub_work, sub_bare, {'version.txt': 'new\n'}, 'advance submodule')
+    git(dep_work / 'sub', 'fetch', '-q', 'origin', 'main')
+    git(dep_work / 'sub', 'checkout', '-q', sub_new)
+    dep_new = push(dep_work, dep_bare, {}, 'advance submodule pointer')
+
+    run_lock(['lock', 'platforms=linux', 'silent'], str(project))
+
+    assert by_name(project / 'mama.lock')['dep']['commit'] == dep_new
+    assert git(checkout, 'rev-parse', 'HEAD') == dep_new
+    assert git(checkout / 'sub', 'rev-parse', 'HEAD') == sub_new
 
 
 def test_targeted_refresh_preserves_unrelated_dependency(tmp_path):
@@ -546,6 +629,11 @@ def test_head_override_uses_the_current_remote_default_branch(tmp_path):
     assert by_name(project / 'mama.lock')['dep']['commit'] == release
     assert git(checkout, 'rev-parse', 'HEAD') == release
 
+    run_lock(['lock', 'platforms=linux', 'silent'], str(project))
+
+    assert by_name(project / 'mama.lock')['dep']['commit'] == release
+    assert git(checkout, 'rev-parse', 'HEAD') == release
+
 
 @pytest.mark.parametrize('selector', ['tag', 'commit'])
 def test_exact_commit_cannot_override_explicit_selector(tmp_path, selector):
@@ -636,6 +724,8 @@ def test_fresh_locked_clone_initializes_submodules_when_tip_matches(tmp_path):
         mocks['checkout_locked_commit'].return_value = False
         git_source.clone_or_pull(dep)
 
+    clone_args = mocks['clone_with_filtered_progress'].call_args.args[1]
+    assert '--branch' not in clone_args
     mocks['update_submodules'].assert_called_once_with(dep, shallow=True)
 
 
