@@ -1,5 +1,6 @@
 """Reactive network-availability flag: which failures mean `the network is gone`, and the sticky config flag."""
 import socket
+import errno
 import ssl
 import subprocess
 from urllib.error import URLError, HTTPError
@@ -18,9 +19,7 @@ from mama.build_config import BuildConfig
     URLError(reason=socket.timeout('timed out')),
     RuntimeError('ssh: connect to host github.com: Connection timed out'),
     RuntimeError('fatal: unable to access: Could not resolve host: github.com'),
-    ssl.SSLSyscallError('bad handshake'),        # TLS broke because the socket did, not the server
-    ssl.SSLEOFError('EOF occurred in violation of protocol'),
-    URLError(reason=ssl.SSLEOFError('EOF occurred in violation of protocol')),
+    ssl.SSLError(errno.ECONNRESET, 'reset'),     # an SSL error is transport only with errno evidence
 ], ids=lambda e: type(e).__name__ + ':' + str(e)[:40])
 def test_a_transport_failure_marks_the_network_unavailable(error):
     assert is_network_error(error) is True
@@ -35,6 +34,8 @@ def test_a_transport_failure_marks_the_network_unavailable(error):
     RuntimeError('something unexpected happened'),   # ambiguous, so never assume the network is gone
     URLError(reason=ssl.SSLCertVerificationError(1, 'certificate verify failed: self-signed certificate')),
     URLError(reason=ssl.SSLError('unknown protocol')),
+    ssl.SSLEOFError('EOF occurred in violation of protocol'),   # a peer may abort without close_notify
+    ssl.SSLSyscallError('bad handshake'),                       # neither carries an errno, so both stay
 ], ids=lambda e: type(e).__name__ + ':' + str(e)[:40])
 def test_the_server_answering_is_never_a_network_error(error):
     # the server replied, so the network works. Marking it down would skip every later fetch of the run.

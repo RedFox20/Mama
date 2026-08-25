@@ -151,13 +151,19 @@ def download_and_unzip(remote_file, extract_dir, local_file, timeout:int=DOWNLOA
 # every errno that names a dead route rather than a server answer
 _TRANSPORT_ERRNOS = (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED,
                      errno.ETIMEDOUT, errno.ECONNRESET)
+# the exception types that name the same, for a cause a TLS error wraps
+_TRANSPORT_ERRORS = (ConnectionRefusedError, ConnectionResetError, TimeoutError)
 
 
 def _is_tls_transport(e) -> bool:
-    """True when an SSL error names a dead socket. TLS then broke because the route did."""
+    """True when an SSL error carries evidence that the route died: a transport errno, or a cause that
+    is itself a transport error. The type alone proves nothing, because a peer that aborts without
+    close_notify raises the same SSLEOFError as a dropped link does."""
     import ssl
-    if isinstance(e, (ssl.SSLSyscallError, ssl.SSLEOFError)): return True
-    return isinstance(e, ssl.SSLError) and e.errno in _TRANSPORT_ERRNOS
+    if not isinstance(e, ssl.SSLError): return False
+    if e.errno in _TRANSPORT_ERRNOS: return True
+    cause = e.__cause__ or e.__context__
+    return isinstance(cause, _TRANSPORT_ERRORS) or getattr(cause, 'errno', None) in _TRANSPORT_ERRNOS
 
 
 def _is_tls_answer(e) -> bool:
