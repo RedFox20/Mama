@@ -10,7 +10,6 @@ from testutils import windows_path_problem
     'ok/${CMAKE_SOURCE_DIR}/src/f',     # so are the braces of an unexpanded variable
     'le$af/x',
     'src dir/CMakeLists.txt',           # a space inside a name is legal, only a trailing one is not
-    'C:/abs/path',                      # the colon of a drive letter names no component
 ])
 def test_a_portable_path_reports_nothing(path):
     assert windows_path_problem(path) == ''
@@ -39,11 +38,15 @@ def test_a_literal_backslash_in_a_posix_name_is_not_a_separator():
     assert windows_path_problem('sub/plain') == ''
 
 
-@pytest.mark.parametrize('path, portable', [
-    ('C:/x',          True),    # a drive letter prefixes a path, it never names a component
-    ('name:',         False),
-    ('fixture:/file', False),
-    ('sub/weird:',    False),
-], ids=['drive', 'trailing', 'leading', 'nested'])
-def test_only_a_drive_letter_may_hold_a_colon(path, portable):
-    assert (windows_path_problem(path) == '') is portable
+@pytest.mark.parametrize('path', ['C:/x', 'name:', 'fixture:/file', 'sub/weird:'],
+                         ids=['drive-shaped', 'trailing', 'leading', 'nested'])
+def test_no_component_may_hold_a_colon(path):
+    # the caller passes a relative path from os.walk, so a leading `C:` names a dir and not a drive
+    assert 'holds' in windows_path_problem(path)
+
+
+@pytest.mark.parametrize('name', ['COM1', 'LPT9', 'COM\u00b9.txt', 'LPT\u00b2', 'con', 'nul'],
+                         ids=['ascii', 'ascii-9', 'superscript-1', 'superscript-2', 'con', 'nul'])
+def test_a_reserved_device_name_is_not_portable(name):
+    # Windows reads the ISO-8859-1 superscripts as digits, so COM<superscript 1> is COM1 to it
+    assert 'reserved Windows device' in windows_path_problem(name)

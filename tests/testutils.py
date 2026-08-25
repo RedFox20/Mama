@@ -759,18 +759,18 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
 
 # every character Windows refuses in a name, plus the device names it reserves whatever the extension
 _WINDOWS_ILLEGAL = '<>:"\\|?*'
-_WINDOWS_DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{dev}{n}' for dev in ('com', 'lpt') for n in range(1, 10)}
+# Windows reads the ISO-8859-1 superscripts as the digits 1, 2 and 3 in a device name
+_DEVICE_DIGITS = '123456789\u00b9\u00b2\u00b3'
+_WINDOWS_DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{dev}{n}' for dev in ('com', 'lpt') for n in _DEVICE_DIGITS}
 
 
 def windows_path_problem(path: str) -> str:
     """Why `path` cannot exist on Windows, or '' when every component of it is portable. A POSIX name
     may hold a character Windows refuses, so a fixture built from one passes on Linux and fails the
     windows job with WinError 123. It splits on the separators of THIS host: a backslash is a legal
-    POSIX name character, and rewriting it here would hide the very name Windows refuses."""
-    parts = re.split(f'[{re.escape(os.sep + (os.altsep or ""))}]', path)
-    if parts and len(parts[0]) == 2 and parts[0][0].isalpha() and parts[0][1] == ':':
-        parts = parts[1:]   # a drive letter prefixes a path, it never names a component
-    for part in parts:
+    POSIX name character, and rewriting it here would hide the very name Windows refuses.
+    `path` is RELATIVE, as `os.walk` reports it, so a leading `C:` names a dir and not a drive."""
+    for part in re.split(f'[{re.escape(os.sep + (os.altsep or ""))}]', path):
         if not part or part in ('.', '..'): continue
         held = sorted(repr(c) for c in set(part) if c in _WINDOWS_ILLEGAL or ord(c) < 32)
         if held: return f'{part!r} holds {", ".join(held)}, which no Windows name may hold'

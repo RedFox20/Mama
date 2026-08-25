@@ -1,6 +1,7 @@
 """Download a file, and tell a network failure apart from an auth failure. ssl and urllib cost about
 26ms to import, so both stay inside the function that needs them. See tests/test_import_cost/."""
 
+import errno
 import os
 from typing import Tuple
 
@@ -147,6 +148,24 @@ def download_and_unzip(remote_file, extract_dir, local_file, timeout:int=DOWNLOA
     return extract_dir
 
 
+# every errno that names a dead route rather than a server answer
+_TRANSPORT_ERRNOS = (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED,
+                     errno.ETIMEDOUT, errno.ECONNRESET)
+
+
+def _is_tls_transport(e) -> bool:
+    """True when an SSL error names a dead socket. TLS then broke because the route did."""
+    import ssl
+    if isinstance(e, (ssl.SSLSyscallError, ssl.SSLEOFError)): return True
+    return isinstance(e, ssl.SSLError) and e.errno in _TRANSPORT_ERRNOS
+
+
+def _is_tls_answer(e) -> bool:
+    """True when an SSL error means the server answered, with a bad certificate or protocol."""
+    import ssl
+    return isinstance(e, ssl.SSLError) and not _is_tls_transport(e)
+
+
 def is_network_error(e: Exception) -> bool:
     """True only if the exception clearly indicates network unavailability: DNS failure, connection
     refused or reset, timeout. False for auth errors (SSH key rejected, HTTP 401/403), HTTP 404,
@@ -158,8 +177,11 @@ def is_network_error(e: Exception) -> bool:
         return True
     if isinstance(e, HTTPError):
         return False
+    reason = getattr(e, 'reason', None)
+    if _is_tls_transport(e) or _is_tls_transport(reason):
+        return True   # TLS broke because the socket did, so the route is what failed
     # a TLS failure means the server answered: its certificate or protocol is wrong, not the route
-    if isinstance(e, ssl.SSLError) or isinstance(getattr(e, 'reason', None), ssl.SSLError):
+    if _is_tls_answer(e) or _is_tls_answer(reason):
         return False
     if isinstance(e, URLError):
         reason = getattr(e, 'reason', None)
@@ -172,9 +194,7 @@ def is_network_error(e: Exception) -> bool:
                       TimeoutError, socket.timeout, socket.gaierror)):
         return True
     if isinstance(e, OSError):
-        import errno
-        if e.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH,
-                       errno.ECONNREFUSED, errno.ETIMEDOUT, errno.ECONNRESET):
+        if e.errno in _TRANSPORT_ERRNOS:
             return True
 
     msg = str(e).lower()
