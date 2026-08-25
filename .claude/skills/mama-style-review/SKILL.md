@@ -151,6 +151,11 @@ When you find a violation, prefer these proven moves:
   inside that paren.
 - **One-liner `if`** for a single short statement: `if cond: do_thing()`. Two
   short statements separated by an `if cond:` block on their own lines is a smell.
+  `elif`, `else`, `except` and a plain `for` take the same form.
+- **A one-liner carries a SIMPLE statement only.** `with self._lock: self.n += 1`
+  passes. A header that binds a name (`as f`), a body that chains calls or unpacks
+  a tuple, or a compound line past about 100 cols fails, even though 130 permits it.
+  Readability overrules the column limit. Judge what a reader has to untangle.
 - **No em-dashes** (the long dash, Unicode U+2014) anywhere - code, comments,
   docstrings, markdown. Use ASCII `-`. This SKILL.md only mentions the character
   by name to define the rule; the character itself does not appear in this file.
@@ -159,6 +164,9 @@ Grep helpers:
 ```bash
 grep -rn "$(printf '\xe2\x80\x94')" mama/ tests/ CLAUDE.md README.md
 awk 'length>130' mama/**/*.py     # over-long lines
+# a compound one-liner past 100 cols: the density rule, not every with/try
+grep -rnE --include=*.py '^[[:space:]]*(with|try|for|while)\b.*:[[:space:]]*[^[:space:]#]' mama/ tests/ \
+  | awk -F: '{ body=substr($0, length($1)+length($2)+3) } length(body) > 100 { print $1":"$2 }'
 ```
 
 ### STE prose - docstrings, comments, strings, commit messages

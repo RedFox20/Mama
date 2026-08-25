@@ -45,7 +45,8 @@ def _read_fields(*paths) -> list:
     fields = []
     for path in paths:
         try:
-            with open(path, encoding='utf-8') as f: fields += f.read().split()
+            with open(path, encoding='utf-8') as f:
+                fields += f.read().split()
         except OSError: return []
     return fields
 
@@ -54,7 +55,8 @@ def _read_proc_lines(path: str):
     """The lines of a proc file, or None when it does not read. 'surrogateescape' keeps a byte this
     process cannot decode, which a mount path may hold."""
     try:
-        with open(path, encoding='utf-8', errors='surrogateescape') as f: return f.read().splitlines()
+        with open(path, encoding='utf-8', errors='surrogateescape') as f:
+            return f.read().splitlines()
     except OSError: return None
 
 
@@ -122,7 +124,8 @@ def _quota_in(cgroup_dir: str) -> int:
     """Cpus the cpu controller of one cgroup dir allows, rounded up. 0 when it sets no limit."""
     fields = _read_fields(f'{cgroup_dir}/cpu.max') \
           or _read_fields(f'{cgroup_dir}/cpu.cfs_quota_us', f'{cgroup_dir}/cpu.cfs_period_us')
-    try: quota, period = int(fields[0]), int(fields[1])  # v2 writes `max` and v1 writes -1 for no limit
+    try:  # v2 writes `max` and v1 writes -1 for no limit
+        quota, period = int(fields[0]), int(fields[1])
     except (IndexError, ValueError): return 0
     return (quota + period - 1) // period if quota > 0 and period > 0 else 0
 
@@ -143,7 +146,8 @@ def usable_cpu_count() -> int:
     import psutil  # deferred: psutil costs about 32ms to import
     cpu = psutil.cpu_count() or 4
     if is_linux:
-        try: affinity = len(os.sched_getaffinity(0))
+        try:
+            affinity = len(os.sched_getaffinity(0))
         except (AttributeError, OSError): affinity = 0   # a seccomp profile can deny the probe
         for limit in (affinity, _cgroup_cpu_quota()):
             if limit: cpu = min(cpu, limit)

@@ -66,7 +66,8 @@ def first_cmake_arg(args: str, pos: int = 0) -> str:
 def has_unknown_cmake_var(arg: str) -> bool:
     """True when the argument names a variable mama does not expand, such as $ENV{} or a project one.
     It tests before substitution, because a checkout path may hold a `$` of its own."""
-    for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR): arg = arg.replace(var, '')
+    for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR):
+        arg = arg.replace(var, '')
     return _CMAKE_VAR_REF.search(arg) is not None
 
 
