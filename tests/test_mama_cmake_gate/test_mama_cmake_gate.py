@@ -435,3 +435,13 @@ def test_a_bracket_comment_before_a_subdirectory_still_follows_it(tmp_path):
     write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+
+
+@pytest.mark.parametrize('escaped', ['add_definitions(-DX=foo\\()', 'add_definitions(-DX=foo\\))'],
+                         ids=['open', 'close'])
+def test_an_escaped_paren_of_an_earlier_command_hides_no_later_one(tmp_path, escaped):
+    # cmake reads `\(` as a plain character, so the paren count of the scan must not move on it
+    dep = _dep(tmp_path, 'leaf')
+    open(dep.cmakelists_path(), 'w').write(f'project(Test)\n{escaped}\ninclude(mama.cmake)\n')
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/mama.cmake')

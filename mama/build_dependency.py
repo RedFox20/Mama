@@ -32,8 +32,8 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 
 MAMA_CMAKE = 'mama.cmake'
 # every span that holds no command: a bracket comment or argument of any equals-sign depth, a quoted
-# argument, and a line comment. `#[[` and `[[` come first, so neither reads as a line comment
-_CMAKE_SKIP = re.compile(r'#\[(=*)\[.*?\]\1\]|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\])*"|#[^\n]*', re.S)
+# argument, a line comment, and an escape pair, whose `(` or `)` cmake reads as a plain character
+_CMAKE_SKIP = re.compile(r'#\[(=*)\[.*?\]\1\]|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\])*"|#[^\n]*|\\.', re.S)
 # a command invocation: a name, then the paren that opens its argument list. `first_cmake_arg`
 # below names every argument form the scan reads, which is a deliberately small set
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
