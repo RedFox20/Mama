@@ -37,3 +37,13 @@ def test_a_literal_backslash_in_a_posix_name_is_not_a_separator():
     assert 'no Windows name may hold' in windows_path_problem('a\\b')
     assert 'no Windows name may hold' in windows_path_problem('sub/a\\b')
     assert windows_path_problem('sub/plain') == ''
+
+
+@pytest.mark.parametrize('path, portable', [
+    ('C:/x',          True),    # a drive letter prefixes a path, it never names a component
+    ('name:',         False),
+    ('fixture:/file', False),
+    ('sub/weird:',    False),
+], ids=['drive', 'trailing', 'leading', 'nested'])
+def test_only_a_drive_letter_may_hold_a_colon(path, portable):
+    assert (windows_path_problem(path) == '') is portable

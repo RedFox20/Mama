@@ -37,8 +37,10 @@ _CMAKE_SKIP = re.compile(r'#\[(=*)\[.*?\]\1\]|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\])*
 # a command invocation: a name, then the paren that opens its argument list. `first_cmake_arg`
 # below names every argument form the scan reads, which is a deliberately small set
 _CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
-# the first argument, past any whitespace and line comment. Quoted gives group 1, plain gives group 2
-_CMAKE_FIRST_ARG = re.compile(r'(?:\s|#[^\n]*)*(?:"((?:\\.|[^"\\])*)"|([^\s()#"]+))')
+# the first argument, past any whitespace and comment. A bracket comment comes first, so `#[[` never
+# reads as a line comment and eats the argument behind it
+_CMAKE_FIRST_ARG = re.compile(r'(?:\s|\#\[(?P<eq>=*)\[.*?\](?P=eq)\]|\#[^\n]*)*'
+                              r'(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<plain>[^\s()\#"]+))', re.S)
 # cmake dir variables: the dir of the file that names them, the nearest project(), and the top dir
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
@@ -60,7 +62,7 @@ def first_cmake_arg(args: str, pos: int = 0) -> str:
     path cmake never reads, cmake reports the file it wanted, and one `include(mama.cmake)` answers it.
     """
     match = _CMAKE_FIRST_ARG.match(args, pos)
-    return (match.group(1) or match.group(2) or '') if match else ''
+    return (match.group('quoted') or match.group('plain') or '') if match else ''
 
 
 def has_unknown_cmake_var(arg: str) -> bool:

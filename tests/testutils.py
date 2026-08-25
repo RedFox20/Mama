@@ -767,8 +767,11 @@ def windows_path_problem(path: str) -> str:
     may hold a character Windows refuses, so a fixture built from one passes on Linux and fails the
     windows job with WinError 123. It splits on the separators of THIS host: a backslash is a legal
     POSIX name character, and rewriting it here would hide the very name Windows refuses."""
-    for part in re.split(f'[{re.escape(os.sep + (os.altsep or ""))}]', path):
-        if not part or part in ('.', '..') or part.endswith(':'): continue  # a drive letter names nothing
+    parts = re.split(f'[{re.escape(os.sep + (os.altsep or ""))}]', path)
+    if parts and len(parts[0]) == 2 and parts[0][0].isalpha() and parts[0][1] == ':':
+        parts = parts[1:]   # a drive letter prefixes a path, it never names a component
+    for part in parts:
+        if not part or part in ('.', '..'): continue
         held = sorted(repr(c) for c in set(part) if c in _WINDOWS_ILLEGAL or ord(c) < 32)
         if held: return f'{part!r} holds {", ".join(held)}, which no Windows name may hold'
         if part[-1] in ' .': return f'{part!r} ends in a space or a period, which Windows drops'

@@ -421,3 +421,17 @@ def test_a_tree_deeper_than_any_cap_still_reaches_its_leaf(tmp_path):
                                   'include(mama.cmake)\n' if leaf else 'add_subdirectory(d)\n'})
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/{rel}/mama.cmake')
+
+
+@pytest.mark.parametrize('written', ['#[[note]] src', '#[=[note]=] src', '#[[a]]#[[b]] src'],
+                         ids=['plain', 'equals', 'two'])
+def test_a_bracket_comment_before_the_argument_names_no_dir(written):
+    # cmake reads `#[[..]]` as a comment, and a line-comment match would eat the argument behind it
+    assert first_cmake_arg(f'{written})') == 'src'
+
+
+def test_a_bracket_comment_before_a_subdirectory_still_follows_it(tmp_path):
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(#[[note]] src)\n')
+    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+    dc._save_cmake_files(dep)
+    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
