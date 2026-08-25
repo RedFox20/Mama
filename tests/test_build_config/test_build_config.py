@@ -1,4 +1,4 @@
-"""Pins BuildConfig: default jobs (container limit, Linux leaves a core free), the compiler-conflict note, flag aliases."""
+"""Pins BuildConfig: the default job count, the compiler-conflict note, and the flag aliases."""
 import os, psutil, threading
 import pytest
 from mama.build_config import BuildConfig

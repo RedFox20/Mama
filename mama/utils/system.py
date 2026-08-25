@@ -50,13 +50,20 @@ def _read_fields(*paths) -> list:
     return fields
 
 
+def _read_proc_lines(path: str):
+    """The lines of a proc file, or None when it does not read. 'surrogateescape' keeps a byte this
+    process cannot decode, which a mount path may hold."""
+    try:
+        with open(path, encoding='utf-8', errors='surrogateescape') as f: return f.read().splitlines()
+    except OSError: return None
+
+
 def _cgroup_rel_paths() -> tuple:
     """The cgroup of this process under the v2 unified mount and the v1 cpu mount, each relative to its
     own root. A hybrid host runs both with differing paths. Empty means the mount root."""
     v2 = v1 = ''
-    try:
-        with open(_PROC_CGROUP, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
-    except OSError: return v2, v1
+    lines = _read_proc_lines(_PROC_CGROUP)
+    if lines is None: return v2, v1
     for line in lines:                        # `<hierarchy>:<controllers>:<path>`
         ids, _, rest = line.partition(':')
         names, _, path = rest.partition(':')
@@ -76,9 +83,8 @@ def _cgroup_mounts() -> tuple:
     order, or (None, None) when mountinfo does not read. Neither sits at a fixed path. A hybrid host
     mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
     v2, v1 = [], []
-    try:
-        with open(_PROC_MOUNTINFO, encoding='utf-8', errors='surrogateescape') as f: lines = f.read().splitlines()
-    except OSError: return None, None   # unread, so a caller guesses. An empty list means none exists
+    lines = _read_proc_lines(_PROC_MOUNTINFO)
+    if lines is None: return None, None   # unread, so a caller guesses. An empty list means none exists
     for line in lines:            # `<id> <parent> <dev> <root> <point> <opts> - <fstype> <src> <super>`
         left, _, right = line.partition(' - ')
         fields, after = left.split(), right.split()
