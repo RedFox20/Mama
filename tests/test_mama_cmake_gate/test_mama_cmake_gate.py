@@ -1,9 +1,9 @@
-"""Pins which deps get a `<src_dir>/mama.cmake` proxy written into their source tree."""
+"""Pins which deps get a `<src_dir>/mama.cmake` proxy written into their source tree.
+The parse contract itself lives in tests/test_cmake_scan/."""
 import os
 from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
-from mama.build_dependency import expand_cmake_dirs, has_unknown_cmake_var
 from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep, write_files
 
@@ -365,12 +365,6 @@ def test_a_shared_dir_added_by_two_subprojects_resolves_in_each_scope(tmp_path):
     assert os.path.exists(f'{dep.src_dir}/b/mama.cmake')
 
 
-def test_an_expanded_dir_that_spells_a_variable_is_not_expanded_again():
-    # one pass, so a `${PROJECT_SOURCE_DIR}` inside the checkout path stays content of the name
-    holds = '/tmp/${PROJECT_SOURCE_DIR}/root'
-    assert expand_cmake_dirs('${CMAKE_CURRENT_LIST_DIR}/mama.cmake', holds, '/proj', '/top') == f'{holds}/mama.cmake'
-
-
 def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
     # the expanded path holds a literal `$`, which must not read as a variable mama cannot expand
     dep = _includes_proxy(_dep(tmp_path, 'le$af'), 'include(${CMAKE_SOURCE_DIR}/sub/mama.cmake)\n')
@@ -408,16 +402,6 @@ def test_a_symlink_loop_stops_the_walk(tmp_path):
     write_files(dep.src_dir, {'sub/CMakeLists.txt': 'add_subdirectory(loop)\n'})
     os.symlink(f'{dep.src_dir}/sub', f'{dep.src_dir}/sub/loop')
     dc._save_cmake_files(dep)   # it returns, rather than walking the alias chain forever
-
-
-@pytest.mark.parametrize('arg, unknown', [
-    ('src$dir',       False),   # a bare `$` is ordinary content of an argument
-    ('${FOO}/x',      True),
-    ('$ENV{HOME}/x',  True),
-    ('$CACHE{C}/x',   True),
-], ids=['bare', 'brace', 'env', 'cache'])
-def test_only_a_reference_form_names_an_unknown_variable(arg, unknown):
-    assert has_unknown_cmake_var(arg) is unknown
 
 
 def test_a_bare_dollar_names_the_dir_it_spells(tmp_path):

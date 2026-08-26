@@ -129,8 +129,9 @@ contents, and the run prints one warning. Mama writes over an EMPTY file, becaus
 is a truncated write of its own and not something a user typed. So a scan that names one path too
 many costs a warning, never a hand-written file.
 
-**The scan reads one line at a time. It does not parse the cmake language.** It reads THREE commands, and
-the first argument of each:
+**The scan is MINIMAL BY DESIGN, and it will not become a cmake parser.** It lives in one file,
+`mama/buildsys/cmake/scan.py`, whose docstring carries the same contract as this section. It reads one
+physical line at a time and it reads THREE commands, each with its first argument on that same line:
 
 | written | read as |
 |---|---|
@@ -141,15 +142,29 @@ the first argument of each:
 
 The command name starts the line, in any case, and its first argument ends on that line. The scan takes
 a quoted argument between the quotes, as it is written. A plain one stops at the first space, paren,
-quote or `#`. So a bracket argument and a `;` list each read as one plain word. An escaped space ends
-the word, and a make-style `$(VAR)` stops at its paren. Each one then names a dir that does not exist,
-and that branch ends. A call split over two lines names an empty argument on its first line, and no
-command on its second. Of the three commands only `project(` still rebinds `PROJECT_SOURCE_DIR` there.
-An `include` written inside the arguments of another command reads as no command at all. The scan
-evaluates no `if()`, reads no script an `include()` names, and tracks no `#[[ ]]` bracket comment. It
-reads a `function()` or a `macro()` body where that body is written, not where a call runs it. It takes
-each `project()` call in source order. Above the first one it resolves `PROJECT_SOURCE_DIR` to the dir
-cmake configures, where cmake answers an empty string.
+quote or `#`. It takes each `project()` call in source order. Above the first one it resolves
+`PROJECT_SOURCE_DIR` to the dir cmake configures, where cmake answers an empty string.
+
+**Everything below is out of contract on purpose. None of it is a defect, and a report that names one
+needs no fix.** `tests/test_cmake_scan/` pins each row, so a later change cannot widen the scan by
+accident.
+
+| written | read as |
+|---|---|
+| `include(` with its argument on the next line | no command, then no command |
+| `include([[mama.cmake]])`, `add_subdirectory([[src]])` | one plain word, holding the brackets |
+| `add_subdirectory(src\ dir)` | one plain word, `src\`, and no decoded escape |
+| `add_subdirectory(src;bin)` | one plain word, `src;bin`, and no list division |
+| `add_subdirectory($(MAKEVAR)/src)` | one plain word, `$` |
+| `add_subdirectory("src ")` | `src `, which `normalized_path` then strips |
+| `#[[ include(mama.cmake) ]]` | the command, because the scan tracks no bracket comment |
+| `project(Sub)` on its own line inside `if(FALSE)` | the command, because the scan evaluates no `if()` |
+| `add_subdirectory(x)` on its own line in a `function()` body | the command, where written, not where called |
+| `include(other.cmake)` naming a script that adds a dir | nothing, because the scan reads no included script |
+| `set(X include(mama.cmake))` | no command, because only a command that starts a line matches |
+
+A word that names a dir which does not exist ends that branch. A basename that is not `mama.cmake`
+writes no proxy.
 
 Both failure modes are cheap. A miss names no path, so the shape rule below decides, and only a leaf
 that names none gets nothing. cmake then names `mama.cmake` as the file it wanted. A false positive,
