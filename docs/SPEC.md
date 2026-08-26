@@ -118,8 +118,9 @@ nested or an absolute one. `PROJECT_SOURCE_DIR` expands to the dir of the last `
 the include, so a subdirectory that calls one rebinds it to itself. An argument that still holds a `$`
 names a form mama does not expand. That stops an `add_subdirectory()` branch, and an include takes the
 default `mama.cmake` beside the file that named it. **A path that leaves the source dir and the dir
-cmake configures gets a warning and no file.** The test resolves every symlink first, so a link
-inside the source dir leads nowhere new. An absolute `cmake_lists_path` widens the area mama may
+cmake configures gets a warning and no file.** Mama drops trailing whitespace from every path it
+builds, so it does not name a dir whose name ends in a space. The test resolves every symlink first,
+so a link inside the source dir leads nowhere new. An absolute `cmake_lists_path` widens the area mama may
 write to, because the dir it names is a dir cmake configures. A dep whose every include is refused
 still takes the shape rule below.
 **Mama replaces only what mama generated.** A write reads back the first line already at the path.
