@@ -1,4 +1,4 @@
-import os, sys, threading, contextlib, time
+import os, re, sys, threading, contextlib, time
 from termcolor import colored
 
 is_windows = sys.platform == 'win32'
@@ -33,6 +33,127 @@ _arch = machine.lower()
 is_aarch64 = _arch == 'aarch64' or _arch == 'arm64'
 is_x86_64 = _arch == 'x86_64' or _arch == 'amd64'
 is_x86 = _arch == 'x86' or _arch == 'i386'
+
+_CGROUP_ROOT = '/sys/fs/cgroup'
+_PROC_CGROUP = '/proc/self/cgroup'
+_PROC_MOUNTINFO = '/proc/self/mountinfo'
+_cpu_count = 0
+
+
+def _read_fields(*paths) -> list:
+    """The whitespace-separated tokens of every named file, or [] when one of them is missing."""
+    fields = []
+    for path in paths:
+        try:
+            with open(path, encoding='utf-8') as f:
+                fields += f.read().split()
+        except OSError: return []
+    return fields
+
+
+def _read_proc_lines(path: str):
+    """The lines of a proc file, or None when it does not read. 'surrogateescape' keeps a byte this
+    process cannot decode, which a mount path may hold."""
+    try:
+        with open(path, encoding='utf-8', errors='surrogateescape') as f:
+            return f.read().splitlines()
+    except OSError: return None
+
+
+def _cgroup_rel_paths() -> tuple:
+    """The cgroup of this process under the v2 unified mount and the v1 cpu mount, each relative to its
+    own root. A hybrid host runs both with differing paths. Empty means the mount root."""
+    v2 = v1 = ''
+    lines = _read_proc_lines(_PROC_CGROUP)
+    if lines is None: return v2, v1
+    for line in lines:                        # `<hierarchy>:<controllers>:<path>`
+        ids, _, rest = line.partition(':')
+        names, _, path = rest.partition(':')
+        if ids == '0': v2 = path.strip('/')
+        elif 'cpu' in names.split(','): v1 = path.strip('/')
+    return v2, v1
+
+
+def _unescape_mount(path: str) -> str:
+    """A mountinfo path with its octal escapes decoded. The kernel writes `\\040` for a space, and the
+    same form for a tab, newline and backslash."""
+    return re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), path)
+
+
+def _cgroup_mounts() -> tuple:
+    """Every (mount point, mount root) of the v2 hierarchy and the v1 cpu controller, in mountinfo
+    order, or (None, None) when mountinfo does not read. Neither sits at a fixed path. A hybrid host
+    mounts v2 under the v1 tree, and a v1 host names the mount after its controller list."""
+    v2, v1 = [], []
+    lines = _read_proc_lines(_PROC_MOUNTINFO)
+    if lines is None: return None, None   # unread, so a caller guesses. An empty list means none exists
+    for line in lines:            # `<id> <parent> <dev> <root> <point> <opts> - <fstype> <src> <super>`
+        left, _, right = line.partition(' - ')
+        fields, after = left.split(), right.split()
+        if len(fields) < 5 or len(after) < 3: continue
+        point, mount_root = _unescape_mount(fields[4]), _unescape_mount(fields[3])
+        if after[0] == 'cgroup2': v2.append((point, mount_root))
+        elif after[0] == 'cgroup' and 'cpu' in after[2].split(','): v1.append((point, mount_root))
+    return v2, v1
+
+
+def _visible_rel(rel: str, mount_root: str):
+    """The cgroup of this process as one mount shows it, or None when that mount shows another subtree.
+    A bind mount of a delegated subtree carries it in the root, which the mount point stands for."""
+    root = mount_root.strip('/')
+    if not root: return rel
+    if rel == root: return ''
+    return rel[len(root) + 1:] if rel.startswith(f'{root}/') else None
+
+
+def _mount_dirs(mounts: list, rel: str, default: str) -> list:
+    """Every dir that can hold a quota for this process, under every mount that shows its cgroup. A
+    mount of its delegated subtree hides an ancestor limit a whole-hierarchy mount still shows.
+    `default` answers an unread mountinfo alone, so an unmounted hierarchy contributes no dir."""
+    dirs = []
+    for point, mount_root in ([(default, '/')] if mounts is None else mounts):
+        visible = _visible_rel(rel, mount_root)
+        if visible is None: continue
+        dirs.append(point)
+        for part in visible.split('/'):
+            if part: dirs.append(f'{dirs[-1]}/{part}')
+    return dirs
+
+
+def _quota_in(cgroup_dir: str) -> int:
+    """Cpus the cpu controller of one cgroup dir allows, rounded up. 0 when it sets no limit."""
+    fields = _read_fields(f'{cgroup_dir}/cpu.max') \
+          or _read_fields(f'{cgroup_dir}/cpu.cfs_quota_us', f'{cgroup_dir}/cpu.cfs_period_us')
+    try:  # v2 writes `max` and v1 writes -1 for no limit
+        quota, period = int(fields[0]), int(fields[1])
+    except (IndexError, ValueError): return 0
+    return (quota + period - 1) // period if quota > 0 and period > 0 else 0
+
+
+def _cgroup_cpu_quota() -> int:
+    """Cpus the cgroup cpu controller allows, rounded up, or 0 when no cgroup limits this process. A
+    quota on any ancestor caps it too, so the smallest wins."""
+    (v2_rel, v1_rel), (v2, v1) = _cgroup_rel_paths(), _cgroup_mounts()
+    dirs = _mount_dirs(v2, v2_rel, _CGROUP_ROOT) + _mount_dirs(v1, v1_rel, f'{_CGROUP_ROOT}/cpu')
+    limits = [n for n in map(_quota_in, dirs) if n]
+    return min(limits) if limits else 0
+
+
+def usable_cpu_count() -> int:
+    """Cpus this process may use. psutil reports the HOST count inside a container, so Linux caps it."""
+    global _cpu_count
+    if _cpu_count: return _cpu_count
+    import psutil  # deferred: psutil costs about 32ms to import
+    cpu = psutil.cpu_count() or 4
+    if is_linux:
+        try:
+            affinity = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError): affinity = 0   # a seccomp profile can deny the probe
+        for limit in (affinity, _cgroup_cpu_quota()):
+            if limit: cpu = min(cpu, limit)
+    _cpu_count = max(1, cpu)
+    return _cpu_count
+
 
 class System:
     windows = is_windows

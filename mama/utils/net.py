@@ -1,6 +1,7 @@
 """Download a file, and tell a network failure apart from an auth failure. ssl and urllib cost about
 26ms to import, so both stay inside the function that needs them. See tests/test_import_cost/."""
 
+import errno
 import os
 from typing import Tuple
 
@@ -147,16 +148,46 @@ def download_and_unzip(remote_file, extract_dir, local_file, timeout:int=DOWNLOA
     return extract_dir
 
 
+# every errno that names a dead route rather than a server answer
+_TRANSPORT_ERRNOS = (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ECONNREFUSED,
+                     errno.ETIMEDOUT, errno.ECONNRESET)
+# the exception types that name the same, for a cause a TLS error wraps
+_TRANSPORT_ERRORS = (ConnectionRefusedError, ConnectionResetError, TimeoutError)
+
+
+def _is_tls_transport(e) -> bool:
+    """True when an SSL error carries evidence that the route died: a transport errno, or a cause that
+    is itself a transport error. The type alone proves nothing, because a peer that aborts without
+    close_notify raises the same SSLEOFError as a dropped link does."""
+    import ssl
+    if not isinstance(e, ssl.SSLError): return False
+    if e.errno in _TRANSPORT_ERRNOS: return True
+    cause = e.__cause__ or e.__context__
+    return isinstance(cause, _TRANSPORT_ERRORS) or getattr(cause, 'errno', None) in _TRANSPORT_ERRNOS
+
+
+def _is_tls_answer(e) -> bool:
+    """True when an SSL error means the server answered, with a bad certificate or protocol."""
+    import ssl
+    return isinstance(e, ssl.SSLError) and not _is_tls_transport(e)
+
+
 def is_network_error(e: Exception) -> bool:
     """True only if the exception clearly indicates network unavailability: DNS failure, connection
     refused or reset, timeout. False for auth errors (SSH key rejected, HTTP 401/403), HTTP 404,
-    and anything ambiguous."""
-    import subprocess, socket
+    a TLS failure, and anything ambiguous."""
+    import subprocess, socket, ssl
     from urllib.error import HTTPError, URLError
 
     if isinstance(e, subprocess.TimeoutExpired):
         return True
     if isinstance(e, HTTPError):
+        return False
+    reason = getattr(e, 'reason', None)
+    if _is_tls_transport(e) or _is_tls_transport(reason):
+        return True   # TLS broke because the socket did, so the route is what failed
+    # a TLS failure means the server answered: its certificate or protocol is wrong, not the route
+    if _is_tls_answer(e) or _is_tls_answer(reason):
         return False
     if isinstance(e, URLError):
         reason = getattr(e, 'reason', None)
@@ -169,9 +200,7 @@ def is_network_error(e: Exception) -> bool:
                       TimeoutError, socket.timeout, socket.gaierror)):
         return True
     if isinstance(e, OSError):
-        import errno
-        if e.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH,
-                       errno.ECONNREFUSED, errno.ETIMEDOUT, errno.ECONNRESET):
+        if e.errno in _TRANSPORT_ERRNOS:
             return True
 
     msg = str(e).lower()

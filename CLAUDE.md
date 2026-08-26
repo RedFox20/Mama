@@ -67,7 +67,22 @@ A defect goes to `docs/BUGS.md`, unless the repair adds a capability.
   continuation under the character just inside the opening parenthesis.** Do NOT
   break right after `(`.
 - **One-liner `if` for a single short statement.** Use `if cond: do_thing()` on
-  one line when the body is a single short call.
+  one line when the body is a single short call. `elif`, `else`, `except` and a
+  plain `for` take the same form.
+- **A one-liner carries a SIMPLE statement, never a complex one.** The 130-col
+  limit permits a dense line. Readability overrules it. `with self._lock: self.n += 1`
+  and `try: return int(x)` read at a glance and are correct. These do not:
+
+  ```python
+  # BAD - a with, an as binding, two keywords and a call chain in one line
+  with open(path, encoding='utf-8', errors='surrogateescape') as f: return f.read().splitlines()
+  # BAD - a try, a tuple unpack and two calls in one line
+  try: quota, period = int(fields[0]), int(fields[1])
+  ```
+
+  Split when the header binds a name, when the body chains calls or unpacks a
+  tuple, or when the line runs past about 100 cols. Below that, one short
+  statement after the colon is the house style and stays.
 - **No em-dashes (U+2014) in code, comments, or docs.** Use a regular ASCII dash
   `-` instead. Non-ASCII punctuation is noise in a source file and hard to grep
   for. The same applies to the Unicode arrow (U+2192). Write `->`.

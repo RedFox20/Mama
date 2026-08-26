@@ -13,6 +13,12 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **The RAM cap for parallel compiles reads the host memory.** `_mem_capped_budget` divides
+  `psutil.virtual_memory().total` by `_GB_PER_COMPILE` (`dependency_chain.py:696`), and psutil reads
+  `/proc/meminfo`, which reports the host inside a memory-limited cgroup. A container held to 2 GB on a
+  64 GB host then allows 42 heavy compiles. Fix: read `memory.max` (v2) or
+  `memory/memory.limit_in_bytes` (v1) beside `_cgroup_cpu_quota`, and take the smaller.
+
 - **The module strip runs the target-wide matcher against every exported archive.**
   `export_stripped_module_libs` loops `target.exported_libs` and calls `_module_object_members(target, src)`
   for each (`package.py:405`), which knows no archive-to-module ownership. A target that exports both its
@@ -23,31 +29,11 @@ so cut every word that a reader of the fix does not need.
   archive no scanned tree accounts for: an intermediary archive holds the module objects of a package
   below it, whose source is in another tree by design, and that skip breaks every chain build.
 
-- **Only the configured `CMakeLists.txt` names the proxy, never one a subdirectory adds.** The scan
-  reads `dep.cmakelists_path()` alone (`build_dependency.py:850`). A root that calls
-  `add_subdirectory(src)`, where `src/CMakeLists.txt` holds `include(${CMAKE_SOURCE_DIR}/mama.cmake)`,
-  reads as a dep that asks for nothing. A leaf with no children then gets no proxy, and cmake fails on
-  the include. An indirect `set(M ...)` then `include(${M})` reads the same way. Fix: scan every
-  `CMakeLists.txt` under the source dir, or take the ask from the mamafile instead.
-
 - **A targeted run leaves an out-of-scope root without its `mama.cmake` proxy.** A targeted run narrows
   `flat_deps` to the subtree of the target (`main.py:428-431`), so `_save_cmake_files` never runs for a
   dep outside it. Mama never configures that dep either, so no mama run breaks. A user who then runs
   plain cmake in that dir, or opens it in an IDE, finds no proxy and an empty `MAMA_INCLUDES`. Fix: write
   the proxy for every loaded dep whose `CMakeLists.txt` includes it, whatever the scope of the run.
-
-- **A TLS certificate failure marks the network unavailable for the whole run.** `is_network_error`
-  answers True for any `URLError` whose reason is an `OSError`, and `ssl.SSLError` is one
-  (`mama/utils/net.py:155-161`). A run behind a proxy with an untrusted certificate skips every later
-  fetch and clone. The docstring above it promises False for an auth failure. Reproduce by pointing
-  `artifactory_ftp` at a host with a self-signed certificate. Fix: test `ssl.SSLError` before the
-  `OSError` arm and answer False.
-
-- **The default job count ignores a container CPU limit.** `_default_build_jobs` reads
-  `psutil.cpu_count()` (`mama/build_config.py:127`), which reports the host cores inside a
-  cgroup-limited container. A 3-CPU runner then defaults to 35 jobs and the OOM killer stops the build,
-  unless the run passes `jobs=N`. Fix: read the cgroup v2 quota from `/sys/fs/cgroup/cpu.max` on Linux,
-  and take the smaller of the two counts.
 
 - **A cross build whose root mamafile calls `prefer_clang()` bootstraps a host tool on every lookup.**
   `prefer_clang` returns early when the target is not Linux, so the parent predicts `linux` while the
@@ -62,6 +48,15 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **A TLS failure marked the network unavailable, so the run skipped every later fetch and clone.**
+  Fix: `is_network_error` answers False for an `ssl.SSLError`, bare or wrapped in a `URLError`.
+
+- **The default job count read the host cpus, so a container build started far too many compilers.**
+  Fix: `usable_cpu_count` caps it by the cgroup cpu quota and the cpuset affinity mask.
+
+- **Only the root CMakeLists.txt named the proxy, so an `include()` in a subdirectory got none.**
+  Fix: the scan follows `add_subdirectory()`, and every file it reads contributes its own includes.
 
 - **`enable_cxx26()` wrote `c++2b` for GCC and Clang, which is C++23.** Fix: write `c++2c`.
 

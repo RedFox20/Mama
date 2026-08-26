@@ -1,19 +1,204 @@
-"""Pins BuildConfig: default jobs (Linux leaves a core free), the once-only compiler-conflict note, flag aliases."""
-import psutil, threading
+"""Pins BuildConfig: the default job count, the compiler-conflict note, and the flag aliases."""
+import os, psutil, threading
+import pytest
 from mama.build_config import BuildConfig
 from mama.utils import system
 
 
-def test_default_jobs_leaves_one_core_free_on_linux(monkeypatch):
+@pytest.fixture(autouse=True)
+def _fresh_cpu_memo(monkeypatch):
+    monkeypatch.setattr(system, '_cpu_count', 0)   # usable_cpu_count memoizes, so clear it per test
+
+
+@pytest.fixture
+def cpus(monkeypatch, tmp_path):
+    """usable_cpu_count() on a Linux host of `host` cpus, with a cgroup tree under tmp_path."""
+    def measure(*files, host=32, affinity=32, rel=''):
+        root = tmp_path.as_posix()
+        monkeypatch.setattr(system, '_CGROUP_ROOT', root)
+        monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: (rel, rel))
+        monkeypatch.setattr(system, '_cgroup_mounts', lambda: ([(root, '/')], [(f'{root}/cpu', '/')]))
+        monkeypatch.setattr(system, 'is_linux', True)
+        monkeypatch.setattr(psutil, 'cpu_count', lambda: host)
+        # raising=False: Windows has no sched_getaffinity, and these tests force the Linux branch
+        monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(affinity)), raising=False)
+        for name, text in files:
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return system.usable_cpu_count()
+    return measure
+
+
+def test_a_cgroup_v2_quota_caps_the_cpu_count(cpus):
+    assert cpus(('cpu.max', '300000 100000')) == 3          # --cpus=3
+
+
+def test_a_cgroup_v1_quota_caps_the_cpu_count(cpus):
+    # 1.5 cpus rounds UP: two compiles timeshare, one would leave the quota unused
+    assert cpus(('cpu/cpu.cfs_quota_us', '150000'), ('cpu/cpu.cfs_period_us', '100000')) == 2
+
+
+@pytest.mark.parametrize('files', [
+    [('cpu.max', 'max 100000')],
+    [('cpu/cpu.cfs_quota_us', '-1'), ('cpu/cpu.cfs_period_us', '100000')],
+    [('cpu.max', 'garbage')],
+    [],
+], ids=['v2-max', 'v1-unlimited', 'unreadable', 'no-controller'])
+def test_no_cgroup_limit_keeps_the_host_count(cpus, files):
+    assert cpus(*files) == 32
+
+
+def test_a_quota_in_the_process_cgroup_caps_the_cpu_count(cpus):
+    # with no private cgroup namespace the mount root is an unlimited ancestor, not this process
+    assert cpus(('cpu.max', 'max 100000'), ('svc/cpu.max', '200000 100000'), rel='svc') == 2
+
+
+def test_the_smallest_quota_in_the_chain_wins(cpus):
+    assert cpus(('svc/cpu.max', '400000 100000'), ('svc/app/cpu.max', '200000 100000'), rel='svc/app') == 2
+
+
+def test_an_ancestor_quota_caps_a_child_that_sets_none(cpus):
+    assert cpus(('svc/cpu.max', '400000 100000'), ('svc/app/cpu.max', 'max 100000'), rel='svc/app') == 4
+
+
+@pytest.mark.parametrize('text, expect', [
+    ('0::/svc/app\n', ('svc/app', '')),                                # v2 unified hierarchy
+    ('4:cpu,cpuacct:/svc/app\n2:memory:/other\n', ('', 'svc/app')),    # v1, cpu grouped with cpuacct
+    ('0::/unified\n4:cpu,cpuacct:/v1path\n', ('unified', 'v1path')),   # hybrid: each mount its own path
+    ('0::/\n', ('', '')),                                              # a private cgroup namespace
+    ('2:memory:/other\n', ('', '')),                                   # no cpu controller
+], ids=['v2', 'v1', 'hybrid', 'namespaced', 'no-cpu-controller'])
+def test_the_proc_cgroup_lines_name_each_mount_cgroup(monkeypatch, tmp_path, text, expect):
+    proc = tmp_path / 'cgroup'
+    proc.write_text(text)
+    monkeypatch.setattr(system, '_PROC_CGROUP', proc.as_posix())
+    assert system._cgroup_rel_paths() == expect
+
+
+def test_a_hybrid_host_reads_the_v1_quota_under_the_v1_path(monkeypatch, tmp_path):
+    # the unified path names no v1 cgroup, so appending it to the cpu mount misses the quota
+    monkeypatch.setattr(system, '_cpu_count', 0)
+    monkeypatch.setattr(system, '_CGROUP_ROOT', tmp_path.as_posix())
+    monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: ('unified', 'v1path'))
+    monkeypatch.setattr(system, '_cgroup_mounts',
+                        lambda: ([(tmp_path.as_posix(), '/')], [(f'{tmp_path.as_posix()}/cpu', '/')]))
+    monkeypatch.setattr(system, 'is_linux', True)
     monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(32)), raising=False)
+    (tmp_path / 'cpu' / 'v1path').mkdir(parents=True)
+    (tmp_path / 'cpu' / 'v1path' / 'cpu.cfs_quota_us').write_text('300000')
+    (tmp_path / 'cpu' / 'v1path' / 'cpu.cfs_period_us').write_text('100000')
+    assert system.usable_cpu_count() == 3
+
+
+@pytest.mark.parametrize('text, expect', [
+    ('45 35 0:37 / /sys/fs/cgroup/unified rw - cgroup2 cgroup2 rw\n'
+     '36 35 0:28 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu\n',
+     ([('/sys/fs/cgroup/unified', '/')], [('/sys/fs/cgroup/cpu', '/')])),
+    ('35 23 0:27 / /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n', ([('/sys/fs/cgroup', '/')], [])),
+    ('36 35 0:28 / /sys/fs/cgroup/cpuacct rw - cgroup cgroup rw,cpuacct\n', ([], [])),
+    ('35 23 0:27 /docker/abc /sys/fs/cgroup rw - cgroup2 cgroup2 rw\n',
+     ([('/sys/fs/cgroup', '/docker/abc')], [])),                       # a delegated subtree bind mount
+    ('35 23 0:27 / /sys/fs/cg\\040odd rw - cgroup2 cgroup2 rw\n', ([('/sys/fs/cg odd', '/')], [])),
+], ids=['hybrid-v2-under-v1-tree', 'v2-only', 'cpuacct-is-not-cpu', 'bind-mounted-subtree', 'octal-escape'])
+def test_the_cgroup_mounts_come_from_mountinfo(monkeypatch, tmp_path, text, expect):
+    info = tmp_path / 'mountinfo'
+    info.write_text(text)
+    monkeypatch.setattr(system, '_PROC_MOUNTINFO', info.as_posix())
+    assert system._cgroup_mounts() == expect
+
+
+@pytest.mark.parametrize('rel, root, expect', [
+    ('docker/abc/service', '/docker/abc', 'service'),   # the mount point already stands for the root
+    ('svc/app', '/', 'svc/app'),                        # a whole-hierarchy mount strips nothing
+    ('other/x', '/docker', None),                       # this mount shows no cgroup of the process
+], ids=['delegated-subtree', 'whole-hierarchy', 'outside-the-mount'])
+def test_the_mount_root_comes_off_the_process_cgroup_path(rel, root, expect):
+    assert system._visible_rel(rel, root) == expect
+
+
+def test_a_mount_delegated_elsewhere_never_answers(monkeypatch, tmp_path):
+    # the first cgroup2 mount shows another service, so the quota comes from the one that shows this process
+    root = tmp_path.as_posix()
+    monkeypatch.setattr(system, '_cpu_count', 0)
+    monkeypatch.setattr(system, 'is_linux', True)
+    monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(32)), raising=False)
+    monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: ('svc/mine', ''))
+    monkeypatch.setattr(system, '_cgroup_mounts', lambda: ([(f'{root}/other', '/svc/theirs'),
+                                                            (f'{root}/mine', '/svc/mine')], []))
+    (tmp_path / 'other').mkdir()
+    (tmp_path / 'other' / 'cpu.max').write_text('100000 100000')   # 1 cpu, and it is not ours
+    (tmp_path / 'mine').mkdir()
+    (tmp_path / 'mine' / 'cpu.max').write_text('400000 100000')
+    assert system.usable_cpu_count() == 4
+
+
+def test_a_denied_affinity_probe_never_ends_the_run(cpus, monkeypatch):
+    # a seccomp profile can deny sched_getaffinity, and BuildConfig builds it on every run
+    def denied(pid): raise OSError(1, 'Operation not permitted')
+    monkeypatch.setattr(os, 'sched_getaffinity', denied, raising=False)
+    assert cpus(('cpu.max', '200000 100000')) == 2      # the cgroup quota still answers
+
+
+def test_every_mount_that_shows_this_process_contributes_a_dir(monkeypatch, tmp_path):
+    # the delegated subtree mount cannot show an ancestor limit, and the whole-hierarchy mount can
+    root = tmp_path.as_posix()
+    monkeypatch.setattr(system, '_cpu_count', 0)
+    monkeypatch.setattr(system, 'is_linux', True)
+    monkeypatch.setattr(psutil, 'cpu_count', lambda: 32)
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda pid: set(range(32)), raising=False)
+    monkeypatch.setattr(system, '_cgroup_rel_paths', lambda: ('svc/mine', ''))
+    monkeypatch.setattr(system, '_cgroup_mounts', lambda: ([(f'{root}/leaf', '/svc/mine'),
+                                                            (f'{root}/whole', '/')], []))
+    (tmp_path / 'leaf').mkdir()
+    (tmp_path / 'leaf' / 'cpu.max').write_text('max 100000')       # the process cgroup sets none
+    (tmp_path / 'whole' / 'svc').mkdir(parents=True)
+    (tmp_path / 'whole' / 'svc' / 'cpu.max').write_text('300000 100000')   # the ancestor caps at 3
+    assert system.usable_cpu_count() == 3
+
+
+def test_an_undecodable_byte_in_a_proc_path_never_ends_the_run(monkeypatch, tmp_path):
+    # mountinfo octal-escapes only whitespace, so a path byte no codec decodes reaches the reader raw,
+    # and UnicodeDecodeError is no OSError
+    info, cg = tmp_path / 'mountinfo', tmp_path / 'cgroup'
+    info.write_bytes(b'35 23 0:27 / /sys/fs/cgroup\xff rw - cgroup2 cgroup2 rw\n')
+    cg.write_bytes(b'0::/svc\xff\n')
+    monkeypatch.setattr(system, '_PROC_MOUNTINFO', info.as_posix())
+    monkeypatch.setattr(system, '_PROC_CGROUP', cg.as_posix())
+    assert system._cgroup_mounts() == ([('/sys/fs/cgroup\udcff', '/')], [])
+    assert system._cgroup_rel_paths() == ('svc\udcff', '')
+
+
+@pytest.mark.parametrize('mounts, expect', [
+    (None, ['/fallback', '/fallback/svc']),   # mountinfo did not read, so the hard-coded path is the guess
+    ([], []),                # it read and named no mount of this hierarchy, so there is nothing to read
+], ids=['unread-mountinfo', 'hierarchy-absent'])
+def test_a_hierarchy_this_host_does_not_mount_contributes_no_dir(mounts, expect):
+    assert system._mount_dirs(mounts, 'svc', '/fallback') == expect
+
+
+def test_a_cpuset_affinity_mask_caps_the_cpu_count(cpus):
+    assert cpus(affinity=2) == 2                            # --cpuset-cpus=0-1 writes no quota
+
+
+def test_the_default_jobs_read_the_container_limit(cpus, monkeypatch):
+    monkeypatch.setattr(system.System, 'linux', True)
+    cpus(('cpu.max', '300000 100000'))
+    assert BuildConfig._default_build_jobs() == 2           # 3 usable, minus the core Linux keeps free
+
+
+def test_default_jobs_leaves_one_core_free_on_linux(cpus, monkeypatch):
+    cpus()                                           # 32 cpus, no container limit
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 31   # N-1: do not saturate the box into an OOM/freeze
     monkeypatch.setattr(system.System, 'linux', False)
     assert BuildConfig._default_build_jobs() == 32   # Windows/macOS use all cores
 
 
-def test_default_jobs_never_below_one(monkeypatch):
-    monkeypatch.setattr(psutil, 'cpu_count', lambda: 1)
+def test_default_jobs_never_below_one(cpus, monkeypatch):
+    cpus(host=1, affinity=1)
     monkeypatch.setattr(system.System, 'linux', True)
     assert BuildConfig._default_build_jobs() == 1
 
