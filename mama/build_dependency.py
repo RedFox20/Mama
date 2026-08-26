@@ -33,7 +33,7 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 MAMA_CMAKE = 'mama.cmake'
 # One command, at the start of a line, with its first argument quoted or plain. `#` ends an unquoted
 # argument, and `match()` anchors at 0, so a command inside another one's arguments never matches
-_COMMAND_LINE = re.compile(r'\s*(include|add_subdirectory|project)\s*\(\s*(?:"([^"]*)"|([^"()\s#]*))', re.I)
+_COMMAND_LINE = re.compile(r'[\s\ufeff]*(include|add_subdirectory|project)\s*\(\s*(?:"([^"]*)"|([^"()\s#]*))', re.I)
 # the cmake dir variables mama expands: the dir of the file, the nearest project(), and the top dir
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
