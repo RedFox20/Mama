@@ -35,9 +35,7 @@ MAMA_CMAKE = 'mama.cmake'
 # argument, and `match()` anchors at 0, so a command inside another one's arguments never matches
 _COMMAND_LINE = re.compile(r'[\s\ufeff]*(include|add_subdirectory|project)\s*\(\s*(?:"([^"]*)"|([^"()\s#]*))', re.I)
 # the cmake dir variables mama expands: the dir of the file, the nearest project(), and the top dir
-_CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
-_CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
-_CMAKE_TOP_DIR_VAR = '${CMAKE_SOURCE_DIR}'
+_CMAKE_DIR_VAR = re.compile(r'\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|PROJECT_SOURCE_DIR|CMAKE_SOURCE_DIR)\}')
 # cmake names a variable three ways. A `$` outside them is ordinary content of an argument
 _CMAKE_VAR_REF = re.compile(r'\$(?:ENV|CACHE)?\{')
 
@@ -45,15 +43,15 @@ _CMAKE_VAR_REF = re.compile(r'\$(?:ENV|CACHE)?\{')
 def has_unknown_cmake_var(arg: str) -> bool:
     """True when the argument names a variable mama does not expand, such as $ENV{} or a project one.
     It tests before substitution, because a checkout path may hold a `$` of its own."""
-    for var in (*_CMAKE_CURRENT_DIR_VARS, _CMAKE_PROJECT_DIR_VAR, _CMAKE_TOP_DIR_VAR):
-        arg = arg.replace(var, '')
-    return _CMAKE_VAR_REF.search(arg) is not None
+    return _CMAKE_VAR_REF.search(_CMAKE_DIR_VAR.sub('', arg)) is not None
 
 
 def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str) -> str:
-    """The argument with every cmake dir variable mama knows replaced by the dir it names."""
-    for var in _CMAKE_CURRENT_DIR_VARS: arg = arg.replace(var, current_dir)
-    return arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
+    """The argument with every cmake dir variable mama knows replaced by the dir it names. One pass, so
+    a checkout path that spells a variable of its own stays content of the name."""
+    dirs = {'CMAKE_CURRENT_LIST_DIR': current_dir, 'CMAKE_CURRENT_SOURCE_DIR': current_dir,
+            'PROJECT_SOURCE_DIR': project_dir, 'CMAKE_SOURCE_DIR': top_dir}
+    return _CMAKE_DIR_VAR.sub(lambda ref: dirs[ref.group(1)], arg)
 
 
 def scan_cmake_lines(cmakelists: str) -> list:

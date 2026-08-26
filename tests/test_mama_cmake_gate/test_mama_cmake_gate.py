@@ -3,7 +3,7 @@ import os
 from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
-from mama.build_dependency import has_unknown_cmake_var
+from mama.build_dependency import expand_cmake_dirs, has_unknown_cmake_var
 from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep, write_files
 
@@ -363,6 +363,12 @@ def test_a_shared_dir_added_by_two_subprojects_resolves_in_each_scope(tmp_path):
     dc._save_cmake_files(dep)
     assert os.path.exists(f'{dep.src_dir}/a/mama.cmake')
     assert os.path.exists(f'{dep.src_dir}/b/mama.cmake')
+
+
+def test_an_expanded_dir_that_spells_a_variable_is_not_expanded_again():
+    # one pass, so a `${PROJECT_SOURCE_DIR}` inside the checkout path stays content of the name
+    holds = '/tmp/${PROJECT_SOURCE_DIR}/root'
+    assert expand_cmake_dirs('${CMAKE_CURRENT_LIST_DIR}/mama.cmake', holds, '/proj', '/top') == f'{holds}/mama.cmake'
 
 
 def test_a_dollar_in_the_checkout_path_is_not_a_cmake_variable(tmp_path):
