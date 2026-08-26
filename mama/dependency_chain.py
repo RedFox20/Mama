@@ -4,11 +4,11 @@ from typing import List
 from mama.build_config import BuildConfig
 from .build_dependency import BuildDependency
 from ._version import __version__
-from .buildsys.cmake.mamacmake import mama_cmake_text
+from .buildsys.cmake.mamacmake import MAMA_CMAKE_HEADER, mama_cmake_text
 from . import package
 from .platforms.windows import msvc_toolset_version
 from .utils.errors import BuildError
-from .utils.fileio import read_text_from, write_text_to, save_file_if_contents_changed
+from .utils.fileio import read_lines_from, read_text_from, write_text_to, save_file_if_contents_changed
 from .utils.paths import MAMA_SHIM_FILENAME, path_join
 from .utils.progress import get_time_str
 from . import build_names
@@ -485,7 +485,9 @@ set(MAMA_MODULES_BASE_DIRS ${{MAMA_MODULES_BASE_DIRS}} {bases})
 
 def _save_mama_cmake(root: BuildDependency, path: str):
     """One `mama.cmake` proxy, at the path an `include()` named. Generated from the platform registry,
-    so it cannot drift from the build dir names that BuildConfig itself uses."""
+    so it cannot drift from the build dir names that BuildConfig itself uses. A file already at that path
+    keeps its contents unless it carries `MAMA_CMAKE_HEADER`. Only cmake knows which `include()` runs,
+    so a scan that names one path too many must destroy nothing."""
     config:BuildConfig = root.config
     ninja_version = config.ninja_version()
 
@@ -494,6 +496,10 @@ def _save_mama_cmake(root: BuildDependency, path: str):
         build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
+    first = (read_lines_from(path, errors='replace') or [''])[0]
+    if first and not first.startswith(MAMA_CMAKE_HEADER):
+        warning(f'{root.name}: kept the hand-written {path}. Delete it to let mama write the proxy.')
+        return
     save_file_if_contents_changed(path, mama_cmake_text(build_dir_defines, ninja_version))
 
 

@@ -96,6 +96,21 @@ def test_an_uppercase_include_gets_the_proxy(tmp_path):
     assert dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), 'INCLUDE(Mama.cmake)\n'))
 
 
+def test_a_byte_order_mark_hides_no_command(tmp_path):
+    # a Windows editor writes a BOM, and python keeps it as a character that `\s` does not match
+    dep = _dep(tmp_path, 'leaf')
+    open(dep.cmakelists_path(), 'w', encoding='utf-8-sig').write('include(mama.cmake)\n')
+    assert dc._needs_mama_cmake(dep)
+
+
+def test_mama_never_writes_over_a_file_it_did_not_generate(tmp_path):
+    # only cmake knows which include runs, so a write must prove the file at that path is mama's
+    dep = _includes_proxy(_dep(tmp_path, 'leaf'), '#[[\ninclude(mama.cmake)\n]]\n')
+    write_files(dep.src_dir, {'mama.cmake': 'set(HAND_WRITTEN 1)\n'})
+    dc._save_cmake_files(dep)
+    assert 'HAND_WRITTEN' in open(f'{dep.src_dir}/mama.cmake').read()
+
+
 def test_a_locale_encoded_cmakelists_reads_without_ending_the_run(tmp_path):
     # cmake configures an 8-bit-clean file, so a Latin-1 comment must not raise UnicodeDecodeError
     dep = _dep(tmp_path, 'leaf')
