@@ -15,19 +15,36 @@ An argument is a quoted string, taken between the quotes, or a plain word up to 
 paren, quote or `#`. Four dir variables expand: CMAKE_CURRENT_LIST_DIR, CMAKE_CURRENT_SOURCE_DIR,
 PROJECT_SOURCE_DIR and CMAKE_SOURCE_DIR.
 
-DELIBERATELY NOT SUPPORTED. Each of these reads as no command, or as one plain word. None is a
-defect, and a report that names one needs no fix:
+DELIBERATELY NOT SUPPORTED. None of the three groups below is a defect, and a report that names one
+needs no fix. `tests/test_cmake_scan/` pins every example.
 
-    include(                        a call whose argument sits on the next line
+Read as NO command, because only a command that STARTS its line matches:
+
+    include(                            a call whose argument sits on the next line
         mama.cmake)
-    add_subdirectory([[src]])       a bracket argument
-    add_subdirectory(src\\ dir)      an escape sequence
-    add_subdirectory(src;bin)       a `;` list
-    add_subdirectory($(MAKEVAR))    a make-style reference
-    #[[ include(mama.cmake) ]]      a bracket comment, whose lines the scan still reads
-    if(FALSE) project(Sub) endif()  a command the scan cannot know cmake skips
-    add_subdirectory("src ")        a name ending in a space, which normalized_path drops
-    function(f) add_subdirectory(x) endfunction()   read where written, not where called
+    set(X include(mama.cmake))          a command inside the arguments of another one
+    if(FALSE) include(mama.cmake)       a command behind anything else on the line
+    #[[ include(mama.cmake) ]]          a one-line bracket comment
+
+Read as ONE PLAIN WORD, which then names a dir that does not exist, so that branch ends:
+
+    add_subdirectory([[src]])           a bracket argument, brackets and all
+    add_subdirectory(src\\ dir)         an escape sequence, which stops at the backslash
+    add_subdirectory(src;bin)           a `;` list, which the scan does not divide
+    add_subdirectory($(MAKEVAR)/src)    a make-style reference, which stops at its paren
+    add_subdirectory("src ")            a name ending in a space, which normalized_path drops
+
+Read as the command, because the scan evaluates nothing and tracks no multi-line state:
+
+    #[[                                 a bracket comment, whose lines the scan still reads
+    include(mama.cmake)
+    ]]
+    if(FALSE)                           a branch the scan cannot know cmake skips
+        project(Sub)
+    endif()
+    function(f)                         a body read where written, not where a call runs it
+        add_subdirectory(x)
+    endfunction()
 
 WHY MINIMAL. Both failure modes are cheap, and a wider parser is not. A miss writes no proxy, and
 cmake then names `mama.cmake` as the file it wanted, at configure time, in one line. A false positive

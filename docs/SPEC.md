@@ -157,7 +157,8 @@ accident.
 | `add_subdirectory(src;bin)` | one plain word, `src;bin`, and no list division |
 | `add_subdirectory($(MAKEVAR)/src)` | one plain word, `$` |
 | `add_subdirectory("src ")` | `src `, which `normalized_path` then strips |
-| `#[[ include(mama.cmake) ]]` | the command, because the scan tracks no bracket comment |
+| `include(mama.cmake)` on its own line inside `#[[ ]]` | the command, because the scan tracks no bracket comment |
+| `#[[ include(mama.cmake) ]]` on one line | no command, because the line starts with `#` |
 | `project(Sub)` on its own line inside `if(FALSE)` | the command, because the scan evaluates no `if()` |
 | `add_subdirectory(x)` on its own line in a `function()` body | the command, where written, not where called |
 | `include(other.cmake)` naming a script that adds a dir | nothing, because the scan reads no included script |

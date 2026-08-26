@@ -41,9 +41,11 @@ def test_a_supported_line_reads_as_its_command_and_first_argument(written, read_
     'message("run mama, then include(mama.cmake)")',   # a command inside another one is text
     'set(X include(mama.cmake))',
     'if(WIN32) include(mama.cmake) endif()',     # only a command that STARTS the line matches
+    'if(FALSE) include(mama.cmake)',
+    '#[[ include(mama.cmake) ]]',                # a bracket comment that opens and closes on one line
     'include_directories(mama.cmake)',           # a longer command name is a different command
 ], ids=['split-include', 'comment-in-call', 'line-comment', 'quoted-text', 'nested-set', 'inline-if',
-        'longer-name'])
+        'inline-if-false', 'one-line-bracket', 'longer-name'])
 def test_an_unsupported_line_reads_as_no_command(written):
     # a miss ends with cmake naming mama.cmake at configure time, which is the documented trade
     assert scan_cmake_text(written) == []
