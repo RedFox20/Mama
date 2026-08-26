@@ -31,38 +31,15 @@ _LOAD_LOCK_TIMEOUT_SEC = 300
 
 
 MAMA_CMAKE = 'mama.cmake'
-# every span that holds no command: a bracket comment or argument of any equals-sign depth, a quoted
-# argument, a line comment, and an escape pair, whose `(` or `)` cmake reads as a plain character
-_CMAKE_SKIP = re.compile(r'#\[(=*)\[.*?\]\1\]|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\])*"|#[^\n]*|\\.', re.S)
-# a command invocation: a name, then the paren that opens its argument list. `first_cmake_arg`
-# below names every argument form the scan reads, which is a deliberately small set
-_CMAKE_COMMAND = re.compile(r'(?<!\w)([A-Za-z_]\w*)\s*\(')
-# the first argument, past any whitespace and comment. A bracket comment comes first, so `#[[` never
-# reads as a line comment and eats the argument behind it
-_CMAKE_FIRST_ARG = re.compile(r'(?:\s|\#\[(?P<eq>=*)\[.*?\](?P=eq)\]|\#[^\n]*)*'
-                              r'(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<plain>[^\s()\#"]+))', re.S)
-# cmake dir variables: the dir of the file that names them, the nearest project(), and the top dir
+# One command, at the start of a line, with its first argument quoted or plain. `#` ends an unquoted
+# argument, and `match()` anchors at 0, so a command inside another one's arguments never matches
+_COMMAND_LINE = re.compile(r'\s*(include|add_subdirectory|project)\s*\(\s*(?:"([^"]*)"|([^"()\s#]*))', re.I)
+# the cmake dir variables mama expands: the dir of the file, the nearest project(), and the top dir
 _CMAKE_CURRENT_DIR_VARS = ('${CMAKE_CURRENT_LIST_DIR}', '${CMAKE_CURRENT_SOURCE_DIR}')
 _CMAKE_PROJECT_DIR_VAR = '${PROJECT_SOURCE_DIR}'
 _CMAKE_TOP_DIR_VAR = '${CMAKE_SOURCE_DIR}'
 # cmake names a variable three ways. A `$` outside them is ordinary content of an argument
 _CMAKE_VAR_REF = re.compile(r'\$(?:ENV|CACHE)?\{')
-
-
-def first_cmake_arg(args: str, pos: int = 0) -> str:
-    """The first argument of the cmake command whose `(` ends at `pos`, or '' when it names none.
-
-    The scan reads THREE forms, and no others:
-        add_subdirectory(src)              a plain word, up to the first space, paren, quote or `#`
-        add_subdirectory("src dir")        a quoted string, taken between the quotes as it is written
-        include(${CMAKE_SOURCE_DIR}/x)     either form, holding a dir variable `expand_cmake_dirs` knows
-
-    A regex does not parse the cmake language, and mama does not try. A bracket argument, an escape
-    sequence, a `;` list and a make-style `$(VAR)` all read as one plain word. The scan then names a
-    path cmake never reads, cmake reports the file it wanted, and one `include(mama.cmake)` answers it.
-    """
-    match = _CMAKE_FIRST_ARG.match(args, pos)
-    return (match.group('quoted') or match.group('plain') or '') if match else ''
 
 
 def has_unknown_cmake_var(arg: str) -> bool:
@@ -79,22 +56,26 @@ def expand_cmake_dirs(arg: str, current_dir: str, project_dir: str, top_dir: str
     return arg.replace(_CMAKE_PROJECT_DIR_VAR, project_dir).replace(_CMAKE_TOP_DIR_VAR, top_dir)
 
 
-def scan_cmake_commands(cmakelists: str, commands: tuple) -> list:
-    """(command, first argument) for every named command, in source order, so a caller can follow a
-    variable a command rebinds. `depth` counts the parens still open, so a command cmake hands to
-    another as text names nothing. 'surrogateescape' keeps a byte mama cannot decode, which still has
-    to reach the path it writes."""
-    raw = ''.join(read_lines_from(cmakelists, errors='surrogateescape'))
-    # blanks of the same length hide every comment and quoted span, so the structure reads from `text`
-    # and the argument still reads from `raw` at the same index
-    text = _CMAKE_SKIP.sub(lambda span: ' ' * len(span.group()), raw)
-    found, depth, pos = [], 0, 0
-    for match in _CMAKE_COMMAND.finditer(text):
-        depth += text.count('(', pos, match.start()) - text.count(')', pos, match.start())
-        nested = depth > 0
-        pos, depth = match.end(), depth + 1   # the paren this command opens
-        name = match.group(1).lower()
-        if not nested and name in commands: found.append((name, first_cmake_arg(raw, match.end())))
+def scan_cmake_lines(cmakelists: str) -> list:
+    """(command, first argument) for every line that starts one of the FOUR SHAPES mama reads:
+
+        include(mama.cmake)                                the proxy beside this CMakeLists.txt
+        include("${CMAKE_CURRENT_LIST_DIR}/../mama.cmake")  the proxy through a dir variable
+        add_subdirectory(src)                              the child to read next
+        project(Name)                                      what PROJECT_SOURCE_DIR means below it
+
+    mama does not parse the cmake language. The command starts its line, and its first argument ends
+    on that line. Every other spelling reads as no command, and cmake then names the file it wanted.
+    A substring test rejects a line before the regex runs.
+    'surrogateescape' keeps a byte mama cannot decode, which still has to reach the path it writes.
+    """
+    found = []
+    for line in read_lines_from(cmakelists, errors='surrogateescape'):
+        low = line.lower()   # cmake reads a command name in any case
+        if MAMA_CMAKE not in low and 'add_subdirectory' not in low and 'project' not in low:
+            continue
+        match = _COMMAND_LINE.match(line)
+        if match: found.append((match.group(1).lower(), match.group(2) or match.group(3) or ''))
     return found
 
 
@@ -113,14 +94,14 @@ def find_mama_cmake_includes(cmakelists: str, source_dir: str) -> list:
         real = os.path.realpath(cwd)
         if real in ancestors: continue   # a symlink that names an ancestor would walk that chain forever
         ancestors += (real,)
-        for name, arg in scan_cmake_commands(path, ('include', 'add_subdirectory', 'project')):
+        for name, arg in scan_cmake_lines(path):
             if name == 'project':
                 project_dir = cwd
             elif name == 'include':
                 # the basename must match, or a write would replace a real module such as grandmama.cmake
                 if os.path.basename(forward_slashes(arg)).lower() == MAMA_CMAKE:
                     found.append((cwd, project_dir, arg))
-            elif not has_unknown_cmake_var(arg):   # mama expands no variable a CMakeLists.txt sets
+            elif arg and not has_unknown_cmake_var(arg):   # mama expands no variable a CMakeLists.txt sets
                 sub = normalized_join(cwd, expand_cmake_dirs(arg, cwd, project_dir, source_dir))
                 pending.append((normalized_join(sub, 'CMakeLists.txt'), sub, project_dir, ancestors))
     return found

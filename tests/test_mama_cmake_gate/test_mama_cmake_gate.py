@@ -3,7 +3,7 @@ import os
 from unittest.mock import patch
 import pytest
 import mama.dependency_chain as dc
-from mama.build_dependency import first_cmake_arg, has_unknown_cmake_var
+from mama.build_dependency import has_unknown_cmake_var
 from mama.utils.errors import BuildError
 from testutils import make_mock_local_dep, write_files
 
@@ -113,25 +113,20 @@ def test_a_nested_cmakelists_gets_the_proxy_beside_it(tmp_path):
     assert not os.path.exists(f'{dep.src_dir}/mama.cmake')
 
 
-def test_an_include_split_over_two_lines_gets_the_proxy(tmp_path):
-    # a cmake command takes whitespace-separated arguments, so a newline inside the parens is valid
-    assert dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), 'include(\n  mama.cmake)\n'))
-
-
 def test_a_trailing_comment_that_names_the_proxy_gets_none(tmp_path):
     dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include(other.cmake) # not mama.cmake\n')
     assert not dc._needs_mama_cmake(dep)
 
 
-def test_a_bracket_comment_that_names_the_proxy_gets_none(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), '#[[\ninclude(mama.cmake)\n]]\n')
-    assert not dc._needs_mama_cmake(dep)
-
-
-def test_an_equals_bracket_comment_that_names_the_proxy_gets_none(tmp_path):
-    # a cmake bracket comment takes any number of equals signs between its brackets
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), '#[==[\ninclude(mama.cmake)\n]==]\n')
-    assert not dc._needs_mama_cmake(dep)
+@pytest.mark.parametrize('written, proxy', [
+    ('include(\n  mama.cmake)\n',          False),   # the argument must end on the line the command starts
+    ('include( # written by mama\n  mama.cmake)\n', False),
+    ('#[[\ninclude(mama.cmake)\n]]\n',     True),    # a bracket comment hides no line from the scan
+    ('#[==[\ninclude(mama.cmake)\n]==]\n', True),
+], ids=['split', 'comment-in-call', 'bracket', 'equals-bracket'])
+def test_mama_reads_a_line_at_a_time_and_not_the_cmake_language(tmp_path, written, proxy):
+    # a miss ends with cmake naming mama.cmake, and an extra proxy is a file that nothing reads
+    assert dc._needs_mama_cmake(_includes_proxy(_dep(tmp_path, 'leaf'), written)) is proxy
 
 
 def test_an_env_variable_keeps_the_default_location(tmp_path):
@@ -214,11 +209,6 @@ def test_an_include_named_inside_a_message_string_gets_no_proxy(tmp_path):
 def test_a_hash_inside_a_quoted_argument_opens_no_comment(tmp_path):
     # a stripped `#` used to eat the closing quote, which flipped every later include of the file
     dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'message(STATUS "build #${N}")\ninclude(mama.cmake)\n')
-    assert dc._needs_mama_cmake(dep)
-
-
-def test_a_comment_inside_the_call_still_finds_the_path(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'include( # written by mama\n    mama.cmake)\n')
     assert dc._needs_mama_cmake(dep)
 
 
@@ -423,25 +413,9 @@ def test_a_tree_deeper_than_any_cap_still_reaches_its_leaf(tmp_path):
     assert os.path.exists(f'{dep.src_dir}/{rel}/mama.cmake')
 
 
-@pytest.mark.parametrize('written', ['#[[note]] src', '#[=[note]=] src', '#[[a]]#[[b]] src'],
-                         ids=['plain', 'equals', 'two'])
-def test_a_bracket_comment_before_the_argument_names_no_dir(written):
-    # cmake reads `#[[..]]` as a comment, and a line-comment match would eat the argument behind it
-    assert first_cmake_arg(f'{written})') == 'src'
-
-
-def test_a_bracket_comment_before_a_subdirectory_still_follows_it(tmp_path):
-    dep = _includes_proxy(_dep(tmp_path, 'leaf'), 'add_subdirectory(#[[note]] src)\n')
-    write_files(dep.src_dir, {'src/CMakeLists.txt': 'include(mama.cmake)\n'})
+def test_a_bracket_comment_before_a_subdirectory_stops_that_branch(tmp_path):
+    # `#` ends an unquoted argument, so `#[[note]] src` names no dir and mama reads no deeper
+    dep = _subdir_dep(tmp_path, 'include(mama.cmake)\n', 'add_subdirectory(#[[note]] src)\n')
     dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/src/mama.cmake')
+    assert not os.path.exists(f'{dep.src_dir}/src/mama.cmake')
 
-
-@pytest.mark.parametrize('escaped', ['add_definitions(-DX=foo\\()', 'add_definitions(-DX=foo\\))'],
-                         ids=['open', 'close'])
-def test_an_escaped_paren_of_an_earlier_command_hides_no_later_one(tmp_path, escaped):
-    # cmake reads `\(` as a plain character, so the paren count of the scan must not move on it
-    dep = _dep(tmp_path, 'leaf')
-    open(dep.cmakelists_path(), 'w').write(f'project(Test)\n{escaped}\ninclude(mama.cmake)\n')
-    dc._save_cmake_files(dep)
-    assert os.path.exists(f'{dep.src_dir}/mama.cmake')

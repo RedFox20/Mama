@@ -124,33 +124,42 @@ write to, because the dir it names is a dir cmake configures. A dep whose every 
 still takes the shape rule below.
 `mama.cmake` is a generated name, and mama overwrites one wherever it does write.
 
-**The scan reads cmake. It does not run cmake.** It reads THREE argument forms and no others:
+**The scan reads one line at a time. It does not parse the cmake language.** It reads THREE commands, and
+the first argument of each:
 
 | written | read as |
 |---|---|
-| `add_subdirectory(src)` | a plain word, up to the first space, paren, quote or `#` |
-| `add_subdirectory("src dir")` | a quoted string, taken between the quotes as it is written |
-| `include(${CMAKE_SOURCE_DIR}/x)` | either form, holding one of the four dir variables above |
+| `include(mama.cmake)` | the proxy beside this `CMakeLists.txt` |
+| `include("${CMAKE_CURRENT_LIST_DIR}/../mama.cmake")` | the proxy through one of the four dir variables above |
+| `add_subdirectory(src)` | the child to read next |
+| `project(Name)` | what `PROJECT_SOURCE_DIR` means below it |
 
-A bracket argument, an escape sequence, a `;` list and a make-style `$(VAR)` each read as one plain
-word. The scan also evaluates no `if()`, and it reads no script an `include()` names. It reads a
-`function()` or a `macro()` body where that body is written, not where a call runs it. It takes each
-`project()` call in source order. Above the first one it resolves `PROJECT_SOURCE_DIR` to the dir
-cmake configures, where cmake answers an empty string. Every case it misses ends the same way: cmake
-reports the file it wanted, and one top-level `include(mama.cmake)` answers it.
-**Why:** a regex does not parse the cmake language. A parser that tried cost more code than the
-failure it prevented, and that failure announces itself. The shape rule below still covers a bare
-`include(mama.cmake)`.
+The command name starts the line, in any case, and its first argument ends on that line. The scan takes
+a quoted argument between the quotes, as it is written. A plain one stops at the first space, paren,
+quote or `#`. So a bracket argument and a `;` list each read as one plain word. An escaped space ends
+the word, and a make-style `$(VAR)` stops at its paren. Each one then names a dir that does not exist,
+and that branch ends. A call split over two lines names an empty argument on its first line, and no
+command on its second. Of the three commands only `project(` still rebinds `PROJECT_SOURCE_DIR` there.
+An `include` written inside the arguments of another command reads as no command at all. The scan
+evaluates no `if()`, reads no script an `include()` names, and tracks no `#[[ ]]` bracket comment. It
+reads a `function()` or a `macro()` body where that body is written, not where a call runs it. It takes
+each `project()` call in source order. Above the first one it resolves `PROJECT_SOURCE_DIR` to the dir
+cmake configures, where cmake answers an empty string.
+
+Both failure modes are cheap. A miss names no path, so the shape rule below decides, and only a leaf
+that names none gets nothing. cmake then names `mama.cmake` as the file it wanted. A false positive,
+such as an `include()` inside a bracket comment, writes one generated file that nothing reads.
+**Why:** a wider parser is more code and a slower scan, and it buys back only spellings that no project
+writes. A substring test rejects a line before the regex runs, which keeps a large tree at a few
+hundred microseconds.
 
 **A dep gets the proxy when its `CMakeLists.txt` asks for it, or when its shape says it needs one.** An
 `include()` whose first argument has the basename `mama.cmake`, in either case, asks for it, whatever
 else the dep holds. It still needs a source dir and that `CMakeLists.txt` on disk. A longer name such as
-`grandmama.cmake` is a module of the project, and mama never writes over it. The scan reads the whole
-file, because a cmake command may span lines, and it matches the command name in either case, because
-cmake does. One pass reads the quoted arguments, the bracket arguments and the comments together. A `#`
-inside a string opens no comment, and none of the three can name the proxy. A quoted path may hold a
-space. Any other dep needs a source dir, children, a mamafile and a `CMakeLists.txt`, because a leaf
-has no dependency includes or libs to name.
+`grandmama.cmake` is a module of the project, and mama never writes over it. The scan matches the
+command name in either case, because cmake does. A `#` inside a quoted argument opens no comment, and
+a quoted path may hold a space. Any other dep needs a source dir, children, a mamafile and a
+`CMakeLists.txt`, because a leaf has no dependency includes or libs to name.
 
 **The scan caches nothing**, because a `configure()` hook can rewrite a `CMakeLists.txt` in place with
 no change that a `stat` can see.
