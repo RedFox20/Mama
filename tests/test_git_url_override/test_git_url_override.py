@@ -151,3 +151,16 @@ def test_check_status_override_is_not_url_change(tmp_path):
          patch.object(git, 'get_commit_hash', return_value='abc1234'):
         assert git.check_status(dep) is False
     assert not git.url_changed
+
+
+def test_check_status_does_not_fetch_old_origin_after_repository_change(tmp_path):
+    dep = make_mock_dep(tmp_path, url=GH_HTTPS)
+    git: Git = dep.dep_source
+    stored = ('git@github.com:other/mavlink-headers.git', '', 'main', 'abc1234')
+    with patch.object(git, 'read_stored_status', return_value=stored), \
+         patch.object(git, 'fetch_origin') as fetch, \
+         patch.object(git, 'get_commit_hash', return_value='abc1234') as commit:
+        assert git.check_status(dep) is True
+    assert git.url_changed
+    fetch.assert_not_called()
+    commit.assert_not_called()

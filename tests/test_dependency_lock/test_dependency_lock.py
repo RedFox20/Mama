@@ -596,6 +596,29 @@ def test_lock_generation_refreshes_a_stale_detached_branch(tmp_path):
     assert git(checkout, 'rev-parse', 'HEAD') == new
 
 
+@pytest.mark.parametrize('status', ['missing', 'stale'])
+def test_lock_generation_ignores_artifact_status(tmp_path, status):
+    url, _, head = remote(tmp_path, 'dep', dep_mamafile())
+    project = make_project(tmp_path, [f"self.add_git('dep', '{url}', git_branch='main')"])
+    run_lock(['lock', 'platforms=linux', 'silent'], str(project))
+    checkout = project / 'packages' / 'dep' / 'dep'
+    build_dir = next(path for path in checkout.parent.iterdir() if path.is_dir() and path != checkout)
+    if status == 'stale':
+        build_dir.joinpath('git_status').write_text(
+            Git.format_git_status('file:///old/dep.git', '', 'main', '0' * 7), encoding='utf-8')
+    project.joinpath('mama.lock').unlink()
+
+    with patch.object(Git, 'fetch_origin', autospec=True) as fetch, \
+         patch.object(Git, 'reclone_wipe', autospec=True) as wipe, \
+         patch.object(Git, 'clone_or_pull', autospec=True) as pull:
+        run_lock(['lock', 'platforms=linux', 'silent'], str(project))
+
+    fetch.assert_not_called()
+    wipe.assert_not_called()
+    pull.assert_not_called()
+    assert by_name(project / 'mama.lock')['dep']['commit'] == head
+
+
 def test_unreachable_exact_commit_does_not_replace_lock(tmp_path):
     url, work, _ = remote(tmp_path, 'dep', dep_mamafile())
     git(work, 'checkout', '-q', '-b', 'side')

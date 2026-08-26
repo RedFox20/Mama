@@ -675,6 +675,8 @@ class Git(DepSource):
         self.url_changed = not same_git_remote(self.url, status[0])
         self.tag_changed = self.tag != status[1]
         self.branch_changed = self.branch != status[2]
+        # Re-clone from the new repository before asking the old origin for its ref.
+        if self.url_changed: return True
         # then compare the commit hash to detect upstream changes
         self.fetch_origin(dep)
         self.commit_changed = self.get_commit_hash(dep, use_cache=False) != status[3]
@@ -953,7 +955,9 @@ class Git(DepSource):
             changed = self.checkout_locked_commit(dep)
             if changed:
                 self.update_submodules(dep, shallow=not (config.unshallow or not self.shallow))
+            if config.lock_generation: return changed or unshallow
             return changed or unshallow or self.check_status(dep)
+        if config.lock_generation: return False
         changed = False
 
         if config.update and is_target:
