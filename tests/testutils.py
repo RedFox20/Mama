@@ -761,7 +761,8 @@ def make_cmake_detection(build_files_dir, langs=('C', 'CXX', 'RC'), vs=True, par
 _WINDOWS_ILLEGAL = '<>:"\\|?*'
 # Windows reads the ISO-8859-1 superscripts as the digits 1, 2 and 3 in a device name
 _DEVICE_DIGITS = '123456789\u00b9\u00b2\u00b3'
-_WINDOWS_DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{dev}{n}' for dev in ('com', 'lpt') for n in _DEVICE_DIGITS}
+_CONSOLE_DEVICES = {'con', 'prn', 'aux', 'nul', 'conin$', 'conout$'}   # CreateFile opens these, it makes no file
+_WINDOWS_DEVICES = _CONSOLE_DEVICES | {f'{dev}{n}' for dev in ('com', 'lpt') for n in _DEVICE_DIGITS}
 
 
 def windows_path_problem(path: str) -> str:
@@ -775,7 +776,8 @@ def windows_path_problem(path: str) -> str:
         held = sorted(repr(c) for c in set(part) if c in _WINDOWS_ILLEGAL or ord(c) < 32)
         if held: return f'{part!r} holds {", ".join(held)}, which no Windows name may hold'
         if part[-1] in ' .': return f'{part!r} ends in a space or a period, which Windows drops'
-        if part.split('.')[0].lower() in _WINDOWS_DEVICES: return f'{part!r} names a reserved Windows device'
+        stem = part.split('.')[0].rstrip(' ').lower()   # Windows drops a trailing space before it matches
+        if stem in _WINDOWS_DEVICES: return f'{part!r} names a reserved Windows device'
     return ''
 
 
