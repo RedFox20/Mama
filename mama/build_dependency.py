@@ -147,6 +147,10 @@ class BuildDependency:
         dep_source: the DepSource that names the child
         """
         with self.config.dep_registry_lock:
+            dependency_lock = self.config.dependency_lock
+            # Clean keeps the checkout, so its parsed child graph may be stale.
+            if dependency_lock and dep_source.is_git and not self.config.clean_only():
+                dependency_lock.apply(dep_source, self)
             dep = self.config.loaded_dependencies.get(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
@@ -233,6 +237,18 @@ class BuildDependency:
         return bool(self.target.build_products) or self.has_build_files()
 
 
+    def has_stale_locked_artifacts(self) -> bool:
+        """True when usable source-built artifacts do not match the active locked commit.
+        Usable artifacts without a status record are stale because their source is unknown."""
+        if self.from_artifactory or not self.dep_source.is_git: return False
+        git:Git = self.dep_source
+        if not git.locked_commit: return False
+        status = git.read_stored_status(self)
+        if not status: return self.has_usable_artifacts()
+        built = status[3].lower()
+        return not Git.same_commit(git.locked_commit, built)
+
+
     def find_first_missing_build_product(self):
         for depfile in self.target.build_products:
             if not os.path.exists(depfile):
@@ -300,7 +316,7 @@ class BuildDependency:
     def try_load_cached_shim(self, check_staleness: bool = True):
         """Use the local cache of an existing shim. Return the configured BuildTarget, or None on a miss or a stale shim.
         check_staleness: if True, run ls-remote first and drop the marker when upstream advanced"""
-        from .artifactory import artifactory_load_target  # local import: avoid cycle
+        from .artifactory import artifactory_archive_version, artifactory_load_target  # local import: avoid cycle
         from .build_target import BuildTarget
         from .types.git import Git
 
@@ -314,10 +330,17 @@ class BuildDependency:
         # another name predates the pin and is exactly the stale package it invalidates. Re-probe instead.
         pinned = pinned_version(self)
         stored_archive = marker.get('archive', '')
-        if pinned and stored_archive and not stored_archive.endswith(f'-{pinned}'):
+        locked = self.dep_source.locked_commit
+        if locked and not Git.same_commit(locked, stored_hash):
+            if self.config.print:
+                warning(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} locked={Git.short_hash(locked)}')
+            self.remove_shim_marker()
+            return None
+        pinned_archive_version = artifactory_archive_version(pinned, locked, self.dep_source.version_suffix)
+        if pinned_archive_version and stored_archive and not stored_archive.endswith(f'-{pinned_archive_version}'):
             if self.config.print:
                 warning(f'  - Target {self.name: <16} SHIM STALE archive={stored_archive} '
-                        f'!= pinned version {pinned}')
+                        f'!= pinned version {pinned_archive_version}')
             self.remove_shim_marker()
             return None
 
@@ -325,7 +348,7 @@ class BuildDependency:
             git: Git = self.dep_source
             # ls-remote is a cheap remote-ref probe, not a package fetch - allowed under noart.
             current_hash = git.init_commit_hash(self, use_cache=False, fetch_remote=True)
-            if current_hash and current_hash != stored_hash:
+            if current_hash and not Git.same_commit(current_hash, stored_hash):
                 if self.config.print:
                     warning(f'  - Target {self.name: <16} SHIM STALE was={stored_hash} now={current_hash}')
                 self.remove_shim_marker()
@@ -388,6 +411,7 @@ class BuildDependency:
             return False
         if not self.is_root and self.dep_source.is_git:
             git:Git = self.dep_source
+            if self.config.lock_generation: return self.config.dependency_lock.checkout(self)
             return git.dependency_checkout(self)
         return False
 
@@ -494,7 +518,7 @@ class BuildDependency:
         if not self.is_artifactory_shim(): return False
         stored = self.read_shim_marker().get('hash', '')
         current = self.dep_source.commit_hash
-        if not (stored and current and current != stored): return False
+        if not stored or not current or Git.same_commit(stored, current): return False
         if self.config.print:
             warning(f'  - Target {self.name: <16} SHIM STALE was={stored} now={current}, building from source')
         self.remove_shim_marker()
@@ -531,6 +555,9 @@ class BuildDependency:
         conf = self.config
         if conf.verbose:
             console(f'  - Target {self.name: <16} LOAD ({self.dep_source.get_type_string()})', color=Color.BLUE)
+
+        if conf.lock_generation and self.dep_source.is_pkg:
+            raise RuntimeError(f'mama lock cannot inspect Artifactory-only dependency {self.name} without downloading it')
 
         is_target = self.is_current_target()
         loaded_from_pkg = False
@@ -578,20 +605,23 @@ class BuildDependency:
             target.settings() ## customization point for project settings
             if self.is_root:
                 conf.lock_compiler()  # root settings() is the last prefer_clang/gcc call, lock before any dep loads
-                conf.init_platform_toolchain()  # after settings(), so its set_*_toolchain() beats the default probe
+                # after settings(), so its set_*_toolchain() beats the default probe
+                if not conf.lock_generation: conf.init_platform_toolchain()
                 self._update_dep_name_and_dirs(self.name)  # the build_dir predates the compiler lock, so re-resolve it
             target.dependencies() ## customization point for additional dependencies
 
-        if not loaded_from_pkg and self.is_root:
-            conf.get_preferred_compiler_paths() # fetch the compiler immediately from root settings
+        if not loaded_from_pkg and self.is_root and not conf.lock_generation:
+            conf.get_preferred_compiler_paths()  # fetch the compiler immediately from root settings
 
+        if self.dep_source.is_git and conf.lock_generation:
+            conf.dependency_lock.record(self)
+
+        # git_status describes artifacts, not the checkout. successful_build records it only after
+        # packaging, so a non-build or failed build cannot consume a source change.
         build = False
-        if conf.build or conf.update:
+        if (conf.build or conf.update) and not conf.lock_generation:
             build = self._should_build(conf, target, is_target, git_changed, loaded_from_pkg)
             if build: self.create_build_dir_if_needed() # in case we just cleaned
-            if git_changed:
-                git:Git = self.dep_source
-                git.save_status(self)
 
         self.load_action = self._display_load_action(loaded_from_pkg)  # refine the breakdown letter (G/L/A)
         self.already_loaded = True

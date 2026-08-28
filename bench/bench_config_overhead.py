@@ -16,7 +16,7 @@ import os, re, sys, time, shutil, subprocess, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
-from mama import cmake_compiler_cache as cc  # noqa: E402
+from mama.buildsys.cmake import compiler_cache as cc  # noqa: E402
 
 REPOS_DIR = os.path.join(HERE, 'repos')
 OUT_DIR = os.path.join(HERE, '_out')  # build dirs + seeds, repo-local + gitignored

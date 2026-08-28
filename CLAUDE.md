@@ -308,11 +308,14 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
 
 ## Artifactory + git status invariants
 
+- **`git_status` records artifact provenance, not checkout state.** It advances only
+  after successful packaging or loading a matching Artifactory package. A non-build
+  action, failed build or out-of-scope locked checkout may leave it behind the tree.
+  The next build must detect that gap.
 - **A 404 from artifactory for a git dep is NORMAL.** It means there is no prebuilt
-  package for the current commit. The 404 must NOT wipe the `git_status` file. If
-  the status is wiped, the next `mama update` reads an empty status. `check_status`
-  then reports "SCM change detected" and forces a full rebuild. `check_status`
-  already detects a real url, tag, branch or commit change by direct comparison.
+  package for the current commit. The 404 must NOT wipe the `git_status` file: the
+  cached artifacts still came from the recorded source. Without that provenance,
+  the next build correctly treats them as stale and rebuilds.
 - A 404 IS fatal for `is_pkg` deps. Those URLs are mandatory.
 - The shim probe (`try_load_artifactory_shim`) only runs when there is no existing
   working tree (`not self.is_real_clone()`). For an already-cloned dep, the regular

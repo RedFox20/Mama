@@ -151,6 +151,9 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama build android-31          Cross compile to arm64 with Android API level 31
   mama build android-26 arm      Cross compile to armv7 android NDK API level 26
   mama update                    Update all dependencies by doing git pull and build.
+  mama lock platforms=linux,windows,android Resolve all Git dependencies into mama.lock.
+  mama lock dep1 platforms=linux Refresh dep1 while preserving other locked commits.
+  mama lock dep1 commit=<sha> platforms=linux Select a reachable dep1 commit for this lock.
   mama clean                     Cleans main project only.
   mama clean x86 opencv          Cleans opencv for x86 architecture.
   mama clean all                 Cleans EVERYTHING in the dependency chain for current arch.
@@ -180,6 +183,9 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama dep1 start=dbtool         Call target project mamafile start() with args [`dbtool`].
 ```
 Call `mama help` for more usage information.
+
+When `mama.lock` exists, every build uses its exact Git commits. Mamafiles still own the dependency
+graph and selectors. Regenerate the lock after changing either one. Do not edit the generated JSON.
 
 ### Build flags
 ```

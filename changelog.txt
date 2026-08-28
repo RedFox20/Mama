@@ -2,6 +2,8 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - feature: lock Git dependency commits across multiple platform graphs
+ - bugfix: a targeted build relinks source-built parents after a child rebuilds
  - bugfix: a TLS certificate failure no longer skips every later fetch and clone
  - bugfix: the default job count reads the container cpu limit, not the host
  - bugfix: a mama.cmake include in a subdirectory CMakeLists.txt gets a proxy

@@ -115,6 +115,18 @@ def test_wiping_a_different_target_does_not_clobber_this_one(tmp_path):
     assert _checkout(dep) == (False, False, False)
 
 
+@pytest.mark.parametrize('usable', [False, True])
+def test_locked_wipe_reclones_usable_or_unusable_checkout(tmp_path, usable):
+    dep = make_mock_dep(tmp_path, reclone=True)
+    dep.config.target_matches.return_value = True
+    dep.dep_source.locked_commit = 'a' * 40
+    _seed(dep, *('.git', 'ffmpeg.c') if usable else ('ffmpeg.c',))
+    with _stubbed(dep, broken=False) as (wipe, clone), \
+         patch.object(dep.dep_source, 'checkout_locked_commit', return_value=False):
+        result = dep.dep_source.dependency_checkout(dep)
+    assert result and wipe.called and clone.called
+
+
 def test_checkout_leaves_a_healthy_clone_alone(tmp_path):
     dep = make_mock_dep(tmp_path)
     _seed(dep, '.git', 'ffmpeg.c')  # non-target dep of a plain build: no changes -> no pull, no wipe

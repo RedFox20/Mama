@@ -47,6 +47,22 @@ def test_a_dep_with_artifacts_is_not_rebuilt():
     assert not b.should_rebuild  # `target=X` still means build only X
 
 
+def test_a_stale_locked_dep_with_artifacts_is_rebuilt():
+    root, _, _, b, _ = _tree()
+    b.has_stale_locked_artifacts = lambda: True
+    _mark(root)
+    assert b.should_rebuild
+
+
+def test_a_stale_leaf_rebuilds_its_source_built_parent():
+    leaf = _dep('leaf')
+    leaf.has_stale_locked_artifacts = lambda: True
+    middle = _dep('middle', [leaf])
+    root = _dep('root', [_dep('X', [middle])])
+    _mark(root)
+    assert leaf.should_rebuild and middle.should_rebuild
+
+
 def test_an_unknown_target_marks_nothing():
     root, _, a, _, c = _tree()
     _mark(root, target='nope')

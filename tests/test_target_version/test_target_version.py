@@ -184,6 +184,12 @@ def test_an_override_version_beats_the_git_tag():
         assert art.artifactory_archive_name(target).endswith('-8.1.0')
 
 
+def test_a_locked_version_pin_also_names_the_source_commit():
+    target = make_archive_name_target(version='8.1.0', is_git=True)
+    target.dep.dep_source.locked_commit = 'df76b66123456789012345678901234567890123'
+    assert art.artifactory_archive_name(target).endswith('-8.1.0-df76b66')
+
+
 def test_pinned_version_routes_through_the_trust_rule(tmp_path):
     mamafile = tmp_path / 'mamafile.py'
     mamafile.write_text(_TWO)

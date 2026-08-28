@@ -39,10 +39,11 @@ Mama is a **project-based, from-source, actively-modifiable** dependency and bui
 the latest** by default. `mama update` fetches a branch dep and hard-resets it to `origin/<branch>`, so
 the tree matches upstream even after a force-push. A pin wins over that default: a tag, or a commit,
 which mama keeps in the same field. A branch declared beside a tag still wins the checkout. A
-`self.version` pins the artifactory archive name, not the git revision. There is no lockfile and no
-version solver. Mama builds for **several platforms side by side**. The whole point
-is that `mama build` and then `mama android build` both work, from one checkout, with no clean between
-them.
+`self.version` pins the artifactory archive name, not the git revision. There is no version solver.
+Mama builds for **several platforms side by side**. The whole point is that `mama build` and then
+`mama android build` both work, from one checkout, with no clean between them. A project can add a
+generated `mama.lock` when it needs exact Git commits across those platform graphs. Without that file,
+the floating behavior above remains unchanged.
 
 Each feature answers a specific pain.
 
@@ -99,6 +100,11 @@ One name for one thing. This file uses these and no synonyms.
       mama-dependencies.cmake           what the dependencies export
     <archive>.zip                        the cached artifactory package
 ```
+
+`git_status` records the commit and working-tree fingerprint that produced the build-dir artifacts,
+not the current checkout. It advances only after successful packaging or loading a matching
+Artifactory package. A non-build action or failed build may therefore leave it behind the source tree,
+which makes the next build re-detect the change.
 
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
 keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
@@ -285,8 +291,9 @@ name and the artifactory archive name both read it, so they cannot disagree.
 `mamabuild(args)` runs these steps in this order.
 
 1. `help` and `version` answer from the raw argument list and exit, before anything is parsed.
-2. Parse the args into a `BuildConfig`. An unrecognized bare word becomes the target name. An
-   option-shaped unknown arg (`-foo`, `jobz=4`) fails at once, because it can never be a target.
+2. `lock` runs the graph-only path in section 7 and returns. Every other command parses the args into
+   a `BuildConfig`. An unrecognized bare word becomes the target name. An option-shaped unknown arg
+   (`-foo`, `jobz=4`) fails at once, because it can never be a target.
 3. `init` with no target, and the install utilities, return here.
 4. Refuse when neither `mamafile.py` nor `CMakeLists.txt` exists.
 5. `update` and `deps_only` with no target rewrite `config.target` to `all`.
@@ -327,6 +334,7 @@ An action names what the run does. Several may combine.
 |---|---|
 | `init` | write a starting `mamafile.py`, `CMakeLists.txt` and `src/` main file. It patches an existing `CMakeLists.txt` |
 | `list` | load the graph, build nothing, print the exports of every dep, or of the named target alone |
+| `lock` | resolve Git dependencies for requested platform graphs and write their exact commits to `mama.lock` |
 | `build` | configure and build. It clones a missing dep, and it does not pull |
 | `update` | check the remote of every dep, pull the ones that moved, then build. A tag pin fetches only when the tag is missing |
 | `clean` | delete the build dir of the target. With no build, the run stops after the load |
@@ -357,6 +365,10 @@ marker file, and only a dir belonging to this config.
 ## 5 Flags
 
 **Target selection**: `target=<name>`, `all`, a bare word, `deps_only`.
+
+**Lock generation**: `lock` requires `platforms=<csv>` and accepts only canonical platform names. A bare
+dependency name targets that dependency and its affected transitive entries. `commit=<sha>` selects an
+exact reachable commit.
 
 **Platform**: `windows`, `msvc`, `linux`, `macos`, `ios`, `android`, `android-<N>`, `ndk-<ver>`,
 `raspi`, `raspi32`, `mips`, `oclea`, `xilinx`, `imx8mp`.
@@ -414,6 +426,37 @@ suffix, and therefore the build dir.
 
 A load resolves one dep. It gets the source or the package, then parses the mamafile. It runs
 `settings()` and `dependencies()`, so the graph learns the children.
+
+### The dependency lock
+
+A root project can use an optional generated `mama.lock` JSON file. The file records its format and
+covered platforms. It also has one flat entry for every Git dependency in those platform graphs. An entry holds the
+dependency name, canonical repository, declared branch/tag/commit/HEAD selector, and resolved full
+commit. Mamafiles still define the graph. The lock only fixes the Git source selected for each node.
+
+When a lock exists, every run that loads a dependency graph validates its platform. The run also validates
+each Git dependency that a parsed mamafile names. Each named dependency must have an entry with a matching
+repository and selector. A missing or mismatched entry stops the run. An unused entry is valid because
+another covered platform may need it.
+
+A matching Artifactory shim can satisfy a locked dependency without a Git working tree. Its recorded
+commit must identify the locked commit. Actions that load a Git working tree check out the locked
+commit. This includes `list` and deploy actions, but not a plain `clean`. When Mama checks a locked
+working tree, it refuses local modifications.
+
+`mama lock platforms=<csv>` regenerates the complete union. `mama lock <dep> platforms=<csv>` refreshes
+the named dependency, preserves other matching commits, and reconciles entries affected by its
+transitive graph. Adding `commit=<sha>` accepts an unambiguous commit reachable from that dependency's
+declared branch or remote HEAD. Mama does not permit an override for an explicit tag or commit declaration.
+
+Lock generation runs `settings()` and `dependencies()` for each covered platform without selecting
+a toolchain, configuring, compiling, or fetching Git dependencies from Artifactory. It refuses an
+Artifactory-only dependency because inspecting that package would require a download.
+
+Lock generation clones a missing checkout. A pre-existing source tree must be the dependency's own usable
+Git repository with a matching origin. Mama checks out the selected commit before it loads that dependency's
+mamafile. Mama resolves a declared selector only if no selected commit exists. Mama reuses each selected
+commit on later platforms. Mama replaces the file only after every graph and commit resolves.
 
 ### On-disk states of a non-root git dep
 
@@ -521,7 +564,8 @@ another type would otherwise publish debug artifacts under the release name. A d
 to the type of the run. `arch` is the arch marker, which an `-march` pin renames (`x64v3`, `armv82a`),
 because a pin already names the architecture and one axis gets one field. `variant` is the same suffix the
 build dir carries. For a git dep the version
-is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. A hex tag is a
+is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. Under a dependency
+lock, a `self.version` pin gets the locked short commit appended. A hex tag is a
 commit pin, so it counts as the hash. The name carries the first 7 characters of the hash, whatever
 length the resolver answered. A branch pin labels the hash and does not replace it. A branch moves, so
 its name alone would serve every commit ever pushed to it.
@@ -581,9 +625,8 @@ A cached zip that fails to unzip is deleted, so the fallback never serves a corr
 ### A 404
 
 **A 404 for a git dep is normal.** It means no prebuilt package exists for the current commit. It must
-NOT wipe the `git_status` file. A wiped status makes the next `check_status` report an SCM change and
-force a full rebuild. `check_status` already detects a real url, tag, branch or commit change by
-direct comparison.
+NOT wipe the `git_status` file: the cached artifacts still came from the recorded source. Without that
+provenance, the next build correctly treats them as stale and rebuilds.
 
 **A 404 is fatal for an `add_artifactory_pkg` dep.** Those urls are mandatory.
 

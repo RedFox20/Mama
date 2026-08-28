@@ -2,7 +2,7 @@
 import os
 from unittest.mock import patch
 
-from testutils import make_mock_dep, make_mock_shim_dep
+from testutils import git_init_commit, make_mock_dep, make_mock_shim_dep
 
 import mama.build_dependency as build_dependency
 from mama.types.git import Git
@@ -53,6 +53,19 @@ def test_unshallow_already_clone_target_skips_artifactory(tmp_path):
     _, fetch_mock = _load_unshallow_target(dep)
     fetch_mock.assert_not_called()
     assert not dep.from_artifactory
+
+
+def test_locked_unshallow_keeps_the_locked_checkout(tmp_path):
+    dep = make_mock_dep(tmp_path, unshallow=True)
+    dep.config.target_matches.return_value = True
+    dep.dep_source.locked_commit = 'a' * 40
+    git_init_commit(dep.src_dir)
+    source = dep.dep_source
+    with patch.object(source, 'unshallow') as unshallow, \
+         patch.object(source, 'checkout_locked_commit', return_value=False) as checkout:
+        assert source.dependency_checkout(dep)
+    unshallow.assert_called_once_with(dep)
+    checkout.assert_called_once_with(dep)
 
 
 def test_limbo_dir_is_wiped_and_recloned(tmp_path):

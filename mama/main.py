@@ -9,6 +9,7 @@ from .utils.paths import glob_with_extensions, glob_folders_with_name_match
 from .build_config import BuildConfig
 from .build_target import BuildTarget
 from .build_dependency import BuildDependency
+from .dependency_lock import read_lock, run_lock
 from .dependency_chain import (load_dependency_chain, execute_task_chain, execute_task_chain_parallel,
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
@@ -26,6 +27,7 @@ def print_usage():
     console('  actions:')
     console('    init       - create initial mamafile.py and CMakeLists.txt')
     console('    list       - list all mama dependencies on this project')
+    console('    lock       - write exact Git dependency commits to mama.lock')
     console('    build      - configure and build main project or specific target, this can clone, but does not pull')
     console('    update     - update and build target dependencies after calling git pull')
     console('    deploy     - runs PAPA deploy stage by gathering all libraries and assets')
@@ -100,6 +102,8 @@ def print_usage():
     console('    serial     - Disable parallel build of dependencies, useful for debugging')
     console('    buildstats - After the build, print per-package load/configure/build bars; plus a deep')
     console('                 frontend/backend breakdown on MSVC (vcperf) or Clang (-ftime-trace). <target> scopes it')
+    console('    platforms=<csv> - platforms covered by `lock`, for example linux,windows,android')
+    console('    commit=<sha> - exact commit for the dependency named by `lock`')
     console('  examples:')
     console('    mama init                      Initialize a new project. Tries to create mamafile.py and CMakeLists.txt')
     console('    mama build                     Update and build main project only. This only clones, but does not update!')
@@ -118,6 +122,9 @@ def print_usage():
     console('    mama build dep1                Update and build dep1 only.')
     console('    mama update dep1               Update and build the specified target.')
     console('    mama serve android             Update, build and deploy for Android')
+    console('    mama lock platforms=linux,windows Lock Git dependencies for Linux and Windows.')
+    console('    mama lock dep1 platforms=linux Refresh dep1 and its affected transitive entries.')
+    console('    mama lock dep1 commit=<sha> platforms=linux Select an exact reachable commit for dep1.')
     console('    mama wipe dep1                 Wipe target dependency completely and clone again. Does not build!')
     console('    mama upload dep1               Deploys and uploads dependency to Artifactory server.')
     console('    mama test                      Run tests on main project.')
@@ -306,6 +313,10 @@ def mamabuild(args, source_dir=os.getcwd()):
         console(f'MamaBuild version {__version__}')
         exit(0)
 
+    if 'lock' in args:
+        run_lock(args, source_dir)
+        return
+
     config = BuildConfig(args)
     config.root_source_dir = source_dir  # cwd for any `mama <host> build` bootstrap child (build_host_binary)
     if config.print:
@@ -328,6 +339,9 @@ def mamabuild(args, source_dir=os.getcwd()):
     if config.convenient_install:
         config.run_convenient_installs()
         return
+
+    config.dependency_lock = read_lock(source_dir)
+    if config.dependency_lock: config.dependency_lock.validate_platform(config.name())
 
     has_cmake = root.cmakelists_exists()
     if not root.mamafile_exists() and not has_cmake:
@@ -503,4 +517,3 @@ def __main__():
 
 if __name__ == '__main__':
     mamabuild(sys.argv[1:])
-
