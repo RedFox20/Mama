@@ -1,6 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.2 (2026-Sep-03)
+ - fix: correctly detect symlinked gcc-14 compiler installation
+
 release: 0.14.1 (2026-Aug-26)
  - feature: lock Git dependency commits across multiple platform graphs
  - bugfix: a targeted build relinks source-built parents after a child rebuilds

@@ -15,6 +15,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.2** (2026-Sep-03)
+ - fix: correctly detect symlinked gcc-14 compiler installation
+
 **0.14.1** (2026-Aug-26)
 - feature: lock Git dependency commits across multiple platform graphs
 - bugfix: a targeted build relinks source-built parents after a child rebuilds

@@ -639,24 +639,34 @@ class BuildConfig:
         """Find the root path that holds the compiler and the discovered name suffix.
         Returns (root_path, suffix, version)."""
         def resolve_compiler(cxx_path, suffix) -> tuple[str, str, str]:
-            original_path = cxx_path
+            original_path = os.path.abspath(cxx_path)
             cxx_path = os.path.realpath(cxx_path) # resolve symlinks
             if not os.path.exists(cxx_path):
                 return '', '', ''
             version = self.get_gcc_clang_fullversion(cxx_path, dumpfullversion)
-            root = forward_slashes(os.path.dirname(cxx_path)) + '/'
-            # A symlinked compiler and its target have different names, and the caller composes
-            # `root + compiler + suffix`, so try both names, then the dir of the link itself.
-            name = os.path.basename(cxx_path)
-            real = name[len(compiler):] if name.startswith(compiler) else ''
-            spelling = next((s for s in (real, suffix, '') if os.path.exists(f'{root}{compiler}{s}')), None)
-            if spelling is None:  # a target-prefixed name composes nothing here, and the link does
+            def compose(path):
+                """The root and suffix when `path` names a spelling that exists beside it."""
+                root = forward_slashes(os.path.dirname(path)) + '/'
+                name = os.path.basename(path)
+                compiler_at = name.rfind(compiler)
+                if compiler_at < 0: return None
+                spelling = name[compiler_at + len(compiler):]
+                return (root, spelling) if os.path.exists(f'{root}{compiler}{spelling}') else None
+
+            # realpath resolves the entire chain. Ubuntu's canonical target is target-prefixed, so
+            # read `-14` from x86_64-linux-gnu-g++-14 instead of choosing the unrelated bare g++.
+            composed = compose(cxx_path) or compose(original_path)
+            if composed:
+                root, spelling = composed
+            else:
                 root = forward_slashes(os.path.dirname(original_path)) + '/'
                 spelling = next((s for s in (suffix, '') if os.path.exists(f'{root}{compiler}{s}')), suffix)
             return root, spelling, version
 
         # priority paths first: /etc/alternatives is the user's configured default, ~/.local/bin a manual install
-        priority_choices = [ suggested_path, os.getenv('CXX'),
+        env_cxx = os.getenv('CXX')
+        if env_cxx and not os.path.exists(env_cxx): env_cxx = shutil.which(env_cxx)
+        priority_choices = [ suggested_path, env_cxx,
                             f'{os.getenv("HOME")}/.local/bin/{compiler}',
                             '/etc/alternatives/' + compiler ]
         for priority_cxx in priority_choices:

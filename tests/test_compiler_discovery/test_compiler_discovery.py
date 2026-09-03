@@ -25,6 +25,29 @@ def _link(target, link):
     except OSError as e: pytest.skip(f'this host cannot create a symlink: {e}')
 
 
+def _versioned_compiler(path, version):
+    """An executable compiler stand-in that answers the two version flags discovery uses."""
+    path.write_text(f'#!/bin/sh\ncase "$1" in\n  -dumpfullversion|-dumpversion) printf "%s\\n" "{version}" ;;\nesac\n')
+    path.chmod(0o755)
+
+
+def _ubuntu_gcc_layout(tmp_path):
+    """Ubuntu layout, with extra aliases that make each compiler chain three hops."""
+    bin_dir, shim_dir = tmp_path / 'bin', tmp_path / 'home' / '.local' / 'bin'
+    configured, default = tmp_path / 'configured', tmp_path / 'default'
+    bin_dir.mkdir(); shim_dir.mkdir(parents=True); configured.mkdir(); default.mkdir()
+    for compiler in ('gcc', 'g++'):
+        for major, version in (('13', '13.3.0'), ('14', '14.2.0')):
+            target = bin_dir / f'x86_64-linux-gnu-{compiler}-{major}'
+            _versioned_compiler(target, version)
+            _link(target.name, bin_dir / f'{compiler}-{major}')
+        _link(bin_dir / f'{compiler}-13', default / compiler)
+        _link(default / compiler, bin_dir / compiler)
+        _link(bin_dir / f'{compiler}-14', configured / compiler)
+        _link(configured / compiler, shim_dir / compiler)
+    return bin_dir
+
+
 def _find(path, suffixes):
     """Discovery with `path` as the only PATH that can answer. suggested_path names a FILE, so a
     directory reaches the search through PATH alone."""
@@ -121,3 +144,45 @@ def test_a_link_to_a_target_prefixed_compiler_keeps_a_name_that_exists(tmp_path)
     root, suffix, _ = _find(str(link_bin) + '/', ['-14', ''])
     assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
     assert os.path.exists(f'{root}{CC}{suffix}'), f'{root}{CC}{suffix}'
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='models Ubuntu compiler scripts and symlinks')
+def test_a_home_shim_uses_the_canonical_target_suffix_across_three_links(tmp_path, monkeypatch):
+    bin_dir = _ubuntu_gcc_layout(tmp_path)
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    monkeypatch.setenv('PATH', str(bin_dir))
+    monkeypatch.delenv('CXX', raising=False)
+    config = BuildConfig.__new__(BuildConfig); config.verbose = False
+
+    root, suffix, version = config.find_compiler_root(None, 'g++', ['-14', '-13', ''], True)
+
+    assert (root, suffix, version) == (str(bin_dir) + '/', '-14', '14.2.0')
+    assert os.path.realpath(root + 'g++' + suffix).endswith('x86_64-linux-gnu-g++-14')
+    assert os.path.realpath(root + 'gcc' + suffix).endswith('x86_64-linux-gnu-gcc-14')
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='models Ubuntu compiler scripts and symlinks')
+def test_an_explicit_default_compiler_resolves_its_canonical_version_across_three_links(tmp_path, monkeypatch):
+    bin_dir = _ubuntu_gcc_layout(tmp_path)
+    monkeypatch.setenv('HOME', str(tmp_path / 'empty-home'))
+    monkeypatch.setenv('PATH', str(bin_dir))
+    monkeypatch.delenv('CXX', raising=False)
+    config = BuildConfig.__new__(BuildConfig); config.verbose = False
+
+    assert config.find_compiler_root(str(bin_dir / 'g++'), 'g++', ['-14', '-13', ''], True) == \
+           (str(bin_dir) + '/', '-13', '13.3.0')
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='uses executable POSIX compiler stand-ins')
+def test_a_bare_cxx_env_name_is_resolved_through_path_before_the_version_scan(tmp_path, monkeypatch):
+    bin_dir = tmp_path / 'bin'; bin_dir.mkdir()
+    for compiler in (CC, CXX):
+        _versioned_compiler(bin_dir / f'{compiler}-13', '13.3.0')
+        _versioned_compiler(bin_dir / f'{compiler}-14', '14.2.0')
+    monkeypatch.setenv('HOME', str(tmp_path / 'empty-home'))
+    monkeypatch.setenv('PATH', str(bin_dir))
+    monkeypatch.setenv('CXX', f'{CXX}-13')
+    config = BuildConfig.__new__(BuildConfig); config.verbose = False
+
+    assert config.find_compiler_root(None, CXX, ['-14', '-13', ''], True) == \
+           (str(bin_dir) + '/', '-13', '13.3.0')
