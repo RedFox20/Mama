@@ -8,6 +8,7 @@ from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.raspi import Raspi, triple_for_arch
+from mama.platforms.aarch64 import Aarch64
 from mama.platforms.ios import Ios
 from mama.platforms.windows import Windows
 from mama.platforms.linux import Linux
@@ -174,12 +175,14 @@ class BuildConfig:
         self.clang_tidy_path = None # resolved path to clang-tidy executable
         # the ONE active platform: set_platform() derives the mamafile flags below from it, and nothing else stores platform state
         self.platform : Platform = None
+        self.platform_arg = ''  # the CLI arg that chose it, '' when nothing on the command line did
         self.msvc    = False # whether this is a MSVC build on Windows
         self.linux   = False
         self.macos   = False
         self.ios     : Ios = None
         self.android : Android = None
         self.raspi   : Raspi = None
+        self.aarch64 : Aarch64 = None # generic aarch64 linux TARGET, no vendor SDK. Not the host arch
         self.mips    : Mips = None
         self.oclea   : Oclea = None
         self.xilinx  : Xilinx = None
@@ -350,9 +353,6 @@ class BuildConfig:
             elif arg == 'x64':     self.set_arch('x64')
             elif arg == 'arm':     self.set_arch('arm')
             elif arg == 'arm64':   self.set_arch('arm64')
-            elif arg == 'aarch64':
-                console('warning: aarch64 is the same as arm64, setting to arm64')
-                self.set_arch('arm64')
             elif arg == 'clang':
                 self.gcc = False
                 self.clang = True
@@ -412,8 +412,8 @@ class BuildConfig:
     ## set_platform() flag to platform class name, in resolution order: the FIRST enabled flag wins.
     ## The lookup goes through this module's globals, so a test can monkeypatch a platform class.
     _PLATFORM_FLAGS = (('msvc','Windows'), ('linux','Linux'), ('macos','Macos'), ('ios','Ios'),
-                       ('android','Android'), ('raspi','Raspi'), ('oclea','Oclea'), ('mips','Mips'),
-                       ('xilinx','Xilinx'), ('imx8mp','Imx8mp'))
+                       ('android','Android'), ('raspi','Raspi'), ('aarch64','Aarch64'),
+                       ('oclea','Oclea'), ('mips','Mips'), ('xilinx','Xilinx'), ('imx8mp','Imx8mp'))
 
     def set_platform(self, **flags) -> bool:
         """Select the ONE active platform by flag, eg set_platform(android=True). The first enabled
@@ -426,9 +426,25 @@ class BuildConfig:
         return True
 
 
+    ## Args that used to pin an ARCH and now name a PLATFORM. Naming one after another platform is
+    ## almost always someone still spelling the old arch pin, so the error says which word to use.
+    _FORMER_ARCH_ARGS = {'aarch64': 'arm64'}
+
     def select_platform_arg(self, arg: str):
-        """Select the platform a CLI arg names, eg `raspi32` -> Raspi pinned to arm."""
+        """Select the platform a CLI arg names, eg `raspi32` -> Raspi pinned to arm.
+
+        A second arg naming a DIFFERENT platform raises. Letting the last one win is silent, and the
+        build it produces looks like a working build for the wrong target - `mama build android
+        aarch64` cross-compiled for linux and said nothing. Two args for the SAME platform are fine,
+        because that is how an arch alias works: `raspi raspi32`, `windows msvc`.
+        """
         cls, arch = platform_for_arg(arg)
+        if self.platform_arg and type(self.platform) is not cls:
+            hint = self._FORMER_ARCH_ARGS.get(arg)
+            hint = (f' `{arg}` names a platform, not an arch; pin the arch with `{hint}`.' if hint else
+                    ' Name one platform per build.')
+            raise RuntimeError(f'Conflicting platform args: `{self.platform_arg}` and `{arg}`.' + hint)
+        self.platform_arg = arg
         self.set_platform_class(cls)
         if arch: self.set_arch(arch)
 
@@ -452,6 +468,7 @@ class BuildConfig:
         self.ios     = obj(Ios)
         self.android = obj(Android)
         self.raspi   = obj(Raspi)
+        self.aarch64 = obj(Aarch64)
         self.oclea   = obj(Oclea)
         self.mips    = obj(Mips)
         self.xilinx  = obj(Xilinx)

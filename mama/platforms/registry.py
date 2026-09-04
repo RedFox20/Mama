@@ -5,6 +5,7 @@ from .macos import Macos
 from .ios import Ios
 from .android import Android
 from .raspi import Raspi
+from .aarch64 import Aarch64
 from .mips import Mips
 from .oclea import Oclea
 from .xilinx import Xilinx
@@ -14,7 +15,7 @@ from ..utils.system import System
 
 # Every platform mama supports, in CMake guard order: android is also UNIX and APPLE also matches
 # Darwin, so the specific platforms come before WIN32, APPLE and UNIX. A new platform is one line here.
-PLATFORMS = (Android, Windows, Ios, Macos, Raspi, Oclea, Xilinx, Imx8mp, Mips, Linux)
+PLATFORMS = (Android, Windows, Ios, Macos, Raspi, Aarch64, Oclea, Xilinx, Imx8mp, Mips, Linux)
 
 
 def _build_arg_map() -> dict:

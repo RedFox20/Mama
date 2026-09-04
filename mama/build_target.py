@@ -82,6 +82,7 @@ class BuildTarget:
         self.version = ''
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
+        self.cmake_aarch64_toolchain = '' # Custom generic aarch64 linux toolchain file for this target only
         self.cmake_ios_toolchain   = '' # Custom iOS toolchain file for this target only
         self.cmake_opts       = []
         self.cmake_cxxflags   = dict()
@@ -947,8 +948,8 @@ class BuildTarget:
     def select(self, **platforms):
         """
         Picks the value whose keyword names the active platform, else None. Every platform name works:
-        `windows`, `linux`, `macos`, `ios`, `android`, `raspi`, `mips`, `oclea`, `xilinx`, `imx8mp`,
-        plus `yocto_linux` for any Yocto board and `msvc` as an alias of `windows`.
+        `windows`, `linux`, `macos`, `ios`, `android`, `raspi`, `aarch64`, `mips`, `oclea`, `xilinx`,
+        `imx8mp`, plus `yocto_linux` for any Yocto board and `msvc` as an alias of `windows`.
         ```
             opts = self.select(windows='/W4', linux='-Wall')
         ```
@@ -2100,6 +2101,6 @@ class BuildTarget:
 
 # The platform flags a mamafile reads off `self`, forwarded from config. Properties, not copies,
 # so a platform switch inside init() stays visible. See README "Platform detection properties".
-for _flag in ('msvc', 'linux', 'macos', 'ios', 'android', 'raspi', 'oclea',
-              'xilinx', 'mips', 'imx8mp', 'yocto_linux'):
+for _flag in ('msvc', 'linux', 'macos', 'ios', 'android', 'raspi', 'aarch64',
+              'oclea', 'xilinx', 'mips', 'imx8mp', 'yocto_linux'):
     setattr(BuildTarget, _flag, property(lambda self, name=_flag: getattr(self.config, name)))

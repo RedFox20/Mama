@@ -15,6 +15,7 @@ _PLATFORMS = [
     ('linux',   'x86_64',  None),
     ('android', 'aarch64', os.getenv('ANDROID_NDK_HOME') or '/opt/android-sdk/ndk'),
     ('raspi',   'aarch64', '/usr/bin/aarch64-linux-gnu-gcc'),
+    ('aarch64',  'aarch64', '/usr/bin/aarch64-linux-gnu-gcc'),
     ('raspi32', 'arm',     '/usr/bin/arm-linux-gnueabihf-gcc'),
     ('mips',    'mips',    '/usr/bin/mipsel-linux-gnu-gcc'),
     ('oclea',   'aarch64', '/opt/oclea/1.0'),

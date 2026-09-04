@@ -7,6 +7,7 @@ from mama.utils.paths import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
 from mama.platforms.raspi import Raspi, triple_for_arch
+from mama.platforms.aarch64 import Aarch64
 from mama.platforms.registry import platform_named
 
 
@@ -66,6 +67,7 @@ def fake_toolchains(tmp_path, monkeypatch):
     for arch in Raspi.supported_arches:
         make_cross_bin_tree(raspi, triple_for_arch(arch))
     mips = make_cross_bin_tree(f'{root}/mips', 'mipsel-linux-gnu')
+    aarch64 = make_cross_bin_tree(f'{root}/aarch64', 'aarch64-linux-gnu')
 
     # a CI runner ships its own Android SDK and sets several of these, and ANDROID_NDK_LATEST_HOME
     # is read FIRST, so the fake NDK only wins once every one of them is gone
@@ -73,10 +75,13 @@ def fake_toolchains(tmp_path, monkeypatch):
     monkeypatch.setenv('ANDROID_HOME', f'{root}/android-sdk')
     monkeypatch.setenv('ANDROID_NDK_HOME', ndk)
     monkeypatch.setattr(Raspi, '_search_paths', lambda self: [raspi])
+    # its own linux_paths end in /usr, so without this it resolves the HOST's real cross package
+    monkeypatch.setattr(Aarch64, '_search_paths', lambda self: [aarch64])
     monkeypatch.setattr(GenericYocto, 'append_env_path', lambda self, paths, env: None)
     _patch_yocto_paths(monkeypatch, {'oclea': oclea, 'imx8mp': imx, 'xilinx': xilinx})
     _patch_mips_paths(monkeypatch, mips)
-    return dict(ndk=ndk, oclea=oclea, imx8mp=imx, xilinx=xilinx, raspi=raspi, mips=mips)
+    return dict(ndk=ndk, oclea=oclea, imx8mp=imx, xilinx=xilinx, raspi=raspi, mips=mips,
+                aarch64=aarch64)
 
 
 def _patch_yocto_paths(monkeypatch, roots):

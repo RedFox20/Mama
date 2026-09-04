@@ -6,7 +6,7 @@ import pytest
 from mama.build_config import BuildConfig
 from mama.platforms.platform import Platform
 from types import SimpleNamespace
-import mama.platforms.raspi as raspi_mod
+import mama.platforms.gnu_cross as gnu_cross_mod
 from mama.platforms.registry import PLATFORMS, platform_for_arg, host_platform, platform_named
 from mama.build_names import build_dir_name
 
@@ -43,6 +43,24 @@ def test_the_arg_drives_the_whole_config(arg, name, arch, build_dir):
     assert config.name() == name
     assert config.arch == arch
     assert build_dir_name(config) == build_dir
+
+
+@pytest.mark.parametrize('args', [['android', 'linux'], ['raspi', 'oclea'], ['aarch64', 'android'],
+                                  ['macos', 'ios'], ['windows', 'mips']])
+def test_two_args_naming_different_platforms_raise(args):
+    """Last-one-wins is silent, and the build it produces looks like a working build for the wrong
+    target. A second platform arg is a mistake every time, so say so at parse time."""
+    with pytest.raises(RuntimeError, match='Conflicting platform args'):
+        BuildConfig(args)
+
+
+@pytest.mark.parametrize('args,name,arch', [(['raspi', 'raspi32'], 'raspi', 'arm'),
+                                            (['raspi32', 'raspi'], 'raspi', 'arm'),
+                                            (['windows', 'msvc'], 'windows', 'x64')])
+def test_two_args_naming_the_SAME_platform_are_fine(args, name, arch):
+    """That is what an arch alias is: `raspi32` is Raspi pinned to arm, and `msvc` is windows."""
+    config = BuildConfig(args)
+    assert config.name() == name and config.arch == arch
 
 
 def test_the_host_platform_is_used_when_no_arg_names_one():
@@ -127,5 +145,5 @@ def test_a_cross_platform_names_a_full_path_for_its_archiver(windows, suffix):
     from mama.platforms.raspi import Raspi
     raspi = Raspi(SimpleNamespace(verbose=False, arch='arm64'))
     raspi.compilers = '/opt/rpi/bin/'
-    with patch.object(raspi_mod.System, 'windows', windows):
+    with patch.object(gnu_cross_mod.System, 'windows', windows):
         assert raspi.archiver() == f'/opt/rpi/bin/{raspi.triple()}-ar{suffix}'

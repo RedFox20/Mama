@@ -110,6 +110,7 @@ _ALL_PLATFORMS = [('windows', 'x64'), ('windows32', 'x86'), ('windows-arm64', 'a
                   ('linux', 'x64'), ('linux32', 'x86'), ('linux-arm64', 'arm64'),
                   ('macos', 'x64'), ('macos-arm64', 'arm64'), ('ios', 'arm64'),
                   ('android', 'arm64'), ('android32', 'arm'), ('raspi', 'arm64'), ('raspi32', 'arm'),
+                  ('aarch64', 'arm64'),
                   ('oclea', 'arm64'), ('xilinx', 'arm64'), ('imx8mp', 'arm64'), ('mips', 'mips')]
 
 

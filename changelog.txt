@@ -1,6 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.3 (2026-Sep-05)
+ - feature: added generic AARCH64 Linux platform for easier cross-builds
+
 release: 0.14.2 (2026-Sep-03)
  - fix: correctly detect symlinked gcc-14 compiler installation
 

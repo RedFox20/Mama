@@ -68,6 +68,7 @@ def print_usage():
     console('    oclea      - build for oclea/ambarella yocto')
     console('    raspi      - build for raspi (arm64, every Pi since the Pi 3)')
     console('    raspi32    - build for raspi 32-bit armv7 (legacy)')
+    console('    aarch64    - build for generic aarch64 linux (aarch64-linux-gnu cross toolchain)')
     console('    mips       - build for mips architecture')
     console('    macos      - build for macos')
     console('    ios        - build for ios')

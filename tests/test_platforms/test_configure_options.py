@@ -3,6 +3,7 @@ import pytest
 
 from testutils import platform_cxx_flags, platform_target
 from mama.buildsys.cmake import configure as cc
+from mama.platforms.aarch64 import Aarch64
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
 from mama.platforms.ios import Ios
@@ -26,6 +27,7 @@ def _opts(tmp_path, platform_class, arch=None, **overrides):
     (Android, 'arm64', 'Android', 'aarch64'),
     (Android, 'arm',   'Android', 'armv7-a'),
     (Raspi,   'arm64', 'Linux',   'aarch64'),
+    (Aarch64, 'arm64', 'Linux', 'aarch64'),
     (Raspi,   'arm',   'Linux',   'armv7-a'),
     (Mips,    'mipsel','Linux',   'mipsel'),
     (Oclea,   'arm64', 'Linux',   'aarch64'),
@@ -72,12 +74,13 @@ def test_android_passes_the_make_program_exactly_once(tmp_path, fake_toolchains)
 
 
 @pytest.mark.parametrize('platform_class,define', [(Raspi, 'RASPI'), (Mips, 'MIPS'),
+                                                   (Aarch64, 'AARCH64_LINUX'),
                                                    (Oclea, 'OCLEA'), (Imx8mp, 'IMX8MP'), (Xilinx, 'XILINX')])
 def test_a_board_announces_itself_to_the_project(platform_class, define, tmp_path, fake_toolchains):
     assert f'{define}=TRUE' in _opts(tmp_path, platform_class)
 
 
-@pytest.mark.parametrize('platform_class,mode', [(Raspi, 'NEVER'), (Mips, 'ONLY')])
+@pytest.mark.parametrize('platform_class,mode', [(Raspi, 'NEVER'), (Aarch64, 'NEVER'), (Mips, 'ONLY')])
 def test_the_find_root_program_mode_is_per_platform(platform_class, mode, tmp_path, fake_toolchains):
     """MIPS ships its own binutils and must find them in the toolchain. A raspi distro cross package
     ships none, so cmake has to take the compiler tools mama named."""
@@ -105,13 +108,14 @@ def test_ios_builds_for_the_device_not_the_simulator(tmp_path):
 @pytest.mark.parametrize('platform_class,arch,march', [
     (Android, 'arm64', 'armv8-a'), (Android, 'arm', 'armv7-a'),
     (Raspi, 'arm64', 'armv8-a'),   (Raspi, 'arm', 'armv7-a'),
+    (Aarch64, 'arm64', 'armv8-a'),
     (Oclea, 'arm64', 'armv8-a'),   (Imx8mp, 'arm64', 'armv8-a'),
 ])
 def test_the_march_follows_the_target_arch(platform_class, arch, march, tmp_path, fake_toolchains):
     assert platform_cxx_flags(tmp_path, platform_class, arch)['-march'] == march
 
 
-@pytest.mark.parametrize('platform_class', [Android, Oclea, Imx8mp, Raspi])
+@pytest.mark.parametrize('platform_class', [Android, Oclea, Imx8mp, Raspi, Aarch64])
 def test_a_target_march_pin_beats_the_platform_default(platform_class, tmp_path, fake_toolchains):
     flags = platform_cxx_flags(tmp_path, platform_class, 'arm64', target_march={'arm64': 'armv8.2-a'})
     assert flags['-march'] == 'armv8.2-a'

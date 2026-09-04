@@ -15,6 +15,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.3** (2026-Sep-05)
+ - feature: added generic AARCH64 Linux platform for easier cross-builds
+
 **0.14.2** (2026-Sep-03)
  - fix: correctly detect symlinked gcc-14 compiler installation
 
@@ -25,43 +28,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 - bugfix: the default job count reads the container cpu limit, not the host
 - bugfix: a mama.cmake include in a subdirectory CMakeLists.txt gets a proxy
 - bugfix: mama replaces a mama.cmake only when it generated that file
-
-**0.14.0** (2026-Aug-23)
-- feature: a package exports its C++20 modules, and the consumer compiles them
-    mama exports every .cppm under an exported include dir, no recipe change
-    export_modules() narrows that list, no_export_modules() opts out
-    papa.txt records each one as  M include/rpp/rpp-strview.cppm
-    the consumer calls mama_target_modules(MyApp), which adds a CXX_MODULES
-      file set, cxx_std_20 and MAMA_HAS_MODULES=1
-    the deployed static lib drops its module objects, so a whole-archive
-      consumer link does not hit a duplicate module initializer
-    export_modules(strip_objects=False) keeps them, for a module that
-      carries a non-inline definition
-    needs cmake 3.28, and Ninja 1.11 or Visual Studio 2022
-    needs GCC 14, Clang 18 with clang-scan-deps, or MSVC 19.34
-    clang builds no module under the Visual Studio generator
-    a consumer raises a floor with MAMA_MODULES_MIN_CLANG=21, or turns the
-      feature off with MAMA_ENABLE_MODULES=OFF
-- feature: enable_cxxNN() sets CMAKE_CXX_STANDARD and CMAKE_CXX_EXTENSIONS
-    target_compile_features() reads the standard as a property, not a flag
-    a gnu++NN flag keeps the extensions on
-- bugfix: enable_cxx23() emitted /std:/std:c++23preview on MSVC
-- bugfix: compiler discovery composed a path no symlinked toolchain has,
-    and it split PATH on ':' on Windows
-
-**0.13.17** (2026-Aug-18)
-- feature: mama writes mama.cmake for a dep whose CMakeLists.txt includes it
-    it lands beside that CMakeLists.txt, so a nested one finds it too
-    a missing proxy the CMakeLists.txt includes now fails the run by name
-- feature: CI logs name each stage, and a killed compiler names its signal
-- bugfix: `jobs=N` now caps ninja, which read the host core count in CI
-- bugfix: Visual Studio and Xcode offer only configurations that link, and an
-    MSVC debug build links again with one release CRT for the whole tree
-- bugfix: a failed or stopped download names the reason and keeps its cache
-    GnuProject.download_timeout raises the wait for one slow mirror
-- bugfix: unpublish reaches a bare target name, and names what it matched
-- bugfix: build_host_binary finds the host tool the bootstrap child built
-- bugfix: a Windows abort no longer leaves a grandchild process running
 
 ## Why Mama
 
@@ -107,6 +73,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - iOS (64-bit arm64) via config.ios_version
 - Android (64-bit arm64, 32-bit armv7) via env ANDROID_NDK_HOME or ANDROID_HOME
 - Raspberry Pi (64-bit arm64 default, 32-bit armv7 via `raspi32`) via env RASPI_HOME
+- Generic AArch64 Linux (64-bit arm64, boards with no vendor SDK) via `aarch64` and env AARCH64_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain() or env OCLEA_HOME
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
 - MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain()
@@ -437,7 +404,8 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 
 Use these boolean properties in mamafiles for platform-conditional logic:
 `self.windows`, `self.msvc`, `self.linux`, `self.macos`, `self.ios`, `self.android`,
-`self.raspi`, `self.oclea`, `self.xilinx`, `self.imx8mp`, `self.mips`, `self.yocto_linux`
+`self.raspi`, `self.aarch64`, `self.oclea`, `self.xilinx`, `self.imx8mp`, `self.mips`,
+`self.yocto_linux`
 
 `self.config.platform` is the active platform object, and `self.config.platform.name` is its
 name (`'linux'`, `'imx8mp'`, ...). See [docs/platforms.md](docs/platforms.md) for how platform
@@ -462,7 +430,7 @@ self.add_cl_flags('-fPIC')                           # Both C and C++ flags
 self.add_ld_flags('-lm')                             # Linker flags
 self.add_platform_cxx_flags(linux='-fPIC', windows='/W4')  # Per-platform C++ flags
 self.add_platform_ld_flags(linux='-pthread')               # Per-platform linker flags
-# Any platform name works: windows, linux, macos, ios, android, raspi, mips,
+# Any platform name works: windows, linux, macos, ios, android, raspi, aarch64, mips,
 # oclea, xilinx, imx8mp, plus yocto_linux for any Yocto board
 self.add_platform_cxx_flags(imx8mp='-mcpu=cortex-a53', yocto_linux='-DEMBEDDED=1')
 ```

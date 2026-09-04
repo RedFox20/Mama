@@ -11,6 +11,7 @@ _GUARDS = {
     'ios':     'APPLE AND IOS_PLATFORM',
     'macos':   'APPLE',
     'raspi':   'RASPI',
+    'aarch64': 'AARCH64_LINUX',
     'oclea':   'OCLEA',
     'xilinx':  'XILINX',
     'imx8mp':  'IMX8MP',
