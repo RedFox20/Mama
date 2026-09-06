@@ -1,6 +1,9 @@
 # Mama Build Tool
 Mama - A modular C++ build tool so simple even your mama can use it
 
+[![Tests][tests-badge]][tests-url] [![PyPI][pypi-badge]][pypi-url]
+[![Python][python-badge]][pypi-url] [![License][license-badge]][license-url]
+
 Mama turns a tree of C++ libraries, your own and third-party, into a single `mama build`.
 It clones, configures and builds them in dependency order for every platform and compiler
 you target, then links the results into your project. No central package repository, no
@@ -15,19 +18,16 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.4** (2026-Sep-07)
+ - feature: coverage only applies to current target, dependencies stay regular
+ - bugfix: a coverage build refuses to upload to artifactory
+ - bugfix: coverage flag reaching linker when it should not
+
 **0.14.3** (2026-Sep-05)
  - feature: added generic AARCH64 Linux platform for easier cross-builds
 
 **0.14.2** (2026-Sep-03)
  - fix: correctly detect symlinked gcc-14 compiler installation
-
-**0.14.1** (2026-Aug-26)
-- feature: lock Git dependency commits across multiple platform graphs
-- bugfix: a targeted build relinks source-built parents after a child rebuilds
-- bugfix: a TLS certificate failure no longer skips every later fetch and clone
-- bugfix: the default job count reads the container cpu limit, not the host
-- bugfix: a mama.cmake include in a subdirectory CMakeLists.txt gets a proxy
-- bugfix: mama replaces a mama.cmake only when it generated that file
 
 ## Why Mama
 
@@ -1038,3 +1038,11 @@ with `InvalidDistribution: unrecognized or malformed field 'license-expression'`
 and build again.
 
 Quick build & upload: `./deploy.sh`
+
+[tests-badge]: https://github.com/RedFox20/Mama/actions/workflows/tests.yml/badge.svg
+[tests-url]: https://github.com/RedFox20/Mama/actions/workflows/tests.yml
+[pypi-badge]: https://img.shields.io/pypi/v/mama.svg
+[pypi-url]: https://pypi.org/project/mama/
+[python-badge]: https://img.shields.io/pypi/pyversions/mama.svg
+[license-badge]: https://img.shields.io/pypi/l/mama.svg
+[license-url]: https://github.com/RedFox20/Mama/blob/master/LICENSE
