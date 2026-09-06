@@ -101,11 +101,12 @@ def test_the_triple_drives_the_compiler_paths(tmp_path):
     p = _aarch64()
     p.init_toolchain(str(tmp_path))
     assert p.triple() == 'aarch64-linux-gnu'
+    ext = executable_extension()  # a full path never completes from PATHEXT, so every tool carries the suffix
     assert p.compiler_prefix() == f'{tmp_path}/bin/aarch64-linux-gnu-'
-    assert p.archiver() == f'{tmp_path}/bin/aarch64-linux-gnu-ar'
+    assert p.archiver() == f'{tmp_path}/bin/aarch64-linux-gnu-ar{ext}'
     tc = p.toolchain()
-    assert tc.cc == f'{tmp_path}/bin/aarch64-linux-gnu-gcc'
-    assert tc.cxx == f'{tmp_path}/bin/aarch64-linux-gnu-g++'
+    assert tc.cc == f'{tmp_path}/bin/aarch64-linux-gnu-gcc{ext}'
+    assert tc.cxx == f'{tmp_path}/bin/aarch64-linux-gnu-g++{ext}'
 
 
 def test_a_distro_cross_package_passes_no_sysroot(tmp_path):

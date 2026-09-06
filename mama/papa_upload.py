@@ -204,13 +204,23 @@ def _local_module_can_publish(target:BuildTarget, executed:str) -> bool:
     return False
 
 
+def _instrumented_build_can_publish(target:BuildTarget) -> bool:
+    """An instrumented object records the absolute `.gcda` path of the machine that built it. Every
+    other machine then makes libgcov print `Cannot create directory` at process exit. No consumer reads
+    the coverage of a dep either, so refuse the upload and let the build finish."""
+    if not target.config.instruments(target.dep): return True
+    error(f'  - Target {target.name: <16} UPLOAD REFUSED: a coverage build writes the .gcda paths of ' +
+          'this machine into its objects. Build without `coverage` to publish this package.')
+    return False
+
+
 def papa_upload_to(target:BuildTarget, package_full_path:str):
     """Archives the deployed PAPA package, validates it, and uploads it to the artifactory server.
     - target: the configured and packaged target
     - package_full_path: full path to the deployed PAPA package
     """
-    if not _download_can_find_this_version(target):
-        return
+    if not _instrumented_build_can_publish(target): return
+    if not _download_can_find_this_version(target): return
     package_full_path = package_full_path if package_full_path else target.build_dir()
     papa_file = normalized_join(package_full_path, 'papa.txt')
     if not os.path.exists(papa_file):

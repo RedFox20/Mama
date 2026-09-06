@@ -91,7 +91,7 @@ def print_usage():
     console('    sanitize=  - enables -fsanitize= for gcc/clang builds [address|leak|thread|undefined]')
     console('    asan|lsan|tsan|ubsan - shorthands for sanitize=address|leak|thread|undefined respectively')
     console('    clang-tidy - enables clang-tidy static analysis during build, clang-tidy must be in PATH')
-    console('    coverage   - Builds the project with GCC --coverage option')
+    console('    coverage   - Builds the named target with GCC --coverage option. `all` instruments every dep')
     console('    coverage-report[=src_root] - Generates coverage report using gcovr')
     console('    silent     - Greatly reduces verbosity')
     console('    verbose    - Greatly increases verbosity for build dependencies and cmake')

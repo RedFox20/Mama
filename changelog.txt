@@ -1,6 +1,11 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+unreleased
+ - feature: coverage only applies to current target, dependencies stay regular
+ - bugfix: coverage build is not allowed to upload to artifactory
+ - bugfix: coverage flag reaching linker when it shouldnt
+
 release: 0.14.3 (2026-Sep-05)
  - feature: added generic AARCH64 Linux platform for easier cross-builds
 

@@ -210,10 +210,43 @@ minutes later, and every `MAMA_` variable reads as an empty string.
   `linuxarm`, `windows32`, `macosarm`).
 - `-clang` appears only on a Linux clang build. gcc keeps the bare name, so existing trees do not
   churn. Elsewhere the toolset or the SDK already fixes the compiler.
-- The variant is `build_variant_suffix`: `-cov` for coverage, then one token per sanitizer, then the
-  dep args. Each token gets its own `-`. A plain build with no args adds nothing.
+- The variant is `build_variant_suffix`: `-cov` for an instrumented dep, then one token per sanitizer,
+  then the dep args. Each token gets its own `-`. A plain build with no args adds nothing.
 - Dep args are sorted, lowercased, de-duplicated and stripped to ASCII alphanumerics. `+` becomes
   `p`, so `C++20` is `cpp20`. `NEWMATH=1` is `newmath1`, distinct from `newmath2`.
+
+**`coverage` names ONE target, the sanitizer names the tree.** `BuildConfig.instruments(dep)` decides.
+It is true when `coverage` is set and the dep is the target the user named. That is every dep under
+`all`, the root when the user named none, else the dep whose name matches, ignoring case. Every OTHER
+dep builds in the dir it uses without `coverage`, so `mama coverage app test` reads `libnet` out of
+`linux` and `mama asan coverage app test` reads it out of `linux-asan`. The predicate reads `user_target`, never
+`target`, because `update` and `deps_only` rewrite `target` to `all`.
+
+**Why:** an instrumented object records the absolute `.gcda` path of the machine that built it. A
+published one then makes libgcov print `Cannot create directory` on every other machine. Nobody reads
+the coverage of a dep either: `coverage-report` runs gcovr over the build dir of the target alone.
+
+**The archive follows the build dir.** Both read `dep.variant_suffix`. A dep OUTSIDE the coverage
+target uploads the archive a plain run uploads. A coverage variant then shares the packages of the
+plain variant.
+
+**An instrumented dep uploads nothing.** `_instrumented_build_can_publish` refuses it, prints
+`UPLOAD REFUSED` and lets the build finish, the same way the version guard beside it does. So no
+archive on the server ever carries `-cov`, and `mama coverage <target> upload` publishes nothing.
+
+**The compile flag instruments, the link flag is wider.** Only an instrumented dep compiles with
+`--coverage`, and MSVC gets `/fsanitize-coverage` instead. On gcc and clang, a dep links with
+`--coverage` when the run instruments it or any dep below it. libgcov defines the `__gcov_*` symbols
+those objects name. MSVC never gets a coverage link flag.
+
+**The parent half of that link rule is defensive today.** Every run scopes the build to the subtree of
+its target. The instrumented dep is then the top of the scope, and no parent of it configures. The
+rule holds if that scope ever widens. `mama coverage build deps_only` instruments the root and then drops
+the root from the build, so it uploads plain archives and measures nothing. That is what
+`deps_only` is for.
+
+**The compiler seed drops the `cov` token.** Coverage flags are compile flags and they change no
+compiler detection. A coverage run then reuses the seed a plain run probed.
 
 **An `-march` pin NEVER renames a build dir.** It renames the arch field of the artifactory archive
 name and nothing else. The root mamafile owns the pin, so it is constant for a checkout and two pins
@@ -306,8 +339,8 @@ name and the artifactory archive name both read it, so they cannot disagree.
 10. **Open the one build log** of the run, under the workspace the root just named.
 11. A `sched_debug` run prints the build-weight table and returns. Else pick the execution path below,
     then run it.
-12. `list` prints the package listing. Then `coverage-report`, or a `test` run built with coverage,
-    prints a coverage report and returns. `open` runs last.
+12. `list` prints the package listing. Then `coverage-report`, or a `test` run whose target carries
+    the `enabled_coverage` marker, prints a coverage report and returns. `open` runs last.
 
 ### The two execution paths
 
@@ -383,7 +416,9 @@ exact reachable commit.
 `if_needed` skips an upload when the archive already exists.
 
 **Diagnostics**: `sanitize=<list>`, `asan`, `lsan`, `tsan`, `ubsan`, `clang-tidy`, `coverage`,
-`coverage=<opt>`, `coverage-report`, `coverage-report=<src_root>`, `buildstats`.
+`coverage=<opt>`, `coverage-report`, `coverage-report=<src_root>`, `buildstats`. `coverage` instruments
+the target the user named, and `all` instruments every dep, see `build_dir_name` above. A sanitizer
+stays tree-wide, because a sanitized link needs every object sanitized.
 
 **Loading**: `parallel` (the default), `serial`, `parallel_max=N` (default 20),
 `git_timeout=<seconds>`, `unshallow`, `https-override`, `ssh-override`.

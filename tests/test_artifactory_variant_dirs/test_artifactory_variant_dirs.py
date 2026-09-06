@@ -43,9 +43,18 @@ def test_package_lands_in_the_variant_build_dir(tmp_path, sanitize, dir_name):
     assert target.exported_libs == [f'{dep.build_dir}/lib/libfoo.a']
 
 
-def test_a_coverage_build_gets_its_own_dir_and_archive(tmp_path):
-    dep, _ = _fetch(tmp_path, _publish(tmp_path, 'address', coverage='default'), 'address', coverage='default')
+def test_the_coverage_target_gets_its_own_dir_and_archive(tmp_path):
+    cov = dict(coverage='default', user_target='libfoo')
+    dep, _ = _fetch(tmp_path, _publish(tmp_path, 'address', **cov), 'address', **cov)
     assert dep.build_dir.endswith('/libfoo/linux-cov-asan')
+
+
+def test_a_dep_outside_the_coverage_target_reuses_the_plain_variant_dir_and_archive(tmp_path):
+    cov = dict(coverage='default', user_target='app')
+    archive = _publish(tmp_path, 'address', **cov)
+    assert '-cov-' not in os.path.basename(archive)  # a coverage run uploads the archive a plain run uploads
+    dep, _ = _fetch(tmp_path, archive, 'address', **cov)
+    assert dep.build_dir.endswith('/libfoo/linux-asan')
 
 
 def test_a_sanitizer_fetch_leaves_the_plain_build_dir_alone(tmp_path):

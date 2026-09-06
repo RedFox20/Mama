@@ -208,6 +208,12 @@ def _clang_scan_deps(cxx:str) -> str:
         or find_executable_from_system('clang-scan-deps')
 
 
+def _seed_config_name(config) -> str:
+    """The build dir name of this config with the coverage token dropped. gcov flags are compile flags
+    and they do not change compiler detection, so a coverage run reuses the seed of a plain run."""
+    return build_names.build_dir_name(config, build_names.build_variant_suffix(config, coverage=False))
+
+
 def _seed_id(target:BuildTarget) -> str:
     """Platform-qualified seed id, e.g. `android-arm64-3f9c...`. A HOST seed reaching a cross build
     dir would make cmake skip system determination and compile with host flags, silently. The name
@@ -216,7 +222,7 @@ def _seed_id(target:BuildTarget) -> str:
     fp = seedcache.compute_fingerprint(_seed_inputs(target))
     # Config-only, NOT dep.build_dir_name: this names a COMPILER seed, and a dep's args do not
     # change compiler detection. Per-dep naming here would re-probe the compiler per arg set.
-    return f'{build_names.build_dir_name(config)}-{config.arch}-{fp}'
+    return f'{_seed_config_name(config)}-{config.arch}-{fp}'
 
 
 def _seed_inputs(target:BuildTarget) -> dict:
@@ -224,7 +230,7 @@ def _seed_inputs(target:BuildTarget) -> dict:
     cc, cxx, ver = config.get_preferred_compiler_paths()
     inputs = {
         'cmake': _cmake_version_number(config, target.cmake_command), 'gen': _generator(target),
-        'arch': config.arch, 'platform': build_names.build_dir_name(config),
+        'arch': config.arch, 'platform': _seed_config_name(config),
         'cc': seedcache.compiler_stat(cc) if cc else {},
         'cxx': seedcache.compiler_stat(cxx) if cxx else {},
         'cver': ver, 'sdk': os.environ.get('WindowsSDKVersion', ''),
@@ -707,7 +713,7 @@ def _default_options(target:BuildTarget):
             add_flag('-fPIE')
             add_ldflag('-pie') # -pie is a linker flag
 
-    if config.coverage:
+    if config.instruments(target.dep):
         if config.msvc:
             option = 'edge' if config.coverage == 'default' else config.coverage
             console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
@@ -717,7 +723,11 @@ def _default_options(target:BuildTarget):
             add_flag('--coverage')
             if config.gcc:
                 add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
-            ld_coverage='--coverage'
+
+    # The link flag is wider than the compile flag: a parent that links an instrumented dep needs
+    # libgcov, and without it every `__gcov_*` symbol of that dep stays undefined.
+    if (config.gcc or config.clang) and target.dep.links_coverage():
+        ld_coverage = '--coverage'
 
     opt = [
         "CMAKE_POSITION_INDEPENDENT_CODE=ON",
@@ -756,11 +766,10 @@ def _default_options(target:BuildTarget):
 
     config.platform.get_ld_flags(add_ldflag)
 
-    ldflags_str = get_flags_string(ldflags)
-    if ldflags_str:
-        exe_ldflags = ldflags_str
-        if ld_sanitize: exe_ldflags += ' ' + ld_sanitize
-        if ld_coverage: exe_ldflags += ' ' + ld_coverage
+    # join first, then test: a parent that only LINKS a coverage target adds no compiler flag, so an
+    # empty platform ldflags must still leave `--coverage` on the link line
+    exe_ldflags = ' '.join(filter(None, [get_flags_string(ldflags), ld_sanitize, ld_coverage]))
+    if exe_ldflags:
         opt += [
             f'CMAKE_EXE_LINKER_FLAGS="{exe_ldflags}"',
             f'CMAKE_MODULE_LINKER_FLAGS="{exe_ldflags}"',

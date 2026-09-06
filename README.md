@@ -205,6 +205,11 @@ the chosen protocol.
   coverage-report[=src_root]     Generate coverage report using gcovr.
 ```
 
+`coverage` instruments the target you name and no other dependency. `mama coverage app test` builds
+`app` in `linux-cov` and reads every dependency out of `linux`, the same dir a plain build uses. Name
+`all` to instrument the whole tree. A sanitizer stays tree-wide, because a sanitized link needs every
+object sanitized.
+
 ### Build statistics: `buildstats`
 
 `mama build buildstats` prints a timing report after the build finishes.
@@ -850,7 +855,7 @@ directory (`linux-cov-asan-lgpl`), so a build and the package it uploads can nev
 
 | axis | token | comes from |
 |---|---|---|
-| coverage | `-cov` | `coverage` on the command line |
+| coverage | `-cov` | `coverage` on the command line, on the named target alone |
 | sanitizers | `-asan` `-tsan` `-lsan` `-ubsan` `-msan` | `sanitize=address` / `asan` / ... |
 | dep args | `-lgpl` `-cpp20` | `add_git(..., args=['LGPL'])` in the consumer |
 

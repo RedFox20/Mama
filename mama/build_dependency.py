@@ -183,13 +183,20 @@ class BuildDependency:
         return self.children
 
 
+    def links_coverage(self) -> bool:
+        """True when the run instruments this dep or any dep below it. A parent that links a coverage
+        target needs `--coverage` on its link line for libgcov, and it compiles nothing instrumented."""
+        if self.config.instruments(self): return True
+        return any(child.links_coverage() for child in (self.children or []))
+
+
     def _update_dep_name_and_dirs(self, name):
         self.name = name
         dep_name = name
         # A branch or tag in the dep name complicates the package system and adds little value, so dep_name stays plain.
         # The build dir and the artifactory archive name both read this variant suffix, so a build and its
         # uploaded package always agree. A second parent that adds more args recomputes it (update_existing_dependency).
-        self.variant_suffix = build_names.build_variant_suffix(self.config, self.target_args)
+        self.variant_suffix = build_names.build_variant_suffix(self.config, self.target_args, self.config.instruments(self))
         self.dep_dir = normalized_join(self.config.workspaces_root, self.workspace, dep_name)
         self.build_dir_name = build_names.build_dir_name(self.config, self.variant_suffix)
         self.build_dir = normalized_join(self.dep_dir, self.build_dir_name)
@@ -919,8 +926,8 @@ class BuildDependency:
 
     def save_enabled_coverage(self):
         coverage_file = self.coverage_enabled_path()
-        if self.target.config.coverage:
-            write_text_to(coverage_file, self.target.config.coverage)
+        if self.config.instruments(self):
+            write_text_to(coverage_file, self.config.coverage)
         elif os.path.exists(coverage_file):
             os.remove(coverage_file)
     

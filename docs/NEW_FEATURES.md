@@ -23,6 +23,14 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`coverage` instruments the target the user named, not the whole tree.** `mama coverage app test`
+  builds `app` in `<platform>-cov`. Every other dep keeps the dir a plain run uses, so a warm tree
+  rebuilds one target instead of all of them. `mama coverage all` still instruments every dep.
+  A dep outside the coverage target uploads the archive a plain run uploads, and an instrumented dep
+  refuses to upload at all. No artifactory package then carries the `.gcda` paths of one machine.
+  `BuildConfig.instruments(dep)` is the one predicate, and a dep that only LINKS an instrumented dep
+  still gets `--coverage` for libgcov.
+
 - **`mama lock platforms=...` freezes Git dependencies across platform graphs.** The generated
   `mama.lock` records repositories, declared selectors and exact commits. Normal builds honor it,
   while targeted lock refreshes can select the current declared ref or an older reachable commit.

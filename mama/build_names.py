@@ -53,7 +53,7 @@ def arch_marker(config: BuildConfig) -> str:
     return token if token.startswith(ARCHES) else config.arch + token
 
 
-def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
+def build_variant_suffix(config: BuildConfig, dep_args=(), coverage=None) -> str:
     """Every axis that makes a build unique beyond the platform, the arch and the compiler: coverage, the
     sanitizers, then the dep args. Coarsest axis first, each token with its own '-', and '' for a plain
     build with no args, so an existing name stays byte-identical.
@@ -67,8 +67,13 @@ def build_variant_suffix(config: BuildConfig, dep_args=()) -> str:
     the same way it knows the platform and the compiler. Sorted, lowercased, de-duplicated and stripped of
     punctuation, so the call order, the letter case and a repeated arg never change a name. A '+' becomes
     'p' ('C++20' -> 'cpp20'), and a key=value arg keeps both halves ('NEWMATH=1' -> 'newmath1', which
-    stays distinct from 'NEWMATH=2')."""
-    tokens = ['cov'] if config.coverage else []
+    stays distinct from 'NEWMATH=2').
+
+    `coverage` says whether the run instruments THIS dep, because coverage belongs to the target the
+    user named and not to the tree. None reads config.coverage, so a caller that names no dep still
+    gets the variant of the run itself."""
+    if coverage is None: coverage = config.coverage
+    tokens = ['cov'] if coverage else []
     if config.sanitize:
         tokens += [_SANITIZER_SHORT_NAMES.get(s, s) for s in
                    filter(None, (s.strip() for s in config.sanitize.split(',')))]

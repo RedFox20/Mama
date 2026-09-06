@@ -17,7 +17,8 @@ class FakeTarget:
     def __init__(self, build_root: Path):
         build_root.mkdir(parents=True, exist_ok=True)
         self.name = 'sample_pkg'
-        self.config = SimpleNamespace(verbose=False, print=False)
+        self.config = SimpleNamespace(verbose=False, print=False, coverage=None,
+                                      instruments=lambda dep: False)
         self.version = ''   # unpinned, so the upload's version guard reads the same '' on both sides
         # a git dep, so the guard compares the two readers instead of walking a local source tree
         self._build_root = normalized_path(str(build_root))
@@ -120,3 +121,14 @@ def test_validate_archive_rejects_unexpected_content(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match='unexpected='):
         validate_archive(str(package_root), papa, str(archive_path))
+
+
+def test_a_coverage_build_never_uploads(tmp_path: Path, capsys):
+    """An instrumented object holds the .gcda paths of the machine that built it, so libgcov fails on
+    every other one. No consumer reads the coverage of a dep either."""
+    target = FakeTarget(tmp_path / 'build')
+    target.config.instruments = lambda dep: True
+    with patch('mama.papa_upload.artifactory_archive_name') as name:
+        papa_upload_to(target, str(tmp_path))
+    name.assert_not_called()  # no zip, no ftp: the guard returns first
+    assert 'UPLOAD REFUSED' in capsys.readouterr().out

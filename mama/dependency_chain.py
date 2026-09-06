@@ -505,7 +505,8 @@ def _save_mama_cmake(root: BuildDependency, path: str):
 
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion often fails to detect macro paths
-        build_dir = build_names.build_dir_name(config, platform_dir=build_dir)
+        # this dep's OWN variant, because a coverage run instruments the named target and not the tree
+        build_dir = build_names.build_dir_name(config, root.variant_suffix, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
     first = (read_lines_from(path, errors='replace') or [''])[0]

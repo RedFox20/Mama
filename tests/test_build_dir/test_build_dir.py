@@ -83,7 +83,7 @@ def test_msan_uses_the_same_short_name_as_the_archive():
     assert build_dir_name(c) == 'linux-msan'
 
 
-def _dep_with_args(tmp_path, args, **cfg_overrides):
+def _dep_with_args(tmp_path, args, name='libffmpeg', is_root=True, **cfg_overrides):
     """A real BuildDependency on a real BuildConfig. __init__ composes the variant suffix and the dirs
     without any clone or disk write, so the name is known before the clone."""
     from mama.build_dependency import BuildDependency
@@ -91,9 +91,13 @@ def _dep_with_args(tmp_path, args, **cfg_overrides):
     cfg = linux_config()
     cfg.workspaces_root = str(tmp_path)
     for k, v in cfg_overrides.items(): setattr(cfg, k, v)
-    git = Git(name='libffmpeg', url='https://example.com/libffmpeg.git', branch='', tag='',
+    git = Git(name=name, url=f'https://example.com/{name}.git', branch='', tag='',
               mamafile=None, shallow=True, args=args)
-    return BuildDependency(parent=None, config=cfg, workspace='packages', dep_source=git)
+    dep = BuildDependency(parent=None, config=cfg, workspace='packages', dep_source=git)
+    if not is_root:
+        dep.is_root = False
+        dep._update_dep_name_and_dirs(dep.name)  # is_root picks the coverage variant
+    return dep
 
 
 def test_dep_args_get_their_own_build_dir(tmp_path):
@@ -117,3 +121,31 @@ def test_a_second_parent_with_more_args_updates_the_build_dir(tmp_path):
                                        branch='', tag='', mamafile=None, shallow=True, args=['NEWMATH=1']))
     assert dep.variant_suffix == '-lgpl-newmath1'
     assert dep.build_dir.endswith('/linux-lgpl-newmath1')
+
+
+# --- coverage scopes to the target the user named, the sanitizer stays tree-wide ---
+
+def _cov_dir(tmp_path, name='libffmpeg', is_root=False, **cfg):
+    return _dep_with_args(tmp_path, [], name=name, is_root=is_root, coverage='default', **cfg).build_dir_name
+
+
+def test_a_coverage_run_with_no_target_instruments_the_root_alone(tmp_path):
+    assert _cov_dir(tmp_path, is_root=True) == 'linux-cov'
+    assert _cov_dir(tmp_path) == 'linux'
+
+
+def test_a_dep_outside_the_coverage_target_keeps_the_dir_it_uses_without_coverage(tmp_path):
+    assert _cov_dir(tmp_path, name='libffmpeg', user_target='libffmpeg') == 'linux-cov'
+    assert _cov_dir(tmp_path, name='libnet', user_target='libffmpeg') == 'linux'
+    assert _cov_dir(tmp_path, name='libnet', user_target='libffmpeg', sanitize='address') == 'linux-asan'
+
+
+def test_the_target_all_instruments_every_dep(tmp_path):
+    assert _cov_dir(tmp_path, name='libnet', user_target='all') == 'linux-cov'
+    assert _cov_dir(tmp_path, name='libnet', user_target='all', sanitize='address') == 'linux-cov-asan'
+
+
+def test_a_command_that_rewrites_the_target_does_not_widen_the_coverage(tmp_path):
+    # `update` and `deps_only` rewrite config.target to 'all', so the predicate reads user_target
+    assert _cov_dir(tmp_path, name='libnet', target='all') == 'linux'
+    assert _cov_dir(tmp_path, is_root=True, target='all') == 'linux-cov'

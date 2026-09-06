@@ -1118,6 +1118,18 @@ class BuildConfig:
         """ True when the cmdline named no target, or named 'all' """
         return self.no_target() or self.targets_all()
 
+
+    def instruments(self, dep) -> bool:
+        """True when `coverage` instruments this dep. Coverage belongs to the target the user named, so
+        every other dep builds in the dir it uses without `coverage` and reuses its plain archive. The
+        sanitizer stays tree-wide, because a sanitized link needs every object sanitized.
+
+        Reads user_target, not target. `update` and `deps_only` rewrite target to `all`, and
+        `mama coverage update test` must instrument the root alone."""
+        if not self.coverage: return False
+        if not self.user_target: return dep.is_root
+        return self.user_target == 'all' or dep.name.lower() == self.user_target.lower()
+
     def is_network_available(self) -> bool:
         """Lazily cached: True until a clearly network-related failure marks it False."""
         return self._network_available is not False

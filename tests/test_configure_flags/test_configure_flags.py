@@ -1,8 +1,8 @@
 """Pins the flags mama puts on the cmake configure command line."""
 import pytest
 
-from testutils import (make_configured_target, run_config_capturing, write_cmake_cache, set_mock_platform,
-                       configure_cmd)
+from testutils import (add_local_child, make_configured_target, run_config_capturing, write_cmake_cache,
+                       set_mock_platform, configure_cmd)
 from mama.platforms.mips import Mips
 from mama.platforms.windows import Windows
 from mama.buildsys.cmake import configure as cc
@@ -138,3 +138,37 @@ def test_a_standard_spelling_inside_a_macro_value_is_not_an_operator_flag(tmp_pa
     target.config.flags = '-DDEFAULT_STD=-std=c++17'
     target.enable_cxx23()
     assert 'CMAKE_CXX_STANDARD=23' in cc._cxx_standard_opts(target)
+
+
+# --- coverage instruments the target the user named, and every parent still links libgcov ---
+
+def _coverage_flags(tmp_path, name='libfoo', **overrides):
+    """(the compiler flags, the exe linker flags, the dep) of a coverage configure of `name`."""
+    t, dep = make_configured_target(tmp_path, name=name, coverage='default', **overrides)
+    opts = cc._default_options(t)
+    return t.cmake_cxxflags, cc._named_option(opts, 'CMAKE_EXE_LINKER_FLAGS'), dep
+
+
+def test_the_coverage_target_compiles_and_links_instrumented(tmp_path):
+    cxx, ld, _ = _coverage_flags(tmp_path, name='libfoo', user_target='libfoo')
+    assert '--coverage' in cxx and '-fprofile-abs-path' in cxx
+    assert ld == '--coverage'
+
+
+def test_a_dep_outside_the_coverage_target_gets_no_coverage_flag_at_all(tmp_path):
+    cxx, ld, _ = _coverage_flags(tmp_path, name='libnet', user_target='libfoo')
+    assert '--coverage' not in cxx and '--coverage' not in ld
+
+
+def test_a_parent_of_a_coverage_target_links_libgcov_without_instrumenting_itself(tmp_path):
+    """Without the link flag the parent relink fails on every undefined __gcov_* symbol of the child."""
+    t, dep = make_configured_target(tmp_path, name='app', coverage='default', user_target='libnet')
+    add_local_child(dep, 'libnet')
+    opts = cc._default_options(t)
+    assert '--coverage' not in t.cmake_cxxflags
+    assert cc._named_option(opts, 'CMAKE_EXE_LINKER_FLAGS') == '--coverage'
+
+
+def test_a_plain_run_puts_no_linker_flags_on_the_command_line(tmp_path):
+    t, _ = make_configured_target(tmp_path)
+    assert cc._named_option(cc._default_options(t), 'CMAKE_EXE_LINKER_FLAGS') == ''

@@ -13,7 +13,7 @@ from unittest.mock import Mock
 import mama
 import pytest
 
-from mama.build_config import DeployStats
+from mama.build_config import BuildConfig, DeployStats
 from mama.platforms.platform import Platform
 from mama.platforms.linux import Linux
 from mama.utils.fileio import write_text_to
@@ -198,6 +198,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.reclone = False
     cfg.run_cmake_configure = False
     cfg.target = None
+    cfg.user_target = None  # the coverage predicate reads it, and a Mock attribute would name every dep
     cfg.cmake_toolchain_file = ''  # a toolchain-file build takes a different compiler path
     cfg.clean_only.return_value = False  # Mock methods are truthy by default
     cfg.list = False
@@ -241,6 +242,8 @@ def make_mock_config(tmp_path, **overrides):
     cfg.sanitize = None
     cfg.target_march = {}  # a Mock dict would answer .get() with a truthy Mock and rename every build dir
     for k, v in overrides.items(): setattr(cfg, k, v)
+    # the real predicate, so a build dir under `coverage` gets the name the run would give it
+    cfg.instruments = lambda dep: BuildConfig.instruments(cfg, dep)
     if not isinstance(getattr(cfg, 'platform', None), Platform):
         set_mock_platform(cfg, Linux)  # after overrides, so a test can pass its own platform=
     return cfg
@@ -335,6 +338,7 @@ def make_mock_dep(tmp_path, name='libfoo', url='https://example.com/libfoo.git',
     git.commit_hash = commit
     dep = BuildDependency(parent=None, config=config, workspace='packages', dep_source=git)
     dep.is_root = False  # tests rarely have a real parent chain
+    dep._update_dep_name_and_dirs(dep.name)  # is_root picks the coverage variant, so re-derive the dirs
     dep.create_build_dir_if_needed()
     return dep
 
@@ -612,6 +616,18 @@ def make_mock_local_dep(tmp_path, src_dir, name='libfoo', always_build=False, **
     dep._update_dep_name_and_dirs(name)
     dep.create_build_dir_if_needed()
     return dep
+
+
+def add_local_child(parent, name, src_dir=None):
+    """A real child BuildDependency on the parent's config, registered as its child. For a test that
+    needs a two-level graph and no clone. `src_dir` defaults to the parent source dir."""
+    from mama.build_dependency import BuildDependency
+    from mama.types.local_source import LocalSource
+    src = LocalSource(name=name, rel_path=str(src_dir or parent.src_dir), mamafile=None, always_build=False, args=[])
+    child = BuildDependency(parent=parent, config=parent.config, workspace=parent.workspace, dep_source=src)
+    child._update_dep_name_and_dirs(name)
+    parent.children.append(child)
+    return child
 
 
 _repo_templates = {}     # (branch, files) -> a built repo that a later call copies instead of rebuilding
