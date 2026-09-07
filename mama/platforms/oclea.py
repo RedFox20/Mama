@@ -6,7 +6,8 @@ class Oclea(GenericYocto):
     """Ambarella CV25 by Oclea. A Cortex-A53 based SoC with a hardware video encoder."""
     name = 'oclea'
     host_triple = 'aarch64-oclea-linux'
-    search_paths = ('/opt/oclea/1.0', 'oclea-toolchain', 'oclea-toolchain/toolchain')
+    # the root, never a version dir: expand_versioned_sdks appends it last, so a 1.0 install still wins
+    search_paths = ('/opt/oclea', 'oclea-toolchain', 'oclea-toolchain/toolchain')
     search_envs = ('OCLEA_HOME', 'OCLEA_SDK')
     compiler_name = 'usr/bin/aarch64-oclea-linux/aarch64-oclea-linux-gcc'
     sdk_name = 'x86_64-ocleasdk-linux'

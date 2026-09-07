@@ -7,7 +7,8 @@ class Imx8mp(GenericYocto):
     that NXP and third parties like IMD Tec ship."""
     name = 'imx8mp'
     host_triple = 'aarch64-poky-linux'
-    search_paths = ('/opt/imdt-imx-xwayland/5.0.4', '/opt/imx8mp-sdk', 'imx8mp-toolchain')
+    # every root, never a version dir: expand_versioned_sdks only expands a root, newest version first
+    search_paths = ('/opt/imdt-imx-xwayland', '/opt/imx8mp-sdk', 'imx8mp-toolchain')
     search_envs = ('IMX8MP_SDK_HOME',)
     compiler_name = 'usr/bin/aarch64-poky-linux/aarch64-poky-linux-gcc'
     sdk_name = 'x86_64-pokysdk-linux'

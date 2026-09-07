@@ -1,5 +1,5 @@
 """Pins the CLI arg to platform mapping and the class contract every platform must satisfy."""
-import inspect
+import inspect, os
 from unittest.mock import patch
 import pytest
 
@@ -7,6 +7,7 @@ from mama.build_config import BuildConfig
 from mama.platforms.platform import Platform
 from types import SimpleNamespace
 import mama.platforms.gnu_cross as gnu_cross_mod
+from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.registry import PLATFORMS, platform_for_arg, host_platform, platform_named
 from mama.build_names import build_dir_name
 
@@ -147,3 +148,31 @@ def test_a_cross_platform_names_a_full_path_for_its_archiver(windows, suffix):
     raspi.compilers = '/opt/rpi/bin/'
     with patch.object(gnu_cross_mod.System, 'windows', windows):
         assert raspi.archiver() == f'/opt/rpi/bin/{raspi.triple()}-ar{suffix}'
+
+
+# --- a Yocto board searches SDK roots, never one version dir ---
+
+def _names_a_version(path: str) -> bool:
+    return all(part.isdigit() for part in path.rstrip('/').rsplit('/', 1)[-1].split('.'))
+
+
+@pytest.mark.parametrize('platform_class', [p for p in PLATFORMS if issubclass(p, GenericYocto)])
+def test_a_yocto_board_names_no_version_dir_in_its_search_paths(platform_class):
+    """expand_versioned_sdks expands a ROOT into its versions, newest first. A path that already names
+    one version expands to itself, so every other version under that root goes undiscovered."""
+    versioned = [p for p in platform_class.search_paths if _names_a_version(p)]
+    assert not versioned, f'{platform_class.name} pins a version: {versioned}. Name the root instead.'
+
+
+def test_a_root_expands_to_every_version_newest_first(tmp_path):
+    root = tmp_path / 'imdt-imx-xwayland'
+    for v in ('5.0.4', '6.1.0', '6.0.2'): (root / v).mkdir(parents=True)
+    found = GenericYocto.expand_versioned_sdks([str(root)])
+    assert [os.path.basename(p) for p in found[:3]] == ['6.1.0', '6.0.2', '5.0.4']
+    assert found[-1] == str(root)  # the root itself stays last, for a flat legacy install
+
+
+def test_a_pinned_version_dir_hides_every_other_version(tmp_path):
+    root = tmp_path / 'imdt-imx-xwayland'
+    for v in ('5.0.4', '6.1.0'): (root / v).mkdir(parents=True)
+    assert GenericYocto.expand_versioned_sdks([f'{root}/5.0.4']) == [f'{root}/5.0.4']
