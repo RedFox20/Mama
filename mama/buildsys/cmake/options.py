@@ -50,7 +50,9 @@ def platform_opts(target:BuildTarget) -> list:
 
     opts = []
     if platform.platform_define: opts.append(f'{platform.platform_define}=TRUE')
-    if tc.host_toolset: opts.append(f'CMAKE_GENERATOR_TOOLSET=host={tc.host_toolset}')
+    # only Visual Studio takes a toolset. Ninja and make stop the configure on it, and vcvarsall names the host
+    if tc.host_toolset and not (target.enable_ninja_build or target.enable_unix_make):
+        opts.append(f'CMAKE_GENERATOR_TOOLSET=host={tc.host_toolset}')
     if platform.is_cross:
         # EVERY cross platform emits both. On a seeded build dir cmake skips system determination, the
         # toolchain file never runs, and a processor it alone carries falls back to the host's.

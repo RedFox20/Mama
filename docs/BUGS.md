@@ -13,6 +13,13 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A root that exports its whole source dir also copies the dir tree of its workspace.** The last
+  fallback of `default_package_includes` exports `''` (`build_target.py:1497`). `copy_dir` then walks
+  `packages/` too, and it makes every dir it enters before the header filter runs (`fileio.py:210`). A
+  deploy writes an empty `include/<root>/packages/<dep>/<platform>/CMakeFiles/...` tree, and on Windows
+  that path passes 260 chars. Repro: `tests/test_papa_deploy` under a long temp dir. Fix: prune the
+  workspace dir in `_prune_walk_dirs`, and make a dir only when a file in it passes the filter.
+
 - **The RAM cap for parallel compiles reads the host memory.** `_mem_capped_budget` divides
   `psutil.virtual_memory().total` by `_GB_PER_COMPILE` (`dependency_chain.py:696`), and psutil reads
   `/proc/meminfo`, which reports the host inside a memory-limited cgroup. A container held to 2 GB on a
@@ -48,6 +55,22 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **An x86 MSVC target under Ninja or Unix Makefiles got `CMAKE_GENERATOR_TOOLSET=host=x86`.**
+  Fix: `platform_opts` emits the toolset only under Visual Studio, the same as `-A`.
+
+- **An MSVC target under Unix Makefiles got the MSBuild flags `/maxcpucount`, `/v:m` and `/nologo`.**
+  Fix: `_mp_flags` and `_buildsys_flags` test `enable_unix_make` before `config.msvc`.
+
+- **A local module never hit its artifactory package.** The upload hashed the `mama.cmake` the build
+  wrote, and the download did not. Fix: the version walk skips every file named `mama.cmake`.
+
+- **The generator error recovery was dead code on Windows, and it kept `CMakeFiles`.** Fix: the
+  generator check comes first, and the recovery wipes `CMakeCache.txt` and `CMakeFiles`. A dir with no
+  fingerprint compares its cached generator before the configure.
+
+- **ls-remote gave up after 5 seconds, and a failure under `update` dropped the package of a shim.**
+  Fix: it waits `git_timeout`, and a probe that resolves no commit loads the cached package.
 
 - **A TLS failure marked the network unavailable, so the run skipped every later fetch and clone.**
   Fix: `is_network_error` answers False for an `ssl.SSLError`, bare or wrapped in a `URLError`.

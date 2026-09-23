@@ -1,5 +1,8 @@
-"""Pins MSVC toolset selection: newest version with a live cl.exe, not os.listdir order."""
-from unittest.mock import Mock
+"""Pins MSVC toolset selection: newest version with a live cl.exe, not os.listdir order. Also the vcvarsall env."""
+import os
+from unittest.mock import Mock, patch
+
+import pytest
 
 from mama.platforms import windows
 from mama.platforms.windows import latest_msvc_toolset
@@ -62,3 +65,27 @@ def test_a_toolset_without_cl_is_rejected_not_returned(tmp_path):
     # failure somewhere more confusing - msvc_tools_path() raises 'Could not detect MSVC Tools'
     (tmp_path / '14.51.36112' / 'bin' / 'Hostx86' / 'x86').mkdir(parents=True)
     assert latest_msvc_toolset(str(tmp_path)) == ''
+
+
+def _vcvarsall_env(tmp_path, printed, status=0):
+    """vcvarsall_env over a cmd.exe that prints `printed`, with PATH=A;B and KEEP=same in this process."""
+    bat = tmp_path / 'vcvarsall.bat'; bat.write_text('')
+    def fake_run(cmd, cwd=None, env=None, io_func=None, timeout=None, idle_timeout=None):
+        for line in printed: io_func(None, line)
+        return status
+    env = {'PATH': os.pathsep.join(('A', 'B')), 'KEEP': 'same'}
+    with patch('mama.platforms.windows.SubProcess.run', autospec=True, side_effect=fake_run), \
+         patch.dict(os.environ, env, clear=True):
+        return windows.vcvarsall_env(str(bat), 'x64', '14.51.36231')
+
+
+def test_vcvarsall_env_keeps_what_the_script_changed_in_its_order(tmp_path):
+    path = os.pathsep.join(('C', 'A', 'B'))
+    printed = [f'Path={path}\r\n', 'INCLUDE=X\r\n', 'KEEP=same\r\n', 'no equals sign']
+    assert _vcvarsall_env(tmp_path, printed) == {'PATH': path, 'INCLUDE': 'X'}
+
+
+def test_a_failed_vcvarsall_raises(tmp_path):
+    # vcvarsall prints its error into >nul and exits nonzero, so `&& set` never runs and nothing comes back
+    with pytest.raises(EnvironmentError, match='vcvarsall.bat x64 -vcvars_ver=14.51.36231 failed'):
+        _vcvarsall_env(tmp_path, [], status=1)

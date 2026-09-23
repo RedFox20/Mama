@@ -539,7 +539,7 @@ class Git(DepSource):
                 ssh_multiplex.ensure_master_for_url(self.url)
                 with ssh_multiplex.fetch_slot():
                     ssh_multiplex.pace_new_connection()
-                    result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=5)
+                    result = execute_piped(f'git ls-remote {self.url} {arguments}', timeout=dep.config.git_timeout)
                 # ls-remote answers `<sha>\t<ref>` per line, so split on any whitespace, not on a space.
                 if result: result = Git.short_hash(result.split()[0])
                 if dep.config.verbose:

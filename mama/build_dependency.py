@@ -498,12 +498,7 @@ class BuildDependency:
             return False
         # Plain `mama build` trusts the cached shim. Under `update` the regular probe re-extracts, and
         # `noart` never arrives here, because it forces the source clone above.
-        if self.is_artifactory_shim() and not self.config.update:
-            cached = self.try_load_cached_shim(check_staleness=False)
-            if cached is not None:
-                self.target = cached
-                self.did_check_artifactory = True
-                return True
+        if not self.config.update and self._load_cached_shim(): return True
         # regular shim probe: for an already-cloned dep the update path (fetch+reset) is correct, so skip it
         if not self.is_real_clone() and self.can_fetch_artifactory(print=False, which='SHIM'):
             shim_target, shim_deps = try_load_artifactory_shim(self)
@@ -514,8 +509,21 @@ class BuildDependency:
                 return True
             # The probe found no package. An `update` still has to move the dep forward, so drop a
             # marker whose commit upstream has left behind and let the git path clone the source.
-            if self.config.update: self._drop_shim_if_upstream_moved()
+            if self.config.update:
+                # An empty commit_hash means ls-remote failed. Without the cached package the dep loads with none.
+                if not self.dep_source.commit_hash and self._load_cached_shim(): return True
+                self._drop_shim_if_upstream_moved()
         return False
+
+
+    def _load_cached_shim(self) -> bool:
+        """Load the package a shim marker names, with no network call. True when it loaded."""
+        if not self.is_artifactory_shim(): return False
+        cached = self.try_load_cached_shim(check_staleness=False)
+        if cached is None: return False
+        self.target = cached
+        self.did_check_artifactory = True
+        return True
 
 
     def _drop_shim_if_upstream_moved(self) -> bool:

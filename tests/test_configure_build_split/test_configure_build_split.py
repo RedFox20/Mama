@@ -125,6 +125,12 @@ def test_ninja_takes_an_explicit_job_count(tmp_path):
     assert cc._buildsys_flags(t) == '-- -j1'  # ninja is parallel by default, so serial must say so
 
 
+def test_msvc_under_unix_makefiles_takes_make_flags(tmp_path):
+    t, _ = _target(tmp_path)  # config.jobs = 8
+    t.enable_unix_make, t.config.msvc = True, True
+    assert cc._buildsys_flags(t) == '-- -j8'  # make rejects /maxcpucount, /v:m and /nologo
+
+
 def test_configure_phase_sizes_build_weight_from_tu_count(tmp_path):
     # A _build_jobs left None makes every build reserve the whole budget and run one-at-a-time.
     t, dep = _target(tmp_path)  # config.jobs = 8

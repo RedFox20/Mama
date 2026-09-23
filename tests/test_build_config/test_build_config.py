@@ -1,6 +1,7 @@
 """Pins BuildConfig: the default job count, the compiler-conflict note, and the flag aliases."""
 import os, psutil, threading
 import pytest
+from testutils import make_mock_local_dep
 from mama.build_config import BuildConfig
 from mama.utils import system
 
@@ -250,3 +251,61 @@ def test_announce_once_is_silent_when_printing_is_off():
     c.print = False; c._announced = set(); c._announce_lock = threading.Lock()
     c.announce_once('toolchain', 'nope')
     assert c._announced == set()
+
+
+@pytest.fixture
+def ninja(monkeypatch):
+    """A Windows host with ninja installed, where `native` means Visual Studio."""
+    monkeypatch.delenv('MAMA_GENERATOR', raising=False)
+    monkeypatch.setattr(BuildConfig, 'find_ninja_build', lambda self: '/usr/bin/ninja')
+    monkeypatch.setattr('mama.build_config.System.windows', True)
+    monkeypatch.setenv('HOMEPATH', 'home')  # a Windows host reads it, and a Linux runner has none
+
+
+@pytest.mark.parametrize('arg, prefer', [('generator=ninja', True), ('generator=native', False)])
+def test_the_generator_token_pins_the_choice(ninja, arg, prefer):
+    c = BuildConfig([arg])
+    assert c.prefer_ninja is prefer and c.generator_pinned
+
+
+def test_the_command_line_beats_mama_generator(ninja, monkeypatch):
+    monkeypatch.setenv('MAMA_GENERATOR', 'ninja')
+    assert BuildConfig([]).prefer_ninja is True
+    assert BuildConfig(['generator=native']).prefer_ninja is False
+    monkeypatch.setenv('MAMA_GENERATOR', 'bogus')  # the flag replaces it, so nothing reads it
+    assert BuildConfig(['generator=native']).prefer_ninja is False
+
+
+def test_only_an_unpinned_generator_takes_the_mamafile_default(ninja):
+    pinned, free = BuildConfig(['generator=native']), BuildConfig([])
+    for c in (pinned, free): c.set_default_generator('ninja')
+    assert pinned.prefer_ninja is False and free.prefer_ninja is True
+
+
+def test_native_prefers_ninja_on_every_other_host(monkeypatch):
+    monkeypatch.setattr('mama.build_config.System.windows', False)
+    c = _bare_cfg(ninja_path='')  # no ninja: native falls back as the default does, and never raises
+    assert c._prefers_ninja('native', 'generator') is True
+
+
+def test_an_unknown_generator_is_refused(ninja):
+    with pytest.raises(RuntimeError, match='generator=xcode: use ninja or native'):
+        BuildConfig(['generator=xcode'])
+
+
+def test_a_named_ninja_that_is_missing_is_refused(monkeypatch):
+    monkeypatch.delenv('MAMA_GENERATOR', raising=False)
+    monkeypatch.setattr(BuildConfig, 'find_ninja_build', lambda self: '')
+    with pytest.raises(EnvironmentError, match='no ninja executable'):
+        BuildConfig(['generator=ninja'])
+
+
+@pytest.mark.parametrize('is_root', [True, False])
+def test_only_the_root_mamafile_sets_the_default_generator(tmp_path, is_root):
+    dep = make_mock_local_dep(tmp_path, src_dir=tmp_path)
+    dep.config.prefers_ninja_build.return_value = True
+    dep.is_root = is_root
+    dep.target.enable_ninja_build = False
+    dep.target.set_default_generator('ninja')
+    assert dep.config.set_default_generator.called is is_root
+    assert bool(dep.target.enable_ninja_build) is is_root

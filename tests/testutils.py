@@ -231,6 +231,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
+    cfg.prefers_ninja_build.return_value = False
     cfg.ninja_version.return_value = ''  # the generated mama.cmake writes this number verbatim
     cfg.cmake_command = 'cmake'
     # artifactory_archive_name and the papa `O` record use these
@@ -273,6 +274,7 @@ def platform_target(tmp_path, platform_class, arch=None, **overrides):
     target, dep = make_configured_target(tmp_path, **overrides)
     dep.config.arch = arch or platform_class.default_arch or 'x64'
     dep.config.cmake_toolchain_file = ''
+    target.enable_ninja_build = False  # the generator the platform itself names
     set_mock_platform(dep.config, platform_class)
     return target, dep
 
@@ -710,6 +712,7 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     defaults = {'jobs': 8, 'coverage': False, 'clang_tidy': False}  # a test may override any of them
     dep = make_mock_local_dep(tmp_path, src_dir=sub, **{**defaults, **config_overrides})
     dep.config.get_preferred_compiler_paths.return_value = compiler
+    dep.target.enable_ninja_build = True  # the generator the caches of these tests record
     return dep.target, dep
 
 
@@ -745,6 +748,7 @@ def configure_cmd(tmp_path, generator, platform_class=None, cmake_opts=(), **con
     target, dep = make_configured_target(tmp_path, **config_overrides)
     if platform_class: set_mock_platform(dep.config, platform_class)
     if cmake_opts: target.add_cmake_options(list(cmake_opts))
+    target.enable_ninja_build = 'Ninja' in generator  # MSVC names cl.exe only under Ninja
     with patch('mama.buildsys.cmake.configure._generator', return_value=generator):
         return run_config_capturing(target, dep)[0]
 
@@ -812,6 +816,12 @@ def write_cmake_cache(build_dir, text):
     """Write a raw CMakeCache.txt into build_dir (created if missing)."""
     os.makedirs(build_dir, exist_ok=True)
     with open(os.path.join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f: f.write(text)
+
+
+def symlink_or_skip(target, link):
+    """Make a symlink, or skip the test. Windows grants that right to an admin or to developer mode alone."""
+    try: os.symlink(target, link)
+    except OSError as e: pytest.skip(f'this host cannot create a symlink: {e}')
 
 
 def write_build_file(build_dir, name='build.ninja'):

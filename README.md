@@ -18,6 +18,14 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.5** (2026-Sep-24)
+ - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version
+ - feature: generator=ninja|native picks the generator of every target
+ - feature: MSVC builds with Ninja: mama loads vcvarsall and names cl.exe
+ - bugfix: a local module downloads its package instead of a rebuild each run
+ - bugfix: mama reconfigures a build dir that another generator wrote
+ - bugfix: under update, a slow git ls-remote keeps the package of a dependency
+
 **0.14.4** (2026-Sep-07)
  - feature: coverage only applies to current target, dependencies stay regular
  - bugfix: a coverage build refuses to upload to artifactory
@@ -25,9 +33,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 **0.14.3** (2026-Sep-05)
  - feature: added generic AARCH64 Linux platform for easier cross-builds
-
-**0.14.2** (2026-Sep-03)
- - fix: correctly detect symlinked gcc-14 compiler installation
 
 ## Why Mama
 
@@ -169,6 +174,9 @@ graph and selectors. Regenerate the lock after changing either one. Do not edit 
   deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
                                  When combined with a target name, applies to that target's dependencies only.
   unshallow                      Allow unshallowing shallow git clones.
+  generator=ninja|native         cmake generator of every target. native is the default: Visual Studio
+                                 on Windows, Ninja on every other platform. Where mama finds no ninja,
+                                 native uses Unix Makefiles, or Xcode on macOS and iOS.
   https-override                 Rewrite all add_git() ssh urls (git@host:path) to https://host/path.
   ssh-override                   Rewrite all add_git() https urls to ssh (git@host:path).
 ```
@@ -623,6 +631,7 @@ self.prefer_gcc()                                    # Prefer GCC on Linux (DEFA
 self.prefer_clang()                                  # Prefer Clang on Linux
 self.visibility_hidden()                             # Set -fvisibility=hidden
 self.disable_ninja_build()                           # Force CMake default generator instead of Ninja (default)
+self.set_default_generator('ninja')                  # Root settings() only: 'ninja' or 'native' (see generator= flag)
 self.disable_install()                               # Skip cmake install step
 self.enable_fortran()                                # Enable Fortran compiler (for Fortran accelerated libraries)
 self.disable_cxx_compiler()                          # Disable C++ (C-only project)
@@ -981,6 +990,7 @@ The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolc
 | `MAMA_ARTIFACTORY_USER` | Username for Artifactory server (CI usage) |
 | `MAMA_ARTIFACTORY_PASS` | Password for Artifactory server (CI usage) |
 | `NINJA` | Path to Ninja build executable (enables Ninja builds if Ninja is detected) |
+| `MAMA_GENERATOR` | `ninja` or `native`, the same as the `generator=` build flag, which wins over it |
 | `ANDROID_HOME` | Path to Android SDK |
 | `ANDROID_NDK_HOME` | Path to Android NDK |
 | `ANDROID_NDK_ROOT` | Alternative Android NDK path |

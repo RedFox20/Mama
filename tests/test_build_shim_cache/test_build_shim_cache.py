@@ -38,6 +38,15 @@ class TestPlainBuildHonoursShim:
         mock_cached.assert_not_called()
         mock_probe.assert_called_once()
 
+    def test_update_keeps_the_cached_package_when_ls_remote_fails(self, tmp_path):
+        dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, update=True)
+        dep.dep_source.commit_hash = None  # what a failed ls-remote leaves
+        with patch('mama.build_dependency.try_load_artifactory_shim', return_value=(None, None)), \
+             patch.object(BuildDependency, 'can_fetch_artifactory', return_value=True), \
+             patch('mama.artifactory.artifactory_load_target', return_value=(True, [])):
+            assert dep._try_artifactory_shim() is True
+        assert dep.is_artifactory_shim() and dep.did_check_artifactory
+
     def test_no_shim_falls_through_to_probe(self, tmp_path):
         dep = make_mock_dep(tmp_path)
         with patch('mama.build_dependency.try_load_artifactory_shim', return_value=(None, None)) as mock_probe, \

@@ -228,7 +228,10 @@ class BuildConfig:
         ## Ninja
         self.ninja_path = self.find_ninja_build()
         self._ninja_version = None # measured once, see ninja_version()
-        self.prefer_ninja = not System.windows # do not prefer ninja on Windows by default
+        # Visual Studio on Windows by default, so the build dir holds a solution an IDE opens. Ninja elsewhere.
+        # `generator=` beats MAMA_GENERATOR, and both beat set_default_generator() in the root mamafile.
+        self.prefer_ninja = not System.windows
+        self.generator_pinned = False
         ## Convenient installation utils:
         self.convenient_install = []
         ## Workspace and parsing
@@ -267,6 +270,8 @@ class BuildConfig:
         self.loaded_dependencies : dict[str, BuildDependency] = {}
         self.dep_registry_lock = threading.Lock()  # guards loaded_dependencies under parallel_load
         self.parse_args(args)
+        generator = os.getenv('MAMA_GENERATOR')
+        if generator and not self.generator_pinned: self.pin_generator(generator, 'MAMA_GENERATOR')
         # `deps_only` means act on the dependencies and not the target, and `in_scope` names the target.
         # Rather than guess which one wins over a delete, refuse the pair.
         if self.deps_only and self.unpublish:
@@ -327,6 +332,7 @@ class BuildConfig:
             elif arg.startswith('parallel_max='):
                 try: self.parallel_max = max(1, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass
+            elif arg.startswith('generator='): self.pin_generator(arg[10:], 'generator')
             elif arg.startswith('git_timeout='):
                 try: self.git_timeout = max(5, int(arg.split('=', 1)[1]))
                 except (ValueError, IndexError): pass
@@ -768,6 +774,33 @@ class BuildConfig:
             return (self.cc_path, self.cxx_path, self.cxx_version)
 
         raise EnvironmentError('No preferred compiler for this platform!')
+
+
+    def prefers_ninja_build(self) -> bool:
+        """True when a target builds with Ninja unless its mamafile says otherwise."""
+        return bool(self.prefer_ninja and self.ninja_path)
+
+
+    def pin_generator(self, name: str, source: str):
+        """Pin the generator the command line or MAMA_GENERATOR names. No mamafile default replaces it."""
+        self.prefer_ninja = self._prefers_ninja(name, source)
+        self.generator_pinned = True
+
+
+    def set_default_generator(self, name: str):
+        """Use the generator a root mamafile asks for, when the command line and MAMA_GENERATOR name none."""
+        if not self.generator_pinned:
+            self.prefer_ninja = self._prefers_ninja(name, 'set_default_generator')
+
+
+    def _prefers_ninja(self, name: str, source: str) -> bool:
+        """`ninja`, or `native` for the mama default: Visual Studio on a Windows host, Ninja elsewhere. A named
+        ninja that is missing is an error, because a silent switch to the other generator wipes and
+        reconfigures every build dir. `native` elsewhere falls back as the default does, without ninja."""
+        if name not in ('ninja', 'native'): raise RuntimeError(f'{source}={name}: use ninja or native')
+        if name == 'ninja' and not self.ninja_path:
+            raise EnvironmentError(f'{source}={name}: no ninja executable found. Put it on PATH or set NINJA')
+        return name == 'ninja' or not System.windows
 
 
     def ninja_version(self) -> str:

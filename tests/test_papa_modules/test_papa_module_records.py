@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from testutils import (deploy_and_archive, make_exporting_target, make_mock_dep, papa_deploy_target,
-                       write_files)
+                       symlink_or_skip, write_files)
 
 from mama import package
 from mama.papa_deploy import PapaFileInfo
@@ -162,7 +162,7 @@ def test_an_in_place_deploy_of_a_module_package_is_refused(tmp_path, symlinked):
     build, target = _built(tmp_path, ['include'], [MODULE])
     target.strip_module_objects = True
     where = str(tmp_path / 'linked')
-    if symlinked: os.symlink(build, where)
+    if symlinked: symlink_or_skip(build, where)
     with pytest.raises(RuntimeError, match='is the build output itself'):
         papa_deploy_target(target, where if symlinked else build)
 

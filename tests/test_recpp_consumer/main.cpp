@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #ifdef MAMA_HAS_MODULES
-import rpp.strview;
+import rpp.text;
 #  define BUILT_WITH "MODULES"
 #else
 #  include <rpp/strview.h>
