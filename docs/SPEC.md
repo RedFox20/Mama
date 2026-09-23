@@ -821,14 +821,15 @@ An MSVC target that builds with Ninja or Unix Makefiles gets three changes. That
 - mama names `cl.exe` of the detected toolset and arch as the C and C++ compiler. The compiler probe
   that builds the seed names it too.
 - The configure, the build and the probe run in the env that `vcvarsall.bat` sets for that toolset and
-  arch. mama runs the script once per process. Its `PATH` dirs go after the caller's.
+  arch, `PATH` included, in the order vcvarsall wrote. mama runs the script once per process.
 - `/MP` stays off, because that generator already runs one `cl.exe` per source file. `-A` and the x86
   `CMAKE_GENERATOR_TOOLSET` stay off too, because only Visual Studio takes them. The arch comes from the
   vcvarsall env. The build gets `-j`, never the MSBuild flags.
 
 **Why:** without a named compiler cmake takes the first `c++` on `PATH`, which was MinGW on a CI runner,
-and the build died on `/EHsc`. The caller's `PATH` stays first, so a pinned cmake or ninja wins over the
-copies that Visual Studio ships.
+and the build died on `/EHsc`. The vcvarsall `PATH` order keeps `rc.exe` and `mt.exe` from the same SDK
+as `cl.exe`. mama starts cmake from its own `PATH`, and each configure names ninja in `CMAKE_MAKE_PROGRAM`.
+Only the compiler probe of the seed can take the ninja that Visual Studio ships.
 
 ### The MSVC runtime library
 

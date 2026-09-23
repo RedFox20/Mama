@@ -106,23 +106,20 @@ def msvc_toolset_version(tools_path: str) -> str:
 
 
 def vcvarsall_env(vcvarsall: str, arch_arg: str, toolset: str) -> dict:
-    """What vcvarsall.bat adds to this process env: {NAME: value}, and PATH holds only the dirs it added."""
+    """What vcvarsall.bat sets or changes in this process env: {NAME: value}. PATH keeps the order vcvarsall wrote."""
     if not os.path.isfile(vcvarsall): raise EnvironmentError(f'vcvarsall.bat not found at {vcvarsall}')
     lines = []
     cmd = ['cmd.exe', '/d', '/c', 'call', vcvarsall, arch_arg, f'-vcvars_ver={toolset}', '>nul', '&&', 'set']
     status = SubProcess.run(cmd, io_func=lambda p, line: lines.append(line), timeout=120)
     if status != 0 or not lines:
         raise EnvironmentError(f'vcvarsall.bat {arch_arg} -vcvars_ver={toolset} failed ({status}): {" ".join(lines)}')
-    caller_path = os.environ.get('PATH', '').split(os.pathsep)
-    added = {}
+    changed = {}
     for line in lines:
         name, sep, value = line.rstrip('\r\n').partition('=')
         name = name.upper()  # cmd prints `Path`, and os.environ keys are upper case on Windows
         if not sep or not name: continue
-        if name == 'PATH':
-            value = os.pathsep.join(p for p in value.split(os.pathsep) if p and p not in caller_path)
-        if value and os.environ.get(name) != value: added[name] = value
-    return added
+        if value and os.environ.get(name) != value: changed[name] = value
+    return changed
 
 
 class Windows(Platform):

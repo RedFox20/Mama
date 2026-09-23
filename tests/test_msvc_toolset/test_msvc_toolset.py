@@ -79,9 +79,10 @@ def _vcvarsall_env(tmp_path, printed, status=0):
         return windows.vcvarsall_env(str(bat), 'x64', '14.51.36231')
 
 
-def test_vcvarsall_env_keeps_only_what_the_script_added(tmp_path):
-    printed = [f'Path={os.pathsep.join(("C", "A", "B"))}\r\n', 'INCLUDE=X\r\n', 'KEEP=same\r\n', 'no equals sign']
-    assert _vcvarsall_env(tmp_path, printed) == {'PATH': 'C', 'INCLUDE': 'X'}
+def test_vcvarsall_env_keeps_what_the_script_changed_in_its_order(tmp_path):
+    path = os.pathsep.join(('C', 'A', 'B'))
+    printed = [f'Path={path}\r\n', 'INCLUDE=X\r\n', 'KEEP=same\r\n', 'no equals sign']
+    assert _vcvarsall_env(tmp_path, printed) == {'PATH': path, 'INCLUDE': 'X'}
 
 
 def test_a_failed_vcvarsall_raises(tmp_path):

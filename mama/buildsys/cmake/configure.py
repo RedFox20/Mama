@@ -90,12 +90,10 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
 def compute_env(target:BuildTarget) -> dict:
     """Per-job cmake env: a COPY of os.environ with CC/CXX removed when we pass explicit
     -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX otherwise). Fresh dict -> thread-safe.
-    An MSVC build outside Visual Studio also gets the vcvarsall env. Its PATH dirs go after the caller's,
-    so a pinned cmake or ninja wins over the copies that Visual Studio ships."""
+    An MSVC build outside Visual Studio also gets the vcvarsall env, PATH included. mama finds cmake on its
+    own PATH, and each configure names ninja in CMAKE_MAKE_PROGRAM."""
     env = os.environ.copy()
-    if _msvc_without_visual_studio(target):
-        for name, value in target.config.platform.vcvars_env().items():
-            env[name] = os.pathsep.join(filter(None, (env.get(name), value))) if name == 'PATH' else value
+    if _msvc_without_visual_studio(target): env.update(target.config.platform.vcvars_env())
     cc, cxx, _ = _compiler_paths(target)
     if cc:
         env.pop('CC', None)

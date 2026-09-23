@@ -220,11 +220,11 @@ def test_msvc_under_visual_studio_names_no_compiler(_, tmp_path):
 
 
 @patch.object(Windows, 'msvc_tools_path', autospec=True, return_value=_TOOLS)
-@patch.object(Windows, 'vcvars_env', autospec=True, return_value={'PATH': 'C:/VC/bin', 'INCLUDE': 'C:/VC/include'})
-def test_msvc_under_ninja_gets_the_vcvarsall_env_after_the_caller_path(_, __, tmp_path):
-    with patch.dict(os.environ, {'PATH': 'C:/pinned', 'CXX': 'c++'}):
+@patch.object(Windows, 'vcvars_env', autospec=True, return_value={'PATH': 'C:/VC/bin;C:/sdk', 'INCLUDE': 'C:/VC/include'})
+def test_msvc_under_ninja_takes_the_vcvarsall_env_and_its_path_order(_, __, tmp_path):
+    with patch.dict(os.environ, {'PATH': 'C:/sdk', 'CXX': 'c++'}):
         env = cc.compute_env(_msvc_ninja_target(tmp_path))
-    assert env['PATH'] == os.pathsep.join(('C:/pinned', 'C:/VC/bin')) and env['INCLUDE'] == 'C:/VC/include'
+    assert env['PATH'] == 'C:/VC/bin;C:/sdk' and env['INCLUDE'] == 'C:/VC/include'
     assert 'CXX' not in env  # mama names cl.exe on the command line, and CXX would override it
 
 
