@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.14.5 (2026-Sep-24)
  - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version
  - feature: generator=ninja|native picks the generator of every target
  - feature: MSVC builds with Ninja: mama loads vcvarsall and names cl.exe

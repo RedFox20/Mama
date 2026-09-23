@@ -18,6 +18,14 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.5** (2026-Sep-24)
+ - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version
+ - feature: generator=ninja|native picks the generator of every target
+ - feature: MSVC builds with Ninja: mama loads vcvarsall and names cl.exe
+ - bugfix: a local module downloads its package instead of a rebuild each run
+ - bugfix: mama reconfigures a build dir that another generator wrote
+ - bugfix: under update, a slow git ls-remote keeps the package of a dependency
+
 **0.14.4** (2026-Sep-07)
  - feature: coverage only applies to current target, dependencies stay regular
  - bugfix: a coverage build refuses to upload to artifactory
@@ -25,9 +33,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 **0.14.3** (2026-Sep-05)
  - feature: added generic AARCH64 Linux platform for easier cross-builds
-
-**0.14.2** (2026-Sep-03)
- - fix: correctly detect symlinked gcc-14 compiler installation
 
 ## Why Mama
 
