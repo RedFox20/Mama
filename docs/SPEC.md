@@ -426,6 +426,19 @@ stays tree-wide, because a sanitized link needs every object sanitized.
 **Also accepted**: `reclone` is the deprecated spelling of `wipe`. `start` and `open` take no argument
 in their bare form. `sched_debug` prints the build-weight calculation and builds nothing.
 
+**Generator**: `generator=ninja` or `generator=native` picks the cmake generator of every target that
+configures in this run. A dep that is already built keeps its build dir until something rebuilds it.
+`native` is the mama default: Visual Studio on a Windows host, Ninja elsewhere. Where mama finds no
+ninja, `native` takes the build system of the platform: Unix Makefiles, or Xcode on iOS and macOS. So
+`ninja` and `native` differ only on Windows, and where ninja is missing. With no flag, `MAMA_GENERATOR` decides, then `set_default_generator()` in the root `settings()`, then `native`.
+A `ninja` that names no ninja executable is an error. A dep mamafile that sets
+`enable_ninja_build` or calls `disable_ninja_build()` in `settings()` overrides the choice for its own
+target. The root must do it after its `set_default_generator()` call.
+
+**Why:** a silent switch to the other generator wipes and reconfigures every build dir. And the
+root owns the tree default, because a dep that changed it would change the generator of the deps loaded
+after it.
+
 **Caching**: `nocache`, also spelled `no-compiler-cache`, disables the cmake compiler seed.
 `globalcache` moves the seed to the user cache dir, so one probe serves every checkout on the machine.
 
@@ -633,7 +646,11 @@ git path clones. `update` also skips the cached path, and its regular probe re-e
 fetch and reset path is correct, and the probe would only re-clone into a tempdir for nothing.
 
 A **failed ls-remote does not drop the marker.** A transient network failure must not force a re-clone
-on the next run.
+on the next run. Under `update`, a probe that could not resolve the commit loads the cached package.
+ls-remote gets `git_timeout` seconds in total. A clone or a fetch gets the same number as a no-progress
+limit.
+
+**Why:** without the cached package, the dep loaded with no package at all.
 
 Under `update`, a probe that finds no package drops a marker whose commit upstream has left behind, so
 the dep clones and builds from source. A missing package for an UNCHANGED commit keeps the shim,
@@ -692,6 +709,11 @@ depends on which branch runs. A computed value stays invisible. In both shapes t
 package the upload side never publishes. So mama refuses the pin, and warns once per dep per run.
 
 An unpinned **local** dep has no commit of its own, so mama names it by its source content.
+The walk skips every file named `mama.cmake`, in any dir of the tree.
+
+**Why:** the download side hashes the tree before the build, and the build then writes `mama.cmake`
+into it. The upload side hashed that file too, so it published a name the download side never asked
+for. Every local module then rebuilt from source on every run.
 
 ### version_suffix
 
@@ -762,6 +784,11 @@ such as `CMAKE_SYSTEM_PROCESSOR`, which mis-drive the project's own CMakeLists. 
 fingerprint that differs proves the move. A dir that predates fingerprints falls back to comparing its
 cached compiler path.
 
+**Wipe a build dir that another generator wrote.** cmake refuses to configure it. The toolchain
+fingerprint already names the generator, so a switch changes it. A dir that predates fingerprints
+compares the `CMAKE_GENERATOR` of its cache instead. When a configure still prints the generator error,
+mama deletes `CMakeCache.txt` and `CMakeFiles` and configures once more.
+
 **Wipe a build dir left half-configured by a killed configure.** A truncated or unreadable
 `CMakeCache.txt`, a cache whose generator wrote no build file, or a partial compiler-detection dir all
 poison the run. The detection check runs even with no cache at all, because a kill mid-detection often
@@ -785,6 +812,23 @@ names two: the type this target builds, then `Debug`, or `RelWithDebInfo` when t
 
 **Why:** the cmake default set adds `Release` and `MinSizeRel`, which mama configures for no
 dependency. An IDE listed four configurations, and three of them could not link.
+
+### MSVC without Visual Studio
+
+An MSVC target that builds with Ninja or Unix Makefiles gets three changes. That generator runs
+`cl.exe` itself, and only the Visual Studio generator finds the toolset on its own.
+
+- mama names `cl.exe` of the detected toolset and arch as the C and C++ compiler. The compiler probe
+  that builds the seed names it too.
+- The configure, the build and the probe run in the env that `vcvarsall.bat` sets for that toolset and
+  arch. mama runs the script once per process. Its `PATH` dirs go after the caller's.
+- `/MP` stays off, because that generator already runs one `cl.exe` per source file. `-A` and the x86
+  `CMAKE_GENERATOR_TOOLSET` stay off too, because only Visual Studio takes them. The arch comes from the
+  vcvarsall env. The build gets `-j`, never the MSBuild flags.
+
+**Why:** without a named compiler cmake takes the first `c++` on `PATH`, which was MinGW on a CI runner,
+and the build died on `/EHsc`. The caller's `PATH` stays first, so a pinned cmake or ninja wins over the
+copies that Visual Studio ships.
 
 ### The MSVC runtime library
 
@@ -1367,6 +1411,7 @@ entire queued backlog of clones first.
 | `MAMA_ARTIFACTORY_USER`, `MAMA_ARTIFACTORY_PASS` | artifactory credentials, for CI |
 | `MAMA_CACHE_DIR` | where the user cache lives. CI and the test suite point it at their own dir |
 | `MAMA_GLOBAL_COMPILER_CACHE=1` | same as the `globalcache` flag, for a whole session |
+| `MAMA_GENERATOR` | `ninja` or `native`, the same as the `generator=` flag, which wins |
 | `NINJA` | path to the ninja executable |
 | `ANDROID_HOME`, `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_NDK_LATEST_HOME` | Android SDK and NDK |
 | `RASPI_HOME`, `OCLEA_HOME`, `IMX8MP_SDK_HOME`, `XILINX_HOME` | cross toolchain roots |

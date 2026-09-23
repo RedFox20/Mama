@@ -27,24 +27,20 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     if target.config.verbose: console(cmd)
 
     if delete_cmakecache:
-        if target.config.print: console('Deleting CMakeCache.txt')
-        os.remove(target.build_dir('CMakeCache.txt'))
+        if target.config.print: console('Deleting CMakeCache.txt and CMakeFiles')
+        _wipe_build_dir(target)  # cmake also refuses a CMakeFiles dir that another generator wrote
 
     def handle_output(p:SubProcess, line:str):
         nonlocal rerun, delete_cmakecache, printed
         if line.strip(): printed = True
         if out: out(line)
         else:   console(line)  # NOT print: a raw write tears the live region's cursor math
-        if line.startswith('CMake Error: The source'):
+        if line.startswith(('CMake Error: The source', 'CMake Error: Error: generator :')):
             rerun = True
             delete_cmakecache = True
         elif System.windows:
             # an MSVC compiler update triggers this every time, and a cmake rerun fixes it
             rerun |= line.startswith('  is not a full path to an existing compiler tool.')
-        elif line.startswith('CMake Error: Error: generator :') or \
-             line.startswith('CMake Error: The source'):
-            rerun = True
-            delete_cmakecache = True
 
     exit_status = SubProcess.run(cmd, cwd, env=env, io_func=handle_output)
 
@@ -60,25 +56,47 @@ def _rerunnable_cmake_conf(cmd, cwd, allow_rerun, target:BuildTarget, delete_cma
     target.dep.save_enabled_coverage()
 
 
+def _msvc_without_visual_studio(target:BuildTarget) -> bool:
+    """True when an MSVC target builds with Ninja or Makefiles. That generator runs cl.exe itself, so it
+    needs a named compiler and the vcvarsall env, which the Visual Studio generator finds on its own."""
+    return target.config.msvc and bool(target.enable_ninja_build or target.enable_unix_make)
+
+
+def _compiler_paths(target:BuildTarget) -> tuple:
+    """(cc, cxx, version) that mama names to cmake. MSVC under Visual Studio names none, because the
+    generator picks the toolset. Without a named compiler, cmake takes the first `c++` on PATH, which can be MinGW."""
+    if _msvc_without_visual_studio(target):
+        cl = target.config.platform.msvc_cl()
+        return cl, cl, ''
+    return target.config.get_preferred_compiler_paths()
+
+
 def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     """Name the compilers for cmake on every configure, so no backend picks the wrong ones.
     `compute_env` strips CC/CXX from the subprocess env, so this is thread-safe. A toolchain file
     picks the compiler itself, so mama must not name one too - see use_toolchain_file."""
     if target.config.cmake_toolchain_file: return
-    cc, cxx, ver = target.config.get_preferred_compiler_paths()
+    cc, cxx, _ = _compiler_paths(target)
+    # quoted only with a space, e.g. cl.exe under Program Files, so every other command line stays the same
+    quoted = lambda path: f'"{path}"' if ' ' in path else path
     if cc:
-        opt.append(f'CMAKE_C_COMPILER={forward_slashes(cc)}')
+        opt.append(f'CMAKE_C_COMPILER={quoted(forward_slashes(cc))}')
         if target.enable_cxx_build:
-            opt.append(f'CMAKE_CXX_COMPILER={forward_slashes(cxx)}')
+            opt.append(f'CMAKE_CXX_COMPILER={quoted(forward_slashes(cxx))}')
     elif 'CC' in os.environ or 'CXX' in os.environ:
         warning('Warning: CMake C/C++ compiler not detected and Global ENV CC/CXX are set')
 
 
 def compute_env(target:BuildTarget) -> dict:
     """Per-job cmake env: a COPY of os.environ with CC/CXX removed when we pass explicit
-    -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX otherwise). Fresh dict -> thread-safe."""
+    -DCMAKE_*_COMPILER (cmake prioritizes CC/CXX otherwise). Fresh dict -> thread-safe.
+    An MSVC build outside Visual Studio also gets the vcvarsall env. Its PATH dirs go after the caller's,
+    so a pinned cmake or ninja wins over the copies that Visual Studio ships."""
     env = os.environ.copy()
-    cc, cxx, _ = target.config.get_preferred_compiler_paths()
+    if _msvc_without_visual_studio(target):
+        for name, value in target.config.platform.vcvars_env().items():
+            env[name] = os.pathsep.join(filter(None, (env.get(name), value))) if name == 'PATH' else value
+    cc, cxx, _ = _compiler_paths(target)
     if cc:
         env.pop('CC', None)
         if target.enable_cxx_build: env.pop('CXX', None)
@@ -227,7 +245,7 @@ def _seed_id(target:BuildTarget) -> str:
 
 def _seed_inputs(target:BuildTarget) -> dict:
     config = target.config
-    cc, cxx, ver = config.get_preferred_compiler_paths()
+    cc, cxx, ver = _compiler_paths(target)
     inputs = {
         'cmake': _cmake_version_number(config, target.cmake_command), 'gen': _generator(target),
         'arch': config.arch, 'platform': _seed_config_name(config),
@@ -439,14 +457,18 @@ def _record_configure_fingerprint(build_dir:str, fingerprint:str):
 def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     """One-time heal for a dir that predates recorded fingerprints. True only when the cached compiler is
     DEFINITELY not the current one. Two proofs: the recorded path differs from the preferred compiler, or
-    the recorded binary left the disk. MSVC names no compiler, so only the second proof applies there. A
-    toolset upgrade deletes the old directory, which is exactly that case. Never wipe on missing evidence,
-    so this cannot mass-invalidate warm dirs."""
-    if target.config.cmake_toolchain_file:
-        return False  # the cache holds the toolchain's own choice, which never equals ours
+    the recorded binary left the disk. MSVC under Visual Studio names no compiler, so only the second
+    proof applies there. A toolset upgrade deletes the old directory, which is exactly that case. Never
+    wipe on missing evidence, so this cannot mass-invalidate warm dirs.
+    Another generator is proof too: cmake refuses to configure a build dir that one generator wrote with
+    another. A recorded fingerprint already names the generator, so only this path needs the check."""
     try: cache_text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
     except OSError: return False
-    cc_path, cxx_path, _ = target.config.get_preferred_compiler_paths()
+    wanted, cached_generator = _generator_name(target), cache_generator(cache_text)
+    if wanted and cached_generator and cached_generator != wanted: return True
+    if target.config.cmake_toolchain_file:
+        return False  # the cache holds the toolchain's own choice, which never equals ours
+    cc_path, cxx_path, _ = _compiler_paths(target)
     for key, want in (('CMAKE_CXX_COMPILER', cxx_path), ('CMAKE_C_COMPILER', cc_path)):
         cached = _cache_entry(cache_text, key)
         if not cached: continue
@@ -605,16 +627,25 @@ def _unused_cli_flag(target:BuildTarget) -> str:
 
 
 # The cmake generator per platform build system. MSVC is not here: its generator carries the
-# detected Visual Studio version and the target arch, so it is built from config.
-_GENERATORS = {'make': '-G "Unix Makefiles"', 'xcode': '-G "Xcode"'}
+# detected Visual Studio version, so it is built from config.
+_GENERATORS = {'make': 'Unix Makefiles', 'xcode': 'Xcode'}
+
+
+def _generator_name(target:BuildTarget) -> str:
+    """The generator name as CMakeCache records it, eg 'Ninja'. '' lets cmake pick its default."""
+    config:BuildConfig = target.config
+    if target.enable_ninja_build: return 'Ninja'
+    if target.enable_unix_make:   return 'Unix Makefiles'
+    if config.msvc: return config.platform.generator_name()
+    return _GENERATORS.get(config.platform.build_system, '')
 
 
 def _generator(target:BuildTarget):
-    config:BuildConfig = target.config
-    if target.enable_ninja_build: return '-G "Ninja"'
-    if target.enable_unix_make:   return '-G "Unix Makefiles"'
-    if config.msvc: return f'-G "{config.platform.generator_name()}" -A {config.platform.generator_arch()}'
-    return _GENERATORS.get(config.platform.build_system, '')
+    name = _generator_name(target)
+    if not name: return ''
+    # only Visual Studio takes the target arch as a platform. Ninja gets it from the vcvarsall env
+    vs = target.config.msvc and not _msvc_without_visual_studio(target)
+    return f'-G "{name}" -A {target.config.platform.generator_arch()}' if vs else f'-G "{name}"'
 
 
 def _type_flags(target:BuildTarget, generator:str) -> str:
@@ -679,7 +710,8 @@ def _default_options(target:BuildTarget):
         # the release CRT carries no debug iterators, so a nonzero level has nothing to select
         add_flag('-D_ITERATOR_DEBUG_LEVEL', '0')
         add_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
-        add_flag('/MP') # multi-process build
+        # MSBuild hands cl.exe many files at once. Ninja and make already run one cl.exe per file.
+        if not _msvc_without_visual_studio(target): add_flag('/MP')
     else:
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
@@ -813,16 +845,16 @@ def _mp_flags(target:BuildTarget):
     if target.enable_ninja_build: return f'-j{_jobs(target)}' if target.enable_multiprocess_build else '-j1'
     if not target.enable_multiprocess_build: return ''
     jobs = _jobs(target)
-    if config.msvc: return f'/maxcpucount:{jobs}'
     # a target that forced Unix Makefiles takes make's flag, whatever the platform prefers
     if target.enable_unix_make: return f'-j{jobs}'
+    if config.msvc: return f'/maxcpucount:{jobs}'
     return f'-jobs {jobs}' if config.platform.build_system == 'xcode' else f'-j{jobs}'
 
 
 def _buildsys_flags(target:BuildTarget):
     config:BuildConfig = target.config
     mpf = _mp_flags(target)
-    if target.enable_ninja_build: flags = mpf  # ninja takes -j alone, whatever the compiler
+    if target.enable_ninja_build or target.enable_unix_make: flags = mpf  # -j alone, whatever the compiler
     elif config.msvc:
         flags = f'/v:m {mpf} /nologo'
     elif config.platform.build_system == 'xcode' and not (target.enable_unix_make or config.verbose):

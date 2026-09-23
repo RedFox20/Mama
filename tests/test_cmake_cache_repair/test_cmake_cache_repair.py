@@ -68,8 +68,45 @@ def test_only_a_broken_build_dir_is_wiped_and_reconfigured(tmp_path, cache, buil
     t, dep = make_configured_target(tmp_path)
     write_cmake_cache(t.build_dir(), cache)
     if build_file: write_build_file(t.build_dir(), build_file)
-    assert _run_config_recording(t, dep) == (['conf'] if reconfigures else [])
+    # the target asks for the generator the cache records, so only the broken dir differs
+    with patch('mama.buildsys.cmake.configure._generator_name', autospec=True, return_value=cc.cache_generator(cache)):
+        assert _run_config_recording(t, dep) == (['conf'] if reconfigures else [])
     assert os.path.exists(os.path.join(t.build_dir(), 'CMakeCache.txt')) is not reconfigures
+
+
+@pytest.mark.parametrize('cache, build_file', [(VS, 'Foo.slnx'), (COMPLETE, 'Makefile')])
+def test_a_dir_that_another_generator_wrote_is_wiped_and_reconfigured(tmp_path, cache, build_file):
+    t, dep = make_configured_target(tmp_path)  # a Ninja target, and no fingerprint recorded yet
+    write_cmake_cache(t.build_dir(), cache)
+    write_build_file(t.build_dir(), build_file)
+    os.makedirs(os.path.join(t.build_dir(), 'CMakeFiles'))
+    assert _run_config_recording(t, dep) == ['conf']
+    assert not os.path.exists(os.path.join(t.build_dir(), 'CMakeFiles'))  # cmake refuses the other generator's dir too
+
+
+def _conf_output(tmp_path, first_line):
+    """Drive _rerunnable_cmake_conf over a cmake whose first run prints `first_line`. Returns the build dir
+    and the number of cmake runs."""
+    t, _ = make_configured_target(tmp_path)
+    write_cmake_cache(t.build_dir(), NINJA)
+    os.makedirs(os.path.join(t.build_dir(), 'CMakeFiles'))
+    runs = []
+    def fake_run(cmd, cwd=None, env=None, io_func=None, timeout=None, idle_timeout=None):
+        runs.append(cmd)
+        if len(runs) == 1: io_func(None, first_line)
+        return 0
+    with patch('mama.buildsys.cmake.configure.SubProcess.run', autospec=True, side_effect=fake_run):
+        cc._rerunnable_cmake_conf('cmake .', t.build_dir(), True, t)
+    return t.build_dir(), len(runs)
+
+
+@pytest.mark.parametrize('windows', [True, False])
+def test_a_generator_mismatch_reruns_the_configure_from_an_empty_dir(tmp_path, windows):
+    with patch('mama.buildsys.cmake.configure.System.windows', windows):
+        build_dir, runs = _conf_output(tmp_path, 'CMake Error: Error: generator : Ninja')
+    assert runs == 2
+    assert not os.path.exists(os.path.join(build_dir, 'CMakeCache.txt'))
+    assert not os.path.exists(os.path.join(build_dir, 'CMakeFiles'))
 
 
 def test_the_reconfigure_reason_reaches_the_target_log(tmp_path):

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os
+import os, threading
 from functools import lru_cache
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
 from .platform import Platform, host_arch
@@ -7,7 +7,7 @@ from .toolchain import Toolchain
 from mama.utils.fileio import find_executable_from_system
 from mama.utils.paths import path_join
 from mama.utils.system import System, console
-from mama.utils.sub_process import execute_piped
+from mama.utils.sub_process import SubProcess, execute_piped
 
 
 @lru_cache(maxsize=1)
@@ -32,7 +32,11 @@ _VS_GENERATOR_FALLBACK = 'Visual Studio 15 2017'
 # mama arch to the name Visual Studio and MSBuild call it. Note Win32, not x86.
 _VS_ARCHES = {'x64': 'x64', 'x86': 'Win32', 'arm': 'ARM', 'arm64': 'ARM64'}
 
+# mama arch to the vcvarsall.bat argument for an x64 host. Every msvc_* path already assumes that host.
+_VCVARS_ARCHES = {'x64': 'x64', 'x86': 'x64_x86', 'arm': 'x64_arm', 'arm64': 'x64_arm64'}
+
 _found = {}  # discovery results, memoized for the process: a VS install cannot move mid-run
+_vcvars_lock = threading.Lock()  # parallel builds wait for one vcvarsall run instead of starting their own
 
 
 def _memo(key, find):
@@ -99,6 +103,26 @@ def msvc_toolset_version(tools_path: str) -> str:
     """Major and minor of an MSVC toolset dir, eg '14.51' for `.../MSVC/14.51.36231`. The patch field
     changes with every Visual Studio update and does not change the ABI, so no mama name carries it."""
     return '.'.join(os.path.basename(tools_path.rstrip('\\/')).split('.')[:2])
+
+
+def vcvarsall_env(vcvarsall: str, arch_arg: str, toolset: str) -> dict:
+    """What vcvarsall.bat adds to this process env: {NAME: value}, and PATH holds only the dirs it added."""
+    if not os.path.isfile(vcvarsall): raise EnvironmentError(f'vcvarsall.bat not found at {vcvarsall}')
+    lines = []
+    cmd = ['cmd.exe', '/d', '/c', 'call', vcvarsall, arch_arg, f'-vcvars_ver={toolset}', '>nul', '&&', 'set']
+    status = SubProcess.run(cmd, io_func=lambda p, line: lines.append(line), timeout=120)
+    if status != 0 or not lines:
+        raise EnvironmentError(f'vcvarsall.bat {arch_arg} -vcvars_ver={toolset} failed ({status}): {" ".join(lines)}')
+    caller_path = os.environ.get('PATH', '').split(os.pathsep)
+    added = {}
+    for line in lines:
+        name, sep, value = line.rstrip('\r\n').partition('=')
+        name = name.upper()  # cmd prints `Path`, and os.environ keys are upper case on Windows
+        if not sep or not name: continue
+        if name == 'PATH':
+            value = os.pathsep.join(p for p in value.split(os.pathsep) if p and p not in caller_path)
+        if value and os.environ.get(name) != value: added[name] = value
+    return added
 
 
 class Windows(Platform):
@@ -170,9 +194,20 @@ class Windows(Platform):
 
 
     def msvc_bin64(self) -> str: return f'{self.msvc_tools_path()}/bin/Hostx64/x64/'
+    def msvc_cl(self) -> str:     return f'{self.msvc_tools_path()}/bin/Hostx64/{self.arch()}/cl.exe'
     def msvc_cl64(self) -> str:   return f'{self.msvc_bin64()}cl.exe'
     def msvc_link64(self) -> str: return f'{self.msvc_bin64()}link.exe'
     def msvc_lib64(self) -> str:  return f'{self.msvc_tools_path()}\\lib\\x64'
+
+
+    def vcvars_env(self) -> dict:
+        """The env a Developer Command Prompt adds for this toolset and arch, found once per process.
+        The Visual Studio generator finds INCLUDE, LIB and the tools itself. Ninja runs cl.exe directly."""
+        tools = self.msvc_tools_path()
+        arch_arg = _VCVARS_ARCHES[self.arch()]
+        vcvarsall = path_join(self.visualstudio_path(), 'VC/Auxiliary/Build/vcvarsall.bat')
+        with _vcvars_lock:
+            return _memo(('vcvars', arch_arg, tools), lambda: vcvarsall_env(vcvarsall, arch_arg, os.path.basename(tools)))
 
 
     ## --- products and tools ---

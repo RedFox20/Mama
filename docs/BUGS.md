@@ -49,6 +49,22 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **An x86 MSVC target under Ninja or Unix Makefiles got `CMAKE_GENERATOR_TOOLSET=host=x86`.**
+  Fix: `platform_opts` emits the toolset only under Visual Studio, the same as `-A`.
+
+- **An MSVC target under Unix Makefiles got the MSBuild flags `/maxcpucount`, `/v:m` and `/nologo`.**
+  Fix: `_mp_flags` and `_buildsys_flags` test `enable_unix_make` before `config.msvc`.
+
+- **A local module never hit its artifactory package.** The upload hashed the `mama.cmake` the build
+  wrote, and the download did not. Fix: the version walk skips every file named `mama.cmake`.
+
+- **The generator error recovery was dead code on Windows, and it kept `CMakeFiles`.** Fix: the
+  generator check comes first, and the recovery wipes `CMakeCache.txt` and `CMakeFiles`. A dir with no
+  fingerprint compares its cached generator before the configure.
+
+- **ls-remote gave up after 5 seconds, and a failure under `update` dropped the package of a shim.**
+  Fix: it waits `git_timeout`, and a probe that resolves no commit loads the cached package.
+
 - **A TLS failure marked the network unavailable, so the run skipped every later fetch and clone.**
   Fix: `is_network_error` answers False for an `ssl.SSLError`, bare or wrapped in a `URLError`.
 

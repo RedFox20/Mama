@@ -9,6 +9,7 @@ import hashlib, json, os
 from typing import TYPE_CHECKING
 
 from . import build_names
+from .buildsys.cmake.scan import MAMA_CMAKE
 from .utils.fileio import read_text_from, save_file_if_contents_changed
 from .utils.paths import path_join, normalized_path
 
@@ -32,6 +33,8 @@ _DIGEST_CHARS = 10
 # third_party, and an edit to any of those can change the library mama ships.
 _IGNORED_DIRS = {'.git', '.svn', '.mama', '__pycache__', '.vs', '.vscode', '.idea'}
 _IGNORED_SUFFIXES = {'.o', '.obj', '.a', '.so', '.dll', '.dylib', '.lib', '.pyc', '.pdb', '.ilk', '.exp'}
+# mama writes mama.cmake into the source tree after the download hash, in any dir a proxy include() picks
+_IGNORED_FILES = {MAMA_CMAKE}
 
 
 def compute_version(dep: BuildDependency) -> str:
@@ -79,7 +82,7 @@ def _source_files(dep: BuildDependency):
     for current, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in skip]
         for name in files:
-            if os.path.splitext(name)[1].lower() in _IGNORED_SUFFIXES: continue
+            if name in _IGNORED_FILES or os.path.splitext(name)[1].lower() in _IGNORED_SUFFIXES: continue
             full_path = path_join(current, name)
             yield full_path, os.path.relpath(full_path, root).replace(os.sep, '/')
 

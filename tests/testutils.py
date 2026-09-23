@@ -231,6 +231,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.debug = False
     cfg.prefer_ninja = False
     cfg.ninja_path = ''
+    cfg.prefers_ninja_build.return_value = False
     cfg.ninja_version.return_value = ''  # the generated mama.cmake writes this number verbatim
     cfg.cmake_command = 'cmake'
     # artifactory_archive_name and the papa `O` record use these
@@ -273,6 +274,7 @@ def platform_target(tmp_path, platform_class, arch=None, **overrides):
     target, dep = make_configured_target(tmp_path, **overrides)
     dep.config.arch = arch or platform_class.default_arch or 'x64'
     dep.config.cmake_toolchain_file = ''
+    target.enable_ninja_build = False  # the generator the platform itself names
     set_mock_platform(dep.config, platform_class)
     return target, dep
 
@@ -710,6 +712,7 @@ def make_configured_target(tmp_path, compiler=('/usr/bin/gcc', '/usr/bin/g++', '
     defaults = {'jobs': 8, 'coverage': False, 'clang_tidy': False}  # a test may override any of them
     dep = make_mock_local_dep(tmp_path, src_dir=sub, **{**defaults, **config_overrides})
     dep.config.get_preferred_compiler_paths.return_value = compiler
+    dep.target.enable_ninja_build = True  # the generator the caches of these tests record
     return dep.target, dep
 
 

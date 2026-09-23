@@ -169,6 +169,9 @@ graph and selectors. Regenerate the lock after changing either one. Do not edit 
   deps_only                      Only execute build/rebuild/clean on dependencies, skip the main target.
                                  When combined with a target name, applies to that target's dependencies only.
   unshallow                      Allow unshallowing shallow git clones.
+  generator=ninja|native         cmake generator of every target. native is the default: Visual Studio
+                                 on Windows, Ninja on every other platform. Where mama finds no ninja,
+                                 native uses Unix Makefiles, or Xcode on macOS and iOS.
   https-override                 Rewrite all add_git() ssh urls (git@host:path) to https://host/path.
   ssh-override                   Rewrite all add_git() https urls to ssh (git@host:path).
 ```
@@ -623,6 +626,7 @@ self.prefer_gcc()                                    # Prefer GCC on Linux (DEFA
 self.prefer_clang()                                  # Prefer Clang on Linux
 self.visibility_hidden()                             # Set -fvisibility=hidden
 self.disable_ninja_build()                           # Force CMake default generator instead of Ninja (default)
+self.set_default_generator('ninja')                  # Root settings() only: 'ninja' or 'native' (see generator= flag)
 self.disable_install()                               # Skip cmake install step
 self.enable_fortran()                                # Enable Fortran compiler (for Fortran accelerated libraries)
 self.disable_cxx_compiler()                          # Disable C++ (C-only project)
@@ -981,6 +985,7 @@ The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolc
 | `MAMA_ARTIFACTORY_USER` | Username for Artifactory server (CI usage) |
 | `MAMA_ARTIFACTORY_PASS` | Password for Artifactory server (CI usage) |
 | `NINJA` | Path to Ninja build executable (enables Ninja builds if Ninja is detected) |
+| `MAMA_GENERATOR` | `ninja` or `native`, the same as the `generator=` build flag, which wins over it |
 | `ANDROID_HOME` | Path to Android SDK |
 | `ANDROID_NDK_HOME` | Path to Android NDK |
 | `ANDROID_NDK_ROOT` | Alternative Android NDK path |

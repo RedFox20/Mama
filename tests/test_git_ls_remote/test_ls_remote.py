@@ -26,3 +26,10 @@ def test_a_tab_separated_answer_gives_the_short_hash(output):
 
 def test_an_empty_answer_stays_empty():
     assert _resolved('') == ''
+
+
+def test_ls_remote_waits_the_configured_git_timeout():
+    git, dep = make_git_and_mock_dep(branch='master')
+    with patch('mama.types.git.execute_piped', return_value='') as ls_remote, patch('mama.types.git.ssh_multiplex'):
+        git.init_commit_hash(dep, use_cache=False, fetch_remote=True)
+    assert ls_remote.call_args.kwargs['timeout'] == dep.config.git_timeout

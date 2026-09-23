@@ -1,4 +1,7 @@
 """Pins the exact cmake configure options and compiler flags every platform emits."""
+import os, shlex
+from unittest.mock import patch
+
 import pytest
 
 from testutils import platform_cxx_flags, platform_target
@@ -51,6 +54,13 @@ def test_a_native_platform_names_no_target_system(platform_class, tmp_path):
 def test_msvc_only_overrides_the_toolset_for_x86(tmp_path):
     assert _opts(tmp_path, Windows, 'x64') == []
     assert _opts(tmp_path, Windows, 'x86') == ['CMAKE_GENERATOR_TOOLSET=host=x86']
+
+
+@pytest.mark.parametrize('generator', ['enable_ninja_build', 'enable_unix_make'])
+def test_only_visual_studio_gets_the_x86_toolset(tmp_path, generator):
+    t, _ = platform_target(tmp_path, Windows, 'x86')
+    setattr(t, generator, True)
+    assert cc._platform_opts(t) == []
 
 
 # --- each platform's own option set ---
@@ -180,3 +190,46 @@ def test_ios_pins_the_deployment_target(tmp_path):
 def test_msvc_uses_its_own_flag_syntax(tmp_path):
     flags = platform_cxx_flags(tmp_path, Windows)
     assert '/EHsc' in flags and '/MP' in flags and flags['-DWIN32'] == '1'
+
+
+_TOOLS = 'C:/Program Files/VS/VC/Tools/MSVC/14.51.36231'
+
+
+def _msvc_ninja_target(tmp_path):
+    t, _ = platform_target(tmp_path, Windows)
+    t.enable_ninja_build = True
+    return t
+
+
+@patch.object(Windows, 'msvc_tools_path', autospec=True, return_value=_TOOLS)
+def test_msvc_under_ninja_names_cl_and_drops_the_msbuild_options(_, tmp_path):
+    t = _msvc_ninja_target(tmp_path)
+    opts = cc._default_options(t)
+    cl = f'{_TOOLS}/bin/Hostx64/x64/cl.exe'
+    assert f'-DCMAKE_CXX_COMPILER={cl}' in shlex.split(cc._opts_to_defines(opts))  # the quoted path stays one argument
+    assert f'CMAKE_C_COMPILER="{cl}"' in opts
+    assert '/MP' not in t.cmake_cxxflags  # ninja already runs one cl.exe per file
+    assert cc._generator(t) == '-G "Ninja"'  # -A is a Visual Studio platform, Ninja takes the arch from the env
+
+
+@patch.object(Windows, 'generator_name', autospec=True, return_value='Visual Studio 18 2026')
+def test_msvc_under_visual_studio_names_no_compiler(_, tmp_path):
+    t, _ = platform_target(tmp_path, Windows, compiler=('', '', ''))  # what BuildConfig answers for MSVC
+    assert not any(o.startswith('CMAKE_CXX_COMPILER=') for o in cc._default_options(t))
+    assert cc._generator(t) == '-G "Visual Studio 18 2026" -A x64'
+
+
+@patch.object(Windows, 'msvc_tools_path', autospec=True, return_value=_TOOLS)
+@patch.object(Windows, 'vcvars_env', autospec=True, return_value={'PATH': 'C:/VC/bin', 'INCLUDE': 'C:/VC/include'})
+def test_msvc_under_ninja_gets_the_vcvarsall_env_after_the_caller_path(_, __, tmp_path):
+    with patch.dict(os.environ, {'PATH': 'C:/pinned', 'CXX': 'c++'}):
+        env = cc.compute_env(_msvc_ninja_target(tmp_path))
+    assert env['PATH'] == os.pathsep.join(('C:/pinned', 'C:/VC/bin')) and env['INCLUDE'] == 'C:/VC/include'
+    assert 'CXX' not in env  # mama names cl.exe on the command line, and CXX would override it
+
+
+@patch.object(Windows, 'vcvars_env', autospec=True)
+def test_msvc_under_visual_studio_leaves_the_env_alone(vcvars_env, tmp_path):
+    t, _ = platform_target(tmp_path, Windows)
+    cc.compute_env(t)
+    vcvars_env.assert_not_called()

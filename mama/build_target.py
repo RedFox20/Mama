@@ -94,7 +94,7 @@ class BuildTarget:
         self.cmake_command = config.cmake_command # allow override from config, but also from target
         self.enable_exceptions = True
         self.enable_unix_make  = False
-        self.enable_ninja_build = config.prefer_ninja and config.ninja_path
+        self.enable_ninja_build = config.prefers_ninja_build()
         self.enable_fortran_build = False
         self.enable_cxx_build = True
         self.enable_multiprocess_build = True
@@ -1178,6 +1178,23 @@ class BuildTarget:
         ```
         """
         self.gcc_clang_visibility_hidden = hidden
+
+
+    def set_default_generator(self, name: str):
+        """
+        Sets the cmake generator of every target in the tree: `ninja`, or `native` for the mama default,
+        which is Visual Studio on Windows and Ninja elsewhere. The difference is Windows, where `ninja`
+        moves every MSVC target to Ninja. Only the root mamafile sets it, in settings(). A call from a
+        dependency changes nothing.
+        `generator=` and MAMA_GENERATOR win over this default.
+        ```
+            def settings(self):
+                self.set_default_generator('ninja')
+        ```
+        """
+        if not self.dep.is_root: return
+        self.config.set_default_generator(name)
+        self.enable_ninja_build = self.config.prefers_ninja_build()
 
 
     def disable_ninja_build(self):

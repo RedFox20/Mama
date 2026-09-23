@@ -23,6 +23,10 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **MSVC builds with Ninja.** `generator=ninja`, `MAMA_GENERATOR=ninja` or `set_default_generator('ninja')`
+  in the root mamafile moves every target that configures to Ninja. mama loads the vcvarsall env, names `cl.exe` and
+  drops `/MP` for an MSVC target outside Visual Studio. `generator=native` goes back.
+
 - **`coverage` instruments the target the user named, not the whole tree.** `mama coverage app test`
   builds `app` in `<platform>-cov`. Every other dep keeps the dir a plain run uses, so a warm tree
   rebuilds one target instead of all of them. `mama coverage all` still instruments every dep.
