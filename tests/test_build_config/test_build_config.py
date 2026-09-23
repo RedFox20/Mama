@@ -259,6 +259,7 @@ def ninja(monkeypatch):
     monkeypatch.delenv('MAMA_GENERATOR', raising=False)
     monkeypatch.setattr(BuildConfig, 'find_ninja_build', lambda self: '/usr/bin/ninja')
     monkeypatch.setattr('mama.build_config.System.windows', True)
+    monkeypatch.setenv('HOMEPATH', 'home')  # a Windows host reads it, and a Linux runner has none
 
 
 @pytest.mark.parametrize('arg, prefer', [('generator=ninja', True), ('generator=native', False)])

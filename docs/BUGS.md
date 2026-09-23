@@ -13,6 +13,13 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A root that exports its whole source dir also copies the dir tree of its workspace.** The last
+  fallback of `default_package_includes` exports `''` (`build_target.py:1497`). `copy_dir` then walks
+  `packages/` too, and it makes every dir it enters before the header filter runs (`fileio.py:210`). A
+  deploy writes an empty `include/<root>/packages/<dep>/<platform>/CMakeFiles/...` tree, and on Windows
+  that path passes 260 chars. Repro: `tests/test_papa_deploy` under a long temp dir. Fix: prune the
+  workspace dir in `_prune_walk_dirs`, and make a dir only when a file in it passes the filter.
+
 - **The RAM cap for parallel compiles reads the host memory.** `_mem_capped_budget` divides
   `psutil.virtual_memory().total` by `_GB_PER_COMPILE` (`dependency_chain.py:696`), and psutil reads
   `/proc/meminfo`, which reports the host inside a memory-limited cgroup. A container held to 2 GB on a

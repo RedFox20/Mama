@@ -748,6 +748,7 @@ def configure_cmd(tmp_path, generator, platform_class=None, cmake_opts=(), **con
     target, dep = make_configured_target(tmp_path, **config_overrides)
     if platform_class: set_mock_platform(dep.config, platform_class)
     if cmake_opts: target.add_cmake_options(list(cmake_opts))
+    target.enable_ninja_build = 'Ninja' in generator  # MSVC names cl.exe only under Ninja
     with patch('mama.buildsys.cmake.configure._generator', return_value=generator):
         return run_config_capturing(target, dep)[0]
 
@@ -815,6 +816,12 @@ def write_cmake_cache(build_dir, text):
     """Write a raw CMakeCache.txt into build_dir (created if missing)."""
     os.makedirs(build_dir, exist_ok=True)
     with open(os.path.join(build_dir, 'CMakeCache.txt'), 'w', encoding='utf-8') as f: f.write(text)
+
+
+def symlink_or_skip(target, link):
+    """Make a symlink, or skip the test. Windows grants that right to an admin or to developer mode alone."""
+    try: os.symlink(target, link)
+    except OSError as e: pytest.skip(f'this host cannot create a symlink: {e}')
 
 
 def write_build_file(build_dir, name='build.ninja'):

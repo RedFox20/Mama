@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+from testutils import symlink_or_skip
 from mama.build_config import BuildConfig
 
 # A name no host carries, so /etc/alternatives and /usr/bin cannot answer the search.
@@ -17,12 +18,6 @@ def _fake(root, name) -> str:
     path = os.path.join(root, name)
     open(path, 'w').close()
     return path
-
-
-def _link(target, link):
-    """Make a symlink, or skip the test. Windows grants that right to an admin or to developer mode alone."""
-    try: os.symlink(target, link)
-    except OSError as e: pytest.skip(f'this host cannot create a symlink: {e}')
 
 
 def _versioned_compiler(path, version):
@@ -40,11 +35,11 @@ def _ubuntu_gcc_layout(tmp_path):
         for major, version in (('13', '13.3.0'), ('14', '14.2.0')):
             target = bin_dir / f'x86_64-linux-gnu-{compiler}-{major}'
             _versioned_compiler(target, version)
-            _link(target.name, bin_dir / f'{compiler}-{major}')
-        _link(bin_dir / f'{compiler}-13', default / compiler)
-        _link(default / compiler, bin_dir / compiler)
-        _link(bin_dir / f'{compiler}-14', configured / compiler)
-        _link(configured / compiler, shim_dir / compiler)
+            symlink_or_skip(target.name, bin_dir / f'{compiler}-{major}')
+        symlink_or_skip(bin_dir / f'{compiler}-13', default / compiler)
+        symlink_or_skip(default / compiler, bin_dir / compiler)
+        symlink_or_skip(bin_dir / f'{compiler}-14', configured / compiler)
+        symlink_or_skip(configured / compiler, shim_dir / compiler)
     return bin_dir
 
 
@@ -72,9 +67,9 @@ def test_a_suffixed_symlink_answers_the_name_the_real_file_carries(tmp_path):
     real_bin, link_bin = tmp_path / 'llvm-18' / 'bin', tmp_path / 'bin'
     real_bin.mkdir(parents=True); link_bin.mkdir()
     _fake(str(real_bin), CC)
-    _link(CC, real_bin / CXX)                       # relative, as an LLVM install writes it
+    symlink_or_skip(CC, real_bin / CXX)                       # relative, as an LLVM install writes it
     for name in (CC, CXX):
-        _link(real_bin / name, link_bin / f'{name}-18')
+        symlink_or_skip(real_bin / name, link_bin / f'{name}-18')
 
     root, suffix, version = _find(str(link_bin) + '/', ['-18', ''])
     assert version == VERSION
@@ -108,7 +103,7 @@ def test_an_unsuffixed_link_answers_the_suffix_the_real_file_carries(tmp_path):
     real_bin.mkdir(parents=True); link_bin.mkdir()
     for name in (CC, CXX):
         _fake(str(real_bin), f'{name}-14')
-        _link(real_bin / f'{name}-14', link_bin / name)
+        symlink_or_skip(real_bin / f'{name}-14', link_bin / name)
 
     root, suffix, version = _find(str(link_bin) + '/', ['-14', ''])
     assert version == VERSION
@@ -122,7 +117,7 @@ def test_the_cxx_env_var_reads_the_suffix_off_the_real_file_too(tmp_path):
     real_bin.mkdir(parents=True)
     for name in (CC, CXX): _fake(str(real_bin), f'{name}-14')
     link = tmp_path / CXX
-    _link(real_bin / f'{CXX}-14', link)
+    symlink_or_skip(real_bin / f'{CXX}-14', link)
 
     config = BuildConfig.__new__(BuildConfig)
     config.verbose = False
@@ -139,7 +134,7 @@ def test_a_link_to_a_target_prefixed_compiler_keeps_a_name_that_exists(tmp_path)
     real_bin.mkdir(parents=True); link_bin.mkdir()
     for name in (CC, CXX):
         _fake(str(real_bin), f'x86_64-linux-gnu-{name}-14')
-        _link(real_bin / f'x86_64-linux-gnu-{name}-14', link_bin / name)
+        symlink_or_skip(real_bin / f'x86_64-linux-gnu-{name}-14', link_bin / name)
 
     root, suffix, _ = _find(str(link_bin) + '/', ['-14', ''])
     assert os.path.exists(f'{root}{CXX}{suffix}'), f'{root}{CXX}{suffix}'
