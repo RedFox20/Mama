@@ -352,6 +352,12 @@ def _wipe_build_dir(target:BuildTarget):
     shutil.rmtree(path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
 
 
+def _read_cache(build_dir:str) -> str:
+    """The CMakeCache.txt of a build dir, '' when the dir holds none."""
+    try: return read_text_from(path_join(build_dir, 'CMakeCache.txt'))
+    except OSError: return ''
+
+
 def _cache_entry(cache_text:str, key:str) -> str:
     """Value of a `KEY:TYPE=value` line in a CMakeCache ('' if absent). Anchored to the exact key with an
     optional `:TYPE`, so CMAKE_GENERATOR skips its CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE siblings."""
@@ -381,10 +387,7 @@ def is_cmake_cache_valid(build_dir:str) -> bool:
     """True only when `build_dir` holds the artifacts of a configure that ran to COMPLETION. A plain existence
     check misses three poisoned shapes: truncated cache (no CMAKE_GENERATOR), no generated build file, and
     the other generator's stale leftover file. All three -> reconfigure."""
-    cache = path_join(build_dir, 'CMakeCache.txt')
-    if not os.path.exists(cache): return False
-    try: generator = cache_generator(read_text_from(cache))
-    except OSError: return False  # an unreadable cache counts as missing -> reconfigure
+    generator = cache_generator(_read_cache(build_dir))  # a missing or unreadable cache -> reconfigure
     if not generator: return False
     return generator_build_file_exists(build_dir, generator)
 
@@ -460,8 +463,8 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     wipe on missing evidence, so this cannot mass-invalidate warm dirs.
     Another generator is proof too: cmake refuses to configure a build dir that one generator wrote with
     another. A recorded fingerprint already names the generator, so only this path needs the check."""
-    try: cache_text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return False
+    cache_text = _read_cache(build_dir)
+    if not cache_text: return False
     wanted, cached_generator = _generator_name(target), cache_generator(cache_text)
     if wanted and cached_generator and cached_generator != wanted: return True
     if target.config.cmake_toolchain_file:
@@ -484,12 +487,6 @@ def is_multi_config(generator:str) -> bool:
     cache entry (`Xcode`) or the command line flag (`-G "Xcode"`)."""
     gen = generator.lower()
     return any(g in gen for g in _MULTI_CONFIG_GENERATORS)
-
-
-def _read_cache(build_dir:str) -> str:
-    """The CMakeCache.txt of a build dir, '' when the dir holds none."""
-    try: return read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return ''
 
 
 def cached_build_type(build_dir:str, single_config_only=False) -> str:
