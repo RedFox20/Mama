@@ -1,6 +1,6 @@
 """Pins the configure/build split: phase ordering, no-op packaging, custom-build collapse,
 thread-safe env, per-target -j, and generator-agnostic TU counting."""
-import os, sys, contextlib, shutil, subprocess
+import os, sys, contextlib, json, shutil, subprocess
 from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
@@ -147,10 +147,19 @@ def test_probe_build_jobs_counts_tus_across_generators_and_falls_back(tmp_path):
     ccj, vcx = t.build_dir('compile_commands.json'), t.build_dir('app.vcxproj')
     with open(ccj, 'w') as f: f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
     assert t._probe_build_jobs() == 3                       # Ninja/Make: compile_commands.json
-    with open(ccj, 'w') as f: f.write('[{"file": "a"},{"file": "a"},{"file": "b"}]')
-    assert t._probe_build_jobs() == 2                       # Ninja Multi-Config: one entry per source and config
-    with open(ccj, 'w') as f: f.write(''.join(f'{{"file":"{i}"}},' for i in range(100)))
-    assert t._probe_build_jobs() == 8                       # capped at config.jobs
+    with open(ccj, 'w') as f: f.write('[{"file":"a"},{"file":"s"},{"file":"b"},{"file":"s"}]')
+    assert t._probe_build_jobs() == 4                       # a source two targets compile is two jobs
+    with open(t.build_dir('CMakeCache.txt'), 'w') as f:
+        f.write('CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config\n')
+    t.cmake_build_type = 'Debug'                            # Ninja Multi-Config: only the entries of this type
+    entries = [{'output': 'a.dir/Release/a.obj'}, {'output': 'a.dir/Debug/a.obj'}, {'output': 'a.dir/Debug/d.obj'},
+               {'command': r'cl /Foa.dir\Debug\e.obj'},      # cmake before 3.20 writes no output
+               {'command': 'c++ -I/Debug/inc -o a.dir/Debug/g.o'}, {'command': r'cl -I/Debug/inc /Foa.dir\Release\r.obj'}]
+    with open(ccj, 'w') as f: f.write(json.dumps(entries))
+    assert t._probe_build_jobs() == 4                       # an include dir named Debug is not the object path
+    os.remove(t.build_dir('CMakeCache.txt'))
+    with open(ccj, 'w') as f: f.write('{"file":"a"},' * 100)
+    assert t._probe_build_jobs() == 8                       # a corrupt file counts its "file" keys, capped at config.jobs
     os.remove(ccj)
     with open(vcx, 'w') as f:
         f.write('<ClCompile Include="a"/>\n<ClCompile Include="b"/>\n<ClCompile>settings</ClCompile>')

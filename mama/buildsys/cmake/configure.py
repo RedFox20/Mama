@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import os, contextlib, re, shutil, tempfile, threading
+import os, contextlib, json, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
@@ -486,15 +486,41 @@ def is_multi_config(generator:str) -> bool:
     return any(g in gen for g in _MULTI_CONFIG_GENERATORS)
 
 
+def _read_cache(build_dir:str) -> str:
+    """The CMakeCache.txt of a build dir, '' when the dir holds none."""
+    try: return read_text_from(path_join(build_dir, 'CMakeCache.txt'))
+    except OSError: return ''
+
+
 def cached_build_type(build_dir:str, single_config_only=False) -> str:
     """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache.
     single_config_only: answer '' for a multi-config generator, which picks the type at build time,
                         so its cache does not say what the artifacts in the dir are."""
-    try: cache = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return ''
-    if single_config_only and is_multi_config(cache_generator(cache)):
-        return ''
+    cache = _read_cache(build_dir)
+    if single_config_only and is_multi_config(cache_generator(cache)): return ''
     return _cache_entry(cache, 'CMAKE_BUILD_TYPE')
+
+
+_OBJECT_ARG = re.compile(r'(?:^|\s)(?:-o\s+|[/-]Fo)("[^"]*"|\S+)')
+
+
+def _object_path(entry:dict) -> str:
+    """The object file of one compile_commands.json entry. cmake before 3.20 writes no `output`, so the
+    path then comes from the `-o` or `/Fo` argument of `command`."""
+    if 'output' in entry: return entry['output']
+    m = _OBJECT_ARG.search(entry.get('command', ''))
+    return m.group(1) if m else ''
+
+
+def compile_count(build_dir:str, build_type:str) -> int:
+    """How many compile_commands.json entries one build of `build_type` runs. A multi-config dir lists every
+    configuration, so only an entry whose object path holds `/<build_type>/` counts there."""
+    text = read_text_from(path_join(build_dir, 'compile_commands.json'))
+    try: entries = json.loads(text)
+    except ValueError: return text.count('"file"')  # a truncated or corrupt file
+    if not is_multi_config(cache_generator(_read_cache(build_dir))): return len(entries)
+    config_dir = f'/{build_type}/'
+    return sum(config_dir in forward_slashes(_object_path(e)) for e in entries)
 
 
 def run_config(target:BuildTarget, out=None, _seed=True):
