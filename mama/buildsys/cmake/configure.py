@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import os, contextlib, re, shutil, tempfile, threading
+import os, contextlib, json, re, shutil, tempfile, threading
 from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
@@ -352,6 +352,12 @@ def _wipe_build_dir(target:BuildTarget):
     shutil.rmtree(path_join(target.build_dir(), 'CMakeFiles'), ignore_errors=True)
 
 
+def _read_cache(build_dir:str) -> str:
+    """The CMakeCache.txt of a build dir, '' when the dir holds none."""
+    try: return read_text_from(path_join(build_dir, 'CMakeCache.txt'))
+    except OSError: return ''
+
+
 def _cache_entry(cache_text:str, key:str) -> str:
     """Value of a `KEY:TYPE=value` line in a CMakeCache ('' if absent). Anchored to the exact key with an
     optional `:TYPE`, so CMAKE_GENERATOR skips its CMAKE_GENERATOR_PLATFORM/_TOOLSET/_INSTANCE siblings."""
@@ -381,10 +387,7 @@ def is_cmake_cache_valid(build_dir:str) -> bool:
     """True only when `build_dir` holds the artifacts of a configure that ran to COMPLETION. A plain existence
     check misses three poisoned shapes: truncated cache (no CMAKE_GENERATOR), no generated build file, and
     the other generator's stale leftover file. All three -> reconfigure."""
-    cache = path_join(build_dir, 'CMakeCache.txt')
-    if not os.path.exists(cache): return False
-    try: generator = cache_generator(read_text_from(cache))
-    except OSError: return False  # an unreadable cache counts as missing -> reconfigure
+    generator = cache_generator(_read_cache(build_dir))  # a missing or unreadable cache -> reconfigure
     if not generator: return False
     return generator_build_file_exists(build_dir, generator)
 
@@ -460,8 +463,8 @@ def _toolchain_moved_unfingerprinted(build_dir:str, target:BuildTarget) -> bool:
     wipe on missing evidence, so this cannot mass-invalidate warm dirs.
     Another generator is proof too: cmake refuses to configure a build dir that one generator wrote with
     another. A recorded fingerprint already names the generator, so only this path needs the check."""
-    try: cache_text = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return False
+    cache_text = _read_cache(build_dir)
+    if not cache_text: return False
     wanted, cached_generator = _generator_name(target), cache_generator(cache_text)
     if wanted and cached_generator and cached_generator != wanted: return True
     if target.config.cmake_toolchain_file:
@@ -490,11 +493,31 @@ def cached_build_type(build_dir:str, single_config_only=False) -> str:
     """CMAKE_BUILD_TYPE recorded in a build dir, '' when the dir holds no cache.
     single_config_only: answer '' for a multi-config generator, which picks the type at build time,
                         so its cache does not say what the artifacts in the dir are."""
-    try: cache = read_text_from(path_join(build_dir, 'CMakeCache.txt'))
-    except OSError: return ''
-    if single_config_only and is_multi_config(cache_generator(cache)):
-        return ''
+    cache = _read_cache(build_dir)
+    if single_config_only and is_multi_config(cache_generator(cache)): return ''
     return _cache_entry(cache, 'CMAKE_BUILD_TYPE')
+
+
+_OBJECT_ARG = re.compile(r'(?:^|\s)(?:-o\s+|[/-]Fo)("[^"]*"|\S+)')
+
+
+def _object_path(entry:dict) -> str:
+    """The object file of one compile_commands.json entry. cmake before 3.20 writes no `output`, so the
+    path then comes from the `-o` or `/Fo` argument of `command`."""
+    if 'output' in entry: return entry['output']
+    m = _OBJECT_ARG.search(entry.get('command', ''))
+    return m.group(1) if m else ''
+
+
+def compile_count(build_dir:str, build_type:str) -> int:
+    """How many compile_commands.json entries one build of `build_type` runs. A multi-config dir lists every
+    configuration, so only an entry whose object path holds `/<build_type>/` counts there."""
+    text = read_text_from(path_join(build_dir, 'compile_commands.json'))
+    try: entries = json.loads(text)
+    except ValueError: return text.count('"file"')  # a truncated or corrupt file
+    if not is_multi_config(cache_generator(_read_cache(build_dir))): return len(entries)
+    config_dir = f'/{build_type}/'
+    return sum(config_dir in forward_slashes(_object_path(e)) for e in entries)
 
 
 def run_config(target:BuildTarget, out=None, _seed=True):
@@ -632,7 +655,11 @@ _GENERATORS = {'make': 'Unix Makefiles', 'xcode': 'Xcode'}
 def _generator_name(target:BuildTarget) -> str:
     """The generator name as CMakeCache records it, eg 'Ninja'. '' lets cmake pick its default."""
     config:BuildConfig = target.config
-    if target.enable_ninja_build: return 'Ninja'
+    # A mamafile for MSVC reads its outputs from <build dir>/<type>, where Visual Studio writes them.
+    # Ninja Multi-Config writes there too, from cmake 3.17. Plain Ninja writes to the build dir itself.
+    if target.enable_ninja_build:
+        multi = config.msvc and _cmake_version(config, target.cmake_command) >= (3, 17)
+        return 'Ninja Multi-Config' if multi else 'Ninja'
     if target.enable_unix_make:   return 'Unix Makefiles'
     if config.msvc: return config.platform.generator_name()
     return _GENERATORS.get(config.platform.build_system, '')

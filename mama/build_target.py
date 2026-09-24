@@ -1655,7 +1655,7 @@ class BuildTarget:
 
     def _count_tu(self) -> tuple:
         """(TU count, method) - generator-agnostic, most accurate first:
-          compile_commands.json          (Ninja, or Make/VS only when export is on) -> "file" entries
+          compile_commands.json          (Ninja, or Make/VS only when export is on) -> entries of cmake_build_type
           *.vcxproj                       (Visual Studio generator)                  -> <ClCompile Include=>
           CMakeFiles/**/DependInfo.cmake  (Unix Makefiles, export off)               -> one object per TU
           C/C++ source files in the source tree                                      -> cross-platform fallback
@@ -1663,7 +1663,7 @@ class BuildTarget:
         bd = self.build_dir()
         cc = path_join(bd, 'compile_commands.json')
         if os.path.exists(cc):
-            return read_text_from(cc).count('"file"'), 'compile_commands'
+            return cmake.compile_count(bd, self.cmake_build_type), 'compile_commands'
         if os.path.isdir(bd):
             n = sum(read_text_from(path_join(bd, fn)).count('<ClCompile Include=')
                     for fn in os.listdir(bd) if fn.endswith('.vcxproj'))

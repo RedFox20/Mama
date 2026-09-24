@@ -609,7 +609,8 @@ source, so a changed child cannot change what it produces, and a shim never inhe
 the package to fetch. An upload names the type the `CMakeCache.txt` of the build dir records, because that
 is the type the artifacts carry. The two share one build dir, so a run that uploads after a debug build of
 another type would otherwise publish debug artifacts under the release name. A dir with no cache falls back
-to the type of the run. `arch` is the arch marker, which an `-march` pin renames (`x64v3`, `armv82a`),
+to the type of the run, and so does a multi-config dir (Visual Studio, Xcode, Ninja Multi-Config), which
+holds both types. `arch` is the arch marker, which an `-march` pin renames (`x64v3`, `armv82a`),
 because a pin already names the architecture and one axis gets one field. `variant` is the same suffix the
 build dir carries. For a git dep the version
 is the first of: the mamafile `self.version`, the pinned git tag, or the commit hash. Under a dependency
@@ -815,13 +816,17 @@ dependency. An IDE listed four configurations, and three of them could not link.
 
 ### MSVC without Visual Studio
 
-An MSVC target that builds with Ninja or Unix Makefiles gets three changes. That generator runs
+An MSVC target that builds with Ninja or Unix Makefiles gets these changes. That generator runs
 `cl.exe` itself, and only the Visual Studio generator finds the toolset on its own.
 
 - mama names `cl.exe` of the detected toolset and arch as the C and C++ compiler. The compiler probe
   that builds the seed names it too.
 - The configure, the build and the probe run in the env that `vcvarsall.bat` sets for that toolset and
   arch, `PATH` included, in the order vcvarsall wrote. mama runs the script once per process.
+- Under Ninja, the generator is `Ninja Multi-Config`. It writes the outputs to `<build dir>/<type>`, as
+  Visual Studio does. A mamafile that copies its outputs from there then works under both generators.
+  Unix Makefiles stays single-config and writes to the build dir itself. So does Ninja under a cmake
+  older than 3.17, which has no `Ninja Multi-Config`, and under a cmake whose `--version` probe fails.
 - `/MP` stays off, because that generator already runs one `cl.exe` per source file. `-A` and the x86
   `CMAKE_GENERATOR_TOOLSET` stay off too, because only Visual Studio takes them. The arch comes from the
   vcvarsall env. The build gets `-j`, never the MSBuild flags.
@@ -829,7 +834,9 @@ An MSVC target that builds with Ninja or Unix Makefiles gets three changes. That
 **Why:** without a named compiler cmake takes the first `c++` on `PATH`, which was MinGW on a CI runner,
 and the build died on `/EHsc`. The vcvarsall `PATH` order keeps `rc.exe` and `mt.exe` from the same SDK
 as `cl.exe`. mama starts cmake from its own `PATH`, and each configure names ninja in `CMAKE_MAKE_PROGRAM`.
-Only the compiler probe of the seed can take the ninja that Visual Studio ships.
+Only the compiler probe of the seed can take the ninja that Visual Studio ships. Plain Ninja writes the
+outputs to the build dir itself. A Windows mamafile that reads `build_dir(self.cmake_build_type)` then
+packaged nothing, and its upload carried no libs, no exe and no dll.
 
 ### The MSVC runtime library
 
@@ -936,6 +943,10 @@ The `package()` hook populates the exports through `export_include`, `export_lib
 `export_asset` and `export_modules`. For a target built from source, each category the hook leaves
 empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default.
 `default_package()` runs the same three, so collecting the rest cannot widen a narrowed list.
+
+`export_libs` keeps one lib per basename, and a lib an earlier call exported wins. Inside one call, a
+copy under a `<cmake_build_type>/` dir wins over the other copies. **Why:** a multi-config build dir holds
+one copy per type, and a generator switch leaves the outputs of the old generator in the dir root.
 
 **A fetched module list belongs to the include tree of the same run.** A hook that re-roots the
 exported includes drops the archived module paths, and the default finds them under the new roots.

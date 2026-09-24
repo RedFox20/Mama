@@ -56,6 +56,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **`export_libs('.')` kept a stale root lib or a `Debug/` lib from a multi-config build dir.**
+  Fix: a lib under `<cmake_build_type>/` wins the basename dedup.
+
 - **An x86 MSVC target under Ninja or Unix Makefiles got `CMAKE_GENERATOR_TOOLSET=host=x86`.**
   Fix: `platform_opts` emits the toolset only under Visual Studio, the same as `-A`.
 

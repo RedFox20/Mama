@@ -502,8 +502,10 @@ def clean_intermediate_files(target: BuildTarget):
 
 def export_libs(target: BuildTarget, path, pattern_substrings: List[str], build_dir: bool, order: list):
     root_path = target_root_path(target, path, build_dir=build_dir)
-    libs = glob_with_name_match(root_path, pattern_substrings)
-    libs = cleanup_libs_list(libs)
+    libs = cleanup_libs_list(glob_with_name_match(root_path, pattern_substrings))
+    # A multi-config dir holds one copy of a lib per type. get_unique_libnames keeps the first, so sort cmake_build_type first.
+    type_dir = f'/{target.cmake_build_type}/'
+    libs.sort(key=lambda lib: type_dir not in lib[len(root_path):])
 
     root_deploy = root_path + '/deploy/'
     libs = [l for l in libs if not l.startswith(root_deploy)]

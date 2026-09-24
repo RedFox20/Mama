@@ -18,6 +18,10 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.6** (2026-Sep-24)
+ - bugfix: MSVC with Ninja uses Ninja Multi-Config, outputs in <build>/<type>
+ - bugfix: export_libs prefers the lib of the build type in a multi-config dir
+
 **0.14.5** (2026-Sep-24)
  - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version
  - feature: generator=ninja|native picks the generator of every target
@@ -30,9 +34,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - feature: coverage only applies to current target, dependencies stay regular
  - bugfix: a coverage build refuses to upload to artifactory
  - bugfix: coverage flag reaching linker when it should not
-
-**0.14.3** (2026-Sep-05)
- - feature: added generic AARCH64 Linux platform for easier cross-builds
 
 ## Why Mama
 
