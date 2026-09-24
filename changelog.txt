@@ -3,6 +3,7 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
  - bugfix: MSVC with Ninja uses Ninja Multi-Config, outputs in <build>/<type>
+ - bugfix: export_libs prefers the lib of the build type in a multi-config dir
 
 release: 0.14.5 (2026-Sep-24)
  - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version

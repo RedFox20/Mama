@@ -944,6 +944,10 @@ The `package()` hook populates the exports through `export_include`, `export_lib
 empty gets a default: includes, then libs and syslibs, then modules. A fetched dep runs no default.
 `default_package()` runs the same three, so collecting the rest cannot widen a narrowed list.
 
+`export_libs` keeps one lib per basename, and a lib an earlier call exported wins. Inside one call, a
+copy under a `<cmake_build_type>/` dir wins over the other copies. **Why:** a multi-config build dir holds
+one copy per type, and a generator switch leaves the outputs of the old generator in the dir root.
+
 **A fetched module list belongs to the include tree of the same run.** A hook that re-roots the
 exported includes drops the archived module paths, and the default finds them under the new roots.
 **Why:** a deployed module path sits under no source include dir, so every consumer variable loses it.
