@@ -195,9 +195,9 @@ def test_msvc_uses_its_own_flag_syntax(tmp_path):
 _TOOLS = 'C:/Program Files/VS/VC/Tools/MSVC/14.51.36231'
 
 
-def _msvc_ninja_target(tmp_path):
+def _msvc_ninja_target(tmp_path, cmake='3.28.0'):
     t, _ = platform_target(tmp_path, Windows)
-    t.enable_ninja_build = True
+    t.enable_ninja_build, t.config._cmake_ver_num = True, {t.cmake_command: cmake}
     return t
 
 
@@ -209,7 +209,18 @@ def test_msvc_under_ninja_names_cl_and_drops_the_msbuild_options(_, tmp_path):
     assert f'-DCMAKE_CXX_COMPILER={cl}' in shlex.split(cc._opts_to_defines(opts))  # the quoted path stays one argument
     assert f'CMAKE_C_COMPILER="{cl}"' in opts
     assert '/MP' not in t.cmake_cxxflags  # ninja already runs one cl.exe per file
-    assert cc._generator(t) == '-G "Ninja"'  # -A is a Visual Studio platform, Ninja takes the arch from the env
+    assert cc._generator(t) == '-G "Ninja Multi-Config"'  # -A is a Visual Studio platform, Ninja takes the arch from the env
+    assert cc.is_multi_config(cc._generator(t))  # a mamafile for MSVC copies its outputs from <build dir>/<type>
+
+
+def test_msvc_under_ninja_before_cmake_3_17_stays_single_config(tmp_path):
+    assert cc._generator(_msvc_ninja_target(tmp_path, cmake='3.16.9')) == '-G "Ninja"'
+
+
+def test_ninja_without_msvc_stays_single_config(tmp_path):
+    t, _ = platform_target(tmp_path, Linux)
+    t.enable_ninja_build = True
+    assert cc._generator(t) == '-G "Ninja"'
 
 
 @patch.object(Windows, 'generator_name', autospec=True, return_value='Visual Studio 18 2026')

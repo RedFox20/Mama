@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os.path, sys, time
+import os.path, re, sys, time
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -40,6 +40,9 @@ _NON_LIB_DIRS = ['build', 'packages', 'libs', 'out', '.git', 'test', 'tests', 's
 
 
 ######################################################################################
+
+
+_COMPILE_COMMANDS_FILE = re.compile(r'"file"\s*:\s*"([^"]*)"')
 
 
 class BuildTarget:
@@ -1663,7 +1666,8 @@ class BuildTarget:
         bd = self.build_dir()
         cc = path_join(bd, 'compile_commands.json')
         if os.path.exists(cc):
-            return read_text_from(cc).count('"file"'), 'compile_commands'
+            # Ninja Multi-Config lists each source once per configuration, so count the distinct ones
+            return len(set(_COMPILE_COMMANDS_FILE.findall(read_text_from(cc)))), 'compile_commands'
         if os.path.isdir(bd):
             n = sum(read_text_from(path_join(bd, fn)).count('<ClCompile Include=')
                     for fn in os.listdir(bd) if fn.endswith('.vcxproj'))

@@ -632,7 +632,11 @@ _GENERATORS = {'make': 'Unix Makefiles', 'xcode': 'Xcode'}
 def _generator_name(target:BuildTarget) -> str:
     """The generator name as CMakeCache records it, eg 'Ninja'. '' lets cmake pick its default."""
     config:BuildConfig = target.config
-    if target.enable_ninja_build: return 'Ninja'
+    # A mamafile for MSVC reads its outputs from <build dir>/<type>, where Visual Studio writes them.
+    # Ninja Multi-Config writes there too, from cmake 3.17. Plain Ninja writes to the build dir itself.
+    if target.enable_ninja_build:
+        multi = config.msvc and _cmake_version(config, target.cmake_command) >= (3, 17)
+        return 'Ninja Multi-Config' if multi else 'Ninja'
     if target.enable_unix_make:   return 'Unix Makefiles'
     if config.msvc: return config.platform.generator_name()
     return _GENERATORS.get(config.platform.build_system, '')

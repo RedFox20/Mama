@@ -147,7 +147,9 @@ def test_probe_build_jobs_counts_tus_across_generators_and_falls_back(tmp_path):
     ccj, vcx = t.build_dir('compile_commands.json'), t.build_dir('app.vcxproj')
     with open(ccj, 'w') as f: f.write('[{"file":"a"},{"file":"b"},{"file":"c"}]')
     assert t._probe_build_jobs() == 3                       # Ninja/Make: compile_commands.json
-    with open(ccj, 'w') as f: f.write('"file"' * 100)
+    with open(ccj, 'w') as f: f.write('[{"file": "a"},{"file": "a"},{"file": "b"}]')
+    assert t._probe_build_jobs() == 2                       # Ninja Multi-Config: one entry per source and config
+    with open(ccj, 'w') as f: f.write(''.join(f'{{"file":"{i}"}},' for i in range(100)))
     assert t._probe_build_jobs() == 8                       # capped at config.jobs
     os.remove(ccj)
     with open(vcx, 'w') as f:
