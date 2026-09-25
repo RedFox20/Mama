@@ -56,6 +56,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **Parallel CI uploads wrote env credentials to one keyring file and corrupted it.** Fix: only typed
+  credentials reach the keyring, and a keyring file that does not parse moves to `<file>.corrupt`.
+
 - **`export_libs('.')` kept a stale root lib or a `Debug/` lib from a multi-config build dir.**
   Fix: a lib under `<cmake_build_type>/` wins the basename dedup.
 

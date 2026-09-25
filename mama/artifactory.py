@@ -15,6 +15,7 @@ from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
 from .utils.archive import try_unzip
+from .utils.dir_lock import interprocess_dir_lock
 from .utils.errors import BuildError
 from .utils.net import try_download_file
 from .utils.paths import normalized_join
@@ -108,16 +109,26 @@ def _get_keyring():
     if not keyr: # lazy init, because the keyring import loads certs and is slow
         import keyring
         if System.linux:
-            import importlib
+            import configparser, importlib
             cryptfile = importlib.import_module('keyrings.cryptfile.cryptfile')
             kr = cryptfile.CryptFileKeyring()
-            kr.keyring_key = f'mamabuild-{os.getenv("USER")}'
+            key = f'mamabuild-{os.getenv("USER")}'
+            with interprocess_dir_lock(kr.file_path, timeout=30): # a second process reads the file the first one healed
+                try:
+                    kr.keyring_key = key
+                except configparser.Error as e: # two processes wrote the file at the same time
+                    try: os.replace(kr.file_path, f'{kr.file_path}.corrupt')
+                    except FileNotFoundError: pass # a lock timeout runs unlocked, so another process can move it first
+                    warning(f'  - Artifactory keyring is corrupt: {e}\n' + \
+                            f'    Moved it to {kr.file_path}.corrupt and started a new one.')
+                    kr.keyring_key = key
             keyring.set_keyring(kr)
         keyr = keyring
     return keyr
 
 
 def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
+    """Returns (username, password, source). The source is 'env', 'store' or 'prompt'."""
     username = os.getenv('MAMA_ARTIFACTORY_USER', None)
     password = os.getenv('MAMA_ARTIFACTORY_PASS', None)
     if username is not None:
@@ -127,13 +138,13 @@ def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
         if not password:
             raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing password. ' \
                                               'Set MAMA_ARTIFACTORY_PASS.')
-        return username, password
+        return username, password, 'env'
 
     if config.artifactory_auth == 'store':
         username = _get_keyring().get_password('mamabuild', f'username-{url}')
         password = _get_keyring().get_password('mamabuild', f'password-{url}')
         if username is not None and password is not None:
-            return username, password
+            return username, password, 'store'
 
     if not sys.stdin.isatty():
         raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing credentials. ' \
@@ -156,7 +167,7 @@ def _get_artifactory_ftp_credentials(config:BuildConfig, url:str):
     if not password:
         raise ArtifactoryCredentialsError(f'Artifactory Upload failed for {url}: missing password. ' \
                                           'Set MAMA_ARTIFACTORY_PASS.')
-    return username, password
+    return username, password, 'prompt'
 
 
 def _remove_artifactory_ftp_credentials(url:str):
@@ -173,10 +184,11 @@ def _store_artifactory_ftp_credentials(config:BuildConfig, url, username, passwo
 
 
 def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config:BuildConfig, url:str):
+    """Only typed credentials reach the keyring. CI jobs on one host share one keyring file, and a write is not atomic."""
     import ftplib  # deferred: see the note at the top of this module
     connected = False
     while True:
-        username, password = _get_artifactory_ftp_credentials(config, url)
+        username, password, source = _get_artifactory_ftp_credentials(config, url)
         if not connected:
             if config.verbose:
                 console(f'  - Artifactory Connect {url}')
@@ -184,11 +196,14 @@ def artifactory_ftp_login(ftp:ftplib.FTP_TLS, config:BuildConfig, url:str):
             connected = True
         try:
             ftp.login(username, password)
-            _store_artifactory_ftp_credentials(config, url, username, password)
         except ftplib.Error as e:
+            if source == 'env':
+                raise ArtifactoryCredentialsError(f'Artifactory login failed for {url}: {e}. ' \
+                                                  'Check MAMA_ARTIFACTORY_USER and MAMA_ARTIFACTORY_PASS.') from None
             console(f'artifactory login failed: {e}')
-            _remove_artifactory_ftp_credentials(url)
+            if source == 'store': _remove_artifactory_ftp_credentials(url)
         else:
+            if source == 'prompt': _store_artifactory_ftp_credentials(config, url, username, password)
             return # success
 
 

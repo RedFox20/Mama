@@ -828,10 +828,12 @@ $ mama upload googletest
 ## Artifactory Details
 
 ### Authentication
-- **`auth='store'`** (default): mama stores credentials in the system keyring (`keyrings.cryptfile`
-  on Linux), one entry per URL. A failed login clears the stored credentials.
+- **`auth='store'`** (default): mama stores the credentials you type in the system keyring (`keyrings.cryptfile`
+  on Linux), one entry per URL. A failed login clears the stored credentials. A keyring file that does
+  not parse moves to `<file>.corrupt`, and mama starts a new keyring.
 - **`auth='prompt'`**: Always prompts for username and password.
 - **Environment variables** `MAMA_ARTIFACTORY_USER` / `MAMA_ARTIFACTORY_PASS` always take priority over both modes.
+  Mama never stores them, and a failed login with them ends the run.
 
 ### Package naming convention
 Artifactory archives follow the naming format:

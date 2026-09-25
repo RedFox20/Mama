@@ -1169,6 +1169,17 @@ republished as if it were a source build.
 `upload` with `if_needed` skips when the archive already exists on the server. The upload validates
 the archive against `papa.txt` first, and rejects missing or unexpected content.
 
+**Credentials**: `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS` win over the keyring and the prompt.
+Mama never writes them to the keyring, and a login that rejects them ends the run. Under `auth='store'`,
+mama reads the keyring next, and it writes back only the credentials a user typed. A login that rejects
+stored credentials deletes them, then prompts. Without a TTY, the run ends there. On Linux, a keyring
+file that does not parse moves to `<file>.corrupt`, and mama starts a new keyring. Mama reads and heals
+the file under a cross-process lock. A second process waits for it, reads the new keyring and moves
+nothing. After 30 seconds, the wait ends and the process continues without the lock.
+
+**Why:** CI jobs on one host share one keyring file, and `keyrings.cryptfile` rewrites it in place. Two
+jobs that wrote their env credentials at the same moment corrupted it, and every later upload failed.
+
 **A target that exports nothing publishes nothing.** `_run_packaging` marks it `no_upload` when the
 packaging leaves no include, no lib, no syslib and no asset. `nothing_to_upload()` sets the same mark by
 hand, and the automatic one never clears it. `validate_archive` refuses the same empty package as a
