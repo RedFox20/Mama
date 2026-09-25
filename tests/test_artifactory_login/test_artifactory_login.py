@@ -1,5 +1,7 @@
 """Pins which credentials artifactory_ftp_login reads from, writes to and deletes from the keyring."""
+import contextlib
 import ftplib
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -70,8 +72,10 @@ def test_rejected_stored_credentials_give_way_to_typed_ones(art):
     assert art.store == TYPED
 
 
-@pytest.mark.skipif(not System.linux, reason='only the Linux keyring is a cryptfile')
-def test_corrupt_keyring_file_moves_aside(tmp_path, monkeypatch):
+@pytest.fixture
+def keyring_file(tmp_path, monkeypatch):
+    """A keyring file in tmp_path that fails to parse. Yields its path and the cryptfile class."""
+    if not System.linux: pytest.skip('only the Linux keyring is a cryptfile')
     monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path))
     monkeypatch.setattr('mama.artifactory.keyr', None)
     cryptfile = pytest.importorskip('keyrings.cryptfile.cryptfile').CryptFileKeyring
@@ -80,6 +84,27 @@ def test_corrupt_keyring_file_moves_aside(tmp_path, monkeypatch):
     path = tmp_path / 'python_keyring' / 'cryptfile_pass.cfg'
     path.parent.mkdir()
     path.write_text('[mamabuild]\na = 1\n[mamabuild]\nb = 2\n')  # the DuplicateSectionError a racing write leaves
+    yield path, cryptfile
+
+
+def test_corrupt_keyring_file_moves_aside(keyring_file):
+    path, _ = keyring_file
     _get_keyring().set_password('mamabuild', 'username-x', 'u')
     assert _get_keyring().get_password('mamabuild', 'username-x') == 'u'
     assert path.with_suffix('.cfg.corrupt').read_text().count('[mamabuild]') == 2
+
+
+def test_keyring_healed_while_waiting_for_the_lock_stays(keyring_file):
+    path, cryptfile = keyring_file
+
+    @contextlib.contextmanager
+    def lock_released_after_another_heal(lock_path, timeout):
+        path.unlink()
+        other = cryptfile()
+        other.keyring_key = f'mamabuild-{os.getenv("USER")}'
+        other.set_password('mamabuild', 'username-x', 'u')
+        yield True
+
+    with patch('mama.artifactory.interprocess_dir_lock', autospec=True, side_effect=lock_released_after_another_heal):
+        assert _get_keyring().get_password('mamabuild', 'username-x') == 'u'
+    assert not path.with_suffix('.cfg.corrupt').exists()

@@ -1173,7 +1173,9 @@ the archive against `papa.txt` first, and rejects missing or unexpected content.
 Mama never writes them to the keyring, and a login that rejects them ends the run. Under `auth='store'`,
 mama reads the keyring next, and it writes back only the credentials a user typed. A login that rejects
 stored credentials deletes them, then prompts. Without a TTY, the run ends there. On Linux, a keyring
-file that does not parse moves to `<file>.corrupt`, and mama starts a new keyring.
+file that does not parse moves to `<file>.corrupt`, and mama starts a new keyring. Mama reads and heals
+the file under a cross-process lock. A second process waits for it, reads the new keyring and moves
+nothing. After 30 seconds, the wait ends and the process continues without the lock.
 
 **Why:** CI jobs on one host share one keyring file, and `keyrings.cryptfile` rewrites it in place. Two
 jobs that wrote their env credentials at the same moment corrupted it, and every later upload failed.

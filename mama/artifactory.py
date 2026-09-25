@@ -15,6 +15,7 @@ from .types.asset import Asset
 from .utils.system import Color, System, console, error, warning, progress
 import mama.package as package
 from .utils.archive import try_unzip
+from .utils.dir_lock import interprocess_dir_lock
 from .utils.errors import BuildError
 from .utils.net import try_download_file
 from .utils.paths import normalized_join
@@ -112,13 +113,15 @@ def _get_keyring():
             cryptfile = importlib.import_module('keyrings.cryptfile.cryptfile')
             kr = cryptfile.CryptFileKeyring()
             key = f'mamabuild-{os.getenv("USER")}'
-            try:
-                kr.keyring_key = key
-            except configparser.Error as e: # two processes wrote the file at the same time
-                try: os.replace(kr.file_path, f'{kr.file_path}.corrupt')
-                except FileNotFoundError: pass # another process moved it first
-                warning(f'  - Artifactory keyring is corrupt: {e}\n    Moved it to {kr.file_path}.corrupt and started a new one.')
-                kr.keyring_key = key
+            with interprocess_dir_lock(kr.file_path, timeout=30): # a second process reads the file the first one healed
+                try:
+                    kr.keyring_key = key
+                except configparser.Error as e: # two processes wrote the file at the same time
+                    try: os.replace(kr.file_path, f'{kr.file_path}.corrupt')
+                    except FileNotFoundError: pass # a lock timeout runs unlocked, so another process can move it first
+                    warning(f'  - Artifactory keyring is corrupt: {e}\n' + \
+                            f'    Moved it to {kr.file_path}.corrupt and started a new one.')
+                    kr.keyring_key = key
             keyring.set_keyring(kr)
         keyr = keyring
     return keyr
