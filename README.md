@@ -18,6 +18,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.7** (2026-Sep-25)
+ - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
+
 **0.14.6** (2026-Sep-24)
  - bugfix: MSVC with Ninja uses Ninja Multi-Config, outputs in <build>/<type>
  - bugfix: export_libs prefers the lib of the build type in a multi-config dir

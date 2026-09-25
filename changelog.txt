@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.14.7 (2026-Sep-25)
  - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
 
 release: 0.14.6 (2026-Sep-24)
