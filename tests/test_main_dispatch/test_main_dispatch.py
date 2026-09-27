@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 from testutils import make_project_dir, stub_loaders
 from mama.main import _can_unify, print_package_exports, mamabuild
+from mama.utils.paths import normalized_path
 
 
 def _cfg(**over):
@@ -79,6 +80,17 @@ def test_the_classic_path_closes_its_live_region_before_the_package_listing(tmp_
          patch('mama.main.print_package_exports', side_effect=lambda d: order.append('listing')):
         mamabuild(['list'], source_dir=make_project_dir(tmp_path))
     assert order == ['open', ('load', 'region'), 'close', 'listing']
+
+
+def test_mamabuild_reads_the_working_dir_when_it_runs(tmp_path, monkeypatch):
+    # a default argument reads os.getcwd() once, at import, before a caller can change the dir
+    project = make_project_dir(tmp_path)
+    monkeypatch.chdir(project)
+    with patch('mama.main.load_display'), patch('mama.main.execute_task_chain_parallel', autospec=True), \
+         patch('mama.main.load_dependency_chain', autospec=True) as load, \
+         patch('mama.main.print_package_exports', autospec=True):
+        mamabuild(['list'])
+    assert load.call_args[0][0].src_dir == normalized_path(project)
 
 
 def test_a_stop_signal_becomes_the_interrupt_mama_already_handles():

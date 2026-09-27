@@ -298,11 +298,12 @@ def install_stop_signals():
         if sig is not None: signal.signal(sig, stop)
 
 
-def mamabuild(args, source_dir=os.getcwd()):
+def mamabuild(args, source_dir=None):
     """Main entry point for MamaBuild. Parses the command line arguments and executes the requested actions.
     - args: list of command line arguments, without the script name, e.g. ['build', 'target=all', 'debug']
-    - source_dir: the directory to treat as the main project source
+    - source_dir: [cwd] the directory to treat as the main project source
     """
+    source_dir = source_dir or os.getcwd()
     if sys.version_info < (3, 10):
         console('FATAL ERROR: MamaBuild requires Python 3.10 or higher')
         exit(-1)

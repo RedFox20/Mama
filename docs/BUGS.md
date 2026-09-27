@@ -56,6 +56,15 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **On Windows, `read_text_from` used the locale codec, so a non-ASCII path rewrote `mama.cmake` each run.**
+  Fix: it reads UTF-8, the codec of `write_text_to`.
+
+- **On Windows, the drive case of the working dir reached `mama.cmake`, so each case rewrote it.**
+  Fix: `normalized_path` writes the drive letter in upper case.
+
+- **Each build wrote the `mama-nomodules/` copy again, so every consumer linked again.**
+  Fix: a copy stays while its archive and the module declarations do not change.
+
 - **Parallel CI uploads wrote env credentials to one keyring file and corrupted it.** Fix: only typed
   credentials reach the keyring, and a keyring file that does not parse moves to `<file>.corrupt`.
 

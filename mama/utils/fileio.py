@@ -33,7 +33,8 @@ def file_sha1(path: str) -> str:
 
 
 def read_text_from(file_path: str) -> str:
-    return pathlib.Path(file_path).read_text()
+    """The codec of `write_text_to`, whatever the locale. A byte that is not UTF-8 reads as U+FFFD."""
+    return pathlib.Path(file_path).read_text(encoding='utf-8', errors='replace')
 
 
 def write_text_to(file: str, text: str):
