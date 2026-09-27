@@ -1045,7 +1045,9 @@ Use `packaging>=24.2`. setuptools>=77 writes Metadata 2.4, which adds the `licen
 with `InvalidDistribution: unrecognized or malformed field 'license-expression'`. Upgrade `packaging`
 and build again.
 
-Quick build & upload: `./deploy.sh`
+Quick build & upload: `./deploy.sh`. `./deploy.sh build` only builds and checks `dist/`, and
+`./deploy.sh upload` only uploads it. `--ci` makes twine read the token from `TWINE_PASSWORD` and
+fail instead of prompting, which is what the CI deploy job runs.
 
 [tests-badge]: https://github.com/RedFox20/Mama/actions/workflows/tests.yml/badge.svg
 [tests-url]: https://github.com/RedFox20/Mama/actions/workflows/tests.yml
