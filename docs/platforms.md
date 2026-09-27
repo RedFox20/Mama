@@ -53,10 +53,11 @@ declares data, never behavior.
 - **`GenericYocto`** - the board ships a Yocto SDK: `sysroots/<host sdk>/` with the cross compilers,
   `sysroots/<target>/` with the target libraries, and a cmake toolchain file of its own. `Oclea`,
   `Xilinx` and `Imx8mp` are this.
-- **`GnuCross`** - the board ships nothing, and the build uses a plain GNU cross toolchain:
-  `<triple>-gcc` in some `bin/` dir, the target headers inside the compiler, and no sysroot. The
-  distro cross package (`apt install g++-aarch64-linux-gnu`) is this shape, and so is a standalone
-  toolchain tarball. `Raspi` and `Aarch64` are this.
+- **`GnuCross`** - the board ships no SDK of its own, and the build uses a plain GNU cross toolchain:
+  `<triple>-gcc` in some `bin/` dir. The distro cross package (`apt install g++-aarch64-linux-gnu`) keeps
+  the target headers inside the compiler and has no sysroot. A standalone toolchain, such as a Pi SDK
+  in `sdk_roots`, can have a `<triple>/sysroot`, and cmake gets it as `CMAKE_SYSROOT`, so the C probe
+  and every link get it. `Raspi` and `Aarch64` are this.
 
 `Aarch64` (`aarch64`) is the fallback for any 64-bit ARM Linux board whose vendor never published an
 SDK: the build uses the distro cross toolchain and the project links its binaries statically.
@@ -109,6 +110,7 @@ class NewBoard(GnuCross):
     triples = {'arm64': 'aarch64-linux-gnu'}   # supported_arches is derived from this
     marches = {'arm64': 'armv8-a'}
     search_envs = ('NEWBOARD_HOME',)           # read before the default paths, so a user override wins
+    sdk_roots = ('/opt/newboard-sdk',)         # <root>/<version> with a .installed file, newest first
     linux_paths = ('/opt/newboard', '/usr')    # <path>/bin/<triple>-gcc
 ```
 

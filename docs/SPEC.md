@@ -1452,7 +1452,7 @@ entire queued backlog of clones first.
 | `MAMA_GENERATOR` | `ninja` or `native`, the same as the `generator=` flag, which wins |
 | `NINJA` | path to the ninja executable |
 | `ANDROID_HOME`, `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_NDK_LATEST_HOME` | Android SDK and NDK |
-| `RASPI_HOME`, `OCLEA_HOME`, `IMX8MP_SDK_HOME`, `XILINX_HOME` | cross toolchain roots |
+| `PI_SDK_HOME`, `RASPI_HOME`, `OCLEA_HOME`, `IMX8MP_SDK_HOME`, `XILINX_HOME` | cross toolchain roots |
 | `CLANG_TIDY` | path to clang-tidy, when PATH does not hold it |
 | `ANDROID_SDK_ROOT`, `ANDROID_NDK` | the other spellings mama accepts for the Android SDK and NDK |
 | `<PLATFORM>_SDK_HOME`, `OCLEA_SDK`, `XILINX_SDK`, `RASPBERRY_HOME` | the other cross toolchain roots |

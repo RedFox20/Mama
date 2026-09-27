@@ -23,6 +23,11 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`mama build raspi` finds the Pi SDK by itself.** It takes its env vars (`PI_SDK_HOME` first), then the
+  newest finished `/opt/pi-sdk/<version>`, then `~/pi-sdk`, before its legacy paths and the distro cross
+  package. A `GnuCross` board lists such roots in `sdk_roots`, and an install counts only when its
+  `.installed` file exists.
+
 - **MSVC builds with Ninja.** `generator=ninja`, `MAMA_GENERATOR=ninja` or `set_default_generator('ninja')`
   in the root mamafile moves every target that configures to Ninja. mama loads the vcvarsall env, names `cl.exe` and
   drops `/MP` for an MSVC target outside Visual Studio. `generator=native` goes back.

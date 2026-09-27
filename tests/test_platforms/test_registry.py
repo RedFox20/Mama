@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from mama.build_config import BuildConfig
-from mama.platforms.platform import Platform
+from mama.platforms.platform import Platform, expand_versioned_sdks
 from types import SimpleNamespace
 import mama.platforms.gnu_cross as gnu_cross_mod
 from mama.platforms.generic_yocto import GenericYocto
@@ -167,7 +167,7 @@ def test_a_yocto_board_names_no_version_dir_in_its_search_paths(platform_class):
 def test_a_root_expands_to_every_version_newest_first(tmp_path):
     root = tmp_path / 'imdt-imx-xwayland'
     for v in ('5.0.4', '6.1.0', '6.0.2'): (root / v).mkdir(parents=True)
-    found = GenericYocto.expand_versioned_sdks([str(root)])
+    found = expand_versioned_sdks([str(root)])
     assert [os.path.basename(p) for p in found[:3]] == ['6.1.0', '6.0.2', '5.0.4']
     assert found[-1] == str(root)  # the root itself stays last, for a flat legacy install
 
@@ -175,4 +175,4 @@ def test_a_root_expands_to_every_version_newest_first(tmp_path):
 def test_a_pinned_version_dir_hides_every_other_version(tmp_path):
     root = tmp_path / 'imdt-imx-xwayland'
     for v in ('5.0.4', '6.1.0'): (root / v).mkdir(parents=True)
-    assert GenericYocto.expand_versioned_sdks([f'{root}/5.0.4']) == [f'{root}/5.0.4']
+    assert expand_versioned_sdks([f'{root}/5.0.4']) == [f'{root}/5.0.4']

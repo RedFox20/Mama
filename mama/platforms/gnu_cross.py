@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os
 
-from .platform import Platform
+from .platform import Platform, expand_versioned_sdks
 from .toolchain import Toolchain
 from mama.utils.system import System, console
 
@@ -26,6 +26,7 @@ class GnuCross(Platform):
     marches = {}        ## arch to -march. An arch that is absent names none
     mfpus = {}          ## arch to -mfpu, only where the ABI leaves the FPU unnamed
     search_envs = ()    ## env vars naming a toolchain root, read first and in that order
+    sdk_roots = ()      ## roots of versioned SDK installs, eg /opt/pi-sdk/14.2.0, read after the env vars
     linux_paths = ()    ## default roots on a Linux host, most specific first
     windows_paths = ()  ## default roots on a Windows host
 
@@ -90,9 +91,17 @@ class GnuCross(Platform):
         paths = []
         for env in self.search_envs:
             self.config.append_env_path(paths, env)
+        paths += self._installed_sdks()
         if System.windows: paths += list(self.windows_paths)
         elif System.linux: paths += list(self.linux_paths)
         return paths
+
+
+    def _installed_sdks(self) -> list:
+        """The finished installs under `sdk_roots`, newest version first. An installer writes `.installed`
+        last, so an install that was killed part way never wins over an older one that works."""
+        roots = [os.path.expanduser(root) for root in self.sdk_roots]
+        return [path for path in expand_versioned_sdks(roots) if os.path.isfile(f'{path}/.installed')]
 
 
     def _layouts(self, root: str) -> list:
@@ -145,11 +154,12 @@ class GnuCross(Platform):
     def _build_toolchain(self) -> Toolchain:
         prefix = self.compiler_prefix()
         ext = '.exe' if System.windows else ''
+        # the toolchain carries the sysroot, so the C probe and every link get it, not only the C++ flags
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
                          system_version='1', cc=f'{prefix}gcc{ext}', cxx=f'{prefix}g++{ext}',
-                         include_paths=tuple(self.get_includes()),
+                         sysroot=self.get_sysroot(), include_paths=tuple(self.get_includes()),
                          # NEVER, not ONLY: a distro cross package ships no binutils and no sysroot, so
-                         # the build system takes the tools mama named, and the sysroot goes as a flag
+                         # the build system takes the tools mama named
                          find_root_program='NEVER')
 
 

@@ -73,7 +73,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - MacOS (64-bit x86_64, 64-bit arm64) via config.macos_version
 - iOS (64-bit arm64) via config.ios_version
 - Android (64-bit arm64, 32-bit armv7) via env ANDROID_NDK_HOME or ANDROID_HOME
-- Raspberry Pi (64-bit arm64 default, 32-bit armv7 via `raspi32`) via env RASPI_HOME
+- Raspberry Pi (64-bit arm64 default, 32-bit armv7 via `raspi32`) via env PI_SDK_HOME or RASPI_HOME, or a Pi SDK in /opt/pi-sdk/<version> or ~/pi-sdk
 - Generic AArch64 Linux (64-bit arm64, boards with no vendor SDK) via `aarch64` and env AARCH64_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain() or env OCLEA_HOME
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
@@ -993,6 +993,7 @@ The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolc
 | `ANDROID_NDK_HOME` | Path to Android NDK |
 | `ANDROID_NDK_ROOT` | Alternative Android NDK path |
 | `ANDROID_NDK_LATEST_HOME` | Path to latest Android NDK |
+| `PI_SDK_HOME` | Path to the Raspberry Pi SDK, searched before `RASPI_HOME` and the installed Pi SDKs |
 | `RASPI_HOME` | Path to Raspberry Pi toolchain |
 | `OCLEA_HOME` | Path to Oclea SDK |
 | `IMX8MP_SDK_HOME` | Path to i.MX8M Plus SDK |

@@ -20,7 +20,8 @@ class Raspi(GnuCross):
     marches = {'arm64': 'armv8-a', 'arm': 'armv7-a'}
     # The gnueabihf triple defaults to hard float, so armv7-a must name an FPU. neon-vfpv4 is what the Pi 2 and 3 have.
     mfpus = {'arm': 'neon-vfpv4'}
-    search_envs = ('RASPI_HOME', 'RASPBERRY_HOME')
+    search_envs = ('PI_SDK_HOME', 'RASPI_HOME', 'RASPBERRY_HOME')
+    sdk_roots = ('/opt/pi-sdk', '~/pi-sdk')  # a global install for the users of a machine, then a user install
     windows_paths = ('/SysGCC/raspberry',)
     linux_paths = ('/usr/bin/raspberry', '/usr/local/bin/raspberry', '/opt/raspberry', '/usr')
 
