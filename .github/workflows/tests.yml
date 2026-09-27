@@ -92,3 +92,21 @@ jobs:
         run: |
           python -m build
           twine check --strict dist/*
+
+  # A push to master whose commit message starts with `release:` publishes to PyPI. GitHub draws
+  # every other run of this job as skipped. A missing PYPI_API_TOKEN secret fails the job.
+  deploy:
+    needs: [tests, integration, package]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: ./deploy.sh --ci

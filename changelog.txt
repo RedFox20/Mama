@@ -1,6 +1,11 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.8 (2026-Sep-27)
+ - bugfix: a dependency that exports modules no longer relinks its consumers
+ - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake
+ - bugfix: on Windows, a non-ASCII path no longer rewrites mama.cmake each run
+
 release: 0.14.7 (2026-Sep-25)
  - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
 

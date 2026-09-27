@@ -18,25 +18,17 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.8** (2026-Sep-27)
+ - bugfix: a dependency that exports modules no longer relinks its consumers
+ - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake
+ - bugfix: on Windows, a non-ASCII path no longer rewrites mama.cmake each run
+
 **0.14.7** (2026-Sep-25)
  - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
 
 **0.14.6** (2026-Sep-24)
  - bugfix: MSVC with Ninja uses Ninja Multi-Config, outputs in <build>/<type>
  - bugfix: export_libs prefers the lib of the build type in a multi-config dir
-
-**0.14.5** (2026-Sep-24)
- - bugfix: imx8mp and oclea find a newer Yocto SDK, not one pinned version
- - feature: generator=ninja|native picks the generator of every target
- - feature: MSVC builds with Ninja: mama loads vcvarsall and names cl.exe
- - bugfix: a local module downloads its package instead of a rebuild each run
- - bugfix: mama reconfigures a build dir that another generator wrote
- - bugfix: under update, a slow git ls-remote keeps the package of a dependency
-
-**0.14.4** (2026-Sep-07)
- - feature: coverage only applies to current target, dependencies stay regular
- - bugfix: a coverage build refuses to upload to artifactory
- - bugfix: coverage flag reaching linker when it should not
 
 ## Why Mama
 

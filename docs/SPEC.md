@@ -109,6 +109,12 @@ which makes the next build re-detect the change.
 `workspaces_root` is the root project dir, unless the root mamafile declares `global_workspace`, which
 keeps it at the user home dir. A root with no `mamafile.py` at all keeps the project dir too.
 
+The root project dir is the working dir at the time `mamabuild` runs, unless the caller passes
+`source_dir`. On Windows, `normalized_path` writes the drive letter in upper case, so `c:` and `C:`
+give one spelling of a path.
+**Why:** a shell and an IDE terminal can start in different drive cases. Each spelling rewrote
+`mama.cmake` and `mama-dependencies.cmake`, and cmake then configured again.
+
 **Mama generates two cmake files, and only one of them reaches a source dir.**
 `<build_dir>/mama-dependencies.cmake` names every include dir and lib that this dep and the deps below
 it export, and mama writes one for every dep that has a build dir. `mama.cmake` is the proxy a
@@ -1154,6 +1160,15 @@ links `exported_libs` directly, and packaging points it at a copy under `mama-no
 same file name. The original stays where `export_lib` found it, because that target's binaries need
 those objects, and a later run reads the original again, never the recorded copy. An archive that
 compiled no module keeps its own path, and a fetched package is already stripped, so both copy nothing.
+
+`mama_nomodules_key` in the build dir records the module declarations, and the time stamp and size of
+the original of each copy. A copy that still exists stays as it is while both match, and the run then
+does not list the members of the original. A lib whose listing finds no module member loses its old
+copy. A run deletes the key before it reads any lib, and writes the key again at the end. So after a
+run that stops midway, the next run lists every lib again.
+**Why:** a new copy gets a new time stamp, and every consumer that links it links again. The record
+holds the exact time stamp, not an order, because `cp -p` or an extraction can give a new original an
+old time stamp.
 
 A package declares no compiler floor. Mama knows the versions that build a module, and the consumer
 moves `MAMA_MODULES_MIN_*` or sets `MAMA_ENABLE_MODULES=OFF`. See the consumer section of 12.

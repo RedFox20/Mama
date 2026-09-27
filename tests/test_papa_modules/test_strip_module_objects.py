@@ -302,6 +302,68 @@ def test_a_second_run_strips_the_archive_this_build_wrote(tmp_path):
     assert open(copy).read() == 'rebuilt'
 
 
+def _fresh_copy(tmp_path):
+    """A target whose first export stripped libfoo.a, and the path of that copy."""
+    write_files(str(tmp_path), {'libfoo.a': '\0'})
+    target = _target(tmp_path, libs=(f'{tmp_path}/./libfoo.a',))  # spelled unlike the copy, as on Windows
+    _export_stripped(target)
+    return target, target.exported_libs[0]
+
+
+# `cp -p` or an extraction can give a new archive an old time stamp, so the size counts too
+@pytest.mark.parametrize('age, data, strips', [(0, '\0', False), (1, '\0', True), (-1, '\0', True), (0, '\0\0', True)])
+def test_only_the_archive_a_copy_came_from_keeps_it(tmp_path, age, data, strips):
+    target, copy = _fresh_copy(tmp_path)
+    lib = f'{tmp_path}/libfoo.a'
+    st = os.stat(lib)
+    open(lib, 'w').write(data)
+    os.utime(lib, ns=(st.st_atime_ns, st.st_mtime_ns + age * 10**9))
+    assert _export_stripped(target).called is strips
+    assert target.exported_libs[0] == copy
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_a_strip_that_stops_midway_strips_again(tmp_path, changed):
+    # a failed remove leaves an unstripped copy of an unchanged archive, and only the missing key marks it
+    target, copy = _fresh_copy(tmp_path)
+    declared = list(target.exported_modules)
+    if changed: target.exported_modules.append(f'{tmp_path}/src/extra.cppm')  # the failed run declares more
+    os.remove(copy)
+    with pytest.raises(BuildError): _export_stripped(target, run_status=1)
+    target.exported_modules = declared
+    assert _export_stripped(target).called
+
+
+def test_a_new_copy_keeps_the_time_stamp_of_the_strip(tmp_path):
+    # ninja and make link again only for a newer input, and a declaration edit leaves the archive old
+    write_files(str(tmp_path), {'libfoo.a': '\0'})
+    os.utime(f'{tmp_path}/libfoo.a', (0, 0))
+    target = _target(tmp_path, libs=(f'{tmp_path}/libfoo.a',))
+    copy = f'{tmp_path}/{NOMOD}/libfoo.a'
+    with _stubs() as (_, run):
+        run.side_effect = lambda *args, **kwargs: os.utime(copy) or 0  # the archiver rewrites the copy
+        package.export_stripped_module_libs(target)
+    assert os.path.getmtime(copy) > 0
+
+
+def test_a_target_without_modules_writes_no_strip_key(tmp_path):
+    # nearly every target reaches the strip, and a key costs each one a stat and a write
+    write_files(str(tmp_path), {'libfoo.a': '\0'})
+    target = _target(tmp_path, modules=(), libs=(f'{tmp_path}/libfoo.a',))
+    _export_stripped(target)
+    assert not os.path.exists(f'{target.build_dir()}/mama_nomodules_key')
+
+
+@pytest.mark.parametrize('listing, strips', [(LISTING, True), ('strview.cpp.o\n', False)])
+def test_a_changed_module_declaration_replaces_the_copy(tmp_path, listing, strips):
+    # an export_modules edit rewrites no archive, so the archive of the copy is unchanged
+    target, copy = _fresh_copy(tmp_path)
+    target.exported_modules.append(f'{tmp_path}/src/extra.cppm')
+    assert _export_stripped(target, listing=listing).called is strips
+    assert (target.exported_libs[0] == copy) is strips
+    assert os.path.exists(copy) is strips
+
+
 @pytest.mark.parametrize('kw, files, listing, keeps_copy', [
     # a rebuild that compiles no module must undo the copy an earlier run recorded
     ({}, {'libfoo.a': 'x', f'{NOMOD}/libfoo.a': 'stale'}, 'other.cpp.o\n', False),

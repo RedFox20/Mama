@@ -1,6 +1,6 @@
 """Pins the mama.utils.fileio file helpers."""
 import os
-from mama.utils.fileio import is_file_unmodified
+from mama.utils.fileio import is_file_unmodified, read_text_from
 
 
 def _pair(tmp_path, a_text, b_text):
@@ -17,3 +17,9 @@ def test_is_file_unmodified_true_for_equal_mtime_and_size(tmp_path):
 
 def test_is_file_unmodified_false_on_size_change(tmp_path):
     assert not is_file_unmodified(*_pair(tmp_path, 'xx', 'yyy'))
+
+
+def test_read_text_from_decodes_utf8_on_every_locale(tmp_path):
+    # a Windows locale read the UTF-8 that write_text_to wrote as other text, and a compare never matched
+    (tmp_path / 'f').write_bytes('café '.encode() + b'\xff')
+    assert read_text_from(str(tmp_path / 'f')) == 'café �'

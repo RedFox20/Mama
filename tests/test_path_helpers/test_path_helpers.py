@@ -1,9 +1,11 @@
 """Pins the two path joins: path_join keeps a path where it points, normalized_join makes it absolute."""
-import os
+import ntpath, os
+from unittest.mock import patch
 
 import pytest
 
-from mama.utils.paths import normalized_join, path_join
+from mama.utils import paths
+from mama.utils.paths import normalized_join, normalized_path, path_join
 
 
 @pytest.mark.parametrize('parts,joined', [
@@ -25,6 +27,19 @@ def test_path_join_keeps_a_relative_path_relative(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert path_join('build', 'out.txt') == 'build/out.txt'
     assert normalized_join('build', 'out.txt') != 'build/out.txt'
+
+
+@pytest.mark.parametrize('path, normalized', [
+    ('c:\\dev\\repro', 'C:/dev/repro'),
+    ('C:/dev/repro', 'C:/dev/repro'),
+    ('\\\\?\\c:\\dev\\repro', '//?/C:/dev/repro'),
+    ('\\\\server\\share\\x', '//server/share/x'),
+    ('\\\\?\\unc\\server\\share\\x', '//?/unc/server/share/x'),
+])
+def test_normalized_path_upper_cases_the_windows_drive(path, normalized):
+    # an IDE terminal starts in c:, a shell in C:, and each spelling rewrote every generated cmake file
+    with patch.object(paths.System, 'windows', True), patch.object(paths.os.path, 'abspath', ntpath.abspath):
+        assert normalized_path(path) == normalized
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='the drive letter only appears on Windows')

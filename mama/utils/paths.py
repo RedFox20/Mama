@@ -53,9 +53,13 @@ def short_path(path) -> str:
 
 
 def normalized_path(pathstring: str) -> str:
-    """Normalizes a path to an ABSOLUTE path with all forward/ slashes."""
-    pathstring = os.path.abspath(pathstring)
-    return pathstring.replace('\\', '/').rstrip()
+    """Normalizes a path to an ABSOLUTE path with all forward/ slashes. A Windows drive letter is upper case."""
+    path = os.path.abspath(pathstring).replace('\\', '/').rstrip()
+    if not System.windows: return path
+    # the cwd keeps the drive case of the shell that started mama, and a generated file must not follow it
+    i = 4 if path.startswith('//?/') else 0  # the drive of an extended-length path follows its prefix
+    if path[i + 1:i + 2] != ':' or path[i].isupper(): return path
+    return path[:i] + path[i].upper() + path[i + 1:]
 
 
 def normalized_join(path1: str, *pathsN) -> str:

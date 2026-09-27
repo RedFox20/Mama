@@ -5,7 +5,7 @@ from .utils.system import console, System, warning
 from .utils.paths import (normalized_path, normalized_join, forward_slashes,
                           glob_with_name_match, glob_with_extensions)
 from .utils.errors import BuildError
-from .utils.fileio import copy_if_needed, file_sha1
+from .utils.fileio import copy_if_needed, file_sha1, read_text_from, write_text_to
 from .utils.sub_process import execute_piped, execute_piped_echo, SubProcess
 from .types.asset import Asset
 
@@ -396,9 +396,17 @@ def export_stripped_module_libs(target: BuildTarget):
     """Point every exported static library at a copy that holds no module object. A consumer that
     builds this target from source links `exported_libs` directly, and the build dir archive keeps
     those objects for this target's own binaries. An archive holding no module object keeps its own
-    path, and a fetched package is already stripped, so both copy nothing."""
+    path, and a fetched package is already stripped, so both copy nothing. A copy stays while its
+    archive and the module declarations stay the same, and `mama_nomodules_key` records both."""
     if target.dep.from_artifactory or not target.strip_module_objects: return
-    modules = consumed_modules(target)  # (owner, module), and only the count decides here
+    modules = consumed_modules(target)  # (owner, module)
+    # the strip set follows the declarations, and an edit of them rewrites no archive
+    declared = repr(sorted(f'{m} {owner.strip_module_objects}' for owner, m in modules))
+    key_file = normalized_join(target.build_dir(), 'mama_nomodules_key')
+    lines = read_text_from(key_file).split('\n') if modules and os.path.exists(key_file) else []
+    if lines: os.remove(key_file)  # a run that stops midway leaves no key, so the next run strips again
+    stripped = set(lines[1:]) if lines[:1] == [declared] else set()  # `made_from` of each finished copy
+    record = [declared]
     for i, lib in enumerate(target.exported_libs):
         if not isinstance(lib, str) or not is_a_static_library(lib): continue
         # read the archive this build wrote, never the copy an earlier run recorded as the export
@@ -411,13 +419,22 @@ def export_stripped_module_libs(target: BuildTarget):
             warning(f'  {os.path.basename(src)} is a thin archive, so its module objects stay. ' + \
                     'A thin archive names each member by a path, and a copy breaks every one.')
             continue
-        members = _module_object_members(target, src)
-        if not members: continue  # this build wrote no module object, so `src` stays the export
         out = normalized_join(os.path.dirname(src), MODULE_STRIP_DIR, os.path.basename(src))
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        copy_if_needed(src, out)
-        _remove_members(target, out, members)  # the copy holds what the listing of `src` named
+        st = os.stat(src)
+        # the size too: `cp -p` or an extraction can keep an old time stamp
+        made_from = f'{st.st_mtime_ns} {st.st_size} {normalized_path(src)}'
+        # a new copy makes every consumer link again, so a copy of this exact archive stays
+        if made_from not in stripped or not os.path.exists(out):
+            members = _module_object_members(target, src)
+            if not members:  # this build wrote no module object, so `src` stays the export
+                if os.path.exists(out): os.remove(out)
+                continue
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            copy_if_needed(src, out)
+            _remove_members(target, out, members)  # the copy holds what the listing of `src` named
         target.exported_libs[i] = out
+        record.append(made_from)
+    if modules: write_text_to(key_file, '\n'.join(record))
 
 
 def _remove_members(target: BuildTarget, lib: str, members: list):
