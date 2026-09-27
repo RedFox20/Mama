@@ -1,6 +1,10 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.9 (2026-Sep-28)
+ - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
+ - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
+
 release: 0.14.8 (2026-Sep-27)
  - bugfix: a dependency that exports modules no longer relinks its consumers
  - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake

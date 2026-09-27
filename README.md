@@ -18,6 +18,10 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.9** (2026-Sep-28)
+ - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
+ - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
+
 **0.14.8** (2026-Sep-27)
  - bugfix: a dependency that exports modules no longer relinks its consumers
  - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake
@@ -25,10 +29,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 **0.14.7** (2026-Sep-25)
  - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
-
-**0.14.6** (2026-Sep-24)
- - bugfix: MSVC with Ninja uses Ninja Multi-Config, outputs in <build>/<type>
- - bugfix: export_libs prefers the lib of the build type in a multi-config dir
 
 ## Why Mama
 
