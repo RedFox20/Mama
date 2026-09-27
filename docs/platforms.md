@@ -53,11 +53,11 @@ declares data, never behavior.
 - **`GenericYocto`** - the board ships a Yocto SDK: `sysroots/<host sdk>/` with the cross compilers,
   `sysroots/<target>/` with the target libraries, and a cmake toolchain file of its own. `Oclea`,
   `Xilinx` and `Imx8mp` are this.
-- **`GnuCross`** - the board ships nothing, and the build uses a plain GNU cross toolchain:
-  `<triple>-gcc` in some `bin/` dir, the target headers inside the compiler, and no sysroot. The
-  distro cross package (`apt install g++-aarch64-linux-gnu`) is this shape, and so is a standalone
-  toolchain tarball. `Raspi` and `Aarch64` are this. A toolchain with a `<triple>/sysroot` passes it to
-  cmake as `CMAKE_SYSROOT`, so the C probe and every link get it.
+- **`GnuCross`** - the board ships no SDK of its own, and the build uses a plain GNU cross toolchain:
+  `<triple>-gcc` in some `bin/` dir. The distro cross package (`apt install g++-aarch64-linux-gnu`) keeps
+  the target headers inside the compiler and has no sysroot. A standalone toolchain, such as a Pi SDK
+  in `sdk_roots`, can have a `<triple>/sysroot`, and cmake gets it as `CMAKE_SYSROOT`, so the C probe
+  and every link get it. `Raspi` and `Aarch64` are this.
 
 `Aarch64` (`aarch64`) is the fallback for any 64-bit ARM Linux board whose vendor never published an
 SDK: the build uses the distro cross toolchain and the project links its binaries statically.

@@ -101,7 +101,7 @@ class GnuCross(Platform):
         """The finished installs under `sdk_roots`, newest version first. An installer writes `.installed`
         last, so an install that was killed part way never wins over an older one that works."""
         roots = [os.path.expanduser(root) for root in self.sdk_roots]
-        return [path for path in expand_versioned_sdks(roots) if os.path.exists(f'{path}/.installed')]
+        return [path for path in expand_versioned_sdks(roots) if os.path.isfile(f'{path}/.installed')]
 
 
     def _layouts(self, root: str) -> list:

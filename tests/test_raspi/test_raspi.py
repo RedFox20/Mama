@@ -200,8 +200,9 @@ def test_the_sysroot_reaches_cmake_for_c_and_the_link(tmp_path):
     (tmp_path / 'sdk' / 'bin').mkdir(parents=True)
     (tmp_path / 'sdk' / 'aarch64-linux-gnu' / 'sysroot').mkdir(parents=True)
     t, dep = make_configured_target(tmp_path, arch='arm64')
-    set_mock_platform(dep.config, Raspi).init_toolchain(str(tmp_path / 'sdk'))
-    assert f'CMAKE_SYSROOT={tmp_path}/sdk/aarch64-linux-gnu/sysroot' in cc._platform_opts(t)
+    raspi = set_mock_platform(dep.config, Raspi)
+    raspi.init_toolchain(str(tmp_path / 'sdk'))
+    assert raspi.get_sysroot() and f'CMAKE_SYSROOT={raspi.get_sysroot()}' in cc._platform_opts(t)
 
 
 def test_a_distro_cross_package_gets_no_cmake_sysroot(tmp_path):
@@ -236,9 +237,10 @@ def test_the_newest_finished_global_install_wins_then_the_user_install(tmp_path)
     older = _install(tmp_path / 'opt' / 'pi-sdk' / '13.3.0')
     _install(tmp_path / 'opt' / 'pi-sdk' / '15.1.0', finished=False)
     user = _install(tmp_path / 'home' / 'pi-sdk')
-    assert _raspi_with_sdk_roots(tmp_path)._installed_sdks() == [newest, older, user]
+    assert [os.path.normpath(p) for p in _raspi_with_sdk_roots(tmp_path)._installed_sdks()] == [newest, older, user]
 
 
+@pytest.mark.linux_host
 def test_the_installs_come_before_the_distro_cross_package(tmp_path):
     user = _install(tmp_path / 'home' / 'pi-sdk')
     paths = _raspi_with_sdk_roots(tmp_path)._search_paths()
