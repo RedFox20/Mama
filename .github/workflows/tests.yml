@@ -105,8 +105,11 @@ jobs:
         with:
           python-version: 3.14
 
-      - name: Publish to PyPI
+      - name: Build the distributions
+        run: ./deploy.sh build
+
+      - name: Upload to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: ./deploy.sh --ci
+        run: ./deploy.sh --ci upload

@@ -306,9 +306,10 @@ Steps 7 and 8 reach outside this machine, so ask the user before you run them.
 
 `twine upload` passes `--skip-existing`, so a repeated deploy is safe.
 
-CI runs `./deploy.sh --ci` after a green push to master whose commit message starts with `release:`.
-It reads the token from the `PYPI_API_TOKEN` secret and fails while that secret is missing. A merge
-commit starts with `Merge pull request`, so merge a release pull request with squash or rebase.
+CI runs `./deploy.sh build`, then `./deploy.sh --ci upload`, after a green push to master whose
+commit message starts with `release:`. The upload reads the token from the `PYPI_API_TOKEN` secret
+and fails while that secret is missing. A merge commit starts with `Merge pull request`, so merge a
+release pull request with squash or rebase.
 
 ## Artifactory + git status invariants
 
