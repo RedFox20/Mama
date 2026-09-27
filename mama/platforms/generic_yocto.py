@@ -2,9 +2,8 @@ from __future__ import annotations
 from typing import Callable
 import os, re
 
-from .platform import Platform
+from .platform import Platform, expand_versioned_sdks
 from .toolchain import Toolchain
-from mama.utils.paths import path_join
 from mama.utils.system import System, console, warning, Color, get_colored_text
 
 
@@ -85,24 +84,6 @@ class GenericYocto(Platform):
             self.init_toolchain()
 
 
-    @staticmethod
-    def expand_versioned_sdks(paths: list) -> list:
-        """Expand each path with its versioned SDK installs, eg /opt/imx8mp-sdk/1.4.0, newest first.
-        A versioned install wins over a flat legacy layout at the same root."""
-        expanded = []
-        for path in paths:
-            if os.path.isdir(path):
-                versions = []
-                for name in os.listdir(path):
-                    if name and all(p.isdigit() for p in name.split('.')):
-                        versions.append(name)
-                # listdir order is not guaranteed, so sort newest first
-                versions.sort(key=lambda n: [int(p) for p in n.split('.')], reverse=True)
-                expanded += [path_join(path, v) for v in versions]
-            expanded.append(path)
-        return expanded
-
-
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
         """Find the SDK in the board's own paths, then in whatever its env vars name.
         toolchain_dir: an explicit SDK root, searched first
@@ -117,7 +98,7 @@ class GenericYocto(Platform):
         envs = list(self.search_envs) or [f'{self.platform_define}_SDK_HOME']
         for env in envs:
             self.append_env_path(paths, env)
-        paths = GenericYocto.expand_versioned_sdks(paths)
+        paths = expand_versioned_sdks(paths)
 
         for path in paths:
             yocto_sdkpath = os.path.abspath(f'{path}/sysroots/{self.sdk_name}')

@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
+import os
 from .toolchain import Toolchain
 from ..utils.system import System
+from ..utils.paths import path_join
 
 if TYPE_CHECKING:
     from ..build_config import BuildConfig
@@ -32,6 +34,23 @@ def native_march(arch: str) -> str:
     if arch == 'x64':   return 'native' if System.x86_64 else 'x86-64'
     if arch == 'x86':   return 'native' if System.x86 else 'pentium4'
     raise RuntimeError(f'Unsupported arch: {arch}')
+
+
+def expand_versioned_sdks(paths: list) -> list:
+    """Expand each path with its versioned SDK installs, eg /opt/imx8mp-sdk/1.4.0, newest first.
+    A versioned install wins over a flat legacy layout at the same root."""
+    expanded = []
+    for path in paths:
+        if os.path.isdir(path):
+            versions = []
+            for name in os.listdir(path):
+                if name and all(p.isdigit() for p in name.split('.')):
+                    versions.append(name)
+            # listdir order is not guaranteed, so sort newest first
+            versions.sort(key=lambda n: [int(p) for p in n.split('.')], reverse=True)
+            expanded += [path_join(path, v) for v in versions]
+        expanded.append(path)
+    return expanded
 
 
 class Platform:

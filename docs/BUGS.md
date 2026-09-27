@@ -56,6 +56,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **A GNU cross sysroot reached only the C++ flags, so the CMake C probe linked against the host root.**
+  Fix: `GnuCross` puts the sysroot in its `Toolchain`, and cmake gets `CMAKE_SYSROOT`.
+
 - **On Windows, `read_text_from` used the locale codec, so a non-ASCII path rewrote `mama.cmake` each run.**
   Fix: it reads UTF-8, the codec of `write_text_to`.
 

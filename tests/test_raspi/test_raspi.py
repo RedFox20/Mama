@@ -192,3 +192,54 @@ def test_a_standalone_toolchain_still_passes_its_sysroot(tmp_path):
     raspi = _raspi('arm64')
     raspi.init_toolchain(str(tmp_path))
     assert raspi.get_sysroot() == f'{tmp_path}/aarch64-linux-gnu/sysroot'
+
+
+def test_the_sysroot_reaches_cmake_for_c_and_the_link(tmp_path):
+    """CMAKE_SYSROOT puts --sysroot on the C probe and on every link. A C++ flag alone let the C probe
+    link against the host root, and it failed on a missing Scrt1.o."""
+    (tmp_path / 'sdk' / 'bin').mkdir(parents=True)
+    (tmp_path / 'sdk' / 'aarch64-linux-gnu' / 'sysroot').mkdir(parents=True)
+    t, dep = make_configured_target(tmp_path, arch='arm64')
+    set_mock_platform(dep.config, Raspi).init_toolchain(str(tmp_path / 'sdk'))
+    assert f'CMAKE_SYSROOT={tmp_path}/sdk/aarch64-linux-gnu/sysroot' in cc._platform_opts(t)
+
+
+def test_a_distro_cross_package_gets_no_cmake_sysroot(tmp_path):
+    (tmp_path / 'sdk' / 'bin').mkdir(parents=True)
+    t, dep = make_configured_target(tmp_path, arch='arm64')
+    set_mock_platform(dep.config, Raspi).init_toolchain(str(tmp_path / 'sdk'))
+    assert not [opt for opt in cc._platform_opts(t) if opt.startswith('CMAKE_SYSROOT')]
+
+
+# --- the Pi SDK installs ---
+
+def _install(path, finished=True):
+    path.mkdir(parents=True)
+    if finished: (path / '.installed').write_text('gcc 14.2.0 trixie')
+    return str(path)
+
+
+def _raspi_with_sdk_roots(tmp_path):
+    p = _raspi()
+    p.sdk_roots = (str(tmp_path / 'opt' / 'pi-sdk'), str(tmp_path / 'home' / 'pi-sdk'))
+    return p
+
+
+def test_pi_sdk_home_wins_over_every_install(monkeypatch):
+    monkeypatch.setenv('PI_SDK_HOME', '/work/my-pi-sdk')
+    assert BuildConfig(['raspi']).platform._search_paths()[0] == '/work/my-pi-sdk'
+
+
+def test_the_newest_finished_global_install_wins_then_the_user_install(tmp_path):
+    """A killed install has no .installed yet, so it never shadows an older one that works."""
+    newest = _install(tmp_path / 'opt' / 'pi-sdk' / '14.2.0')
+    older = _install(tmp_path / 'opt' / 'pi-sdk' / '13.3.0')
+    _install(tmp_path / 'opt' / 'pi-sdk' / '15.1.0', finished=False)
+    user = _install(tmp_path / 'home' / 'pi-sdk')
+    assert _raspi_with_sdk_roots(tmp_path)._installed_sdks() == [newest, older, user]
+
+
+def test_the_installs_come_before_the_distro_cross_package(tmp_path):
+    user = _install(tmp_path / 'home' / 'pi-sdk')
+    paths = _raspi_with_sdk_roots(tmp_path)._search_paths()
+    assert paths.index(user) < paths.index('/usr')
