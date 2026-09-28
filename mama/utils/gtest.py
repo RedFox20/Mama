@@ -34,4 +34,4 @@ def run_gtest(target: BuildTarget, executable: str, args='', src_dir=False, gdb=
         dirname = os.path.dirname(executable)
         exename = os.path.basename(executable)
         dir = target.source_dir(dirname) if src_dir else target.build_dir(dirname)
-        run_in_working_dir(target, dir, f'{dir}/{exename} {params}')
+        run_in_working_dir(target, dir, f'{dir}/{exename} {params}', built=True)

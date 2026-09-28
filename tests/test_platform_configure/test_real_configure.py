@@ -6,9 +6,9 @@ import pytest
 
 import testutils
 
-# ELF e_machine values, and the ELF class byte that says 32- or 64-bit. This is what proves a cross
+# (ELF e_machine, ELF class) per machine, or 'wasm' for a WebAssembly object. This is what proves a cross
 # build actually cross-compiled: the configure command can look perfect and still emit host objects.
-_EM = {'x86_64': (62, 2), 'aarch64': (183, 2), 'arm': (40, 1), 'mips': (8, 1)}
+_EM = {'x86_64': (62, 2), 'aarch64': (183, 2), 'arm': (40, 1), 'mips': (8, 1), 'wasm32': 'wasm'}
 
 # (platform arg, machine, a path that must exist for the toolchain to be installed)
 _PLATFORMS = [
@@ -21,6 +21,7 @@ _PLATFORMS = [
     ('oclea',   'aarch64', '/opt/oclea/1.0'),
     ('imx8mp',  'aarch64', '/opt/imdt-imx-xwayland/5.0.4'),
     ('xilinx',  'aarch64', '/opt/petalinux/toolchain'),
+    ('wasm',    'wasm32',  os.getenv('EMSDK') or os.path.expanduser('~/emsdk')),
 ]
 
 _CMAKELISTS = '''cmake_minimum_required(VERSION 3.15)
@@ -44,9 +45,11 @@ def _write_probe_project(root):
     (root / 'mamafile.py').write_text(_MAMAFILE)
 
 
-def _elf_machine(path) -> tuple:
-    """(e_machine, elf class) of an ELF file. The header is fixed-layout, so no `file` tool needed."""
+def _machine(path):
+    """(e_machine, elf class) of an ELF file, or 'wasm' for a WebAssembly object. Both headers are
+    fixed-layout, so the test needs no `file` tool."""
     with open(path, 'rb') as f: header = f.read(20)
+    if header[:4] == b'\0asm': return 'wasm'
     assert header[:4] == b'\x7fELF', f'{path} is not an ELF object'
     return struct.unpack_from('<H', header, 18)[0], header[4]
 
@@ -77,4 +80,4 @@ def test_configure_and_build_produce_the_right_target_machine(platform, machine,
     build_dir = tmp_path / 'packages' / 'probe'
     obj = _find_object(build_dir)
     assert obj, f'{platform} built no object file under {build_dir}'
-    assert _elf_machine(obj) == _EM[machine], f'{platform} built for the wrong machine: {obj}'
+    assert _machine(obj) == _EM[machine], f'{platform} built for the wrong machine: {obj}'

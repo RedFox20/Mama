@@ -470,6 +470,22 @@ def touch_file(path) -> str:
     return str(path)
 
 
+def emsdk_node(version) -> str:
+    """Where emsdk installs a node, relative to the emsdk root. A Windows install has no bin dir."""
+    return f'node/{version}_64bit/' + ('node.exe' if is_windows() else 'bin/node')
+
+
+def make_emsdk_tree(root, node_versions=('22.16.0',)) -> str:
+    """The emsdk layout: upstream/emscripten/ with the em tools and the cmake toolchain file, llvm-cov and node."""
+    for path in ('emsdk.py', 'upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake',
+                 *(emsdk_node(v) for v in node_versions)):
+        touch_file(f'{root}/{path}')
+    ext = executable_extension()
+    for tool in ('emcc', 'em++', 'emar'): touch_file(f'{root}/upstream/emscripten/{tool}{ext}')
+    touch_file(f'{root}/upstream/bin/llvm-cov{ext}')
+    return root
+
+
 def deploy_pass_uploads(target) -> bool:
     """True when the deploy pass of this target reaches papa_upload_to. The deploy hook is stubbed, so
     only the upload decision answers."""

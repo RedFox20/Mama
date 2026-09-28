@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 import os
 from .system import console, warning
-from .run import get_cwd_exe_args
+from .run import command_line, get_cwd_exe_args
 from .sub_process import execute_echo
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
     if target.msvc and not src_dir:
         root_dir = f'{root_dir}/{target.cmake_build_type}'
 
-    cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir)
+    cwd, exe, args = get_cwd_exe_args(target, command, root_dir=root_dir, built=True)
 
     tool = platform.debugger()
     if tool and _is_running_leak_sanitizer(target):
@@ -55,8 +55,8 @@ def run_gdb(target: BuildTarget, command: str, src_dir=True):
         # r: run, bt: print backtrace, q: quit when done
         debugger = f'gdb -batch -return-child-result -ex=r -ex=bt -ex=q --args {exe} {args}'
     else:
-        debugger = f'{exe} {args}'
+        debugger = command_line(target, exe, args, built=True)
 
-    if not os.path.exists(exe):
+    if not os.path.exists(exe.strip('"')):  # get_cwd_exe_args quotes a path that holds a space
         raise IOError(f'Could not find {exe}')
     execute_echo(cwd=cwd, cmd=debugger, exit_on_fail=True)

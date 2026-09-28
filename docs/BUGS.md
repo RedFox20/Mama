@@ -56,11 +56,14 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
-- **Sanitizer and coverage flags followed the host compiler flags on a cross platform.** Fix: each platform
-  declares its compiler family.
-
 - **A C file got no mamafile C flag and none of the flags mama adds, eg a sanitizer or `-march`.**
   Fix: `CMAKE_C_FLAGS` carries them. An `add_cmake_options()` value of either flags variable goes first.
+
+- **`run_gdb` checked the quoted exe path, so a program under a dir with a space raised `Could not find`.**
+  Fix: it checks the path without the quotes.
+
+- **Sanitizer and coverage flags followed the host compiler flags on a cross platform.** Fix: each platform
+  declares its compiler family, and only a position independent platform gets `-fPIE` and `-pie`.
 
 - **A GNU cross sysroot reached only the C++ flags, so the CMake C probe linked against the host root.**
   Fix: `GnuCross` puts the sysroot in its `Toolchain`, and cmake gets `CMAKE_SYSROOT`.

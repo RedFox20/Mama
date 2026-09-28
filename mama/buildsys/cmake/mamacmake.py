@@ -3,8 +3,8 @@ from __future__ import annotations
 from mama.platforms.registry import PLATFORMS
 
 
-# The CMake condition per platform, tested in registry order: android is also UNIX and iOS is also
-# APPLE, so the specific guard comes first. A consumer cannot detect a platform missing from here.
+# The CMake condition per platform, in registry order. android and wasm are also UNIX and iOS is also APPLE,
+# so the specific guard comes first. A consumer cannot detect a platform missing from here.
 _GUARDS = {
     'android': 'ANDROID OR ANDROID_NDK',
     'windows': 'WIN32',
@@ -16,6 +16,7 @@ _GUARDS = {
     'xilinx':  'XILINX',
     'imx8mp':  'IMX8MP',
     'mips':    'MIPS',
+    'wasm':    'EMSCRIPTEN',
     'linux':   'UNIX',
 }
 
@@ -34,6 +35,7 @@ _ARCH_MATCH = (
     ('mips64',   'MAMA_ARCH_MIPS',  '(mips64)|(MIPS64)'),
     ('mipsel',   'MAMA_ARCH_MIPS',  '(mipsel)|(MIPSEL)'),
     ('mips',     'MAMA_ARCH_MIPS',  '(mips)|(MIPS)'),
+    ('wasm32',   'MAMA_ARCH_WASM32', '(wasm32)|(WASM32)'),
 )
 
 
@@ -84,7 +86,7 @@ def platform_chain(build_dir_defines) -> str:
 
 
 # A plain string, not part of the f-string below: every `${}` here would need a doubled brace.
-_MODULES_HELPER = '''
+_HELPERS = '''
 # The lever: OFF keeps the exported headers of every package, whatever the toolchain can do.
 option(MAMA_ENABLE_MODULES "Compile the C++20 modules that mama packages export" ON)
 
@@ -159,6 +161,14 @@ function(mama_target_modules target)
     target_compile_definitions(${target} ${scope} MAMA_HAS_MODULES=1)
     message(STATUS "MAMA: ${target} compiles C++20 modules: ${MAMA_MODULES}")
 endfunction()
+
+# Links a test program so that node runs it for `mama test`: with the host file system, and with the
+# exit code of main. On a platform other than wasm, it does nothing.
+function(mama_wasm_test target)
+    if(EMSCRIPTEN)
+        target_link_options(${target} PRIVATE -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1)
+    endif()
+endfunction()
 '''
 
 
@@ -204,4 +214,4 @@ if(MSVC)
         set(CMAKE_CXX_FLAGS${{MODE}} "${{TMP}}" CACHE STRING "" FORCE)
     endforeach(MODE)
 endif()
-{_MODULES_HELPER.replace('@MAMA_NINJA_VERSION@', ninja_version)}'''
+{_HELPERS.replace('@MAMA_NINJA_VERSION@', ninja_version)}'''

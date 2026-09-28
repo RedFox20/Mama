@@ -75,6 +75,7 @@ def print_usage():
     console('    android    - build for android')
     console('    android-N  - build for android targeting specific API level, ex: android-26')
     console('    ndk-<ver>  - build for android targeting specific NDK version, ex: ndk-28 or ndk-28.2')
+    console('    wasm       - build for webassembly with the emscripten sdk (emsdk)')
     console('    clang      - prefer clang for linux (default on macos/ios/android)')
     console('    gcc        - prefer gcc for linux')
     console('    fortran    - enable automatic fortran detection (or configure this in mamafile)')

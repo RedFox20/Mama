@@ -130,7 +130,7 @@ def _gtest_command(tmp_path, args=''):
     """The command line run_gtest would have run, with the process spawn stubbed."""
     ran = {}
     target = _target(tmp_path)
-    with patch('mama.utils.gtest.run_in_working_dir', side_effect=lambda t, d, c: ran.update(dir=d, cmd=c)):
+    with patch('mama.utils.gtest.run_in_working_dir', autospec=True, side_effect=lambda t, d, c, **kw: ran.update(dir=d, cmd=c)):
         gtest.run_gtest(target, 'bin/tests', args=args)
     return ran['cmd']
 

@@ -79,6 +79,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
 - MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain()
 - Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
+- WebAssembly (wasm32, single-threaded) via `wasm` and the Emscripten SDK in env EMSDK, ~/emsdk or emcc on PATH
 
 ## Who is this NOT for?
 Single-platform projects with platform-specific build configuration and system-wide dependency
@@ -414,13 +415,28 @@ Mamafile classes extend `mama.BuildTarget` and can override these methods:
 Use these boolean properties in mamafiles for platform-conditional logic:
 `self.windows`, `self.msvc`, `self.linux`, `self.macos`, `self.ios`, `self.android`,
 `self.raspi`, `self.aarch64`, `self.oclea`, `self.xilinx`, `self.imx8mp`, `self.mips`,
-`self.yocto_linux`
+`self.wasm`, `self.yocto_linux`
 
 `self.config.platform` is the active platform object, and `self.config.platform.name` is its
 name (`'linux'`, `'imx8mp'`, ...). See [docs/platforms.md](docs/platforms.md) for how platform
 support is structured and how to add one.
 
 Host OS detection: `self.os_windows`, `self.os_linux`, `self.os_macos`
+
+### WebAssembly: `mama build wasm`
+
+`mama build wasm` builds the whole tree with the Emscripten SDK and Ninja. emcc links a program into
+`<name>.js` and `<name>.wasm`. `mama test wasm` runs the test program under node. Link the test program
+with `mama_wasm_test()` from `mama.cmake`, so that node returns the exit code and writes the gtest report:
+
+```cmake
+add_executable(MyTests ${TEST_SOURCES})
+mama_wasm_test(MyTests)   # does nothing on the other platforms
+```
+
+Every target that enables exceptions compiles with `-fwasm-exceptions`, and every link gets it. The build
+is single-threaded. mama does not support `-pthread`.
+`install(TARGETS)` copies only the `.js`, so install the `.wasm` next to it with `install(FILES)`.
 
 ### C++ standard selection (overrides CMakeLists.txt)
 ```py
@@ -440,7 +456,7 @@ self.add_ld_flags('-lm')                             # Linker flags
 self.add_platform_cxx_flags(linux='-fPIC', windows='/W4')  # Per-platform C++ flags
 self.add_platform_ld_flags(linux='-pthread')               # Per-platform linker flags
 # Any platform name works: windows, linux, macos, ios, android, raspi, aarch64, mips,
-# oclea, xilinx, imx8mp, plus yocto_linux for any Yocto board
+# oclea, xilinx, imx8mp, wasm, plus yocto_linux for any Yocto board
 self.add_platform_cxx_flags(imx8mp='-mcpu=cortex-a53', yocto_linux='-DEMBEDDED=1')
 ```
 
@@ -998,6 +1014,8 @@ The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolc
 | `OCLEA_HOME` | Path to Oclea SDK |
 | `IMX8MP_SDK_HOME` | Path to i.MX8M Plus SDK |
 | `XILINX_HOME` | Path to Xilinx SDK |
+| `EMSDK` | Path to the Emscripten SDK (emsdk) for `wasm` |
+| `EMSDK_NODE` | Path to the node that runs a `wasm` test (default: the node of emsdk, else node on PATH) |
 | `CLANG_TIDY` | Path to clang-tidy executable (fallback if not found in PATH) |
 
 ## VSCode Integration

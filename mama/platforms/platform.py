@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 # If the host value leaks in, a project that branches on it compiles host instructions into a cross build.
 SYSTEM_PROCESSORS = {
     'arm64': 'aarch64', 'arm': 'armv7-a', 'x64': 'x86_64', 'x86': 'i686',
-    'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el',
+    'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el', 'wasm32': 'wasm32',
 }
 
 # Every arch name mama accepts, from the CLI and from a mamafile.
@@ -72,7 +72,7 @@ class Platform:
     is_host_runnable = True    ## True when mama may run the built tests on this machine
     default_arch = ''          ## '' means use the host arch
     supported_arches = ()      ## every arch this platform accepts. The first is not special
-    build_system = 'make'      ## the build system this platform prefers: make, xcode or visualstudio
+    build_system = 'make'      ## the build system this platform prefers: make, ninja, xcode or visualstudio
     toolchain_override_attr = ''  ## BuildTarget attribute a mamafile sets to override the toolchain file
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
@@ -91,6 +91,9 @@ class Platform:
     ide_open_command = ''
     supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of
     supports_march = True      ## False where the compiler has no -march, so a target_march pin cannot apply
+    position_independent = True  ## False where the platform links no shared library, so -fPIC only adds size
+    exceptions_flag = ''       ## the compiler flag that turns on C++ exceptions, when the compiler default is off
+    program_suffix = ''        ## the file suffix of a program this platform links. exe_suffix also names a host tool
     compiler = ''              ## gcc, clang or msvc: the compiler family this platform builds with. '' takes the host choice
 
     def __init__(self, config: BuildConfig):
@@ -199,6 +202,7 @@ class Platform:
         the host compiler's version for the NDK's clang."""
         cc, _, version = self.config.get_preferred_compiler_paths()
         major, minor = version.split('.')[:2]
+        if 'emcc' in cc:  return f'emcc{major}.{minor}'  # the Emscripten SDK version, not its clang
         if 'gcc' in cc:   return f'gcc{major}.{minor}'
         if 'clang' in cc: return f'clang{major}.{minor}'
         raise EnvironmentError(f'Unrecognized compiler {cc}!')
@@ -305,3 +309,8 @@ class Platform:
     def debugger(self) -> str:
         """'gdb', 'lldb' or '' when tests run without one."""
         return 'gdb'
+
+
+    def launcher(self) -> str:
+        """The program that runs a program this platform linked, eg node. '' runs the program itself."""
+        return ''

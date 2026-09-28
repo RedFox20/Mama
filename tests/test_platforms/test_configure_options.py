@@ -15,6 +15,7 @@ from mama.platforms.macos import Macos
 from mama.platforms.mips import Mips
 from mama.platforms.oclea import Oclea
 from mama.platforms.raspi import Raspi
+from mama.platforms.wasm import Wasm
 from mama.platforms.windows import Windows
 from mama.platforms.xilinx import Xilinx
 
@@ -37,6 +38,7 @@ def _opts(tmp_path, platform_class, arch=None, **overrides):
     (Imx8mp,  'arm64', 'Linux',   'aarch64'),
     (Xilinx,  'arm64', 'Linux',   'aarch64'),
     (Ios,     'arm64', 'Darwin',  'arm64'),  # Apple names it arm64 everywhere, never aarch64
+    (Wasm,    'wasm32', 'Emscripten', 'wasm32'),
 ])
 def test_a_cross_platform_names_its_target_system(platform_class, arch, system, processor,
                                                   tmp_path, fake_toolchains):

@@ -648,7 +648,7 @@ def _unused_cli_flag(target:BuildTarget) -> str:
 
 # The cmake generator per platform build system. MSVC is not here: its generator carries the
 # detected Visual Studio version, so it is built from config.
-_GENERATORS = {'make': 'Unix Makefiles', 'xcode': 'Xcode'}
+_GENERATORS = {'make': 'Unix Makefiles', 'ninja': 'Ninja', 'xcode': 'Xcode'}
 
 
 def _generator_name(target:BuildTarget) -> str:
@@ -659,7 +659,8 @@ def _generator_name(target:BuildTarget) -> str:
     if target.enable_ninja_build:
         multi = config.msvc and _cmake_version(config, target.cmake_command) >= (3, 17)
         return 'Ninja Multi-Config' if multi else 'Ninja'
-    if target.enable_unix_make:   return 'Unix Makefiles'
+    # a platform that builds with Ninja on every host keeps it, whatever the mamafile enabled
+    if target.enable_unix_make and config.platform.build_system != 'ninja': return 'Unix Makefiles'
     if config.msvc: return config.platform.generator_name()
     return _GENERATORS.get(config.platform.build_system, '')
 
@@ -745,8 +746,8 @@ def _default_options(target:BuildTarget):
         # C++ only: a C shared library that marks no export would export nothing
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
-        if not exceptions:
-            add_flag('-fno-exceptions')
+        if not exceptions: add_flag('-fno-exceptions')
+        elif config.platform.exceptions_flag: add_flag(config.platform.exceptions_flag)
 
     if config.buildstats and config.clang:  # instrument for the Linux/Clang buildstats deep dive
         add_cl_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
@@ -761,7 +762,7 @@ def _default_options(target:BuildTarget):
 
     ld_sanitize = ''
     ld_coverage = ''
-    # the compiler of the platform, never config.gcc: check_platform sets config.gcc on android too
+    # the compiler of the platform, never config.gcc: check_platform sets config.gcc on android and wasm too
     compiler = config.platform.compiler_family()
 
     if config.sanitize:
@@ -773,8 +774,9 @@ def _default_options(target:BuildTarget):
             add_cl_flag('-fsanitize', config.sanitize)
             add_cl_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
             add_cl_flag('-fno-omit-frame-pointer')
-            add_cl_flag('-fPIE')
-            add_ldflag('-pie') # -pie is a linker flag
+            if config.platform.position_independent:
+                add_cl_flag('-fPIE')
+                add_ldflag('-pie') # -pie is a linker flag
 
     if config.instruments(target.dep):
         if compiler == 'msvc':
@@ -791,10 +793,8 @@ def _default_options(target:BuildTarget):
     if compiler != 'msvc' and target.dep.links_coverage():
         ld_coverage = '--coverage'
 
-    opt = [
-        "CMAKE_POSITION_INDEPENDENT_CODE=ON",
-        "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
-    ]
+    opt = ["CMAKE_EXPORT_COMPILE_COMMANDS=ON"] # for tools like clang-tidy and .vscode intellisense
+    if config.platform.position_independent: opt.insert(0, "CMAKE_POSITION_INDEPENDENT_CODE=ON")
     if config.msvc:
         # cmake reads the runtime library only under CMP0091 NEW, which a project below cmake 3.15 does
         # not get on its own. The default reaches such a project, and its own `cmake_policy` still wins.
