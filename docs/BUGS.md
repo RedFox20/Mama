@@ -56,6 +56,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **Sanitizer and coverage flags followed the host compiler flags on a cross platform.** Fix: each platform
+  declares its compiler family.
+
 - **A C file got no mamafile C flag and none of the flags mama adds, eg a sanitizer or `-march`.**
   Fix: `CMAKE_C_FLAGS` carries them. An `add_cmake_options()` value of either flags variable goes first.
 

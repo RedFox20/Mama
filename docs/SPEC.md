@@ -241,9 +241,23 @@ plain variant.
 archive on the server ever carries `-cov`, and `mama coverage <target> upload` publishes nothing.
 
 **The compile flag instruments, the link flag is wider.** Only an instrumented dep compiles with
-`--coverage`, and MSVC gets `/fsanitize-coverage` instead. On gcc and clang, a dep links with
-`--coverage` when the run instruments it or any dep below it. libgcov defines the `__gcov_*` symbols
-those objects name. MSVC never gets a coverage link flag.
+`--coverage`, and MSVC gets `/fsanitize-coverage` instead. gcc also gets `-fprofile-abs-path`. On gcc
+and clang, a dep links with `--coverage` when the run instruments it or any dep below it. libgcov
+defines the `__gcov_*` symbols those objects name. MSVC never gets a coverage link flag.
+
+**The platform names the compiler family, never `config.gcc`.** `Platform.compiler_family()` returns
+`gcc`, `clang` or `msvc`. A platform that declares no `compiler` takes the host choice: `clang` when
+`config.clang` is set, else `gcc`. `linux` is that case.
+
+**Why:** `check_platform` sets `config.gcc` on every non-MSVC run whose command line names no
+compiler. Under `android`, the gcc-only `-fprofile-abs-path` then reached clang.
+
+**The platform names the gcov too.** `coverage-report` passes `Platform.gcov_command()` to gcovr as
+`--gcov-executable`. On the `gcc` family it is the gcov beside the resolved compiler, `gcc-14` to
+`gcov-14`, when that file exists. Else mama passes none, and gcovr runs the `gcov` on `PATH`. If
+`gcov_command()` raises, mama prints an error, skips the report and does not exit.
+
+**Why:** a gcov reads only the coverage format of its own compiler.
 
 **The parent half of that link rule is defensive today.** Every run scopes the build to the subtree of
 its target. The instrumented dep is then the top of the scope, and no parent of it configures. The

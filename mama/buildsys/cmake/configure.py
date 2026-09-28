@@ -5,7 +5,7 @@ from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
 from mama.utils.fileio import file_sha1, find_executable_from_system, read_text_from, write_text_to
-from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
+from mama.utils.paths import forward_slashes, normalized_path, path_join, quoted, user_cache_dir, workspace_mama_dir
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
@@ -78,7 +78,6 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     if target.config.cmake_toolchain_file: return
     cc, cxx, _ = _compiler_paths(target)
     # quoted only with a space, e.g. cl.exe under Program Files, so every other command line stays the same
-    quoted = lambda path: f'"{path}"' if ' ' in path else path
     if cc:
         opt.append(f'CMAKE_C_COMPILER={quoted(forward_slashes(cc))}')
         if target.enable_cxx_build:
@@ -762,13 +761,14 @@ def _default_options(target:BuildTarget):
 
     ld_sanitize = ''
     ld_coverage = ''
+    # the compiler of the platform, never config.gcc: check_platform sets config.gcc on android too
+    compiler = config.platform.compiler_family()
 
     if config.sanitize:
-        if config.msvc:
-            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        if compiler == 'msvc':
             ld_sanitize = f'/fsanitize={config.sanitize}'
-        elif config.gcc or config.clang:
-            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        else:
             ld_sanitize = f'-fsanitize={config.sanitize}'
             add_cl_flag('-fsanitize', config.sanitize)
             add_cl_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
@@ -777,19 +777,18 @@ def _default_options(target:BuildTarget):
             add_ldflag('-pie') # -pie is a linker flag
 
     if config.instruments(target.dep):
-        if config.msvc:
+        if compiler == 'msvc':
             option = 'edge' if config.coverage == 'default' else config.coverage
             console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
             add_cl_flag('/fsanitize-coverage', option)
-        elif config.gcc or config.clang:
+        else:
             console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
             add_cl_flag('--coverage')
-            if config.gcc:
-                add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+            if compiler == 'gcc': add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
 
     # The link flag is wider than the compile flag: a parent that links an instrumented dep needs
     # libgcov, and without it every `__gcov_*` symbol of that dep stays undefined.
-    if (config.gcc or config.clang) and target.dep.links_coverage():
+    if compiler != 'msvc' and target.dep.links_coverage():
         ld_coverage = '--coverage'
 
     opt = [

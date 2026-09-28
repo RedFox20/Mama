@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Callable
 import os
 from .toolchain import Toolchain
 from ..utils.system import System
-from ..utils.paths import path_join
+from ..utils.paths import forward_slashes, path_join, quoted
 
 if TYPE_CHECKING:
     from ..build_config import BuildConfig
@@ -91,6 +91,7 @@ class Platform:
     ide_open_command = ''
     supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of
     supports_march = True      ## False where the compiler has no -march, so a target_march pin cannot apply
+    compiler = ''              ## gcc, clang or msvc: the compiler family this platform builds with. '' takes the host choice
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -201,6 +202,19 @@ class Platform:
         if 'gcc' in cc:   return f'gcc{major}.{minor}'
         if 'clang' in cc: return f'clang{major}.{minor}'
         raise EnvironmentError(f'Unrecognized compiler {cc}!')
+
+
+    def compiler_family(self) -> str:
+        """'gcc', 'clang' or 'msvc'. A platform that declares no compiler builds with the host choice."""
+        return self.compiler or ('clang' if self.config.clang else 'gcc')
+
+
+    def gcov_command(self) -> str:
+        """The gcov command that gcovr runs, '' for the gcov on PATH. gcc-14 has gcov-14 in the same dir."""
+        if self.compiler_family() != 'gcc' or not self.config.cc_path: return ''
+        cc_dir, cc = os.path.split(forward_slashes(os.path.realpath(self.config.cc_path)))
+        gcov = f"{cc_dir}/{cc.replace('gcc', 'gcov')}"
+        return quoted(gcov) if os.path.exists(gcov) else ''
 
 
     ## --- flags ---

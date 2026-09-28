@@ -17,6 +17,7 @@ class GnuCross(Platform):
     `GenericYocto` describes that layout instead.
     """
     system_name = 'Linux'
+    compiler = 'gcc'
     is_cross = True
     is_host_runnable = False
 

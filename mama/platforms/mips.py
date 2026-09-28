@@ -14,6 +14,7 @@ class Mips(Platform):
     because that is what every consumer board runs."""
     name = 'mips'
     is_cross = True
+    compiler = 'gcc'
     cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
     is_host_runnable = False
     default_arch = 'mipsel'

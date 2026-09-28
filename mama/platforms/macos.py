@@ -18,6 +18,7 @@ class Macos(Platform):
     name = 'macos'
     system_name = 'Darwin'
     build_system = 'xcode'
+    compiler = 'clang'
     default_arch = 'arm64'
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}

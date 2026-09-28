@@ -12,6 +12,7 @@ class GenericYocto(Platform):
     board only declares its search paths, its compiler triple and its sysroot name."""
     system_name = 'Linux'
     is_cross = True
+    compiler = 'gcc'
     cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
     is_host_runnable = False
     default_arch = 'arm64'

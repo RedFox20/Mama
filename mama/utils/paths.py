@@ -52,6 +52,11 @@ def short_path(path) -> str:
     return '/'.join(forward_slashes(path).split('/')[-2:]) if path else ''
 
 
+def quoted(path: str) -> str:
+    """`path` in double quotes when it holds a space, so a command line keeps it as one argument."""
+    return f'"{path}"' if ' ' in path else path
+
+
 def normalized_path(pathstring: str) -> str:
     """Normalizes a path to an ABSOLUTE path with all forward/ slashes. A Windows drive letter is upper case."""
     path = os.path.abspath(pathstring).replace('\\', '/').rstrip()

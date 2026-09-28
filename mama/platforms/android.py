@@ -23,6 +23,7 @@ class Android(Platform):
     supported_arches = ('arm64', 'arm')
     build_dirs = {'arm64': 'android', 'arm': 'android32'}
     toolchain_override_attr = 'cmake_ndk_toolchain'
+    compiler = 'clang'
     compiler_dumpfullversion = False  # the NDK ships clang, which dropped -dumpfullversion
 
     def __init__(self, config):

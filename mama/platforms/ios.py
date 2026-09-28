@@ -11,6 +11,7 @@ class Ios(Platform):
     name = 'ios'
     system_name = 'Darwin'
     build_system = 'xcode'
+    compiler = 'clang'
     is_cross = True
     is_host_runnable = False  # an arm64 device binary does not run on the mac that built it
     default_arch = 'arm64'

@@ -3,18 +3,21 @@ from types import SimpleNamespace
 
 import pytest
 
+from testutils import touch_file
 from mama import main as mama_main
 from mama.platforms.linux import Linux
+from mama.platforms.macos import Macos
 from mama.platforms.windows import Windows
 
 
-def _make_target(*, msvc=False, gcc=False, cc_path=None,
+def _make_target(*, msvc=False, gcc=False, cc_path=None, platform_class=None,
                  coverage_report='.', source_dir='/src', build_dir='/build'):
     """Build a stub BuildTarget with just the attributes run_coverage_report touches."""
-    platform_class = Windows if msvc else Linux
+    platform_class = platform_class or (Windows if msvc else Linux)
     config = SimpleNamespace(
         msvc=msvc,
         gcc=gcc,
+        clang=not gcc,
         cc_path=cc_path,
         coverage_report=coverage_report,
         arch='x64',
@@ -66,19 +69,17 @@ class TestGcovrCommandShape:
         assert call['cwd'] == '/proj/src'
 
     def test_gcov_executable_derived_for_gcc_when_present(self, capture_gcovr, tmp_path):
-        # cc_path = /tmp/.../gcc-14 -> derived gcov path = /tmp/.../gcov-14
-        gcov_path = tmp_path / 'gcov-14'
-        gcov_path.write_text('')  # only existence is checked
-        gcc_path = tmp_path / 'gcc-14'
-        target = _make_target(gcc=True, cc_path=str(gcc_path))
-        mama_main.run_coverage_report(target)
-        cmd = capture_gcovr['calls'][0]['cmd']
-        assert f'--gcov-executable "{gcov_path}"' in cmd
+        # only the file name changes: a gcc-14/ dir in the path stays, and the path gets forward slashes
+        bin_dir = tmp_path.resolve() / 'gcc-14' / 'bin'
+        touch_file(bin_dir / 'gcov-14')
+        mama_main.run_coverage_report(_make_target(gcc=True, cc_path=str(bin_dir / 'gcc-14')))
+        assert f"--gcov-executable '{(bin_dir / 'gcov-14').as_posix()}'" in capture_gcovr['calls'][0]['cmd']
 
-    def test_no_gcov_executable_when_clang(self, capture_gcovr, tmp_path):
-        # a gcov-N derived from gcc-N is wrong for llvm-cov, so clang never uses it even when present
+    @pytest.mark.parametrize('platform_class', [None, Macos])
+    def test_no_gcov_executable_when_clang(self, capture_gcovr, tmp_path, platform_class):
+        # a gcov-N derived from gcc-N is wrong for llvm-cov. check_platform sets config.gcc on a clang platform too
         (tmp_path / 'gcov-14').write_text('')
-        target = _make_target(gcc=False, cc_path=str(tmp_path / 'gcc-14'))
+        target = _make_target(gcc=platform_class is Macos, cc_path=str(tmp_path / 'gcc-14'), platform_class=platform_class)
         mama_main.run_coverage_report(target)
         assert '--gcov-executable' not in capture_gcovr['calls'][0]['cmd']
 
