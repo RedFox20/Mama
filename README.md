@@ -18,6 +18,12 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.10** (2026-Sep-28)
+ - feature: the wasm platform builds and tests WebAssembly with Emscripten
+ - bugfix: coverage on android and macos no longer treats clang as gcc
+ - bugfix: the gdb test helper finds a program under a dir with a space
+ - bugfix: C files get add_c_flags(), -march and the sanitizer flags
+
 **0.14.9** (2026-Sep-28)
  - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
  - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
@@ -26,9 +32,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - bugfix: a dependency that exports modules no longer relinks its consumers
  - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake
  - bugfix: on Windows, a non-ASCII path no longer rewrites mama.cmake each run
-
-**0.14.7** (2026-Sep-25)
- - bugfix: env credentials skip the keyring, and a corrupt keyring self-heals
 
 ## Why Mama
 

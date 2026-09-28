@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.14.10 (2026-Sep-28)
  - feature: the wasm platform builds and tests WebAssembly with Emscripten
  - bugfix: coverage on android and macos no longer treats clang as gcc
  - bugfix: the gdb test helper finds a program under a dir with a space
