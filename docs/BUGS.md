@@ -56,6 +56,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **A C file got no mamafile C flag and none of the flags mama adds, eg a sanitizer or `-march`.**
+  Fix: `CMAKE_C_FLAGS` carries them. An `add_cmake_options()` value of either flags variable goes first.
+
 - **A GNU cross sysroot reached only the C++ flags, so the CMake C probe linked against the host root.**
   Fix: `GnuCross` puts the sysroot in its `Toolchain`, and cmake gets `CMAKE_SYSROOT`.
 

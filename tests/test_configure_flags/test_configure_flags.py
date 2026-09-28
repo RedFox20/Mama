@@ -169,6 +169,41 @@ def test_a_parent_of_a_coverage_target_links_libgcov_without_instrumenting_itsel
     assert cc._named_option(opts, 'CMAKE_EXE_LINKER_FLAGS') == '--coverage'
 
 
+def _c_and_cxx_flags(t) -> tuple:
+    opts = cc._default_options(t)
+    return tuple(set(cc._named_option(opts, f'CMAKE_{lang}_FLAGS').split()) for lang in ('C', 'CXX'))
+
+
+def test_a_mamafile_flag_reaches_the_language_it_names(tmp_path):
+    t, _ = make_configured_target(tmp_path)
+    t.add_c_flags('-std=c99'); t.add_cxx_flags('-Wshadow'); t.add_cl_flags('-DFOO=1')
+    c, cxx = _c_and_cxx_flags(t)
+    assert {'-std=c99', '-DFOO=1'} <= c and '-Wshadow' not in c
+    assert {'-Wshadow', '-DFOO=1'} <= cxx and '-std=c99' not in cxx
+
+
+def test_a_c_file_gets_every_flag_mama_adds_except_the_cxx_only_ones(tmp_path):
+    """A mixed target links C and C++ objects, so a sanitizer or an -march must reach both."""
+    t, _ = make_configured_target(tmp_path, sanitize='address', flags='-std=c++20')
+    c, cxx = _c_and_cxx_flags(t)
+    assert {'-fsanitize=address', '-fPIE'} <= c and any(f.startswith('-march=') for f in c)
+    assert cxx - c == {'-fvisibility=hidden', '-std=c++20'}
+
+
+def test_an_msvc_c_file_keeps_the_cmake_defines_and_gets_no_cxx_exception_model(tmp_path):
+    # a CMAKE_C_FLAGS on the command line replaces the `/DWIN32 /D_WINDOWS` that cmake defaults to
+    c_flags = _msvc_configure_cmd(tmp_path).split('-DCMAKE_C_FLAGS="')[1].split('"')[0].split()
+    assert {'-DWIN32=1', '-D_WINDOWS'} <= set(c_flags) and '/EHsc' not in c_flags
+
+
+@pytest.mark.parametrize('lang', ['C', 'CXX'])
+@pytest.mark.parametrize('spelling', ['CMAKE_{}_FLAGS', '-DCMAKE_{}_FLAGS', 'CMAKE_{}_FLAGS:STRING'])
+def test_the_last_flags_value_the_mamafile_named_as_a_cmake_option_goes_first(tmp_path, lang, spelling):
+    t, _ = make_configured_target(tmp_path)
+    t.add_cmake_options(f'CMAKE_{lang}_FLAGS=-O3', f'{spelling.format(lang)}="-O1 -g"'); t.add_cl_flags('-Wall')
+    assert cc._named_option(cc._default_options(t), f'CMAKE_{lang}_FLAGS').startswith('-O1 -g -Wall')
+
+
 def test_a_plain_run_puts_no_linker_flags_on_the_command_line(tmp_path):
     t, _ = make_configured_target(tmp_path)
     assert cc._named_option(cc._default_options(t), 'CMAKE_EXE_LINKER_FLAGS') == ''

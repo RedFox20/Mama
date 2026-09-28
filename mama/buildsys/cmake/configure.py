@@ -698,22 +698,26 @@ _RELEASE_CRT = 'MultiThreadedDLL'
 
 
 def _named_option(opts:list, key:str) -> str:
-    """The value the mamafile gave `key`, and '' when it named none."""
-    for o in opts:
+    """The value the mamafile gave `key` in any spelling, and '' when it named none. The last one wins, as in cmake."""
+    for o in reversed(opts):
         k, sep, v = o.partition('=')
-        if sep and k.strip() == key: return v.strip().strip('"\'')
+        if sep and _cmake_opt_key(k) == key: return v.strip().strip('"\'')
     return ''
 
 
 def _default_options(target:BuildTarget):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
+    cflags:dict = target.cmake_cflags
     ldflags:dict = target.cmake_ldflags
     exceptions = target.enable_exceptions
 
     def add_flag(flag:str, value=''):
         if not flag in cxxflags:
             cxxflags[flag] = value
+    def add_cl_flag(flag:str, value=''):  # C and C++. add_flag alone is for a flag C refuses or ignores
+        add_flag(flag, value)
+        cflags.setdefault(flag, value)
     def add_ldflag(flag:str, value=''):
         if not flag in ldflags:
             ldflags[flag] = value
@@ -734,25 +738,27 @@ def _default_options(target:BuildTarget):
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
         # the release CRT carries no debug iterators, so a nonzero level has nothing to select
         add_flag('-D_ITERATOR_DEBUG_LEVEL', '0')
-        add_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
+        add_cl_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
+        cflags.setdefault('-D_WINDOWS', '')  # the cmake C default that CMAKE_C_FLAGS replaces
         # MSBuild hands cl.exe many files at once. Ninja and make already run one cl.exe per file.
-        if not _msvc_without_visual_studio(target): add_flag('/MP')
+        if not _msvc_without_visual_studio(target): add_cl_flag('/MP')
     else:
+        # C++ only: a C shared library that marks no export would export nothing
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
         if not exceptions:
             add_flag('-fno-exceptions')
 
     if config.buildstats and config.clang:  # instrument for the Linux/Clang buildstats deep dive
-        add_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
+        add_cl_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
 
-    config.platform.get_cxx_flags(add_flag)
+    config.platform.get_cxx_flags(add_cl_flag)
     if target.enable_cxx_build:
         stdlib = config.platform.cxx_stdlib()  # only linux clang, macos and ios pick one
         if stdlib: add_flag('-stdlib', stdlib)
 
     if config.flags:
-        add_flag(config.flags)
+        add_flag(config.flags)  # C++ only: clang refuses a -std=c++20 on a C file
 
     ld_sanitize = ''
     ld_coverage = ''
@@ -764,22 +770,22 @@ def _default_options(target:BuildTarget):
         elif config.gcc or config.clang:
             console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
             ld_sanitize = f'-fsanitize={config.sanitize}'
-            add_flag('-fsanitize', config.sanitize)
-            add_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
-            add_flag('-fno-omit-frame-pointer')
-            add_flag('-fPIE')
+            add_cl_flag('-fsanitize', config.sanitize)
+            add_cl_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
+            add_cl_flag('-fno-omit-frame-pointer')
+            add_cl_flag('-fPIE')
             add_ldflag('-pie') # -pie is a linker flag
 
     if config.instruments(target.dep):
         if config.msvc:
             option = 'edge' if config.coverage == 'default' else config.coverage
             console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
-            add_flag('/fsanitize-coverage', option)
+            add_cl_flag('/fsanitize-coverage', option)
         elif config.gcc or config.clang:
             console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
-            add_flag('--coverage')
+            add_cl_flag('--coverage')
             if config.gcc:
-                add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+                add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
 
     # The link flag is wider than the compile flag: a parent that links an instrumented dep needs
     # libgcov, and without it every `__gcov_*` symbol of that dep stays undefined.
@@ -817,9 +823,12 @@ def _default_options(target:BuildTarget):
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
-    cxxflags_str = get_flags_string(cxxflags)
-    if cxxflags_str and target.enable_cxx_build:
-        opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
+    for lang, flags, enabled in (('CXX', cxxflags, target.enable_cxx_build), ('C', cflags, True)):
+        var, value = f'CMAKE_{lang}_FLAGS', get_flags_string(flags)
+        if not (value and enabled): continue
+        # cmake reads the last -D, so the value an add_cmake_options() gave the same variable goes first
+        value = f'{_named_option(target.cmake_opts, var)} {value}'.lstrip()
+        opt += [f'{var}="{value}"']
 
     config.platform.get_ld_flags(add_ldflag)
 

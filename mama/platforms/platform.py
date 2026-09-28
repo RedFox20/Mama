@@ -217,7 +217,7 @@ class Platform:
 
 
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
-        """Add the compiler flags this platform always needs.
+        """Add the compiler flags this platform always needs. They reach every C and C++ object.
         add_flag: (flag, value) sink. It keeps an existing value, so a mamafile that set the flag wins
         """
         march = self.march()

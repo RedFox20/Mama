@@ -890,6 +890,27 @@ compiler flags, so without this a C++20 project can use neither. `EXTENSIONS` ma
 appends its own flag after `CMAKE_CXX_FLAGS`: the default appends `-std=gnu++20` after mama's
 `-std=c++20` and turns on extensions, and ON for a `gnu++` flag stops the mirror of that.
 
+**A mamafile flag reaches the language it names.** `add_cxx_flags()` goes on `CMAKE_CXX_FLAGS`,
+`add_c_flags()` goes on `CMAKE_C_FLAGS`, and `add_cl_flags()` goes on both. A value that
+`add_cmake_options()` gave either variable goes first on the one mama passes, in any spelling:
+`CMAKE_C_FLAGS=`, `-DCMAKE_C_FLAGS=` or `CMAKE_C_FLAGS:STRING=`. mama passes `CMAKE_CXX_FLAGS` only when
+the target enables C++, so `disable_cxx_compiler()` drops `add_cxx_flags()`.
+
+**A flag mama adds on its own reaches C and C++.** That covers every flag of `Platform.get_cxx_flags`
+and its overrides, for example `-march`, the `cpu_flags` of a board, `-mfpu`, `-D`, `-I` and `--sysroot`. It also
+covers the sanitizer and coverage flags, `-DWIN32`, `/MP` and `-ftime-trace`. Only a C++ object gets `flags=`,
+`-fvisibility=hidden`, `-stdlib`, the exception flags, `/EHsc`, `_HAS_EXCEPTIONS` and
+`_ITERATOR_DEBUG_LEVEL`. On MSVC, a C object also gets `-D_WINDOWS`.
+
+A `CMAKE_<LANG>_FLAGS` on the command line replaces the default cmake builds from
+`CMAKE_<LANG>_FLAGS_INIT` and the `CFLAGS` or `CXXFLAGS` env. A toolchain file that appends its own
+flags keeps them: the NDK flags `-DANDROID -fstack-protector-strong -D_FORTIFY_SOURCE=2` still reach C.
+
+**Why:** cmake reads the last `-D`, and mama writes its own after the mamafile options. A mixed target
+links C and C++ objects, so a sanitizer or an `-march` has to reach both. `-fvisibility=hidden` is the
+default, and a C library that marks no export would export nothing. clang refuses a `-std=c++20` from
+`flags=` on a C file. cmake defaults C to `/DWIN32 /D_WINDOWS` on MSVC, and C code tests either name.
+
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per

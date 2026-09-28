@@ -1,6 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+unreleased
+ - bugfix: C files get add_c_flags(), -march and the sanitizer flags
+
 release: 0.14.9 (2026-Sep-28)
  - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
  - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
