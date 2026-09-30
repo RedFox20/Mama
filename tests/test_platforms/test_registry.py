@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from mama.build_config import BuildConfig
-from mama.platforms.platform import Platform, expand_versioned_sdks
+from mama.platforms.platform import Platform, Compiler, expand_versioned_sdks
 from types import SimpleNamespace
 import mama.platforms.gnu_cross as gnu_cross_mod
 from mama.platforms.generic_yocto import GenericYocto
@@ -84,6 +84,8 @@ def test_every_platform_declares_a_complete_identity(platform_class):
     default = platform_class.default_arch
     assert not default or default in platform_class.supported_arches
     assert set(platform_class.build_dirs) <= set(platform_class.supported_arches)
+    # a plain 'msvc' string fails every Compiler check, so MSVC would get the -fsanitize and --coverage flags
+    assert platform_class.compiler is None or isinstance(platform_class.compiler, Compiler)
 
 
 @pytest.mark.parametrize('platform_class,arch,hint', [

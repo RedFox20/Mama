@@ -9,6 +9,7 @@ from mama.utils.paths import forward_slashes, normalized_path, path_join, quoted
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
+from mama.platforms.platform import Compiler
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget
@@ -767,7 +768,7 @@ def _default_options(target:BuildTarget):
 
     if config.sanitize:
         console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
-        if compiler == 'msvc':
+        if compiler is Compiler.MSVC:
             ld_sanitize = f'/fsanitize={config.sanitize}'
         else:
             ld_sanitize = f'-fsanitize={config.sanitize}'
@@ -779,18 +780,18 @@ def _default_options(target:BuildTarget):
                 add_ldflag('-pie') # -pie is a linker flag
 
     if config.instruments(target.dep):
-        if compiler == 'msvc':
+        if compiler is Compiler.MSVC:
             option = 'edge' if config.coverage == 'default' else config.coverage
             console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
             add_cl_flag('/fsanitize-coverage', option)
         else:
             console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
             add_cl_flag('--coverage')
-            if compiler == 'gcc': add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+            if compiler is Compiler.GCC: add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
 
     # The link flag is wider than the compile flag: a parent that links an instrumented dep needs
     # libgcov, and without it every `__gcov_*` symbol of that dep stays undefined.
-    if compiler != 'msvc' and target.dep.links_coverage():
+    if compiler is not Compiler.MSVC and target.dep.links_coverage():
         ld_coverage = '--coverage'
 
     opt = ["CMAKE_EXPORT_COMPILE_COMMANDS=ON"] # for tools like clang-tidy and .vscode intellisense

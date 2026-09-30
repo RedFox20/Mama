@@ -1,7 +1,7 @@
 from __future__ import annotations
 import glob, os, re, sys
 
-from .platform import Platform
+from .platform import Platform, Compiler
 from .toolchain import Toolchain
 from mama.utils.fileio import find_executable_from_system
 from mama.utils.paths import forward_slashes, normalized_path, quoted
@@ -27,7 +27,7 @@ class Wasm(Platform):
     default_arch = 'wasm32'
     supported_arches = ('wasm32',)
     build_system = 'ninja'            # the SDK ships no make program, and a Windows host has none
-    compiler = 'clang'
+    compiler = Compiler.CLANG
     compiler_dumpfullversion = False  # emcc supports -dumpversion only
     supports_march = False            # clang has no -march for the wasm32 target
     position_independent = False      # a wasm program links no shared library

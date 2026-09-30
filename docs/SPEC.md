@@ -246,9 +246,9 @@ and clang, a dep links with `--coverage` when the run instruments it or any dep 
 defines the `__gcov_*` symbols those objects name. MSVC never gets a coverage link flag.
 
 **The platform names the compiler family, never `config.gcc`.** `Platform.compiler_family()` returns
-`gcc`, `clang` or `msvc`. A platform that declares no `compiler` takes the host choice: `clang` when
-`config.clang` is set, else `gcc`. `linux` is that case. A sanitizer adds `-fPIE` and `-pie` only on a
-platform that is `position_independent`.
+a `Compiler` enum member: `GCC`, `CLANG` or `MSVC`. A platform that declares no `compiler` takes the
+host choice: `CLANG` when `config.clang` is set, else `GCC`. `linux` is that case. A sanitizer adds
+`-fPIE` and `-pie` only on a platform that is `position_independent`.
 
 **Why:** `check_platform` sets `config.gcc` on every non-MSVC run whose command line names no
 compiler. Under `android` or `wasm`, the gcc-only `-fprofile-abs-path` then reached clang.

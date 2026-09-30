@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os
 
-from .platform import Platform
+from .platform import Platform, Compiler
 from .toolchain import Toolchain
 from mama.utils.paths import path_join, forward_slashes
 from mama.utils.system import System, console, warning
@@ -23,7 +23,7 @@ class Android(Platform):
     supported_arches = ('arm64', 'arm')
     build_dirs = {'arm64': 'android', 'arm': 'android32'}
     toolchain_override_attr = 'cmake_ndk_toolchain'
-    compiler = 'clang'
+    compiler = Compiler.CLANG
     compiler_dumpfullversion = False  # the NDK ships clang, which dropped -dumpfullversion
 
     def __init__(self, config):

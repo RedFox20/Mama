@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os
 
-from .platform import Platform, expand_versioned_sdks
+from .platform import Platform, Compiler, expand_versioned_sdks
 from .toolchain import Toolchain
 from mama.utils.system import System, console
 
@@ -17,7 +17,7 @@ class GnuCross(Platform):
     `GenericYocto` describes that layout instead.
     """
     system_name = 'Linux'
-    compiler = 'gcc'
+    compiler = Compiler.GCC
     is_cross = True
     is_host_runnable = False
 

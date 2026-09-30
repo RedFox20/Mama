@@ -2,7 +2,7 @@ from __future__ import annotations
 import os, threading
 from functools import lru_cache
 from platform import version as _os_version  # stdlib platform, NOT mama.platforms.platform
-from .platform import Platform, host_arch
+from .platform import Platform, Compiler, host_arch
 from .toolchain import Toolchain
 from mama.utils.fileio import find_executable_from_system
 from mama.utils.paths import path_join
@@ -129,7 +129,7 @@ class Windows(Platform):
     cli_aliases = ('msvc',)
     system_name = 'Windows'
     build_system = 'visualstudio'
-    compiler = 'msvc'
+    compiler = Compiler.MSVC
     supported_arches = tuple(_VS_ARCHES)
     build_dirs = {'x64': 'windows', 'x86': 'windows32', 'arm64': 'winarm', 'arm': 'winarm32'}
     also_runs = {'x64': ('x86',), 'arm64': ('x64', 'x86')}  ## an arm64 host emulates both, see runs_on_host

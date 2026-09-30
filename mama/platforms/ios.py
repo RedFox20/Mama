@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os
 
-from .platform import Platform
+from .platform import Platform, Compiler
 from .toolchain import Toolchain
 
 
@@ -11,7 +11,7 @@ class Ios(Platform):
     name = 'ios'
     system_name = 'Darwin'
     build_system = 'xcode'
-    compiler = 'clang'
+    compiler = Compiler.CLANG
     is_cross = True
     is_host_runnable = False  # an arm64 device binary does not run on the mac that built it
     default_arch = 'arm64'

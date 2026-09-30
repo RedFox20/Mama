@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
+from enum import Enum
 import os
 from .toolchain import Toolchain
 from ..utils.system import System
@@ -18,6 +19,13 @@ SYSTEM_PROCESSORS = {
 
 # Every arch name mama accepts, from the CLI and from a mamafile.
 ARCHES = tuple(SYSTEM_PROCESSORS)
+
+
+class Compiler(Enum):
+    """The compiler family a platform builds with. A flag that belongs to one family reads this."""
+    GCC = 'gcc'
+    CLANG = 'clang'
+    MSVC = 'msvc'
 
 
 def host_arch() -> str:
@@ -94,7 +102,7 @@ class Platform:
     position_independent = True  ## False where the platform links no shared library, so -fPIC only adds size
     exceptions_flag = ''       ## the compiler flag that turns on C++ exceptions, when the compiler default is off
     program_suffix = ''        ## the file suffix of a program this platform links. exe_suffix also names a host tool
-    compiler = ''              ## gcc, clang or msvc: the compiler family this platform builds with. '' takes the host choice
+    compiler = None            ## the Compiler this platform builds with. None takes the host choice
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -208,14 +216,14 @@ class Platform:
         raise EnvironmentError(f'Unrecognized compiler {cc}!')
 
 
-    def compiler_family(self) -> str:
-        """'gcc', 'clang' or 'msvc'. A platform that declares no compiler builds with the host choice."""
-        return self.compiler or ('clang' if self.config.clang else 'gcc')
+    def compiler_family(self) -> Compiler:
+        """A platform that declares no compiler builds with the host choice."""
+        return self.compiler or (Compiler.CLANG if self.config.clang else Compiler.GCC)
 
 
     def gcov_command(self) -> str:
         """The gcov command that gcovr runs, '' for the gcov on PATH. gcc-14 has gcov-14 in the same dir."""
-        if self.compiler_family() != 'gcc' or not self.config.cc_path: return ''
+        if self.compiler_family() is not Compiler.GCC or not self.config.cc_path: return ''
         cc_dir, cc = os.path.split(forward_slashes(os.path.realpath(self.config.cc_path)))
         gcov = f"{cc_dir}/{cc.replace('gcc', 'gcov')}"
         return quoted(gcov) if os.path.exists(gcov) else ''

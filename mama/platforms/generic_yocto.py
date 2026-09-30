@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os, re
 
-from .platform import Platform, expand_versioned_sdks
+from .platform import Platform, Compiler, expand_versioned_sdks
 from .toolchain import Toolchain
 from mama.utils.system import System, console, warning, Color, get_colored_text
 
@@ -12,7 +12,7 @@ class GenericYocto(Platform):
     board only declares its search paths, its compiler triple and its sysroot name."""
     system_name = 'Linux'
     is_cross = True
-    compiler = 'gcc'
+    compiler = Compiler.GCC
     cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
     is_host_runnable = False
     default_arch = 'arm64'

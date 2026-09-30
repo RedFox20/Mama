@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Callable
 import os
 
-from .platform import Platform
+from .platform import Platform, Compiler
 from .toolchain import Toolchain
 from mama.utils.system import System, console
 from mama.utils.fileio import read_lines_from
@@ -14,7 +14,7 @@ class Mips(Platform):
     because that is what every consumer board runs."""
     name = 'mips'
     is_cross = True
-    compiler = 'gcc'
+    compiler = Compiler.GCC
     cxx20_flag = 'c++2a'  # these SDKs ship gcc older than the final C++20 name
     is_host_runnable = False
     default_arch = 'mipsel'

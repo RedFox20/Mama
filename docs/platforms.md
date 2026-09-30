@@ -165,7 +165,8 @@ non-MSVC run whose command line names no compiler. The host tool bootstrap reads
 set them.
 
 A flag that belongs to one compiler reads `platform.compiler_family()`, never `config.gcc`. A platform
-declares `compiler = 'gcc'`, `'clang'` or `'msvc'`. Only `Linux` declares none, and it takes the host choice.
+declares `compiler = Compiler.GCC`, `Compiler.CLANG` or `Compiler.MSVC`. Only `Linux` declares none, and it
+takes the host choice. A plain string fails every `is Compiler.X` check, and the registry test rejects one.
 
 ## What the host can run
 
