@@ -13,6 +13,7 @@ from mama.platforms.ios import Ios
 from mama.platforms.windows import Windows
 from mama.platforms.linux import Linux
 from mama.platforms.macos import Macos
+from mama.platforms.wasm import Wasm
 from mama.platforms.platform import ARCHES, Platform
 from mama.platforms.registry import platform_for_arg
 from .utils import git_status
@@ -187,6 +188,7 @@ class BuildConfig:
         self.oclea   : Oclea = None
         self.xilinx  : Xilinx = None
         self.imx8mp  : Imx8mp = None
+        self.wasm    : Wasm = None
         self.yocto_linux : GenericYocto = None # any generic Yocto Linux board (Oclea, Xilinx, IMX8MP)
         # cmake customization
         self.cmake_command = 'cmake' # by default, use whatever cmake is in PATH
@@ -419,7 +421,7 @@ class BuildConfig:
     ## The lookup goes through this module's globals, so a test can monkeypatch a platform class.
     _PLATFORM_FLAGS = (('msvc','Windows'), ('linux','Linux'), ('macos','Macos'), ('ios','Ios'),
                        ('android','Android'), ('raspi','Raspi'), ('aarch64','Aarch64'),
-                       ('oclea','Oclea'), ('mips','Mips'), ('xilinx','Xilinx'), ('imx8mp','Imx8mp'))
+                       ('oclea','Oclea'), ('mips','Mips'), ('xilinx','Xilinx'), ('imx8mp','Imx8mp'), ('wasm','Wasm'))
 
     def set_platform(self, **flags) -> bool:
         """Select the ONE active platform by flag, eg set_platform(android=True). The first enabled
@@ -479,6 +481,7 @@ class BuildConfig:
         self.mips    = obj(Mips)
         self.xilinx  = obj(Xilinx)
         self.imx8mp  = obj(Imx8mp)
+        self.wasm    = obj(Wasm)
         # convenience alias that matches any embedded Yocto Linux platform (Oclea, Xilinx, IMX8MP)
         self.yocto_linux = obj(GenericYocto)
 
@@ -777,7 +780,13 @@ class BuildConfig:
 
 
     def prefers_ninja_build(self) -> bool:
-        """True when a target builds with Ninja unless its mamafile says otherwise."""
+        """True when a target builds with Ninja unless its mamafile says otherwise. A platform that builds
+        with Ninja on every host ignores the generator choice. Then a missing ninja raises EnvironmentError."""
+        if self.platform and self.platform.build_system == 'ninja':
+            if not self.ninja_path:
+                raise EnvironmentError(f'{self.platform.name} builds with Ninja: no ninja executable found.' + \
+                                       ' Put it on PATH, or set env NINJA.')
+            return True
         return bool(self.prefer_ninja and self.ninja_path)
 
 

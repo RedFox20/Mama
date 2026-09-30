@@ -949,7 +949,7 @@ class BuildTarget:
         """
         Picks the value whose keyword names the active platform, else None. Every platform name works:
         `windows`, `linux`, `macos`, `ios`, `android`, `raspi`, `aarch64`, `mips`, `oclea`, `xilinx`,
-        `imx8mp`, plus `yocto_linux` for any Yocto board and `msvc` as an alias of `windows`.
+        `imx8mp`, `wasm`, plus `yocto_linux` for any Yocto board and `msvc` as an alias of `windows`.
         ```
             opts = self.select(windows='/W4', linux='-Wall')
         ```
@@ -1333,7 +1333,7 @@ class BuildTarget:
         if gdb:
             run_gdb(self, f'{command} {args}', src_dir=src_dir)
         else:
-            run_in_command_dir(self, f'{command} {args}', src_dir=src_dir)
+            run_in_command_dir(self, f'{command} {args}', src_dir=src_dir, built=True)
 
 
     def gdb(self, command: str, src_dir=True):
@@ -2119,5 +2119,5 @@ class BuildTarget:
 # The platform flags a mamafile reads off `self`, forwarded from config. Properties, not copies,
 # so a platform switch inside init() stays visible. See README "Platform detection properties".
 for _flag in ('msvc', 'linux', 'macos', 'ios', 'android', 'raspi', 'aarch64',
-              'oclea', 'xilinx', 'mips', 'imx8mp', 'yocto_linux'):
+              'oclea', 'xilinx', 'mips', 'imx8mp', 'wasm', 'yocto_linux'):
     setattr(BuildTarget, _flag, property(lambda self, name=_flag: getattr(self.config, name)))

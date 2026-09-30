@@ -75,6 +75,7 @@ def print_usage():
     console('    android    - build for android')
     console('    android-N  - build for android targeting specific API level, ex: android-26')
     console('    ndk-<ver>  - build for android targeting specific NDK version, ex: ndk-28 or ndk-28.2')
+    console('    wasm       - build for webassembly with the emscripten sdk (emsdk)')
     console('    clang      - prefer clang for linux (default on macos/ios/android)')
     console('    gcc        - prefer gcc for linux')
     console('    fortran    - enable automatic fortran detection (or configure this in mamafile)')
@@ -268,19 +269,13 @@ def run_coverage_report(target: BuildTarget):
         console(f'Coverage report not supported yet on {target.config.name()}')
         return
     root = target.source_dir(target.config.coverage_report)
-    gcov_exec = ''
-    if target.config.gcc and target.config.cc_path:
-        # Derive gcov path from gcc path: e.g. /usr/bin/gcc-14 -> /usr/bin/gcov-14
-        gcov_path = os.path.realpath(target.config.cc_path).replace('gcc', 'gcov')
-        if os.path.exists(gcov_path):
-            gcov_exec = f'--gcov-executable "{gcov_path}" '
-    cmd = 'gcovr --gcov-ignore-errors all --gcov-ignore-parse-errors all ' \
-        + '--sort uncovered-percent ' \
-        + gcov_exec \
-        + f'--root "{root}" "{target.build_dir()}"'
     try:
         # a report failure must not break CI, so log the error instead of an exit.
         # CI checks stdout for the report result separately.
+        gcov = target.config.platform.gcov_command()
+        gcov_exec = f"--gcov-executable '{gcov}' " if gcov else ''  # gcovr shlex-splits this value again
+        cmd = 'gcovr --gcov-ignore-errors all --gcov-ignore-parse-errors all --sort uncovered-percent ' + gcov_exec + \
+              f'--root "{root}" "{target.build_dir()}"'
         status, _ = execute_piped_echo(cwd=target.source_dir(), cmd=cmd, echo=True)
         if status != 0:
             warning(f'WARNING: gcovr exited {status} - coverage report may be incomplete')

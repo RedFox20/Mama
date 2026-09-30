@@ -2,7 +2,7 @@
 import os
 import pytest
 
-from testutils import is_linux, is_windows, touch_file as _touch
+from testutils import emsdk_node, is_linux, is_windows, make_emsdk_tree, touch_file as _touch
 from mama.utils.paths import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
@@ -68,12 +68,15 @@ def fake_toolchains(tmp_path, monkeypatch):
         make_cross_bin_tree(raspi, triple_for_arch(arch))
     mips = make_cross_bin_tree(f'{root}/mips', 'mipsel-linux-gnu')
     aarch64 = make_cross_bin_tree(f'{root}/aarch64', 'aarch64-linux-gnu')
+    emsdk = make_emsdk_tree(f'{root}/emsdk')
 
     # a CI runner ships its own Android SDK and sets several of these, and ANDROID_NDK_LATEST_HOME
     # is read FIRST, so the fake NDK only wins once every one of them is gone
     for env in _ANDROID_ENVS: monkeypatch.delenv(env, raising=False)
     monkeypatch.setenv('ANDROID_HOME', f'{root}/android-sdk')
     monkeypatch.setenv('ANDROID_NDK_HOME', ndk)
+    monkeypatch.setenv('EMSDK', emsdk)
+    monkeypatch.delenv('EMSDK_NODE', raising=False)
     monkeypatch.setattr(Raspi, '_search_paths', lambda self: [raspi])
     # its own linux_paths end in /usr, so without this it resolves the HOST's real cross package
     monkeypatch.setattr(Aarch64, '_search_paths', lambda self: [aarch64])
@@ -81,7 +84,7 @@ def fake_toolchains(tmp_path, monkeypatch):
     _patch_yocto_paths(monkeypatch, {'oclea': oclea, 'imx8mp': imx, 'xilinx': xilinx})
     _patch_mips_paths(monkeypatch, mips)
     return dict(ndk=ndk, oclea=oclea, imx8mp=imx, xilinx=xilinx, raspi=raspi, mips=mips,
-                aarch64=aarch64)
+                aarch64=aarch64, emsdk=emsdk, node=f'{emsdk}/{emsdk_node("22.16.0")}')
 
 
 def _patch_yocto_paths(monkeypatch, roots):

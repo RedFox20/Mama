@@ -10,12 +10,13 @@ from .mips import Mips
 from .oclea import Oclea
 from .xilinx import Xilinx
 from .imx8mp import Imx8mp
+from .wasm import Wasm
 from ..utils.system import System
 
 
-# Every platform mama supports, in CMake guard order: android is also UNIX and APPLE also matches
-# Darwin, so the specific platforms come before WIN32, APPLE and UNIX. A new platform is one line here.
-PLATFORMS = (Android, Windows, Ios, Macos, Raspi, Aarch64, Oclea, Xilinx, Imx8mp, Mips, Linux)
+# Every platform mama supports, in CMake guard order. android and wasm are also UNIX, and APPLE also matches Darwin.
+# So the specific platforms come before WIN32, APPLE and UNIX. A new platform is one line here.
+PLATFORMS = (Android, Windows, Ios, Macos, Raspi, Aarch64, Oclea, Xilinx, Imx8mp, Mips, Wasm, Linux)
 
 
 def _build_arg_map() -> dict:

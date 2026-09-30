@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from functools import lru_cache
-from .platform import Platform, native_march, host_arch
+from .platform import Platform, Compiler, native_march, host_arch
 
 
 @lru_cache(maxsize=1)
@@ -18,6 +18,7 @@ class Macos(Platform):
     name = 'macos'
     system_name = 'Darwin'
     build_system = 'xcode'
+    compiler = Compiler.CLANG
     default_arch = 'arm64'
     supported_arches = ('x64', 'arm64')
     build_dirs = {'x64': 'macos', 'arm64': 'macosarm'}

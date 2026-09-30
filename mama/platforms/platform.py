@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
+from enum import Enum
 import os
 from .toolchain import Toolchain
 from ..utils.system import System
-from ..utils.paths import path_join
+from ..utils.paths import forward_slashes, path_join, quoted
 
 if TYPE_CHECKING:
     from ..build_config import BuildConfig
@@ -13,11 +14,18 @@ if TYPE_CHECKING:
 # If the host value leaks in, a project that branches on it compiles host instructions into a cross build.
 SYSTEM_PROCESSORS = {
     'arm64': 'aarch64', 'arm': 'armv7-a', 'x64': 'x86_64', 'x86': 'i686',
-    'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el',
+    'mips': 'mips', 'mipsel': 'mipsel', 'mips64': 'mips64', 'mips64el': 'mips64el', 'wasm32': 'wasm32',
 }
 
 # Every arch name mama accepts, from the CLI and from a mamafile.
 ARCHES = tuple(SYSTEM_PROCESSORS)
+
+
+class Compiler(Enum):
+    """The compiler family a platform builds with. A flag that belongs to one family reads this."""
+    GCC = 'gcc'
+    CLANG = 'clang'
+    MSVC = 'msvc'
 
 
 def host_arch() -> str:
@@ -72,7 +80,7 @@ class Platform:
     is_host_runnable = True    ## True when mama may run the built tests on this machine
     default_arch = ''          ## '' means use the host arch
     supported_arches = ()      ## every arch this platform accepts. The first is not special
-    build_system = 'make'      ## the build system this platform prefers: make, xcode or visualstudio
+    build_system = 'make'      ## the build system this platform prefers: make, ninja, xcode or visualstudio
     toolchain_override_attr = ''  ## BuildTarget attribute a mamafile sets to override the toolchain file
     platform_define = ''       ## 'RASPI' becomes RASPI=TRUE for the project. '' emits nothing
     compile_defines = {}       ## preprocessor defines, eg {'OCLEA':'1','YOCTO_LINUX':'1'}
@@ -91,6 +99,10 @@ class Platform:
     ide_open_command = ''
     supports_coverage_report = True  ## gcovr needs gcov, which the MSVC toolchain has no equivalent of
     supports_march = True      ## False where the compiler has no -march, so a target_march pin cannot apply
+    position_independent = True  ## False where the platform links no shared library, so -fPIC only adds size
+    exceptions_flag = ''       ## the compiler flag that turns on C++ exceptions, when the compiler default is off
+    program_suffix = ''        ## the file suffix of a program this platform links. exe_suffix also names a host tool
+    compiler = None            ## the Compiler this platform builds with. None takes the host choice
 
     def __init__(self, config: BuildConfig):
         self.config = config
@@ -198,9 +210,23 @@ class Platform:
         the host compiler's version for the NDK's clang."""
         cc, _, version = self.config.get_preferred_compiler_paths()
         major, minor = version.split('.')[:2]
+        if 'emcc' in cc:  return f'emcc{major}.{minor}'  # the Emscripten SDK version, not its clang
         if 'gcc' in cc:   return f'gcc{major}.{minor}'
         if 'clang' in cc: return f'clang{major}.{minor}'
         raise EnvironmentError(f'Unrecognized compiler {cc}!')
+
+
+    def compiler_family(self) -> Compiler:
+        """A platform that declares no compiler builds with the host choice."""
+        return self.compiler or (Compiler.CLANG if self.config.clang else Compiler.GCC)
+
+
+    def gcov_command(self) -> str:
+        """The gcov command that gcovr runs, '' for the gcov on PATH. gcc-14 has gcov-14 in the same dir."""
+        if self.compiler_family() is not Compiler.GCC or not self.config.cc_path: return ''
+        cc_dir, cc = os.path.split(forward_slashes(os.path.realpath(self.config.cc_path)))
+        gcov = f"{cc_dir}/{cc.replace('gcc', 'gcov')}"
+        return quoted(gcov) if os.path.exists(gcov) else ''
 
 
     ## --- flags ---
@@ -217,7 +243,7 @@ class Platform:
 
 
     def get_cxx_flags(self, add_flag: Callable[[str, str], None]):
-        """Add the compiler flags this platform always needs.
+        """Add the compiler flags this platform always needs. They reach every C and C++ object.
         add_flag: (flag, value) sink. It keeps an existing value, so a mamafile that set the flag wins
         """
         march = self.march()
@@ -291,3 +317,8 @@ class Platform:
     def debugger(self) -> str:
         """'gdb', 'lldb' or '' when tests run without one."""
         return 'gdb'
+
+
+    def launcher(self) -> str:
+        """The program that runs a program this platform linked, eg node. '' runs the program itself."""
+        return ''

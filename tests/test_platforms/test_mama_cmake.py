@@ -35,6 +35,7 @@ def test_the_specific_guards_come_before_the_generic_ones():
     order = [chain.index(f'({_GUARDS[p.name]})') for p in PLATFORMS]
     assert order == sorted(order)
     assert chain.index('(ANDROID OR ANDROID_NDK)') < chain.index('(UNIX)')
+    assert chain.index('(EMSCRIPTEN)') < chain.index('(UNIX)')
     assert chain.index('(APPLE AND IOS_PLATFORM)') < chain.index('(APPLE)\n')
 
 
@@ -53,6 +54,11 @@ def test_a_board_define_reaches_the_consumer_project(define):
 @pytest.mark.parametrize('var', ['LINUX', 'MACOS', 'IOS'])
 def test_the_historic_platform_variables_still_exist(var):
     assert f'set({var} TRUE)' in _text()
+
+
+def test_a_wasm_test_links_to_run_under_node():
+    """`mama test` reads the exit code and the gtest report, and node gives neither without these."""
+    assert 'target_link_options(${target} PRIVATE -sNODERAWFS=1 -sEXIT_RUNTIME=1' in _text()
 
 
 def test_the_proxy_still_forces_the_release_crt():

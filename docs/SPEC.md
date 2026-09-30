@@ -241,9 +241,27 @@ plain variant.
 archive on the server ever carries `-cov`, and `mama coverage <target> upload` publishes nothing.
 
 **The compile flag instruments, the link flag is wider.** Only an instrumented dep compiles with
-`--coverage`, and MSVC gets `/fsanitize-coverage` instead. On gcc and clang, a dep links with
-`--coverage` when the run instruments it or any dep below it. libgcov defines the `__gcov_*` symbols
-those objects name. MSVC never gets a coverage link flag.
+`--coverage`, and MSVC gets `/fsanitize-coverage` instead. gcc also gets `-fprofile-abs-path`. On gcc
+and clang, a dep links with `--coverage` when the run instruments it or any dep below it. libgcov
+defines the `__gcov_*` symbols those objects name. MSVC never gets a coverage link flag.
+
+**The platform names the compiler family, never `config.gcc`.** `Platform.compiler_family()` returns
+a `Compiler` enum member: `GCC`, `CLANG` or `MSVC`. A platform that declares no `compiler` takes the
+host choice: `CLANG` when `config.clang` is set, else `GCC`. `linux` is that case. A sanitizer adds
+`-fPIE` and `-pie` only on a platform that is `position_independent`.
+
+**Why:** `check_platform` sets `config.gcc` on every non-MSVC run whose command line names no
+compiler. Under `android` or `wasm`, the gcc-only `-fprofile-abs-path` then reached clang.
+
+**The platform names the gcov too.** `coverage-report` passes `Platform.gcov_command()` to gcovr as
+`--gcov-executable`. On the `gcc` family it is the gcov beside the resolved compiler, `gcc-14` to
+`gcov-14`, when that file exists. Under `wasm` it is `llvm-cov gcov` from `upstream/bin` of the emsdk
+install, and a standalone emscripten dir gets none. Else mama passes none, and gcovr runs the `gcov`
+on `PATH`. If `gcov_command()` raises, for example when `wasm` finds no Emscripten SDK, mama prints
+an error, skips the report and does not exit.
+
+**Why:** a gcov reads only the coverage format of its own compiler. gcovr printed an empty report
+when mama passed `emcc` as the gcov.
 
 **The parent half of that link rule is defensive today.** Every run scopes the build to the subtree of
 its target. The instrumented dep is then the top of the scope, and no parent of it configures. The
@@ -410,7 +428,7 @@ dependency name targets that dependency and its affected transitive entries. `co
 exact reachable commit.
 
 **Platform**: `windows`, `msvc`, `linux`, `macos`, `ios`, `android`, `android-<N>`, `ndk-<ver>`,
-`raspi`, `raspi32`, `mips`, `oclea`, `xilinx`, `imx8mp`.
+`raspi`, `raspi32`, `mips`, `oclea`, `xilinx`, `imx8mp`, `wasm`.
 
 **Arch**: `arch=<a>`, and the shorthands `x86`, `x64`, `arm`, `arm64`, `aarch64`.
 
@@ -437,7 +455,10 @@ configures in this run. A dep that is already built keeps its build dir until so
 `native` is the mama default: Visual Studio on a Windows host, Ninja elsewhere. Where mama finds no
 ninja, `native` takes the build system of the platform: Unix Makefiles, or Xcode on iOS and macOS. So
 `ninja` and `native` differ only on Windows, and where ninja is missing. With no flag, `MAMA_GENERATOR` decides, then `set_default_generator()` in the root `settings()`, then `native`.
-A `ninja` that names no ninja executable is an error. A dep mamafile that sets
+A `ninja` that names no ninja executable is an error. Under `wasm`, mama builds every target with Ninja
+on every host and ignores the generator choice, because the Emscripten SDK ships no make program. A
+`disable_ninja_build()` does not change that. Under `wasm`, a missing ninja is an error when a target
+loads. On another platform, a dep mamafile that sets
 `enable_ninja_build` or calls `disable_ninja_build()` in `settings()` overrides the choice for its own
 target. The root must do it after its `set_default_generator()` call.
 
@@ -890,6 +911,27 @@ compiler flags, so without this a C++20 project can use neither. `EXTENSIONS` ma
 appends its own flag after `CMAKE_CXX_FLAGS`: the default appends `-std=gnu++20` after mama's
 `-std=c++20` and turns on extensions, and ON for a `gnu++` flag stops the mirror of that.
 
+**A mamafile flag reaches the language it names.** `add_cxx_flags()` goes on `CMAKE_CXX_FLAGS`,
+`add_c_flags()` goes on `CMAKE_C_FLAGS`, and `add_cl_flags()` goes on both. A value that
+`add_cmake_options()` gave either variable goes first on the one mama passes, in any spelling:
+`CMAKE_C_FLAGS=`, `-DCMAKE_C_FLAGS=` or `CMAKE_C_FLAGS:STRING=`. mama passes `CMAKE_CXX_FLAGS` only when
+the target enables C++, so `disable_cxx_compiler()` drops `add_cxx_flags()`.
+
+**A flag mama adds on its own reaches C and C++.** That covers every flag of `Platform.get_cxx_flags`
+and its overrides, for example `-march`, the `cpu_flags` of a board, `-mfpu`, `-D`, `-I` and `--sysroot`. It also
+covers the sanitizer and coverage flags, `-DWIN32`, `/MP` and `-ftime-trace`. Only a C++ object gets `flags=`,
+`-fvisibility=hidden`, `-stdlib`, the exception flags, `/EHsc`, `_HAS_EXCEPTIONS` and
+`_ITERATOR_DEBUG_LEVEL`. On MSVC, a C object also gets `-D_WINDOWS`.
+
+A `CMAKE_<LANG>_FLAGS` on the command line replaces the default cmake builds from
+`CMAKE_<LANG>_FLAGS_INIT` and the `CFLAGS` or `CXXFLAGS` env. A toolchain file that appends its own
+flags keeps them: the NDK flags `-DANDROID -fstack-protector-strong -D_FORTIFY_SOURCE=2` still reach C.
+
+**Why:** cmake reads the last `-D`, and mama writes its own after the mamafile options. A mixed target
+links C and C++ objects, so a sanitizer or an `-march` has to reach both. `-fvisibility=hidden` is the
+default, and a C library that marks no export would export nothing. clang refuses a `-std=c++20` from
+`flags=` on a C file. cmake defaults C to `/DWIN32 /D_WINDOWS` on MSVC, and C code tests either name.
+
 ### The compiler seed
 
 cmake re-runs compiler detection for every build dir it creates. Mama runs that detection once per
@@ -1291,6 +1333,11 @@ not happen.
 
 `test_until_failure` runs the hook in a loop until it raises, up to N iterations, default 100.
 
+**node runs a wasm program.** `gdb()`, `run_with_gdb()` and `gtest()`, the helpers that a `test` or
+`start` hook calls, run `<program>.js` under node. mama uses the node that `EMSDK_NODE` names, else the
+newest node of the emsdk install, else the `node` on `PATH`. It looks once per run. `run()` and `run_program()` start a host
+tool: it keeps its own name and runs without node.
+
 `open` finds the IDE project the platform's own generator writes: a `.sln` or `.slnx` file for Visual
 Studio, an `.xcodeproj` directory for Xcode. The newest match wins, because a build dir configured by
 two toolsets holds both formats and the stale one opens an empty solution. With no match it falls back
@@ -1310,13 +1357,14 @@ option.
 A platform names the `-march` its target needs, or none at all. A native platform names `native` when
 the host arch IS the target arch, and the baseline of the arch otherwise. `native` compiles for the CPU
 of the build machine, and on a foreign arch it would compile host instructions. A cross platform names
-a fixed baseline (android, raspi, oclea, imx8mp) or nothing (xilinx, mips, ios). MSVC has no `-march`.
+the baseline of its arch (android, raspi, aarch64, oclea, imx8mp) or nothing (xilinx, mips, ios). MSVC
+and wasm have no `-march`.
 
 `config.set_target_march(arch, march)` overrides that default for one target arch, and only for the
 run that builds that arch. It belongs in the ROOT mamafile `settings()`, which runs before any
 dependency loads. The root and every dependency then compile with the same instruction set. It raises
 on an unknown arch, and on a value that is not the `-march` value alone. A platform whose compiler has
-no `-march`, which today is only MSVC, warns and keeps its default.
+no `-march`, which today is MSVC and wasm, warns and keeps its default.
 
 The pin REPLACES the platform default, so exactly one `-march` reaches the compiler. `config.flags`
 goes on the line as a raw string that mama never merges, so a `flags=-march=...` still puts a second
@@ -1326,6 +1374,37 @@ build.
 **Why:** `-march=native` is the right default for a developer and the wrong one for a release. It bakes
 the build machine into the binary. The failure then appears as an illegal instruction on the older CPU
 of a user, far from the build that caused it.
+
+### WebAssembly
+
+`mama build wasm` builds with the Emscripten SDK. mama looks for it in `EMSDK`, then in `~/emsdk`, then
+at the `emcc` on `PATH`. `config.set_toolchain(dir)` names one explicitly: an emsdk install, or the
+emscripten dir inside it. The toolchain file is the `Emscripten.cmake` of the SDK, and it names `emcc`
+and `em++` itself. A toolchain file that `set_toolchain` names gets a warning, and mama ignores it.
+Before mama names a path to `emcc`, `em++` or `emar`, it sets `EMSDK_PYTHON` to its own Python if the
+env names none.
+
+Every cmake target of the tree gets the same platform defaults:
+
+- `-fwasm-exceptions` on each target that enables exceptions, and on every link.
+- No `CMAKE_POSITION_INDEPENDENT_CODE`.
+- No `-march`.
+
+A target that disables exceptions compiles with `-fno-exceptions` and still links with `-fwasm-exceptions`.
+
+**Why:** wasm-ld refuses to link objects with different exception models. The link flag is on every
+link, so a target that disables exceptions still links a library that throws. A wasm program links no
+shared library, so `-fPIC` only adds size.
+
+The generated `mama.cmake` offers `mama_wasm_test(<target>)`. It links a test program with
+`-sNODERAWFS=1 -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1`. On another platform it does nothing. The
+artifactory archive name tags the compiler as `emcc<major>.<minor>`, from the SDK version.
+
+**Why:** without `-sEXIT_RUNTIME=1`, node does not return the exit code of `main` to `mama test`.
+Without `-sNODERAWFS=1`, the gtest report and the `.gcda` files of a coverage run stay in a memory
+file system. Without `-sALLOW_MEMORY_GROWTH=1`, a test that outgrows the initial heap aborts. mama
+does not support a threaded wasm build: `-pthread` needs atomics in every object, so it needs a build
+dir of its own.
 
 ## 16 Output
 
@@ -1453,6 +1532,9 @@ entire queued backlog of clones first.
 | `NINJA` | path to the ninja executable |
 | `ANDROID_HOME`, `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT`, `ANDROID_NDK_LATEST_HOME` | Android SDK and NDK |
 | `PI_SDK_HOME`, `RASPI_HOME`, `OCLEA_HOME`, `IMX8MP_SDK_HOME`, `XILINX_HOME` | cross toolchain roots |
+| `EMSDK` | the emsdk install of a `wasm` build, or the emscripten dir inside it |
+| `EMSDK_NODE` | the node that runs a `wasm` program the project built |
+| `EMSDK_PYTHON` | the Python that runs `emcc`. mama sets its own before the first `emcc` call when the env names none |
 | `CLANG_TIDY` | path to clang-tidy, when PATH does not hold it |
 | `ANDROID_SDK_ROOT`, `ANDROID_NDK` | the other spellings mama accepts for the Android SDK and NDK |
 | `<PLATFORM>_SDK_HOME`, `OCLEA_SDK`, `XILINX_SDK`, `RASPBERRY_HOME` | the other cross toolchain roots |

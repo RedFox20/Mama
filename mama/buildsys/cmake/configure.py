@@ -5,10 +5,11 @@ from mama.utils.system import System, console, Color, warning, warning_to
 from mama.utils.sub_process import SubProcess, execute_piped_echo, execute_piped, exit_status_text
 from mama.utils.errors import BuildError
 from mama.utils.fileio import file_sha1, find_executable_from_system, read_text_from, write_text_to
-from mama.utils.paths import forward_slashes, normalized_path, path_join, user_cache_dir, workspace_mama_dir
+from mama.utils.paths import forward_slashes, normalized_path, path_join, quoted, user_cache_dir, workspace_mama_dir
 from mama import build_names
 from mama.buildsys.cmake import compiler_cache as seedcache
 from mama.buildsys.cmake.options import platform_opts as _platform_opts
+from mama.platforms.platform import Compiler
 
 if TYPE_CHECKING:
     from mama.build_target import BuildTarget
@@ -78,7 +79,6 @@ def _set_compiler_paths(target:BuildTarget, opt:list[str]):
     if target.config.cmake_toolchain_file: return
     cc, cxx, _ = _compiler_paths(target)
     # quoted only with a space, e.g. cl.exe under Program Files, so every other command line stays the same
-    quoted = lambda path: f'"{path}"' if ' ' in path else path
     if cc:
         opt.append(f'CMAKE_C_COMPILER={quoted(forward_slashes(cc))}')
         if target.enable_cxx_build:
@@ -649,7 +649,7 @@ def _unused_cli_flag(target:BuildTarget) -> str:
 
 # The cmake generator per platform build system. MSVC is not here: its generator carries the
 # detected Visual Studio version, so it is built from config.
-_GENERATORS = {'make': 'Unix Makefiles', 'xcode': 'Xcode'}
+_GENERATORS = {'make': 'Unix Makefiles', 'ninja': 'Ninja', 'xcode': 'Xcode'}
 
 
 def _generator_name(target:BuildTarget) -> str:
@@ -660,7 +660,8 @@ def _generator_name(target:BuildTarget) -> str:
     if target.enable_ninja_build:
         multi = config.msvc and _cmake_version(config, target.cmake_command) >= (3, 17)
         return 'Ninja Multi-Config' if multi else 'Ninja'
-    if target.enable_unix_make:   return 'Unix Makefiles'
+    # a platform that builds with Ninja on every host keeps it, whatever the mamafile enabled
+    if target.enable_unix_make and config.platform.build_system != 'ninja': return 'Unix Makefiles'
     if config.msvc: return config.platform.generator_name()
     return _GENERATORS.get(config.platform.build_system, '')
 
@@ -698,22 +699,26 @@ _RELEASE_CRT = 'MultiThreadedDLL'
 
 
 def _named_option(opts:list, key:str) -> str:
-    """The value the mamafile gave `key`, and '' when it named none."""
-    for o in opts:
+    """The value the mamafile gave `key` in any spelling, and '' when it named none. The last one wins, as in cmake."""
+    for o in reversed(opts):
         k, sep, v = o.partition('=')
-        if sep and k.strip() == key: return v.strip().strip('"\'')
+        if sep and _cmake_opt_key(k) == key: return v.strip().strip('"\'')
     return ''
 
 
 def _default_options(target:BuildTarget):
     config:BuildConfig = target.config
     cxxflags:dict = target.cmake_cxxflags
+    cflags:dict = target.cmake_cflags
     ldflags:dict = target.cmake_ldflags
     exceptions = target.enable_exceptions
 
     def add_flag(flag:str, value=''):
         if not flag in cxxflags:
             cxxflags[flag] = value
+    def add_cl_flag(flag:str, value=''):  # C and C++. add_flag alone is for a flag C refuses or ignores
+        add_flag(flag, value)
+        cflags.setdefault(flag, value)
     def add_ldflag(flag:str, value=''):
         if not flag in ldflags:
             ldflags[flag] = value
@@ -734,62 +739,63 @@ def _default_options(target:BuildTarget):
         add_flag('-D_HAS_EXCEPTIONS', '1' if exceptions else '0')
         # the release CRT carries no debug iterators, so a nonzero level has nothing to select
         add_flag('-D_ITERATOR_DEBUG_LEVEL', '0')
-        add_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
+        add_cl_flag('-DWIN32', '1') # MSVC only defines _WIN32 by default, but opencv wants WIN32
+        cflags.setdefault('-D_WINDOWS', '')  # the cmake C default that CMAKE_C_FLAGS replaces
         # MSBuild hands cl.exe many files at once. Ninja and make already run one cl.exe per file.
-        if not _msvc_without_visual_studio(target): add_flag('/MP')
+        if not _msvc_without_visual_studio(target): add_cl_flag('/MP')
     else:
+        # C++ only: a C shared library that marks no export would export nothing
         if target.gcc_clang_visibility_hidden:
             add_flag('-fvisibility', 'hidden')
-        if not exceptions:
-            add_flag('-fno-exceptions')
+        if not exceptions: add_flag('-fno-exceptions')
+        elif config.platform.exceptions_flag: add_flag(config.platform.exceptions_flag)
 
     if config.buildstats and config.clang:  # instrument for the Linux/Clang buildstats deep dive
-        add_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
+        add_cl_flag('-ftime-trace')   # per-TU Chrome-trace JSON written beside each .o (GCC has no equivalent)
 
-    config.platform.get_cxx_flags(add_flag)
+    config.platform.get_cxx_flags(add_cl_flag)
     if target.enable_cxx_build:
         stdlib = config.platform.cxx_stdlib()  # only linux clang, macos and ios pick one
         if stdlib: add_flag('-stdlib', stdlib)
 
     if config.flags:
-        add_flag(config.flags)
+        add_flag(config.flags)  # C++ only: clang refuses a -std=c++20 on a C file
 
     ld_sanitize = ''
     ld_coverage = ''
+    # the compiler of the platform, never config.gcc: check_platform sets config.gcc on android and wasm too
+    compiler = config.platform.compiler_family()
 
     if config.sanitize:
-        if config.msvc:
-            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        if compiler is Compiler.MSVC:
             ld_sanitize = f'/fsanitize={config.sanitize}'
-        elif config.gcc or config.clang:
-            console(f'Enabling sanitizers: {config.sanitize}', color=Color.MAGENTA)
+        else:
             ld_sanitize = f'-fsanitize={config.sanitize}'
-            add_flag('-fsanitize', config.sanitize)
-            add_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
-            add_flag('-fno-omit-frame-pointer')
-            add_flag('-fPIE')
-            add_ldflag('-pie') # -pie is a linker flag
+            add_cl_flag('-fsanitize', config.sanitize)
+            add_cl_flag('-fno-sanitize-recover', config.sanitize) # fail on the first sanitizer error (UBSan recovers by default)
+            add_cl_flag('-fno-omit-frame-pointer')
+            if config.platform.position_independent:
+                add_cl_flag('-fPIE')
+                add_ldflag('-pie') # -pie is a linker flag
 
     if config.instruments(target.dep):
-        if config.msvc:
+        if compiler is Compiler.MSVC:
             option = 'edge' if config.coverage == 'default' else config.coverage
             console(f'Enabling coverage: /fsanitize-coverage={option}', color=Color.MAGENTA)
-            add_flag('/fsanitize-coverage', option)
-        elif config.gcc or config.clang:
+            add_cl_flag('/fsanitize-coverage', option)
+        else:
             console(f'Enabling coverage: (gcov+gcovr)', color=Color.MAGENTA)
-            add_flag('--coverage')
-            if config.gcc:
-                add_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
+            add_cl_flag('--coverage')
+            if compiler is Compiler.GCC: add_cl_flag('-fprofile-abs-path') # use absolute paths to always find coverage info
 
     # The link flag is wider than the compile flag: a parent that links an instrumented dep needs
     # libgcov, and without it every `__gcov_*` symbol of that dep stays undefined.
-    if (config.gcc or config.clang) and target.dep.links_coverage():
+    if compiler is not Compiler.MSVC and target.dep.links_coverage():
         ld_coverage = '--coverage'
 
-    opt = [
-        "CMAKE_POSITION_INDEPENDENT_CODE=ON",
-        "CMAKE_EXPORT_COMPILE_COMMANDS=ON" # for tools like clang-tidy and .vscode intellisense
-    ]
+    opt = ["CMAKE_EXPORT_COMPILE_COMMANDS=ON"] # for tools like clang-tidy and .vscode intellisense
+    if config.platform.position_independent: opt.insert(0, "CMAKE_POSITION_INDEPENDENT_CODE=ON")
     if config.msvc:
         # cmake reads the runtime library only under CMP0091 NEW, which a project below cmake 3.15 does
         # not get on its own. The default reaches such a project, and its own `cmake_policy` still wins.
@@ -817,9 +823,12 @@ def _default_options(target:BuildTarget):
     if target.enable_fortran_build and config.fortran:
         opt += [f'CMAKE_Fortran_COMPILER={config.fortran}']
 
-    cxxflags_str = get_flags_string(cxxflags)
-    if cxxflags_str and target.enable_cxx_build:
-        opt += [f'CMAKE_CXX_FLAGS="{cxxflags_str}"']
+    for lang, flags, enabled in (('CXX', cxxflags, target.enable_cxx_build), ('C', cflags, True)):
+        var, value = f'CMAKE_{lang}_FLAGS', get_flags_string(flags)
+        if not (value and enabled): continue
+        # cmake reads the last -D, so the value an add_cmake_options() gave the same variable goes first
+        value = f'{_named_option(target.cmake_opts, var)} {value}'.lstrip()
+        opt += [f'{var}="{value}"']
 
     config.platform.get_ld_flags(add_ldflag)
 

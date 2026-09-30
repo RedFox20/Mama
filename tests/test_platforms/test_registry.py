@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from mama.build_config import BuildConfig
-from mama.platforms.platform import Platform, expand_versioned_sdks
+from mama.platforms.platform import Platform, Compiler, expand_versioned_sdks
 from types import SimpleNamespace
 import mama.platforms.gnu_cross as gnu_cross_mod
 from mama.platforms.generic_yocto import GenericYocto
@@ -19,7 +19,7 @@ from mama.build_names import build_dir_name
     ('linux', 'linux', None), ('macos', 'macos', None), ('ios', 'ios', None),
     ('android', 'android', None), ('raspi', 'raspi', None), ('raspi32', 'raspi', 'arm'),
     ('oclea', 'oclea', None), ('xilinx', 'xilinx', None), ('imx8mp', 'imx8mp', None),
-    ('mips', 'mips', None),
+    ('mips', 'mips', None), ('wasm', 'wasm', None),
 ])
 def test_a_cli_arg_selects_its_platform_and_arch(arg, name, arch):
     cls, pinned = platform_for_arg(arg)
@@ -37,7 +37,7 @@ def test_an_unknown_arg_names_no_platform(arg):
     ('android', 'android', 'arm64', 'android'), ('raspi', 'raspi', 'arm64', 'raspi'),
     ('raspi32', 'raspi', 'arm', 'raspi32'), ('mips', 'mips', 'mipsel', 'mips'),
     ('oclea', 'oclea', 'arm64', 'oclea'), ('xilinx', 'xilinx', 'arm64', 'xilinx'),
-    ('imx8mp', 'imx8mp', 'arm64', 'imx8mp'),
+    ('imx8mp', 'imx8mp', 'arm64', 'imx8mp'), ('wasm', 'wasm', 'wasm32', 'wasm'),
 ])
 def test_the_arg_drives_the_whole_config(arg, name, arch, build_dir):
     config = BuildConfig([arg])
@@ -47,7 +47,7 @@ def test_the_arg_drives_the_whole_config(arg, name, arch, build_dir):
 
 
 @pytest.mark.parametrize('args', [['android', 'linux'], ['raspi', 'oclea'], ['aarch64', 'android'],
-                                  ['macos', 'ios'], ['windows', 'mips']])
+                                  ['macos', 'ios'], ['windows', 'mips'], ['wasm', 'linux']])
 def test_two_args_naming_different_platforms_raise(args):
     """Last-one-wins is silent, and the build it produces looks like a working build for the wrong
     target. A second platform arg is a mistake every time, so say so at parse time."""
@@ -84,6 +84,8 @@ def test_every_platform_declares_a_complete_identity(platform_class):
     default = platform_class.default_arch
     assert not default or default in platform_class.supported_arches
     assert set(platform_class.build_dirs) <= set(platform_class.supported_arches)
+    # a plain 'msvc' string fails every Compiler check, so MSVC would get the -fsanitize and --coverage flags
+    assert platform_class.compiler is None or isinstance(platform_class.compiler, Compiler)
 
 
 @pytest.mark.parametrize('platform_class,arch,hint', [
@@ -117,7 +119,7 @@ def test_no_two_platform_and_arch_pairs_share_a_build_dir():
 
 
 _HOOKS = ('_build_toolchain', 'get_cxx_flags', 'get_ld_flags', 'init_toolchain', 'init_default',
-          'build_dir_name', 'distro_version', 'compiler_version_tag', 'lib_extensions', 'inject_env')
+          'build_dir_name', 'distro_version', 'compiler_version_tag', 'lib_extensions', 'inject_env', 'launcher')
 
 
 @pytest.mark.parametrize('platform_class', PLATFORMS, ids=lambda p: p.name)
@@ -136,7 +138,8 @@ def test_every_cross_platform_says_so(platform_class):
     itself as native silently reuses the host's compiler detection."""
     cross = platform_class.name not in ('windows', 'linux', 'macos')
     assert platform_class.is_cross == cross
-    assert platform_class.is_host_runnable == (not cross)
+    # a cross platform runs its programs on this host only through a launcher, eg node
+    assert platform_class.is_host_runnable == (not cross or platform_class.launcher is not Platform.launcher)
 
 
 @pytest.mark.parametrize('windows, suffix', [(False, ''), (True, '.exe')])

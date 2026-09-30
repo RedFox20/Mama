@@ -14,6 +14,15 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Planned
 
+- **A threaded wasm build.** `-pthread` needs atomics and bulk memory in every object of the tree. The
+  web server must also send COOP/COEP headers with the page that loads the program. Shape: a config flag,
+  eg `wasm_threads`, adds `-pthread` to every compile and link. A token in `build_variant_suffix`
+  (`mama/build_names.py`) gives the threaded tree its own build dir and archive name.
+
+- **A GNU configure project under wasm.** `gnu_project.py` runs `./configure` and `make` with no
+  Emscripten wrapper, so a wasm build of such a project compiles for the host. Shape: `Wasm` names
+  `emconfigure` and `emmake` as the wrappers, and `GnuProject` runs its steps through them.
+
 - **On MSVC, build a dependency in the configuration of the root.** `BuildTarget.cmake_build_type` gives
   every dependency `Debug` when the run is debug, and a root mamafile commonly picks `RelWithDebInfo`.
   On MSVC the configuration name also picks the artifact name, so a dependency that sets
@@ -22,6 +31,11 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
   product name. The CRT half of the same split is already fixed on the configure command line.
 
 ## Implemented
+
+- **`mama build wasm` builds WebAssembly with the Emscripten SDK.** mama finds the SDK in `EMSDK`, `~/emsdk`
+  or at the `emcc` on `PATH`, and builds with its `Emscripten.cmake` and Ninja. Every target that enables
+  exceptions compiles with `-fwasm-exceptions`, every link gets it, and no object gets `-fPIC`.
+  `mama test wasm` runs the test program under node, and `mama_wasm_test()` in `mama.cmake` links it for that.
 
 - **`mama build raspi` finds the Pi SDK by itself.** It takes its env vars (`PI_SDK_HOME` first), then the
   newest finished `/opt/pi-sdk/<version>`, then `~/pi-sdk`, before its legacy paths and the distro cross

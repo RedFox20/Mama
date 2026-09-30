@@ -1,6 +1,6 @@
 # How mama handles platforms
 
-A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, and eight more. For the
+A platform is what mama builds FOR: `linux`, `android`, `imx8mp`, `wasm`, and eight more. For the
 mamafile-facing API, see the README.
 
 ## Three layers
@@ -143,6 +143,30 @@ None of them emits the flag. `Platform.get_cxx_flags` calls `march()`, which tak
 `config.set_target_march()` when there is one, and `default_march()` otherwise. So exactly one `-march`
 reaches the compiler, and a platform never has to know about the pin. A platform whose compiler has no
 `-march` declares `supports_march = False` and gets none.
+
+## A platform that is not a CPU
+
+`Wasm` (`wasm`) builds WebAssembly with the Emscripten SDK. Five declarations set `Wasm` apart from a CPU
+target. A native platform leaves them at the defaults:
+
+| Declaration | Wasm | What reads it |
+|---|---|---|
+| `build_system = 'ninja'` | the SDK ships no make program | `BuildConfig.prefers_ninja_build` |
+| `position_independent = False` | no shared library, so no `-fPIC` and no sanitizer `-fPIE` | `configure._default_options` |
+| `exceptions_flag` | `-fwasm-exceptions`, on each target that enables exceptions | `configure._default_options` |
+| `program_suffix` | `.js`, the file emcc writes for a program | `run.get_cwd_exe_args(built=True)` |
+| `launcher()` | node, which runs that file | `run.command_line(built=True)` |
+
+`program_suffix` is separate from `exe_suffix()` because `exe_suffix()` also names a host tool that a
+mamafile runs during the build. Only a program the project built gets the `.js` and node.
+
+`Wasm` sets neither `config.gcc` nor `config.clang`. `check_platform` sets `config.gcc` for it, as for every
+non-MSVC run whose command line names no compiler. The host tool bootstrap reads both, so `Wasm` must not
+set them.
+
+A flag that belongs to one compiler reads `platform.compiler_family()`, never `config.gcc`. A platform
+declares `compiler = Compiler.GCC`, `Compiler.CLANG` or `Compiler.MSVC`. Only `Linux` declares none, and it
+takes the host choice. A plain string fails every `is Compiler.X` check, and the registry test rejects one.
 
 ## What the host can run
 
