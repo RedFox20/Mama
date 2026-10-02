@@ -207,6 +207,7 @@ class BuildConfig:
         # lock sets that one for every run. A host build child inherits this choice and no other.
         self.compiler_from_args = False
         self.compiler_conflict_warned = False  # the "target prefers X but compiler locked to Y" note fires once, not per dep
+        self.root_settings_done = False  # the root settings() ran, so every build dir name is final
         self.clang_stdlib = 'libc++'  # linux clang C++ stdlib, see use_gcc_stdlib_for_clang()
         self.fortran = ''
         # build optimization
@@ -610,10 +611,11 @@ class BuildConfig:
         return self.clean and not self.build
 
 
-    def lock_compiler(self):
-        """Freeze the compiler after the ROOT mamafile's settings(). build_dir depends on it, so a dep that
-        flips it mid-load would scatter the tree across linux/ and linux-clang/. A later prefer_*() only prints a note."""
-        self.compiler_cmd = True
+    def lock_root_settings(self):
+        """Freeze the compiler and the platform variant after the ROOT mamafile's settings(). build_dir depends on
+        both, so a dep that flips one mid-load would scatter the tree across linux/ and linux-clang/.
+        A later prefer_*() only prints a note."""
+        self.compiler_cmd = self.root_settings_done = True
 
 
     def _warn_compiler_conflict(self, target_name, requested, locked):

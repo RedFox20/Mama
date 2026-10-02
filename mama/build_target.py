@@ -154,8 +154,10 @@ class BuildTarget:
     def _dep_path(self, kind: str, path: str, subpath: str) -> str:
         """One directory of this dep, or a raise. A caller that reads a path the load has not
         resolved gets None, and a copy then writes outside the dependency."""
-        if self.dep.skimming:
-            raise RuntimeError(f'{self.name}: {kind}() is unavailable while mama explores the graph.' + \
+        root_unlocked = not path and self.dep.is_root and not self.config.root_settings_done
+        if self.dep.skimming or root_unlocked:
+            when = 'in the root settings()' if root_unlocked else 'while mama explores the graph'
+            raise RuntimeError(f'{self.name}: {kind}() is unavailable {when}.' + \
                                ' Read the path in configure(), build() or package() instead.')
         if not path:
             raise RuntimeError(f'{self.name}: {kind}() has no path. An artifactory package has no source dir.')
@@ -192,8 +194,8 @@ class BuildTarget:
         """This target's build dir for the HOST platform (.../<name>/<host>), a sibling of build_dir().
         A host tool built by build_host_binary() lands here. The name follows the rules the bootstrap
         child follows, so the host arch, the compiler and the dep args all reach it."""
-        host_name = build_names.host_build_dir_name(self.config, self.dep.target_args)
-        host_dir = path_join(self.dep.dep_dir, host_name)
+        dep_dir = self._dep_path('host_build_dir', self.dep.dep_dir, '')
+        host_dir = path_join(dep_dir, build_names.host_build_dir_name(self.config, self.dep.target_args))
         return path_join(host_dir, subpath) if subpath else host_dir
 
 

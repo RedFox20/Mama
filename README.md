@@ -82,7 +82,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
 - MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain()
 - Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
-- WebAssembly (wasm32, single-threaded) via `wasm` and the Emscripten SDK in env EMSDK, ~/emsdk or emcc on PATH
+- WebAssembly (wasm32) via `wasm` and the Emscripten SDK in env EMSDK, ~/emsdk or emcc on PATH
 
 ## Who is this NOT for?
 Single-platform projects with platform-specific build configuration and system-wide dependency
@@ -437,8 +437,10 @@ add_executable(MyTests ${TEST_SOURCES})
 mama_wasm_test(MyTests)   # does nothing on the other platforms
 ```
 
-Every target that enables exceptions compiles with `-fwasm-exceptions`, and every link gets it. The build
-is single-threaded. mama does not support `-pthread`.
+Every target that enables exceptions compiles with `-fwasm-exceptions`, and every link gets it.
+`if self.wasm: self.wasm.enable_threads()` in the root `settings()` compiles and links every target with
+`-pthread`, in the `wasm-mt` build dir. `self.wasm` is `None` on every other platform. The web server
+must then send the COOP and COEP headers with the page.
 `install(TARGETS)` copies only the `.js`, so install the `.wasm` next to it with `install(FILES)`.
 
 ### C++ standard selection (overrides CMakeLists.txt)

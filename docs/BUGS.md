@@ -13,6 +13,13 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A wasm or MSVC build appends a new entry to `c_cpp_properties.json` on every build.** The compiler
+  tag of `_find_matching_platform_config` reads `config.clang` and `config.gcc` (`dependency_chain.py:361`).
+  MSVC sets neither, so `compiler_ok()` rejects every entry that names `msvc`, the Windows entry too. A
+  wasm run has `config.gcc` set, and the copy of `configurations[0]` keeps its `windows-msvc-x64` mode
+  (`dependency_chain.py:411`). So no entry ever matches. Fix: take the tag from
+  `platform.compiler_family()`, and drop `intelliSenseMode` and `compilerPath` from the copy.
+
 - **A root that exports its whole source dir also copies the dir tree of its workspace.** The last
   fallback of `default_package_includes` exports `''` (`build_target.py:1497`). `copy_dir` then walks
   `packages/` too, and it makes every dir it enters before the header filter runs (`fileio.py:210`). A
@@ -55,6 +62,12 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **The root named, created and cleaned its build dir before its `settings()` ran.** Fix: `settings()` runs
+  first, so a root `prefer_clang()` leaves no stray dir, and a clean takes the dir that `settings()` names.
+
+- **A non-root mamafile could call `config.wasm.enable_threads()` and split the tree across two dirs.** Fix:
+  a call after the root `settings()` changes nothing and prints a warning.
 
 - **A C file got no mamafile C flag and none of the flags mama adds, eg a sanitizer or `-march`.**
   Fix: `CMAKE_C_FLAGS` carries them. An `add_cmake_options()` value of either flags variable goes first.

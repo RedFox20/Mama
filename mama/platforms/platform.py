@@ -102,6 +102,7 @@ class Platform:
     position_independent = True  ## False where the platform links no shared library, so -fPIC only adds size
     exceptions_flag = ''       ## the compiler flag that turns on C++ exceptions, when the compiler default is off
     program_suffix = ''        ## the file suffix of a program this platform links. exe_suffix also names a host tool
+    variant_names = ()         ## every token variant_tokens() can return, so a clean tells the build dirs apart
     compiler = None            ## the Compiler this platform builds with. None takes the host choice
 
     def __init__(self, config: BuildConfig):
@@ -191,6 +192,12 @@ class Platform:
         """Build dir under packages/<target>/. Must be unique per (platform, arch) pair, or two
         builds clobber each other's cache."""
         return self.build_dirs.get(self.arch(), self.name)
+
+
+    def variant_tokens(self) -> tuple:
+        """Variant tokens of a platform option that makes objects incompatible, eg wasm threads.
+        build_variant_suffix puts them in the build dir and the archive name."""
+        return ()
 
 
     def distro_version(self) -> tuple:
