@@ -18,6 +18,11 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.11** (2026-Oct-02)
+ - feature: config.wasm.enable_threads() builds a threaded wasm tree in wasm-mt
+ - bugfix: a root clean takes the dir its settings() names, eg linux-clang
+ - bugfix: a root prefer_clang() no longer creates a stray plain build dir
+
 **0.14.10** (2026-Sep-28)
  - feature: the wasm platform builds and tests WebAssembly with Emscripten
  - bugfix: coverage on android and macos no longer treats clang as gcc
@@ -27,11 +32,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 **0.14.9** (2026-Sep-28)
  - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
  - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
-
-**0.14.8** (2026-Sep-27)
- - bugfix: a dependency that exports modules no longer relinks its consumers
- - bugfix: on Windows, the drive case of the cwd no longer rewrites mama.cmake
- - bugfix: on Windows, a non-ASCII path no longer rewrites mama.cmake each run
 
 ## Why Mama
 
