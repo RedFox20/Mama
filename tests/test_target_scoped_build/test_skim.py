@@ -51,11 +51,19 @@ def test_a_second_skim_is_a_no_op(tmp_path):
     assert len(dep.get_children()) == 1
 
 
-@pytest.mark.parametrize('call', ['self.build_dir()', 'self.source_dir()'])
+@pytest.mark.parametrize('call', ['self.build_dir()', 'self.host_build_dir()', 'self.source_dir()'])
 def test_a_hook_that_reads_a_dep_path_raises(tmp_path, call):
     dep = _dep_with_mamafile(tmp_path, f'    def settings(self): {call}\n')
     with pytest.raises(RuntimeError, match='explores the graph'):
         dep.skim()
+
+
+@pytest.mark.parametrize('call', ['self.build_dir()', 'self.host_build_dir()'])
+def test_the_root_settings_cannot_read_a_build_dir(tmp_path, call):
+    dep = _dep_with_mamafile(tmp_path, f'    def settings(self): {call}\n')
+    dep.is_root = True; dep.build_dir = dep.dep_dir = None  # the root resolves its dirs after settings()
+    with pytest.raises(RuntimeError, match='in the root settings'):
+        dep._load_root_target()
 
 
 def test_a_dep_with_no_source_dir_raises_instead_of_returning_none(tmp_path):

@@ -9,7 +9,7 @@ def _linux_cfg():
 
 def test_a_late_prefer_clang_cannot_flip_a_locked_compiler():
     c = _linux_cfg()
-    c.lock_compiler()
+    c.lock_root_settings()
     c.prefer_clang('some_dep')  # dep settings() runs after the root decided
     assert not c.clang
 
@@ -18,7 +18,7 @@ def test_the_root_may_still_pick_the_compiler_before_the_lock():
     c = _linux_cfg()
     c.compiler_cmd = False  # no explicit clang/gcc on the cmdline
     c.prefer_clang('root')
-    c.lock_compiler()
+    c.lock_root_settings()
     assert c.clang and build_dir_name(c) == 'linux-clang'
 
 

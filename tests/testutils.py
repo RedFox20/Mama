@@ -206,8 +206,8 @@ def make_mock_config(tmp_path, **overrides):
     cfg.unpublish_keep = None
     cfg.assume_yes = False
     # platform: a REAL Linux instance, so option builders get real strings instead of Mocks
-    # a Mock attribute is truthy, and both of these would then read as an explicit compiler choice
-    cfg.compiler_cmd = cfg.compiler_from_args = False
+    # a Mock attribute is truthy, and each of these would then read as a compiler or root settings choice
+    cfg.compiler_cmd = cfg.compiler_from_args = cfg.root_settings_done = False
     cfg.msvc = False
     cfg.linux = True
     cfg.macos = False
@@ -368,7 +368,7 @@ def plain_config(sanitize=None, coverage=None):
     cfg = BuildConfig.__new__(BuildConfig)
     cfg.sanitize = sanitize
     cfg.coverage = coverage
-    cfg.arch = None
+    cfg.arch = cfg.platform = None
     cfg.target_march = {}
     return cfg
 

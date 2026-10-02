@@ -355,15 +355,17 @@ name and the artifactory archive name both read it, so they cannot disagree.
 4. Refuse when neither `mamafile.py` nor `CMakeLists.txt` exists.
 5. `update` and `deps_only` with no target rewrite `config.target` to `all`.
 6. `rebuild` sets `build` and `clean`.
-7. `clean` with no target cleans the root build dir.
-8. One `git status` for the whole run, so every local dep reads one process instead of spawning its own.
-9. **Load the root.** Its `settings()` locks the compiler that names every dep dir below it, and its
-   mamafile names the workspace. Its output reaches the terminal directly, never a display, so a
-   mis-picked toolchain is visible.
-10. **Open the one build log** of the run, under the workspace the root just named.
-11. A `sched_debug` run prints the build-weight table and returns. Else pick the execution path below,
+7. One `git status` for the whole run, so every local dep reads one process instead of spawning its own.
+8. **Load the root.** Its `settings()` runs before the root names its build dir, so a `build_dir()` or
+   `host_build_dir()` call in the root `settings()` raises. Then mama locks the compiler and the
+   platform variant, which name every build dir, the root dir too. A later `prefer_clang()` or
+   `enable_threads()` changes nothing. A `clean` with no target and no `deps_only` cleans the root
+   dir after the lock. The mamafile names the workspace. The output of the root load reaches the
+   terminal directly, never a display, so a mis-picked toolchain is visible.
+9. **Open the one build log** of the run, under the workspace the root just named.
+10. A `sched_debug` run prints the build-weight table and returns. Else pick the execution path below,
     then run it.
-12. `list` prints the package listing. Then `coverage-report`, or a `test` run whose target carries
+11. `list` prints the package listing. Then `coverage-report`, or a `test` run whose target carries
     the `enabled_coverage` marker, prints a coverage report and returns. `open` runs last.
 
 ### The two execution paths
@@ -589,8 +591,8 @@ stop exists to skip.
 
 A **skim** names the children of a dep and nothing more. It parses the mamafile and runs `settings()`
 and `dependencies()`, because only those two hooks name a child. It fetches nothing, clones nothing
-and creates no build dir. While a skim runs, `build_dir()` and `source_dir()` raise, so a mamafile
-that reads a path too early fails fast instead of writing outside the dep.
+and creates no build dir. While a skim runs, `build_dir()`, `host_build_dir()` and `source_dir()` raise,
+so a mamafile that reads a path too early fails fast instead of writing outside the dep.
 
 Both hooks run once per dep, and `did_skim` is what stops the later load from repeating them. A second
 `dependencies()` call makes `add_child` refuse a child it already holds. A deferred load that parsed a
@@ -1402,9 +1404,23 @@ artifactory archive name tags the compiler as `emcc<major>.<minor>`, from the SD
 
 **Why:** without `-sEXIT_RUNTIME=1`, node does not return the exit code of `main` to `mama test`.
 Without `-sNODERAWFS=1`, the gtest report and the `.gcda` files of a coverage run stay in a memory
-file system. Without `-sALLOW_MEMORY_GROWTH=1`, a test that outgrows the initial heap aborts. mama
-does not support a threaded wasm build: `-pthread` needs atomics in every object, so it needs a build
-dir of its own.
+file system. Without `-sALLOW_MEMORY_GROWTH=1`, a test that outgrows the initial heap aborts.
+
+`config.wasm.enable_threads()` in the root mamafile `settings()` makes a threaded build. `config.wasm` is
+`None` on every other platform, so the mamafile guards the call. Every target then compiles and links
+with `-pthread`, and every wasm build dir and archive name gets the `-mt` variant token, eg
+`packages/ReCpp/wasm-mt`. A host build dir does not get it. The `mama.cmake` of a threaded wasm run
+puts the token on the wasm dir only. A run for another platform writes the plain `wasm` dir there.
+A plain `mama wasm clean all` keeps a `wasm-mt` dir.
+A call after the root `settings()`, eg from a dependency mamafile, prints a warning and changes nothing.
+
+mama adds no other thread option. The program sets its own, eg `-sPTHREAD_POOL_SIZE`, and a threaded
+test under node needs that one too.
+
+**Why:** wasm-ld refuses to link an object without atomics into a program with shared memory. So a
+threaded build cannot reuse one object of a plain build. The root calls it in `settings()`, because
+mama names every build dir after the root `settings()` runs. A thread that `main` joins starts only
+when the pool has a free worker.
 
 ## 16 Output
 

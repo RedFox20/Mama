@@ -33,12 +33,14 @@ class Wasm(Platform):
     position_independent = False      # a wasm program links no shared library
     program_suffix = '.js'            # emcc writes <name>.js, which loads <name>.wasm
     exceptions_flag = '-fwasm-exceptions'
+    variant_names = ('mt',)           # the token of enable_threads()
 
     def __init__(self, config):
         super().__init__(config)
         self.emscripten = ''  ## the emscripten dir: emcc, em++ and the CMake toolchain file
         self.emsdk = ''       ## the emsdk install that holds the emscripten dir, '' for a standalone one
         self.node = ''        ## the node that launcher() found
+        self.threads = False  ## enable_threads() of the root mamafile: every object compiles with -pthread
 
 
     def init_toolchain(self, toolchain_dir=None, toolchain_file=None):
@@ -94,9 +96,27 @@ class Wasm(Platform):
         return self._tool('emar')
 
 
+    def enable_threads(self):
+        """Build every target with -pthread. Call it in the root mamafile settings(), before any dep
+        names its build dir. A later call changes nothing. The browser then needs the COOP and COEP headers."""
+        if not self.config.root_settings_done: self.threads = True
+        else: warning('enable_threads() changes nothing after the root settings(). Call it in the root mamafile.')
+
+
+    def variant_tokens(self) -> tuple:
+        # wasm-ld refuses to link an object without atomics into a program with shared memory
+        return self.variant_names if self.threads else ()
+
+
+    def get_cxx_flags(self, add_flag):
+        super().get_cxx_flags(add_flag)
+        if self.threads: add_flag('-pthread')
+
+
     def get_ld_flags(self, add_ld_flag):
         # every link gets the flag, so a target without exceptions still links a library that throws
         add_ld_flag(self.exceptions_flag)
+        if self.threads: add_ld_flag('-pthread')
 
 
     def lib_extensions(self) -> tuple:
