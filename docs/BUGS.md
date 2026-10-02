@@ -13,6 +13,14 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **The root `settings()` reads a build dir that the same `settings()` can then rename.** `BuildTarget.__init__`
+  names the root dirs before `settings()` runs (`build_target.py:131`). The guard in `_dep_path` fires only
+  on an empty path (`build_target.py:157`), so `build_dir()` returns that early path. A later `prefer_clang()`
+  or `enable_threads()` renames the dir. SPEC section 3 step 8 says the call raises, and
+  `test_the_root_settings_cannot_read_a_build_dir` passes only because it clears the dirs first. A raise on
+  every call breaks a root that reads its CMake cache in `settings()`. Fix: after the lock, raise only when
+  `settings()` read a dir whose name then changed.
+
 - **A wasm or MSVC build appends a new entry to `c_cpp_properties.json` on every build.** The compiler
   tag of `_find_matching_platform_config` reads `config.clang` and `config.gcc` (`dependency_chain.py:361`).
   MSVC sets neither, so `compiler_ok()` rejects every entry that names `msvc`, the Windows entry too. A
