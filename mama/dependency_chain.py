@@ -503,10 +503,15 @@ def _save_mama_cmake(root: BuildDependency, path: str):
     config:BuildConfig = root.config
     ninja_version = config.ninja_version()
 
+    # a platform variant (wasm threads) names the dirs of its own platform only
+    own_dir = config.platform.build_dir_name()
+    other_suffix = root.variant_suffix.removeprefix(''.join('-' + t for t in config.platform.variant_tokens()))
+
     def build_dir_defines(build_dir):
         # verbose include directives, because CLion often fails to detect macro paths
         # this dep's OWN variant, because a coverage run instruments the named target and not the tree
-        build_dir = build_names.build_dir_name(config, root.variant_suffix, platform_dir=build_dir)
+        suffix = root.variant_suffix if build_dir == own_dir else other_suffix
+        build_dir = build_names.build_dir_name(config, suffix, platform_dir=build_dir)
         return f'set(MAMA_BUILD "{build_dir}")\n        include("{root.dep_dir}/{build_dir}/mama-dependencies.cmake")'
 
     first = (read_lines_from(path, errors='replace') or [''])[0]

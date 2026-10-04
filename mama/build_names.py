@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 from .platforms.platform import ARCHES, host_arch
-from .platforms.registry import platform_named
+from .platforms.registry import PLATFORMS, platform_named
 
 # `config` is duck-typed on purpose. These are naming rules, not configuration, so BuildConfig does not
 # carry them, and each function reads only the config fields it names.
@@ -54,9 +54,9 @@ def arch_marker(config: BuildConfig) -> str:
 
 
 def build_variant_suffix(config: BuildConfig, dep_args=(), coverage=None) -> str:
-    """Every axis that makes a build unique beyond the platform, the arch and the compiler: coverage, the
-    sanitizers, then the dep args. Coarsest axis first, each token with its own '-', and '' for a plain
-    build with no args, so an existing name stays byte-identical.
+    """Every axis that makes a build unique beyond the platform, the arch and the compiler: the platform
+    variant, coverage, the sanitizers, then the dep args. Coarsest axis first, each token with its own '-',
+    and '' for a plain build with no args, so an existing name stays byte-identical.
 
     THE one place that spells a variant. Both the build dir name and the archive name carry this string,
     so they cannot disagree. The compiler is NOT in here: the build dir names it as a token, and the
@@ -73,7 +73,8 @@ def build_variant_suffix(config: BuildConfig, dep_args=(), coverage=None) -> str
     user named and not to the tree. None reads config.coverage, so a caller that names no dep still
     gets the variant of the run itself."""
     if coverage is None: coverage = config.coverage
-    tokens = ['cov'] if coverage else []
+    tokens = list(config.platform.variant_tokens()) if config.platform else []
+    if coverage: tokens.append('cov')
     if config.sanitize:
         tokens += [_SANITIZER_SHORT_NAMES.get(s, s) for s in
                    filter(None, (s.strip() for s in config.sanitize.split(',')))]
@@ -127,7 +128,7 @@ def sanitize_version(raw: str) -> str:
 # A build the compiler instrumented, which no other build may reuse. `clang` is not one of them: it
 # names a compiler, and its objects are ordinary.
 INSTRUMENTED_TOKENS = frozenset(_SANITIZER_SHORT_NAMES.values()) | {'cov'}
-CONFIG_TOKENS = INSTRUMENTED_TOKENS | {'clang'}
+CONFIG_TOKENS = INSTRUMENTED_TOKENS | {'clang'} | {t for p in PLATFORMS for t in p.variant_names}
 
 
 def is_build_dir_of(dir_name: str, config_dir_name: str, tokens=CONFIG_TOKENS) -> bool:

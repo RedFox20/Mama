@@ -367,9 +367,6 @@ def mamabuild(args, source_dir=None):
         config.build = True
         config.clean = True
 
-    if config.clean and config.no_target() and not config.deps_only:
-        root.clean()
-
     # ONE `git status` for the whole run, before the walk, so every local dependency reads its own
     # subfolder out of it instead of spawning its own git. Eager, so a parallel load needs no lock.
     load_repo_status(source_dir)

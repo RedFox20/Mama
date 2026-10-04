@@ -393,6 +393,17 @@ class BuildDependency:
         return self.target
 
 
+    def _load_root_target(self) -> BuildTarget:
+        """Run the root settings() before the root names its build dir. settings() is the last call that
+        changes a dir name, eg prefer_clang() or a platform variant. Every build dir name of the run depends on it."""
+        conf = self.config
+        self.create_build_target()
+        self.target.settings()
+        conf.lock_root_settings()
+        if not conf.lock_generation: conf.init_platform_toolchain()  # after settings(), so its set_*_toolchain() wins
+        return self._load_target()
+
+
     def skim(self):
         """Name the children of this dep without loading it. The walk uses this to find a target.
 
@@ -580,7 +591,7 @@ class BuildDependency:
 
         if self.is_root:
             # A root target loads its BuildTarget at once: the workspace comes from its mamafile.
-            target = self._load_target()
+            target = self._load_root_target()
         else:
             # A non-root target only creates the required dirs. The mamafile loads after the shim or clone step.
             self._update_dep_name_and_dirs(self.name)
@@ -599,7 +610,8 @@ class BuildDependency:
                     git_changed = self._git_checkout_if_needed()  # non-git local source: no shared tree to lock
             target = self._load_target() ## load target for Git and Src
 
-        if conf.clean and is_target:
+        # a run with no target cleans the root here, after its settings() named the build dir
+        if conf.clean and (is_target or (self.is_root and conf.no_target() and not conf.deps_only)):
             self.clean() ## requires a parsed mamafile target
             # a plain clean removed the shim-loaded package libs: re-extract so dependents can link (rebuild dropped the shim)
             if loaded_from_pkg:
@@ -615,14 +627,9 @@ class BuildDependency:
         if conf.verbose:
             console(f'  - Target {self.name: <16} load settings and dependencies')
         # A skim already ran both hooks and kept what they named. Running them twice would append a
-        # setting twice, and add_child would refuse the child it already holds.
+        # setting twice, and add_child would refuse the child it already holds. The root ran settings() first.
         if not self.did_skim:
-            target.settings() ## customization point for project settings
-            if self.is_root:
-                conf.lock_compiler()  # root settings() is the last prefer_clang/gcc call, lock before any dep loads
-                # after settings(), so its set_*_toolchain() beats the default probe
-                if not conf.lock_generation: conf.init_platform_toolchain()
-                self._update_dep_name_and_dirs(self.name)  # the build_dir predates the compiler lock, so re-resolve it
+            if not self.is_root: target.settings() ## customization point for project settings
             target.dependencies() ## customization point for additional dependencies
 
         if not loaded_from_pkg and self.is_root and not conf.lock_generation:

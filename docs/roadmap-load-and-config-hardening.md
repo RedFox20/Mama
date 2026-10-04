@@ -74,7 +74,7 @@ consumer-side commit must wait for the pin bump or its CI breaks.
 `execute_unified` loads the ROOT up front, before the display and before any parallel job
 starts **[V]** (`mama/dependency_chain.py`, `root.load()` before `_make_scheduler`). Root
 `settings()` therefore picks the compiler and the toolchain first. Right after root `settings()`,
-`_load` runs `lock_compiler()` and `init_platform_toolchain()`, so a root `set_*_toolchain()`
+`_load_root_target` runs `lock_root_settings()` and `init_platform_toolchain()`, so a root `set_*_toolchain()`
 beats the default SDK probe **[V]**. `tests/test_root_settings_order/` pins the order on both
 execution paths.
 
@@ -211,7 +211,7 @@ unguarded, root-relevant setters **[R]**:
 | `config.enable_fortran()` | `config.fortran` | **No** |
 | `set_arch` / `set_platform` / sanitizer / coverage | `platform_build_dir_name()` -> every dep's `build_dir` | **No** |
 | `macos_version` / `ios_version` / `android_api` / `cc_path` | feed `get_distro_info()`/`compiler_version()` -> **archive name** | **No** |
-| `prefer_gcc` / `prefer_clang` | compiler | **effectively yes** - `lock_compiler()` runs right after *root's* settings, before any child exists, so sibling calls are already inert **[R]** |
+| `prefer_gcc` / `prefer_clang` | compiler | **effectively yes** - `lock_root_settings()` runs right after *root's* settings, before any child exists, so sibling calls are already inert **[R]** |
 
 The existing good pattern to copy **[R]** (`build_target.py:232-234`): `if not self.dep.is_root: return`.
 

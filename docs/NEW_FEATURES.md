@@ -14,11 +14,6 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Planned
 
-- **A threaded wasm build.** `-pthread` needs atomics and bulk memory in every object of the tree. The
-  web server must also send COOP/COEP headers with the page that loads the program. Shape: a config flag,
-  eg `wasm_threads`, adds `-pthread` to every compile and link. A token in `build_variant_suffix`
-  (`mama/build_names.py`) gives the threaded tree its own build dir and archive name.
-
 - **A GNU configure project under wasm.** `gnu_project.py` runs `./configure` and `make` with no
   Emscripten wrapper, so a wasm build of such a project compiles for the host. Shape: `Wasm` names
   `emconfigure` and `emmake` as the wrappers, and `GnuProject` runs its steps through them.
@@ -31,6 +26,11 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
   product name. The CRT half of the same split is already fixed on the configure command line.
 
 ## Implemented
+
+- **`config.wasm.enable_threads()` builds a threaded wasm tree.** The root mamafile calls it in
+  `settings()`. Every target then compiles and links with `-pthread`, and the `mt` variant token gives
+  the tree its own build dir and archive name, eg `wasm-mt`. A later call only prints a warning. The web
+  server must send the COOP and COEP headers with the page that loads the program.
 
 - **`mama build wasm` builds WebAssembly with the Emscripten SDK.** mama finds the SDK in `EMSDK`, `~/emsdk`
   or at the `emcc` on `PATH`, and builds with its `Emscripten.cmake` and Ninja. Every target that enables

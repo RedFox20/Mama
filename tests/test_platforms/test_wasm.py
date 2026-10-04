@@ -1,10 +1,15 @@
 """Pins the wasm platform: the SDK search, the flags every object shares, the generator and node."""
 import os
+from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 
-from testutils import emsdk_node, executable_extension, make_emsdk_tree, make_stub_target, platform_config, platform_target, \
-                      touch_file
+from testutils import emsdk_node, executable_extension, make_emsdk_tree, make_project_dir, make_stub_target, platform_config, \
+                      platform_target, stub_runners, touch_file
+from mama import build_names
+from mama.dependency_chain import _save_mama_cmake
+from mama.main import mamabuild
+from mama.utils.fileio import read_text_from, write_text_to
 from mama.buildsys.cmake import configure as cc
 from mama.platforms.wasm import Wasm
 from mama.utils import gdb, gtest, run
@@ -144,6 +149,46 @@ def test_a_sanitizer_adds_no_pie_and_coverage_adds_no_gcc_flag(tmp_path, fake_to
     assert '-fsanitize' in t.cmake_cxxflags and '--coverage' in t.cmake_cxxflags
     assert '-fPIE' not in t.cmake_cxxflags and '-pie' not in t.cmake_ldflags and '-fprofile-abs-path' not in t.cmake_cxxflags
     assert cc._named_option(opts, 'CMAKE_EXE_LINKER_FLAGS') == '-fwasm-exceptions -fsanitize=address --coverage'
+
+
+def test_threads_compile_and_link_every_object_with_pthread_in_a_build_dir_of_their_own(tmp_path, fake_toolchains):
+    t, _ = platform_target(tmp_path, Wasm)
+    cc._default_options(t)
+    assert '-pthread' not in t.cmake_cxxflags and build_names.build_dir_name(t.config) == 'wasm'
+    t.config.platform.enable_threads()
+    cc._default_options(t)
+    assert '-pthread' in t.cmake_cxxflags and '-pthread' in t.cmake_ldflags
+    assert build_names.build_variant_suffix(t.config) == '-mt' and build_names.build_dir_name(t.config) == 'wasm-mt'
+
+
+def test_the_mama_cmake_of_a_threaded_run_names_mt_for_wasm_only(tmp_path, fake_toolchains):
+    t, _ = platform_target(tmp_path, Wasm)
+    t.config.platform.enable_threads()
+    root = SimpleNamespace(config=t.config, variant_suffix=build_names.build_variant_suffix(t.config),
+                           dep_dir='/pkg', name='root')
+    path = f'{tmp_path}/mama.cmake'
+    t.config.ninja_version.return_value = ''
+    _save_mama_cmake(root, path)
+    text = read_text_from(path)
+    assert 'set(MAMA_BUILD "wasm-mt")' in text and 'set(MAMA_BUILD "linux")' in text and 'linux-mt' not in text
+
+
+def test_threads_after_the_root_settings_change_no_build_dir(tmp_path, fake_toolchains):
+    t, _ = platform_target(tmp_path, Wasm)
+    t.config.root_settings_done = True
+    with patch('mama.platforms.wasm.warning', autospec=True) as warn:
+        t.config.platform.enable_threads()
+    assert warn.called and build_names.build_dir_name(t.config) == 'wasm'
+
+
+def test_a_root_clean_takes_the_threaded_dir_its_settings_name(tmp_path, fake_toolchains):
+    src = make_project_dir(tmp_path / 'root')
+    write_text_to(f'{src}/mamafile.py', 'import mama\nclass Root(mama.BuildTarget):\n    workspace = "packages"\n' + \
+                                        '    def settings(self): self.wasm.enable_threads()\n')
+    touch_file(f'{src}/packages/Root/wasm-mt/CMakeCache.txt')
+    with patch('mama.main.load_dependency_chain', autospec=True), stub_runners():
+        mamabuild(['wasm', 'clean'], source_dir=src)
+    assert os.listdir(f'{src}/packages/Root') == []  # no stray plain wasm dir either
 
 
 def test_wasm_builds_with_ninja_whatever_the_generator_choice():
