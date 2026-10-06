@@ -43,7 +43,8 @@ def print_usage():
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
     console('    unpublish=<what> - deletes published archives, then their local copies')
-    console('               current|<version>|prune-old[=N]|prune-all')
+    console('               current|<version>|prune-old[=N]|prune-all|since=<age>')
+    console('    dependents - unpublish every dep that depends on the target, not the target')
     console('    yes        - answers the unpublish prompt, for a run with no terminal')
     console('    art        - always fetch pkgs from artifactory, failure will throw an error')
     console('    noart      - temporarily ignore artifactory pkgs fetch')
@@ -220,7 +221,11 @@ def run_unpublish(config: BuildConfig, deps):
     execution chains and every path that loads a tree reaches it."""
     if not config.unpublish: return
     from .artifactory_unpublish import in_scope, unpublish_run  # deferred: it pulls ftplib
-    unpublish_run([d.target for d in deps if in_scope(d.target)], config)
+    if config.unpublish_dependents:  # `dependents` loads the whole tree, so deps[0] is the root
+        deps = get_deps_that_depend_on_target(deps[0], find_dependency(deps[0], config.user_target))
+    else:
+        deps = [d for d in deps if in_scope(d.target)]
+    unpublish_run([d.target for d in deps], config)
 
 
 def check_config_target(config: BuildConfig, root: BuildDependency, display=None):
@@ -323,6 +328,8 @@ def mamabuild(args, source_dir=None):
 
     if config.unused_args:
         set_target_from_unused_args(config)
+    if config.unpublish_dependents and config.no_specific_target():
+        raise RuntimeError('dependents needs a target name, eg `mama ReCpp unpublish=since=6h dependents`')
 
     # root init
     if config.mama_init and config.no_target():

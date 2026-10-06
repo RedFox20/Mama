@@ -378,9 +378,9 @@ children's jobs. A CONFIGURE waits on its own LOAD plus every child's BUILD, so 
 deeper dep still clones.
 
 **Classic** handles everything else, because those commands need the resolved tree up front for lookup
-and filtering. A run with no target, or with `all`, `deps_only` or `dirty`, loads the whole graph with
-`load_dependency_chain`. Any other run that names a target takes the two-stage walk of section 7 instead.
-`BuildConfig.scoped_to_target` makes that choice. Either way `execute_task_chain_parallel`
+and filtering. A run with no target, or with `all`, `deps_only`, `dirty` or `dependents`, loads the whole
+graph with `load_dependency_chain`. Any other run that names a target takes the two-stage walk of section 7
+instead. `BuildConfig.scoped_to_target` makes that choice. Either way `execute_task_chain_parallel`
 then runs a second scheduler over configure and build. `serial` selects `execute_task_chain`, which
 runs one dep at a time and draws no display.
 
@@ -440,7 +440,8 @@ exact reachable commit.
 **Build config**: `release` (default), `debug`, `jobs=N`, `flags=...`, `with_tests`.
 
 **Artifactory**: `art` forces a fetch and fails without one. `noart` skips every fetch.
-`if_needed` skips an upload when the archive already exists.
+`if_needed` skips an upload when the archive already exists. `unpublish=<selector>` deletes published
+archives. `dependents` changes its scope, and `yes` answers its prompt. See `unpublish` in section 13.
 
 **Diagnostics**: `sanitize=<list>`, `asan`, `lsan`, `tsan`, `ubsan`, `clang-tidy`, `coverage`,
 `coverage=<opt>`, `coverage-report`, `coverage-report=<src_root>`, `buildstats`. `coverage` instruments
@@ -602,8 +603,8 @@ load runs the hook again.
 
 In a targeted load, `_defer_load` skips every network step of a dep outside the target: the shim probe,
 the package fetch and the clone. **Exploring the graph must never turn a cached shim into a clone.** A
-deferred dep keeps its name, so `find_dependency` still finds it. A `dirty` run defers nothing, because
-it acts on the parents of the target, and a deferred dep names no children.
+deferred dep keeps its name, so `find_dependency` still finds it. A `dirty` or `dependents` run defers
+nothing, because it acts on the parents of the target, and a deferred dep names no children.
 
 **Stage two, `revive_deferred_target_deps`**, loads the subtree of the target and nothing else. When
 the graph never names the target, the cached packages expand first, because they cost no network. Only
@@ -749,7 +750,6 @@ platform.
 **Why:** the walk once skipped every dir named like the build dir of the run. An android build then hashed
 a module without its `android/` sources. One module got a different version on each platform, and an
 edit under `android/` did not rename the android package.
-
 
 **Why:** the download side hashes the tree before the build, and the build then writes `mama.cmake`
 into it. The upload side hashed that file too, so it published a name the download side never asked
@@ -1270,8 +1270,9 @@ though the dependency resolved. A docs-only or bundle-only target hits this by s
 | `<version>` | one version, on every platform and compiler |
 | `prune-old[=N]` | every version except the newest N, default 20 |
 | `prune-all` | every version of the target |
+| `since=<age>` | every archive uploaded in the last `<age>`: `90m`, `6h` or `2d` |
 
-There is no bare `unpublish`: it raises and names the four selectors. `deps_only` refuses to combine
+There is no bare `unpublish`: it raises and names the five selectors. `deps_only` refuses to combine
 with it, because `deps_only` means act on the dependencies while the unpublish scope names the target,
 and a delete must not guess between them. A `clean` run does unpublish. The clean takes the build dirs,
 and the cached zips live one level up in `dep_dir`, so they are still there to remove.
@@ -1297,6 +1298,14 @@ published version names that version and nothing else.
 
 A variant such as `asan` sits between the build type and the version, and nothing in the name marks
 where it ends. So a variant build reads as a version of its own and keeps a separate history.
+
+**`since` takes archives, not versions.** It compares the upload time the server reports, in UTC, with a
+cutoff. The cutoff is `<age>` before the unpublish step starts. That step runs after the build, deploy,
+upload and test of the run. One version can have archives on both sides of the cutoff, and only the
+newer ones go. An undated archive never matches. `since` protects no version, the current one included.
+
+**Why:** an ABI break in a library makes every dependent package built before it unsafe, on every
+platform. The time of the breaking commit is the one fact a user who removes those packages knows.
 
 **One prompt covers the whole run, not one per target.** `mama all unpublish=prune-old` asks a single
 question and opens a single FTP session. Thirty questions is thirty chances to stop reading them.
@@ -1334,6 +1343,15 @@ named none. A bare word counts as typed, so `mama ReCpp unpublish=prune-old` rea
 `mama target=ReCpp unpublish=prune-old`.
 
 An `add_artifactory_pkg` dep refuses to unpublish, because it is read-only.
+
+**`dependents` swaps the scope from the target to every dep whose subtree holds the target, the root
+included.** The target itself stays out. `mama ReCpp unpublish=since=6h dependents` deletes the recent
+archives of every package built on ReCpp, and none of ReCpp. A dep counts when it reaches the target
+through another dep. The run loads the whole graph and defers no dep. A targeted load stops once it
+finds the target, and a deferred dep names no children. The set comes from the graph of this platform,
+so a dep that only another platform adds stays out. A `clean` run skips the checkout, so a git dep with
+no clone and no package names no children and stays out too. `dependents` raises without an
+`unpublish=` selector, and without a target name, `all` included.
 
 A target with no dir on the server lists no archive, because it never published. The server answers
 that listing with a `550`, so every `550` reads as no archive, a refused permission included. Any other

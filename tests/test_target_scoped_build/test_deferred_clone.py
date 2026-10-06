@@ -49,9 +49,9 @@ def test_a_run_that_needs_the_whole_tree_never_defers(tmp_path):
 
 @pytest.mark.parametrize('args, scoped', [
     (['target=x'], True), ([], False), (['all'], False), (['target=x', 'deps_only'], False),
-    (['target=x', 'dirty'], False)])
+    (['target=x', 'dirty'], False), (['target=x', 'unpublish=current', 'dependents'], False)])
 def test_a_run_scopes_to_its_target_unless_it_needs_the_whole_tree(args, scoped):
-    # `dirty` acts on the parents of the target, and a scoped load never reads them
+    # `dirty` and `dependents` act on the parents of the target, and a scoped load never reads them
     assert BuildConfig(args).scoped_to_target() is scoped
 
 

@@ -5,7 +5,7 @@ drops the local copy of anything it removes. A machine that cleans the server an
 would go on serving the exact package nobody else can get."""
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os
+import os, time
 
 from .artifactory import artifactory_ftp_login, artifactory_sanitize_url
 from .utils.fileio import remove_tree
@@ -88,13 +88,17 @@ def newest_first(groups: dict) -> List[str]:
 
 
 def select(target_name: str, archives: List[Archive], selector: str, keep: int = DEFAULT_KEEP,
-           protect: str = '') -> List[Archive]:
+           protect: str = '', cutoff: str = '') -> List[Archive]:
     """The archives one selector names.
-    selector: an explicit version, `prune-all` for every version, or `prune-old` for all but `keep`
-    protect: a version to keep whatever the selector says. `prune-old` passes the current one"""
+    selector: an explicit version, `prune-all` for every version, `prune-old` for all but `keep`, or
+              `since` for every archive uploaded at or after `cutoff`
+    protect: a version to keep whatever the selector says. `prune-old` passes the current one
+    cutoff: the `since` time as 'YYYYMMDDHHMMSS' UTC, the form an FTP listing reports"""
     groups = group_by_version(target_name, archives)
     # a real version wins over a keyword: a git tag may spell `prune-all`, and that must name itself
     if selector in groups: return groups[selector]
+    if selector == 'since':  # an undated archive reads '', which sorts before every cutoff
+        return [a for g in groups.values() for a in g if a.modify >= cutoff]
     if selector == 'prune-all':
         return [a for v, g in groups.items() if v != protect for a in g]
     if selector == 'prune-old':
@@ -270,8 +274,16 @@ def _resolve(target, selector: str) -> str:
 
 
 def _selector_label(config, keep: int) -> str:
-    """The selector to show the user. `prune-old` names the count it keeps, which the command line hides."""
+    """The selector to show the user. `prune-old` names the count it keeps, which the command line hides.
+    `since` names its age, which the keyword alone hides."""
+    if config.unpublish == 'since': return f'since={config.unpublish_since}'
     return f'prune-old={keep}' if config.unpublish == 'prune-old' else config.unpublish
+
+
+def since_cutoff(age: str) -> str:
+    """The upload time `since=<age>` reaches back to, as 'YYYYMMDDHHMMSS' UTC. `age` reads `90m`, `6h` or `2d`."""
+    seconds = int(age[:-1]) * {'m': 60, 'h': 3600, 'd': 86400}[age[-1]]
+    return time.strftime('%Y%m%d%H%M%S', time.gmtime(time.time() - seconds))
 
 
 def _report_no_match(listed: dict, selector: str, url: str, reached_a_target: bool):
@@ -300,6 +312,7 @@ def unpublish_run(targets, config) -> int:
     url = artifactory_sanitize_url(config.artifactory_ftp)
     # `is None`, not `or`: `prune-old=0` means keep nothing, and `or` would read it as the default
     keep = DEFAULT_KEEP if config.unpublish_keep is None else config.unpublish_keep
+    cutoff = since_cutoff(config.unpublish_since) if config.unpublish == 'since' else ''
 
     doomed = {}  # target -> [archive], so the listing can group by target and the purge can follow
     listed = {}  # target name -> its archives on the server, for the nothing-matched report
@@ -316,7 +329,7 @@ def unpublish_run(targets, config) -> int:
             protect = current_version(target) if selector == 'prune-old' else ''
             archives = list_archives(ftp, target.name)
             listed[target.name] = archives
-            picked = select(target.name, archives, selector, keep, protect)
+            picked = select(target.name, archives, selector, keep, protect, cutoff)
             if picked: doomed[target] = picked
         if not doomed:
             _report_no_match(listed, _selector_label(config, keep), url, bool(targets))

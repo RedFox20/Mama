@@ -139,6 +139,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama upload dep1               Deploys and uploads dependency to Artifactory server.
   mama dep1 unpublish=current    Delete the published archives of this version, on every platform.
   mama dep1 unpublish=prune-old  Delete every version except the newest 20.
+  mama dep1 unpublish=since=6h dependents  Delete the last 6 hours of archives of every package built on dep1.
   mama list                      List all mama dependencies on this project.
   mama dirty dep1                Mark a target for rebuild even if it was up to date.
   mama version                   Show the mama package version.
@@ -713,7 +714,12 @@ mama mylib unpublish=current       every archive of the version this checkout re
 mama mylib unpublish=caf5158       every archive of one named version
 mama mylib unpublish=prune-old=30  every version except the newest 30, default 20
 mama mylib unpublish=prune-all     every version of this target
+mama mylib unpublish=since=6h      every archive uploaded in the last 6 hours, also 90m or 2d
 ```
+
+Add `dependents` to delete the archives of every package built on `mylib` instead of `mylib` itself.
+After an ABI break, `mama mylib unpublish=since=6h dependents` removes every package that may hold the
+old ABI, on every platform. Run it from the root whose graph holds those packages.
 
 The run lists each archive with its upload date and size, then asks. A run with no terminal refuses,
 unless the command line also says `yes`.

@@ -2,6 +2,7 @@ Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
 unreleased
+ - feature: unpublish=since=<age> and dependents remove stale ABI packages
  - bugfix: a local module dir named android or windows counts in its version
  - bugfix: mama dirty marks every dependent of the target, not only some
  - bugfix: unpublish no longer stops at a dep that never published

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, tempfile, shutil, threading, time, contextlib
+import os, re, sys, tempfile, shutil, threading, time, contextlib
 from typing import List, TYPE_CHECKING
 from mama.platforms.oclea import Oclea
 from mama.platforms.xilinx import Xilinx
@@ -144,6 +144,8 @@ class BuildConfig:
         self.unpublish = ''
         self.unpublish_keep = None  # how many versions `prune-old` leaves. None takes the module default,
                                     # so an explicit `prune-old=0` can still mean keep nothing
+        self.unpublish_since = ''  # the age `since=<age>` reaches back to, eg '6h'
+        self.unpublish_dependents = False  # `dependents`: unpublish every dep that depends on the target
         self.assume_yes = False  # `yes` on the command line answers the unpublish prompt
         # The target the user typed. `update` rewrites self.target to `all` at main.py, and an unpublish
         # that read that would delete every version of every dep in the graph.
@@ -280,6 +282,8 @@ class BuildConfig:
         if self.deps_only and self.unpublish:
             raise RuntimeError('deps_only cannot combine with unpublish. Name the dependency to ' + \
                                'unpublish instead, as `mama <dep> unpublish=<selector>`.')
+        if self.unpublish_dependents and not self.unpublish:
+            raise RuntimeError('dependents only scopes an unpublish. Add unpublish=<selector>.')
         self.remember_user_target()  # before any command rewrites self.target
         self.check_platform()
         if self.buildstats and self.clang:
@@ -296,11 +300,12 @@ class BuildConfig:
             elif arg == 'deploy':    self.deploy  = True
             elif arg == 'upload':    self.upload  = True
             elif arg == 'yes' or arg == 'y': self.assume_yes = True
-            # `unpublish=current|<version>|prune-old[=N]|prune-all` deletes published archives
+            # `unpublish=current|<version>|prune-old[=N]|prune-all|since=<age>` deletes published archives
             elif arg.startswith('unpublish='): self.set_unpublish(arg[10:])
             elif arg == 'unpublish':
                 raise RuntimeError('unpublish needs a selector: unpublish=current, unpublish=<version>, ' + \
-                                   'unpublish=prune-old[=N] or unpublish=prune-all')
+                                   'unpublish=prune-old[=N], unpublish=prune-all or unpublish=since=<age>')
+            elif arg == 'dependents': self.unpublish_dependents = True
             elif arg == 'if_needed': self.if_needed = True
             elif arg == 'art':       self.force_artifactory = True
             elif arg == 'noart':     self.disable_artifactory = True
@@ -520,16 +525,20 @@ class BuildConfig:
 
 
     def set_unpublish(self, selector: str):
-        """Read `unpublish=<selector>`. `prune-old=N` carries its own count, and `current` becomes ''
-        here, because the version this checkout resolves to is only known once the target loads."""
-        selector, _, count = selector.partition('=')
-        if selector == 'prune-old' and count:
-            if not count.isdigit(): raise RuntimeError(f'unpublish=prune-old={count} needs a whole number')
-            self.unpublish_keep = int(count)
-        elif count:
-            raise RuntimeError(f'unpublish={selector} takes no `={count}`, only prune-old does')
+        """Read `unpublish=<selector>`. `prune-old=N` carries its own count and `since=<age>` its own age.
+        `current` stays a keyword, because mama learns the version of this checkout only when the target loads."""
+        selector, _, value = selector.partition('=')
+        if selector == 'prune-old' and value:
+            if not value.isdigit(): raise RuntimeError(f'unpublish=prune-old={value} needs a whole number')
+            self.unpublish_keep = int(value)
+        elif selector == 'since':
+            if not re.fullmatch(r'[0-9]+[mhd]', value):
+                raise RuntimeError(f'unpublish=since={value} needs an age, eg since=90m, since=6h or since=2d')
+            self.unpublish_since = value
+        elif value:
+            raise RuntimeError(f'unpublish={selector} takes no `={value}`, only prune-old and since do')
         if not selector:
-            raise RuntimeError('unpublish= needs current, a version, prune-old[=N] or prune-all')
+            raise RuntimeError('unpublish= needs current, a version, prune-old[=N], prune-all or since=<age>')
         self.unpublish = selector
 
 
@@ -1161,8 +1170,9 @@ class BuildConfig:
     def scoped_to_target(self) -> bool:
         """True when the run names one target, so both the load and the task chain scope to its subtree.
         `all` asks for the whole tree, and `deps_only` scopes itself to the deps of its own target.
-        `dirty` needs the parents of the target, which only the whole tree names."""
-        return self.has_target() and not self.targets_all() and not self.deps_only and not self.dirty
+        `dirty` and `dependents` need the parents of the target, which only the whole tree names."""
+        return self.has_target() and not self.targets_all() and not self.deps_only \
+            and not self.dirty and not self.unpublish_dependents
 
 
     def no_specific_target(self) -> bool:

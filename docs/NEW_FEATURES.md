@@ -27,6 +27,11 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`unpublish=since=<age>` and `dependents` remove the packages an ABI break made unsafe.** `since` deletes every archive
+  uploaded in the last `90m`, `6h` or `2d`, by the upload time the server reports. `dependents` swaps the
+  scope to every package whose subtree holds the named target, so `mama ReCpp unpublish=since=6h
+  dependents` reaches every package built on ReCpp, on every platform. The run loads the whole graph.
+
 - **`config.wasm.enable_threads()` builds a threaded wasm tree.** The root mamafile calls it in
   `settings()`. Every target then compiles and links with `-pthread`, and the `mt` variant token gives
   the tree its own build dir and archive name, eg `wasm-mt`. A later call only prints a warning. The web

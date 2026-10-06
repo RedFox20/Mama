@@ -1,5 +1,5 @@
 """Pins unpublish: what each selector names, what the prompt guards, and the local purge that follows."""
-import ftplib, os
+import calendar, ftplib, os
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -7,7 +7,8 @@ import pytest
 
 from testutils import make_package_target, make_project_dir, stub_loaders, stub_runners
 
-from mama.dependency_chain import get_deps_that_depend_on_target
+from mama import main
+from mama.dependency_chain import get_deps_that_depend_on_target, get_flat_deps
 from mama.main import mamabuild, set_target_from_unused_args
 
 import mama.artifactory_unpublish as up
@@ -97,6 +98,22 @@ def test_a_version_is_as_fresh_as_its_freshest_archive():
     rebuilt = _archive('old', compiler='gcc14.3', day='28')
     newer = _archive('new', day='10')
     assert up.newest_first(up.group_by_version(NAME, [old, rebuilt, newer])) == ['old', 'new']
+
+
+# --- since takes archives by upload time, never by version ---------------------
+
+def test_since_takes_every_archive_uploaded_after_the_cutoff_and_nothing_older():
+    old, new = _archive('v1', day='01'), _archive('v2', day='07', platform='windows')
+    undated = up.Archive(f'{NAME}-linux-ubuntu24-gcc13.3-x64-release-v3.zip', '', 1)
+    foreign = up.Archive('other-linux-ubuntu24-gcc13.3-x64-release-v2.zip', '20260807120000', 1)
+    assert up.select(NAME, [old, new, undated, foreign], 'since', cutoff='20260805000000') == [new]
+
+
+@pytest.mark.parametrize('age, cutoff', [('90m', '20261006103000'), ('6h', '20261006060000'), ('2d', '20261004120000')])
+def test_since_reaches_back_by_its_age_in_utc(age, cutoff):
+    noon = calendar.timegm((2026, 10, 6, 12, 0, 0))
+    with patch.object(up.time, 'time', return_value=noon):
+        assert up.since_cutoff(age) == cutoff
 
 
 # --- the server listing --------------------------------------------------------
@@ -267,13 +284,14 @@ def test_the_purge_leaves_a_build_dir_that_is_not_a_shim(tmp_path):
 
 # --- the whole command --------------------------------------------------------
 
-def _run(tmp_path, selector, listed, assume_yes=True, is_pkg=False, keep=None, ftp=None, extra_targets=0):
+def _run(tmp_path, selector, listed, assume_yes=True, is_pkg=False, keep=None, ftp=None, extra_targets=0, since=''):
     """Drive the whole run-level pass with the FTP session and the listing stubbed. `extra_targets`
     adds more targets to the one run, so a test can pin what is per-run and what is per-target."""
     targets = [_target_with_cache(tmp_path / str(i), listed) for i in range(1 + extra_targets)]
     config = targets[0].config
     config.artifactory_ftp = 'files.example.com'
     config.unpublish, config.unpublish_keep, config.assume_yes = selector, keep, assume_yes
+    config.unpublish_since = since
     for target in targets:
         target.config = config
         target.dep.dep_source.is_pkg = is_pkg
@@ -321,6 +339,20 @@ def test_a_selector_that_matches_nothing_names_the_target_and_the_count(tmp_path
     report = '\n'.join(c.args[0] for c in printed.call_args_list)
     assert f'Nothing to unpublish on files.example.com: no archive matched `{label}`' in report
     assert f'{NAME: <16} 2 archive(s) in 1 version(s)' in report
+
+
+def test_a_since_run_deletes_the_archives_uploaded_after_the_cutoff(tmp_path):
+    listed = [_archive('old', day='01'), _archive('new', day='07'), _archive('new', day='07', platform='windows')]
+    with patch.object(up, 'since_cutoff', return_value='20260805000000') as cutoff:
+        deleted, ftp, _, _ = _run(tmp_path, 'since', listed, since='6h')
+    cutoff.assert_called_once_with('6h')
+    assert deleted == 2 and 'release-old' not in str(ftp.delete.call_args_list)
+
+
+def test_a_since_run_that_matches_nothing_names_its_age(tmp_path):
+    with patch.object(up, 'since_cutoff', return_value='20260805000000'), patch.object(up, 'console') as printed:
+        _run(tmp_path, 'since', [_archive('old', day='01')], since='6h')
+    assert 'no archive matched `since=6h`' in '\n'.join(c.args[0] for c in printed.call_args_list)
 
 
 def test_a_package_dep_refuses_to_unpublish(tmp_path):
@@ -466,6 +498,25 @@ def test_dependents_reach_a_dep_that_needs_the_target_only_through_another_depen
     assert sorted(d.name for d in get_deps_that_depend_on_target(root, recpp)) == ['a', 'b', 'root']
 
 
+def test_a_dependents_run_unpublishes_every_dependent_and_not_the_target():
+    root, _ = _graph()
+    config = BuildConfig(['target=ReCpp', 'unpublish=since=6h', 'dependents'])
+    with patch('mama.artifactory_unpublish.unpublish_run') as run:
+        main.run_unpublish(config, get_flat_deps(root))
+    assert sorted(t.name for t in run.call_args.args[0]) == ['a', 'b', 'root']
+
+
+@pytest.mark.parametrize('target', [[], ['all']])
+def test_dependents_needs_a_target_to_name_its_dependents(tmp_path, target):
+    with stub_loaders(lambda r: None), stub_runners(), pytest.raises(RuntimeError, match='dependents needs a target'):
+        mamabuild(target + ['unpublish=since=6h', 'dependents'], source_dir=make_project_dir(tmp_path))
+
+
+def test_dependents_without_an_unpublish_is_refused():
+    with pytest.raises(RuntimeError, match='dependents only scopes an unpublish'):
+        BuildConfig(['target=ReCpp', 'dependents'])
+
+
 # --- the selector parsing -----------------------------------------------------
 
 @pytest.mark.parametrize('arg, selector, keep', [
@@ -481,7 +532,13 @@ def test_the_command_line_reads_every_selector(arg, selector, keep):
     assert config.unpublish == selector and config.unpublish_keep == keep
 
 
-@pytest.mark.parametrize('arg', ['unpublish=', 'unpublish=prune-old=many', 'unpublish=caf5158=2'])
+def test_since_reads_its_age():
+    config = BuildConfig(['unpublish=since=6h'])
+    assert config.unpublish == 'since' and config.unpublish_since == '6h'
+
+
+@pytest.mark.parametrize('arg', ['unpublish=', 'unpublish=prune-old=many', 'unpublish=caf5158=2', 'unpublish=since',
+                                 'unpublish=since=6', 'unpublish=since=6w', 'unpublish=since=h', 'unpublish=since=-6h'])
 def test_a_malformed_selector_is_refused(arg):
     with pytest.raises(RuntimeError):
         BuildConfig([arg])
