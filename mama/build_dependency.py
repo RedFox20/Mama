@@ -497,6 +497,12 @@ class BuildDependency:
         return self.behind_source_memo
 
 
+    def stale_archive_marker(self, archive: str) -> str:
+        """The file that says this machine rejected `archive`, so an `if_needed` upload replaces it. It lives
+        in dep_dir beside the cached zips, because a clean takes the build dir and the upload can run later."""
+        return normalized_join(self.dep_dir, f'{archive}.stale')
+
+
     def stale_package_note(self) -> str:
         """The build reason of a rejected package, and '' for every other dep. The display shows it too."""
         return f'stale package, {self.stale_package_cause}' if self.stale_package_cause else ''
@@ -533,6 +539,8 @@ class BuildDependency:
             warning(f'  - Target {self.name: <16} STALE PACKAGE {what}, this run has {now}{no_source}')
         if no_source: return False
         self.stale_package_cause = _stale_cause(name, built)
+        # a later upload replaces the archive. An old shim marker can lack the archive name, and then nothing does
+        if self.artifactory_archive: write_text_to(self.stale_archive_marker(self.artifactory_archive), '')
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)

@@ -787,9 +787,13 @@ rejected dep has no usable artifacts. A shim parent and a parent that unpacked a
 it, because each one meets its own check. A rejected header-only dep keeps its artifacts, so its
 `package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
-The reject removes the shim marker and `papa.txt`.
+The reject removes the shim marker and `papa.txt`, and writes `<archive>.stale` into the dep dir. An upload
+of that archive name replaces the archive on the server, even under `if_needed`, and then removes the
+marker. The upload may run in a later mama run.
 
-**Why:** with `papa.txt` on disk, the next run would unpack the same stale package again.
+**Why:** with `papa.txt` on disk, the next run would unpack the same stale package again. With the old
+archive on the server, every consumer would fetch it and reject it again. A CI job commonly uploads in a
+separate `mama upload if_needed` run, so the marker lives on disk.
 
 An `add_artifactory_pkg` dep has no source, so it only warns, once.
 

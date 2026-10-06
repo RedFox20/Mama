@@ -47,6 +47,14 @@ def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
     assert not dep.has_usable_artifacts()  # the unpacked files stay on disk until a build replaces them
 
 
+def test_a_reject_of_a_package_with_no_archive_name_writes_no_marker(tmp_path):
+    # an old shim marker can lack the archive name, and a nameless marker matches no upload
+    dep = _fetched_shim(tmp_path)
+    dep.artifactory_archive = ''
+    assert dep.reject_stale_package([_child('ReCpp', NEW)])
+    assert not [f for f in os.listdir(dep.dep_dir) if f.endswith('.stale')]
+
+
 def test_a_rejected_header_only_dep_still_packages(tmp_path):
     dep = _fetched_shim(tmp_path)
     dep.reject_stale_package([_child('ReCpp', NEW)])
@@ -146,6 +154,22 @@ def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
     fetch_mock.assert_called_once()
     clone_mock.assert_called_once()
     assert not dep.from_artifactory and dep.should_rebuild
+
+
+@pytest.mark.parametrize('rejected, uploads', [(False, False), (True, True)])
+def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected(tmp_path, rejected, uploads):
+    # the upload is a later mama run, so only the marker on disk remembers the reject
+    dep = _fetched_shim(tmp_path)
+    archive = dep.artifactory_archive
+    if rejected: dep.reject_stale_package([_child('ReCpp', NEW)])
+    marker = dep.stale_archive_marker(archive)
+    target = SimpleNamespace(name='libfoo', config=dep.config, dep=dep)
+    dep.config.if_needed = True
+    with patch('ftplib.FTP_TLS'), patch.object(artifactory_mod, 'artifactory_ftp_login', autospec=True), \
+         patch.object(artifactory_mod, 'artifact_already_exists', autospec=True, return_value=True), \
+         patch.object(artifactory_mod, 'artifactory_upload', autospec=True) as upload:
+        assert artifactory_mod.artifactory_upload_ftp(target, f'{tmp_path}/{archive}.zip') == uploads
+    assert upload.called == uploads and not os.path.exists(marker)  # one replace, then if_needed skips again
 
 
 def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version='') -> PapaFileInfo:

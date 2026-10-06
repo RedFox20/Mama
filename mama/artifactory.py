@@ -298,12 +298,16 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
         try:
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
-            if config.if_needed and artifact_already_exists(ftp, target, file_path):
+            # a rebuilt stale package replaces the archive this machine rejected, or every consumer rejects it again
+            stale = target.dep.stale_archive_marker(os.path.splitext(os.path.basename(file_path))[0])
+            replaces = os.path.exists(stale)
+            if config.if_needed and not replaces and artifact_already_exists(ftp, target, file_path):
                 if config.print:
                     console(f'  - Artifactory Upload skipped: artifact already exists: ' + \
                             f'{target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
+            if replaces: os.remove(stale)
             return True
         except ArtifactoryCredentialsError as e:
             error(str(e))
