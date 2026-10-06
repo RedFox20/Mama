@@ -3,7 +3,7 @@ import os, threading
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import pytest
-from testutils import (FakeUnifiedDep, FakeWalkDep, make_includes_target, make_mock_dep, make_mock_shim_dep,
+from testutils import (FakeUnifiedDep, FakeWalkDep, make_includes_target, make_mock_dep, make_mock_local_dep, make_mock_shim_dep,
                        make_unified_config, make_walk_config, should_build_reasons)
 import mama.artifactory as artifactory_mod
 from mama import dependency_chain as dc
@@ -11,6 +11,7 @@ from mama.dependency_chain import load_dependency_chain, reload_stale_packages
 from mama.artifactory import same_abi
 from mama.papa_deploy import PapaFileInfo, current_identities, papa_deploy_to
 from mama.types.git import Git
+from mama.types.local_source import LocalSource
 from mama.utils.fileio import read_text_from, write_text_to
 
 OLD, NEW = 'ReCpp-linux-24-gcc14.2-x64-release-d292ca0', 'ReCpp-linux-24-gcc14.2-x64-release-83f5a3a'
@@ -252,6 +253,18 @@ def test_the_identity_marks_a_dep_whose_artifacts_differ_from_its_source(tmp_pat
     assert 'ReCpp' not in _identities(tmp_path / 'nameless', recpp='', recpp_behind=True)
 
 
+@pytest.mark.parametrize('recorded, tree_changed, behind', [('local-1', False, False), ('local-0', False, True),
+                                                           ('', False, True), ('local-1', True, True)])
+def test_a_local_dep_compares_its_content_version_with_the_one_its_build_recorded(tmp_path, recorded, tree_changed, behind):
+    # a commit leaves no uncommitted edit, so only the content version shows that the subfolder moved
+    (tmp_path / 'src').mkdir()
+    dep = make_mock_local_dep(tmp_path, tmp_path / 'src')
+    if recorded: write_text_to(dep.dep_source.src_version_file(dep), recorded)
+    with patch('mama.types.local_source.compute_version', autospec=True, return_value='local-1'), \
+         patch.object(LocalSource, 'source_tree_changed', autospec=True, return_value=tree_changed):
+        assert dep.dep_source.artifacts_behind_source(dep) == behind
+
+
 @pytest.mark.parametrize('status, head, tree_changed, behind', [
     ('abc1234', 'abc1234', False, False),
     ('abc1234', 'def5678', False, True),   # the checkout moved, and nothing rebuilt the dep
@@ -448,13 +461,14 @@ def test_the_classic_pass_stops_when_the_source_redeclares_a_child():
 
 
 @pytest.mark.parametrize('declared, redeclared', [({}, False), ({'tag': 'v2'}, True), ({'branch': 'dev'}, True),
-                                                  ({'args': []}, True), ({'args': ['asan']}, True)])
+                                                  ({'args': []}, True), ({'args': ['asan']}, True),
+                                                  ({'version_suffix': '2'}, True)])  # the `V` record names a new recipe
 def test_the_source_load_of_a_rejected_package_must_name_each_child_like_its_d_record(tmp_path, declared, redeclared):
     # the `D` record passed `lgpl`, so dropping it counts as much as adding `asan`
     dep = _fetched_shim(tmp_path)
     recpp = lambda **over: Git(**{'name': 'ReCpp', 'url': 'https://example.com/ReCpp.git', 'branch': 'main', 'tag': '',
                                   'mamafile': None, 'shallow': True, 'args': ['lgpl'], **over})
-    dep.package_declarations = {'ReCpp': recpp().get_papa_string()}
+    dep.package_declarations = {'ReCpp': recpp().declaration()}
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
     dep.add_child(recpp(**declared))
     assert dep.redeclared == (['ReCpp'] if redeclared else [])

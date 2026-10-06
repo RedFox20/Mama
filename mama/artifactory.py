@@ -363,7 +363,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     target.dep.from_artifactory = True
     target.dep.built_against = papa.built_against
     target.dep.package_version = papa.version
-    target.dep.package_declarations = {d.name: d.get_papa_string() for d in papa.dependencies}
+    target.dep.package_declarations = {d.name: d.declaration() for d in papa.dependencies}
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
     target.exported_modules = papa.modules

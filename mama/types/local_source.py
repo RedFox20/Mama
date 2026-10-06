@@ -4,6 +4,7 @@ from ..utils.fileio import save_file_if_contents_changed, read_text_from
 from ..utils.git_status import (git_dir_fingerprint, source_walk_moved, record_source_walk,
                                 git_source_changed)
 from ..utils.paths import path_join
+from ..local_version import compute_version
 
 class LocalSource(DepSource):
     """For a BuildDependency whose source is a local directory."""
@@ -45,11 +46,20 @@ class LocalSource(DepSource):
             record_source_walk(dep.src_dir, dep.build_dir)  # proven unchanged, so arm the gate now
         return not unchanged
 
-    def artifacts_behind_source(self, dep) -> bool: return self.source_tree_changed(dep)
+    def src_version_file(self, dep) -> str:
+        return path_join(dep.build_dir, 'src_version')
+
+    def artifacts_behind_source(self, dep) -> bool:
+        """True when the artifacts came from another tree than the subfolder holds: an uncommitted edit since the
+        last build, or another content version than that build recorded. The fingerprint misses a commit."""
+        f = self.src_version_file(dep)
+        built = read_text_from(f) if os.path.exists(f) else ''
+        return self.source_tree_changed(dep) or built != compute_version(dep)
 
     def save_status(self, dep):
         save_file_if_contents_changed(self.src_status_file(dep),
                                       self.working_tree_fingerprint(dep, 'record the tree this build used'))
+        save_file_if_contents_changed(self.src_version_file(dep), compute_version(dep))
         record_source_walk(dep.src_dir, dep.build_dir)
 
     @staticmethod

@@ -757,8 +757,9 @@ archive name with a mark, and a marked identity matches only the same marked ide
 - `+behind` when this run did not build it, and its artifacts came from another source than its source dir. A git dep
   with a `.git` does when its checkout has another commit than `git_status` records, or when it has no
   `git_status`. It also does when the working-tree fingerprint of reason 10 in section 10 reports a
-  change. A local dep does when the fingerprint of reason 11 reports a change. A local dep has no commit,
-  so a committed change since its last build does not count.
+  change. A local dep does when the fingerprint of reason 11 reports a change, or when its content
+  version differs from the one its last build wrote to `src_version` in its build dir. A local dep has no
+  commit, and the fingerprint only sees an uncommitted edit, so the content version is what shows a commit.
 
 **Why:** the parent compiles headers from the source dir and from the build dir, so no single identity
 describes what it used. A targeted build skips such a dep, so it is a normal state, not an error.
@@ -786,8 +787,8 @@ the build of a new child. So when a child has no finished build, the run fails a
 In that run the clone is on disk, so the LOAD job names the new child and the CONFIGURE job waits for its
 build.
 
-The source can also name a child other than the `D` record of the stale package did, by its url, branch,
-tag or args, added or removed. A loaded dep keeps its first url, branch and tag, and its args only grow. So
+The source can also name a child other than the stale package did, by the url, branch, tag or args of its
+`D` record, added or removed, or by the `version_suffix` of its `V` record. A loaded dep keeps its first url, branch and tag, and its args only grow. So
 on both paths the run fails, names the child, and asks for a second run. Only the declarations of the
 rejected package count, so a conflict between two other parents never stops it.
 

@@ -83,7 +83,7 @@ class BuildDependency:
         self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
         self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
         self.stale_archive = '' # the stale archive that the next if_needed upload replaces, once this dep built
-        self.package_declarations = {} # child name -> its `D` record, in the package this dep unpacked
+        self.package_declarations = {} # child name -> its `D` and `V` records, in the package this dep unpacked
         self.stale_declarations = {} # the package_declarations of a rejected package, which the source load must match
         self.redeclared = [] # the children the source load of a rejected package named other than its `D` records
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
@@ -171,7 +171,7 @@ class BuildDependency:
             dep = self.config.loaded_dependencies.get(dep_source.name)
             # the source load of a rejected package must name each child the way its `D` record did
             declared = self.stale_declarations.get(dep_source.name)
-            if declared is not None and declared != dep_source.get_papa_string():
+            if declared is not None and declared != dep_source.declaration():
                 self.redeclared.append(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
