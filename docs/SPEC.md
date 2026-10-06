@@ -765,7 +765,8 @@ rebuilds too. The classic path runs `after_load` again on every dep, and the sch
 CONFIGURE job. A targeted run marks the parents in `mark_unbuilt_target_deps` instead. It builds the dep
 only when the target needs it, because a rejected dep has no usable artifacts. A shim parent and a parent
 that unpacked a package do not rebuild for it, because each one meets its own check. A rejected
-header-only dep keeps its artifacts, so its `package()` still runs.
+header-only dep keeps its artifacts, so its `package()` still runs. A targeted run still marks it, so its
+source-built parents rebuild too.
 
 The reject removes the shim marker and `papa.txt`.
 

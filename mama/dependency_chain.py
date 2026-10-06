@@ -79,7 +79,8 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
         if not dep.is_artifactory_shim():
             child_to_rebuild = next((child for child in dep.get_children() if child.should_rebuild), None)
         stale = dep.has_stale_locked_artifacts()
-        if dep.has_usable_artifacts() and not stale and not child_to_rebuild:
+        # a rejected header-only dep keeps its artifacts, but its parents compiled against the old deps below it
+        if dep.has_usable_artifacts() and not stale and not child_to_rebuild and not dep.stale_package_cause:
             continue
         dep.should_rebuild = True
         if config.print:
