@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib, json, os
 from typing import TYPE_CHECKING
 
-from . import build_names
 from .buildsys.cmake.scan import MAMA_CMAKE
 from .utils.fileio import read_text_from, save_file_if_contents_changed
 from .utils.paths import path_join, normalized_path
@@ -67,12 +66,9 @@ def is_publishable(dep: BuildDependency) -> bool:
 
 
 def ignored_dirs(dep: BuildDependency) -> set:
-    """Dir names the walk skips. The workspace dir and the build dir come from config, because mama
-    already names both, and a project-local workspace puts them inside the source tree."""
-    names = set(_IGNORED_DIRS)
-    names.add(getattr(dep, 'workspace', None) or 'packages')
-    names.add(build_names.build_dir_name(dep.config, dep.variant_suffix))
-    return names
+    """Dir names the walk skips. A project-local workspace puts the workspace dir inside the source tree.
+    Every build dir is inside the workspace, so a dir named like a build dir, eg `android`, is source."""
+    return _IGNORED_DIRS | {getattr(dep, 'workspace', None) or 'packages'}
 
 
 def _source_files(dep: BuildDependency):

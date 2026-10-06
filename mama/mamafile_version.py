@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 from .utils.system import warning
 from .utils.fileio import read_text_from
+from .local_version import compute_version
 
 
 class VersionScan(NamedTuple):
@@ -72,7 +73,6 @@ def computed_local_version(dep) -> str:
     """The content version of an unpinned LOCAL dependency, and '' for every other dep source. A git dep
     keeps the rule of roadmap-target-version.md, because no reader can walk a tree it has not cloned."""
     if not dep.dep_source.is_src or dep.is_root: return ''
-    from .local_version import compute_version  # local import: local_version reads build_names
     return compute_version(dep)
 
 

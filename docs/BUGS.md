@@ -71,6 +71,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **A local module source dir named like the build dir, eg `android`, dropped out of its version.** One
+  module got a version per platform. Fix: skip the workspace dir only, which holds every build dir.
+
 - **The root named, created and cleaned its build dir before its `settings()` ran.** Fix: `settings()` runs
   first, so a root `prefer_clang()` leaves no stray dir, and a clean takes the dir that `settings()` names.
 

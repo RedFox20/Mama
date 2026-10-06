@@ -64,16 +64,25 @@ def test_a_rename_changes_the_version(tmp_path):
     assert _version(dep) != before
 
 
-@pytest.mark.parametrize('rel_path', ['packages/x/lib.a', 'build/out.o', '.git/HEAD', '__pycache__/m.pyc'])
+@pytest.mark.parametrize('rel_path', ['packages/x/lib.a', 'packages/x/linux/out.o', '.git/HEAD', '__pycache__/m.pyc'])
 def test_build_output_never_changes_the_version(tmp_path, rel_path):
     dep = _dep(tmp_path)
     dep.workspace = 'packages'
-    dep.build_dir_name = 'build'
     before = _version(dep)
     noise = Path(dep.src_dir) / rel_path
     noise.parent.mkdir(parents=True, exist_ok=True)
     noise.write_text('junk\n')
     assert _version(dep) == before
+
+
+def test_a_source_dir_named_like_the_build_dir_changes_the_version(tmp_path):
+    # a cross-platform module keeps its JNI code in `android/`, which is also the android build dir name
+    dep = _dep(tmp_path)
+    before = _version(dep)
+    source = Path(dep.src_dir) / dep.build_dir_name / 'jni.cpp'
+    source.parent.mkdir(parents=True)
+    source.write_text('int jni(){ return 1; }\n')
+    assert _version(dep) != before
 
 
 def test_an_object_file_next_to_the_source_is_ignored(tmp_path):

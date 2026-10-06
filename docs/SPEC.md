@@ -739,7 +739,15 @@ depends on which branch runs. A computed value stays invisible. In both shapes t
 package the upload side never publishes. So mama refuses the pin, and warns once per dep per run.
 
 An unpinned **local** dep has no commit of its own, so mama names it by its source content.
-The walk skips every file named `mama.cmake`, in any dir of the tree.
+The walk skips every file named `mama.cmake`, in any dir of the tree. It skips the workspace dir, eg
+`packages`, by name in any dir of the tree too. It never skips a dir for the name of a build dir. Every
+build dir is inside the workspace, so a source dir named `android` or `windows` is source on every
+platform.
+
+**Why:** the walk once skipped every dir named like the build dir of the run. An android build then hashed
+a module without its `android/` sources. One module got a different version on each platform, and an
+edit under `android/` did not rename the android package.
+
 
 **Why:** the download side hashes the tree before the build, and the build then writes `mama.cmake`
 into it. The upload side hashed that file too, so it published a name the download side never asked
