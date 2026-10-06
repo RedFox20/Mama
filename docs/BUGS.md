@@ -21,6 +21,13 @@ so cut every word that a reader of the fix does not need.
   from "a dep below changed". A fetched dep must not build, but its parents still need the signal, because
   they compile the headers of the changed dep through it.
 
+- **A targeted build can write a `B` record that does not match what the parent compiled against.** In
+  `mama build X`, `_should_build` skips every dep except X, and `mark_unbuilt_target_deps` revives only a
+  stale locked commit. So an unlocked dep can keep artifacts older than its checkout. `current_archive_name`
+  names the checkout. A header from the source dir matches that name. A header from the build dir matches
+  the older `git_status` commit. Fix: when the artifacts of a dep that does not build differ from its
+  checkout, write a `B` value that never matches, so a later run builds the parent from source.
+
 - **The root `settings()` reads a build dir that the same `settings()` can then rename.** `BuildTarget.__init__`
   names the root dirs before `settings()` runs (`build_target.py:131`). The guard in `_dep_path` fires only
   on an empty path (`build_target.py:157`), so `build_dir()` returns that early path. A later `prefer_clang()`
