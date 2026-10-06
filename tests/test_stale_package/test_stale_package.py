@@ -43,6 +43,7 @@ def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
     assert not dep.from_artifactory and not dep.artifactory_archive and not dep.built_against
     assert not dep.is_artifactory_shim()  # the next load clones the source
     assert not os.path.exists(dep.papa_package_file())  # else the next run unpacks the same package again
+    assert os.path.exists(dep.archive_marker('libfoo-linux-24-gcc14.2-x64-release-abc1234', 'rejected'))
     assert dep.did_check_artifactory and not dep.already_loaded
     assert not dep.has_usable_artifacts()  # the unpacked files stay on disk until a build replaces them
 
@@ -54,7 +55,18 @@ def test_a_reject_of_a_package_with_no_archive_name_writes_no_marker(tmp_path):
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
     with patch('mama.build_dependency.current_identities', autospec=True, return_value=[]):
         dep.save_dependency_list()
-    assert not [f for f in os.listdir(dep.dep_dir) if f.endswith('.stale')]
+    assert not [f for f in os.listdir(dep.dep_dir) if f.endswith(('.stale', '.rejected'))]
+
+
+def test_a_fetch_skips_an_archive_this_machine_rejected(tmp_path):
+    # a first-time build after the reject would unpack it again, and its `D` records would name the children first
+    dep = make_mock_dep(tmp_path)
+    write_text_to(dep.archive_marker('libfoo-abc1234', 'rejected'), '')
+    target = SimpleNamespace(dep=dep, config=dep.config, version='1.0.0')  # a version skips the mamafile read
+    with patch.object(artifactory_mod, 'artifactory_archive_name', autospec=True, return_value='libfoo-abc1234'), \
+         patch.object(artifactory_mod, '_fetch_package', autospec=True) as fetch:
+        assert artifactory_mod.artifactory_fetch_and_reconfigure(target) == (False, None)
+    fetch.assert_not_called()
 
 
 def test_a_rejected_header_only_dep_still_packages(tmp_path):
@@ -168,14 +180,15 @@ def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected_and_
     if rejected: dep.reject_stale_package([_child('ReCpp', NEW)])
     with patch('mama.build_dependency.current_identities', autospec=True, return_value=[]):
         if built: dep.save_dependency_list()
-    marker = dep.stale_archive_marker(archive)
+    stale, rejected_marker = dep.archive_marker(archive, 'stale'), dep.archive_marker(archive, 'rejected')
     target = SimpleNamespace(name='libfoo', config=dep.config, dep=dep)
     dep.config.if_needed = True
     with patch('ftplib.FTP_TLS'), patch.object(artifactory_mod, 'artifactory_ftp_login', autospec=True), \
          patch.object(artifactory_mod, 'artifact_already_exists', autospec=True, return_value=True), \
          patch.object(artifactory_mod, 'artifactory_upload', autospec=True) as upload:
         assert artifactory_mod.artifactory_upload_ftp(target, f'{tmp_path}/{archive}.zip') == uploads
-    assert upload.called == uploads and not os.path.exists(marker)  # one replace, then if_needed skips again
+    assert upload.called == uploads and not os.path.exists(stale)  # one replace, then if_needed skips again
+    assert os.path.exists(rejected_marker) == (rejected and not uploads)  # the server copy is fit to fetch again
 
 
 def _target(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version=''):
@@ -335,7 +348,7 @@ def _rejects_once(dep, log, new_child=None, redeclared=None):
         log.append(('reject', dep.name, sorted(d.name for d in dc.get_flat_child_deps(dep))))
         dep.built_against = {}
         if new_child: dep._children.append(new_child)
-        if redeclared: redeclared.redeclared = True
+        if redeclared: dep.redeclared = [redeclared.name]
         return True
     dep.reject_stale_package = reject
 
@@ -416,8 +429,7 @@ def test_the_classic_pass_stops_when_the_source_redeclares_a_child():
     log = []; cfg = make_walk_config(verbose=False)
     recpp = FakeWalkDep('ReCpp', cfg, log)
     dep = FakeWalkDep('krattutil', cfg, log, [recpp])
-    _rejects_once(dep, log)
-    dep.redeclared_children = lambda: ['ReCpp'] if not dep.built_against else []
+    _rejects_once(dep, log, redeclared=recpp)
     root = FakeWalkDep('root', cfg, log, [dep])
     load_dependency_chain(root)
     with patch('mama.dependency_chain._report_error') as report, pytest.raises(SystemExit):
@@ -426,13 +438,24 @@ def test_the_classic_pass_stops_when_the_source_redeclares_a_child():
 
 
 @pytest.mark.parametrize('declared, redeclared', [({}, False), ({'tag': 'v2'}, True), ({'branch': 'dev'}, True),
-                                                  ({'args': ['asan']}, True), ({'args': ['']}, False)])
-def test_a_second_declaration_with_another_source_or_new_args_flags_the_dep(tmp_path, declared, redeclared):
+                                                  ({'args': []}, True), ({'args': ['asan']}, True)])
+def test_the_source_load_of_a_rejected_package_must_name_each_child_like_its_d_record(tmp_path, declared, redeclared):
+    # the `D` record passed `lgpl`, so dropping it counts as much as adding `asan`
+    dep = _fetched_shim(tmp_path)
+    recpp = lambda **over: Git(**{'name': 'ReCpp', 'url': 'https://example.com/ReCpp.git', 'branch': 'main', 'tag': '',
+                                  'mamafile': None, 'shallow': True, 'args': ['lgpl'], **over})
+    dep.package_declarations = {'ReCpp': recpp().get_papa_string()}
+    assert dep.reject_stale_package([_child('ReCpp', NEW)])
+    dep.add_child(recpp(**declared))
+    assert dep.redeclared == (['ReCpp'] if redeclared else [])
+
+
+def test_a_child_outside_a_stale_reload_is_never_redeclared(tmp_path):
+    # a conflict between two other parents must not stop the reload of a third one
     dep = make_mock_dep(tmp_path)
-    source = {'name': 'libfoo', 'url': 'https://example.com/libfoo.git', 'branch': 'main', 'tag': '', 'mamafile': None,
-              'shallow': True, 'args': [], **declared}
-    dep.update_existing_dependency(Git(**source))
-    assert dep.redeclared == redeclared
+    dep.add_child(Git(name='ReCpp', url='https://example.com/ReCpp.git', branch='', tag='v2', mamafile=None,
+                      shallow=True, args=[]))
+    assert dep.redeclared == []
 
 
 def test_the_scheduler_fails_when_the_source_names_a_child_no_job_knows(no_cmake_writes):

@@ -83,7 +83,9 @@ class BuildDependency:
         self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
         self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
         self.stale_archive = '' # the stale archive that the next if_needed upload replaces, once this dep built
-        self.redeclared = False # a later declaration named another source or new args, which this dep ignores
+        self.package_declarations = {} # child name -> its `D` record, in the package this dep unpacked
+        self.stale_declarations = {} # the package_declarations of a rejected package, which the source load must match
+        self.redeclared = [] # the children the source load of a rejected package named other than its `D` records
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
         self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
@@ -148,12 +150,7 @@ class BuildDependency:
 
 
     def update_existing_dependency(self, dep_source: DepSource):
-        """A second declaration of this dep. The first url, branch and tag stay, and new args move the build dir."""
-        if dep_source.is_git and self.dep_source.is_git:
-            source = lambda s: (s.url, s.branch, s.tag)
-            if source(dep_source) != source(self.dep_source): self.redeclared = True
         if dep_source.is_git or dep_source.is_src:
-            if any(a and a not in self.target_args for a in dep_source.args or []): self.redeclared = True
             self._add_args(dep_source.args)
             self._update_dep_name_and_dirs(self.name)  # new args -> new variant suffix -> new build dir
             if self.target:
@@ -172,6 +169,10 @@ class BuildDependency:
             if dependency_lock and dep_source.is_git and not self.config.clean_only():
                 dependency_lock.apply(dep_source, self)
             dep = self.config.loaded_dependencies.get(dep_source.name)
+            # the source load of a rejected package must name each child the way its `D` record did
+            declared = self.stale_declarations.get(dep_source.name)
+            if declared is not None and declared != dep_source.get_papa_string():
+                self.redeclared.append(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
             else:
@@ -506,16 +507,11 @@ class BuildDependency:
         return self.behind_source_memo
 
 
-    def stale_archive_marker(self, archive: str) -> str:
-        """The file that says this machine rejected `archive`, so an `if_needed` upload replaces it. It lives
-        in dep_dir beside the cached zips, because a clean takes the build dir and the upload can run later."""
-        return normalized_join(self.dep_dir, f'{archive}.stale')
-
-
-    def redeclared_children(self) -> list:
-        """The children that a later declaration named with another url, branch, tag or new args. This run
-        loaded and built the first declaration."""
-        return [c.name for c in self.get_children() if c.redeclared]
+    def archive_marker(self, archive: str, kind: str) -> str:
+        """`<archive>.rejected` says this machine rejected `archive`, so no fetch unpacks it again. `<archive>.stale`
+        says a build replaced it, so an `if_needed` upload replaces it too. Both live in dep_dir beside the
+        cached zips, because a clean takes the build dir and the upload can run later."""
+        return normalized_join(self.dep_dir, f'{archive}.{kind}')
 
 
     def stale_package_note(self) -> str:
@@ -575,6 +571,8 @@ class BuildDependency:
         if no_source: return False
         self.stale_package_cause = _stale_cause(name, built)
         self.stale_archive = self.artifactory_archive
+        # an old shim marker can lack the archive name, and then nothing names a marker
+        if self.stale_archive: write_text_to(self.archive_marker(self.stale_archive, 'rejected'), '')
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)
@@ -583,7 +581,7 @@ class BuildDependency:
         self.package_version, self.built_against = '', {}
         self.did_check_artifactory = True  # the probes would fetch the same package again
         self.did_skim = False  # the source load parses the mamafile again, so its hooks must run
-        for child in self.children: child.redeclared = False  # only the source load below may set it
+        self.stale_declarations, self.package_declarations, self.redeclared = self.package_declarations, {}, []
         self.revive_deferred_load()
         return True
 
@@ -1103,7 +1101,7 @@ class BuildDependency:
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
         # only a successful build marks the stale copy, so a failed one never uploads its old objects
-        if self.stale_archive: write_text_to(self.stale_archive_marker(self.stale_archive), '')
+        if self.stale_archive: write_text_to(self.archive_marker(self.stale_archive, 'stale'), '')
         # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
         # an artifactory no package exists, so a record would only outlive the objects it describes.
         record = f'{self.build_dir}/{BUILD_RECORD}'

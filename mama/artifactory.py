@@ -299,7 +299,8 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
             # a rebuilt stale package replaces the archive this machine rejected, or every consumer rejects it again
-            stale = target.dep.stale_archive_marker(os.path.splitext(os.path.basename(file_path))[0])
+            archive = os.path.splitext(os.path.basename(file_path))[0]
+            stale, rejected = target.dep.archive_marker(archive, 'stale'), target.dep.archive_marker(archive, 'rejected')
             replaces = os.path.exists(stale)
             if config.if_needed and not replaces and artifact_already_exists(ftp, target, file_path):
                 if config.print:
@@ -307,7 +308,8 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
                             f'{target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
-            if replaces: os.remove(stale)
+            for marker in (stale, rejected):  # the server now holds this build, so a later run may fetch it
+                if os.path.exists(marker): os.remove(marker)
             return True
         except ArtifactoryCredentialsError as e:
             error(str(e))
@@ -361,6 +363,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     target.dep.from_artifactory = True
     target.dep.built_against = papa.built_against
     target.dep.package_version = papa.version
+    target.dep.package_declarations = {d.name: d.get_papa_string() for d in papa.dependencies}
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
     target.exported_modules = papa.modules
@@ -426,7 +429,8 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         target.version = pinned_version(target.dep)
 
     archive = artifactory_archive_name(target)
-    if not archive:
+    # this machine rejected that package as stale, and only the upload that replaces it lifts the marker
+    if not archive or os.path.exists(target.dep.archive_marker(archive, 'rejected')):
         return (False, None)
 
     cache_dir = target.dep.dep_dir

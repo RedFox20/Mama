@@ -784,12 +784,16 @@ from source. That load fetches no package, clones a git dep that has no tree, an
 mamafile names. The classic path loads every new child. In the scheduler, the CONFIGURE job has no edge to
 the build of a new child. So when a child has no finished build, the run fails and asks for a second run.
 In that run the clone is on disk, so the LOAD job names the new child and the CONFIGURE job waits for its
-build. A first-time build can still unpack the stale package, and the CONFIGURE job then rejects it again.
+build.
 
-The source can also name an existing child with another url, branch, tag or new args than the `D` records
-of the stale package did. A loaded dep keeps its first url, branch and tag, and new args move it to a build
-dir that nothing built. So on both paths the run fails, names the child, and asks for a second run. In that
-run no package names the child first.
+The source can also name a child other than the `D` record of the stale package did, by its url, branch,
+tag or args, added or removed. A loaded dep keeps its first url, branch and tag, and its args only grow. So
+on both paths the run fails, names the child, and asks for a second run. Only the declarations of the
+rejected package count, so a conflict between two other parents never stops it.
+
+The reject also writes `<archive>.rejected` into the dep dir. No later fetch on this machine unpacks that
+archive, so in the second run no package names a child first. The upload that replaces the archive on the
+server removes the marker, together with `<archive>.stale`.
 
 **Why:** a dep with no record can have moved since the package built. A dep that follows a branch moves on
 its own, and another parent can pin the same dep to another commit. Only a leaf has nothing below it to move.

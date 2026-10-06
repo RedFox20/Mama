@@ -173,7 +173,7 @@ def reload_stale_packages(scope: BuildDependency, display=None):
             if not dep.reject_stale_package(): continue
             load_dependency_chain(dep, display)
             reload_deferred_deps(dep, display=display)  # a targeted run defers a new child with no clone
-            _refuse_redeclared(dep, dep.redeclared_children())
+            _refuse_redeclared(dep, dep.redeclared)
             rejected = reloaded = True
     if rejected:  # after_load ran before the check, so run it again to flag each parent of a stale dep
         for dep in reversed(get_flat_deps(scope)): dep.after_load()
@@ -1146,7 +1146,7 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         display.set_note(d.name, d.stale_package_note())  # the load phase named the package it unpacked
         d.load()
         # this configure has no edge to the build of a new child, and a redeclared child built the old declaration
-        unknown = [c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done or c.redeclared]
+        unknown = dict.fromkeys([c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done] + d.redeclared)
         if unknown:
             raise BuildError(f'Target {d.name} names {", ".join(unknown)} other than its stale package did.' + \
                              ' Run the build again.')
