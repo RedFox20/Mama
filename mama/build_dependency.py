@@ -87,6 +87,7 @@ class BuildDependency:
         self.stale_declarations = {} # the package_declarations of a rejected package, which the source load must match
         self.redeclared = [] # the children the source load of a rejected package named other than its `D` records
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
+        self.content_version_memo = None # the content version of a local dep, see LocalSource.content_version_changed
         self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
@@ -497,6 +498,7 @@ class BuildDependency:
         self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
         self.archive_name_memo = None
         self.behind_source_memo = None
+        self.content_version_memo = None
 
 
     def artifacts_behind_source(self) -> bool:

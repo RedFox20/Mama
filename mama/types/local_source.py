@@ -36,10 +36,12 @@ class LocalSource(DepSource):
         return git_dir_fingerprint(dep.src_dir, shared_status=True, reason=f'local {reason}')
 
     def source_tree_changed(self, dep) -> bool:
-        """True when a build input in the subfolder differs from the snapshot stored at the last build."""
+        """True when a build input in the subfolder differs from the snapshot stored at the last build, or when
+        a commit moved its content version. The fingerprint only sees an uncommitted edit."""
         f = self.src_status_file(dep)
         stored = read_text_from(f) if os.path.exists(f) else ''
         if not source_walk_moved(dep.src_dir, dep.build_dir): return False  # the cheap gate, Windows only
+        if self.content_version_changed(dep): return True  # before the walk gate arms, or a commit hides
         unchanged = not git_source_changed(dep.src_dir) or \
                     self.working_tree_fingerprint(dep, 'did the subfolder change since the last build') == stored
         if unchanged:
@@ -49,17 +51,21 @@ class LocalSource(DepSource):
     def src_version_file(self, dep) -> str:
         return path_join(dep.build_dir, 'src_version')
 
-    def artifacts_behind_source(self, dep) -> bool:
-        """True when the artifacts came from another tree than the subfolder holds: an uncommitted edit since the
-        last build, or another content version than that build recorded. The fingerprint misses a commit."""
+    def content_version_changed(self, dep) -> bool:
+        """True when the content version differs from the one the last build recorded. A build that predates
+        the record counts as current, and the root has none. One tree walk per dep and run."""
         f = self.src_version_file(dep)
-        built = read_text_from(f) if os.path.exists(f) else ''
-        return self.source_tree_changed(dep) or built != compute_version(dep)
+        if dep.is_root or not os.path.exists(f): return False
+        if dep.content_version_memo is None: dep.content_version_memo = compute_version(dep)
+        return read_text_from(f) != dep.content_version_memo
+
+    def artifacts_behind_source(self, dep) -> bool: return self.source_tree_changed(dep)
 
     def save_status(self, dep):
         save_file_if_contents_changed(self.src_status_file(dep),
                                       self.working_tree_fingerprint(dep, 'record the tree this build used'))
-        save_file_if_contents_changed(self.src_version_file(dep), compute_version(dep))
+        # the tree after the build, because a build may write into it and the next run walks it again
+        if not dep.is_root: save_file_if_contents_changed(self.src_version_file(dep), compute_version(dep))
         record_source_walk(dep.src_dir, dep.build_dir)
 
     @staticmethod

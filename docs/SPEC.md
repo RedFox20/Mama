@@ -757,9 +757,7 @@ archive name with a mark, and a marked identity matches only the same marked ide
 - `+behind` when this run did not build it, and its artifacts came from another source than its source dir. A git dep
   with a `.git` does when its checkout has another commit than `git_status` records, or when it has no
   `git_status`. It also does when the working-tree fingerprint of reason 10 in section 10 reports a
-  change. A local dep does when the fingerprint of reason 11 reports a change, or when its content
-  version differs from the one its last build wrote to `src_version` in its build dir. A local dep has no
-  commit, and the fingerprint only sees an uncommitted edit, so the content version is what shows a commit.
+  change. A local dep does when reason 11 reports a change, a commit included.
 
 **Why:** the parent compiles headers from the source dir and from the build dir, so no single identity
 describes what it used. A targeted build skips such a dep, so it is a normal state, not an error.
@@ -925,7 +923,10 @@ reasons. `deps_only <X>` overrides the whole table and forces a rebuild on every
 9. An `add_artifactory_pkg` dep builds.
 10. A git dep with a real clone builds when its working tree changed. This is a fast fingerprint, not a
     reconfigure.
-11. A local dep builds when its own subfolder changed, by the same fingerprint.
+11. A local dep builds when its own subfolder changed, by the same fingerprint. It also builds when its
+    content version differs from the one its last build wrote to `src_version` in its build dir, because
+    the fingerprint only sees an uncommitted edit and a commit moves the content version. A build that
+    predates that record counts as current. The root has no record.
 12. `update <X>` and `build <X>` build X.
 13. A recorded build product that is now missing builds.
 14. A dep with no build products builds, unless it came from a package or declared `nothing_to_build`.

@@ -253,16 +253,29 @@ def test_the_identity_marks_a_dep_whose_artifacts_differ_from_its_source(tmp_pat
     assert 'ReCpp' not in _identities(tmp_path / 'nameless', recpp='', recpp_behind=True)
 
 
-@pytest.mark.parametrize('recorded, tree_changed, behind', [('local-1', False, False), ('local-0', False, True),
-                                                           ('', False, True), ('local-1', True, True)])
-def test_a_local_dep_compares_its_content_version_with_the_one_its_build_recorded(tmp_path, recorded, tree_changed, behind):
-    # a commit leaves no uncommitted edit, so only the content version shows that the subfolder moved
+@pytest.mark.parametrize('recorded, is_root, changed', [('local-1', False, False), ('local-0', False, True),
+                                                       (None, False, False), ('local-0', True, False)])
+def test_a_local_dep_compares_its_content_version_with_the_one_its_build_recorded(tmp_path, recorded, is_root, changed):
+    # a commit leaves no uncommitted edit, so only the content version shows that the subfolder moved. A build
+    # that predates the record counts as current, so an upgrade rebuilds nothing.
     (tmp_path / 'src').mkdir()
     dep = make_mock_local_dep(tmp_path, tmp_path / 'src')
+    dep.is_root = is_root
     if recorded: write_text_to(dep.dep_source.src_version_file(dep), recorded)
+    with patch('mama.types.local_source.compute_version', autospec=True, return_value='local-1') as walk:
+        assert dep.dep_source.content_version_changed(dep) == changed
+        dep.dep_source.content_version_changed(dep)
+    assert walk.call_count == (1 if recorded and not is_root else 0)  # one walk per dep and run
+
+
+def test_a_committed_change_to_a_local_dep_rebuilds_it(tmp_path):
+    (tmp_path / 'src').mkdir()
+    dep = make_mock_local_dep(tmp_path, tmp_path / 'src')
+    write_text_to(dep.dep_source.src_version_file(dep), 'local-0')
     with patch('mama.types.local_source.compute_version', autospec=True, return_value='local-1'), \
-         patch.object(LocalSource, 'source_tree_changed', autospec=True, return_value=tree_changed):
-        assert dep.dep_source.artifacts_behind_source(dep) == behind
+         patch('mama.types.local_source.source_walk_moved', autospec=True, return_value=True), \
+         patch('mama.types.local_source.git_source_changed', autospec=True, return_value=False):
+        assert dep.dep_source.source_tree_changed(dep) and dep.artifacts_behind_source()
 
 
 @pytest.mark.parametrize('status, head, tree_changed, behind', [
