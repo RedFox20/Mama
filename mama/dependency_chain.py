@@ -83,10 +83,10 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
             continue
         dep.should_rebuild = True
         if config.print:
-            if stale:                  reason = 'locked commit changed'
-            elif child_to_rebuild:     reason = f'{child_to_rebuild.name} changed'
+            if stale:                     reason = 'locked commit changed'
+            elif child_to_rebuild:        reason = f'{child_to_rebuild.name} changed'
             elif dep.stale_package_cause: reason = dep.stale_package_note()
-            else:                      reason = 'not built yet'
+            else:                         reason = 'not built yet'
             warning(f'  - Target {dep.name: <16} BUILD [{reason}]')
 
 

@@ -773,7 +773,7 @@ class BuildDependency:
         if conf.run_cmake_configure and is_target: return build('cmake reconfigure')
         if self.is_root:             return build('root target')
         if self.always_build:        return build('always build')
-        if self.stale_package_cause:    return build(self.stale_package_note())
+        if self.stale_package_cause: return build(self.stale_package_note())
         if git_changed:              return build('git commit changed')
         if self.dep_source.is_pkg:   return build('artifactory pkg')
 
