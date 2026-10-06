@@ -29,6 +29,9 @@ def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     return dependecies
 
 
+UNKNOWN_ARCHIVE = 'unknown'  # the B value of a dep whose artifacts and source differ. No archive name equals it
+
+
 def _built_against(target:BuildTarget) -> list:
     """(name, archive) of every dep in the subtree of `target`. A header or an inline function of any of
     them can sit inside these objects. The direct children alone miss a change two levels down. A fetched
@@ -39,7 +42,8 @@ def _built_against(target:BuildTarget) -> list:
     def walk(children):
         for child in children:
             if child.name in found: continue
-            found[child.name] = current_archive_name(child)
+            archive = current_archive_name(child)
+            found[child.name] = UNKNOWN_ARCHIVE if archive and child.artifacts_behind_source() else archive
             walk(child.get_children())
     walk(target.children())
     return [(name, archive) for name, archive in found.items() if archive]

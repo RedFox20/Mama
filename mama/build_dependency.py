@@ -74,6 +74,7 @@ class BuildDependency:
         self.built_against = {} # dep name -> archive name, from the B records of the package it unpacked
         self.stale_package_cause = '' # the dep below whose new archive made the unpacked package stale
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
+        self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # a root dep always builds
@@ -478,6 +479,15 @@ class BuildDependency:
         self.children = []
         self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
         self.archive_name_memo = None
+        self.behind_source_memo = None
+
+
+    def artifacts_behind_source(self) -> bool:
+        """True when this run did not build the dep, and its artifacts came from another source than its source
+        dir holds. A parent then compiles headers from both, so no archive name describes what it used."""
+        if self.should_rebuild or self.from_artifactory: return False
+        if self.behind_source_memo is None: self.behind_source_memo = self.dep_source.artifacts_behind_source(self)
+        return self.behind_source_memo
 
 
     def stale_package_note(self) -> str:

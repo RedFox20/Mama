@@ -21,6 +21,12 @@ class DepSource(object):
         raise RuntimeError('get_papa_string() not implemented')
 
 
+    def artifacts_behind_source(self, dep) -> bool:
+        """True when the artifacts of `dep` came from another source than its source dir holds now.
+        A package has no source dir, so its artifacts always match."""
+        return False
+
+
     @staticmethod
     def papa_join(*fields):
         """ Join all given fields for PAPA package serialization """

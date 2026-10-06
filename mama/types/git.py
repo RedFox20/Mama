@@ -396,6 +396,16 @@ class Git(DepSource):
         return not unchanged
 
 
+    def artifacts_behind_source(self, dep: BuildDependency) -> bool:
+        """True when the checkout holds another commit or tree than the one git_status records for the artifacts."""
+        if not dep.is_real_clone(): return False  # a shim or a source copy with no .git: nothing to compare
+        status = self.read_stored_status(dep)
+        if not status: return True  # artifacts with no record of their source
+        built = status[3].split(' ')[0]
+        head = Git.get_current_repository_commit(dep, len(built))
+        return not Git.same_commit(head, built) or self.source_tree_changed(dep)
+
+
     def get_commit_hash(self, dep: BuildDependency, use_cache=True):
         if not self.commit_hash or not use_cache:
             self.commit_hash = self.init_commit_hash(dep, use_cache=use_cache, fetch_remote=True)

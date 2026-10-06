@@ -8,8 +8,9 @@ from testutils import (FakeUnifiedDep, FakeWalkDep, make_includes_target, make_m
 import mama.artifactory as artifactory_mod
 from mama import dependency_chain as dc
 from mama.dependency_chain import load_dependency_chain, reload_stale_packages
-from mama.papa_deploy import PapaFileInfo, papa_deploy_to
+from mama.papa_deploy import UNKNOWN_ARCHIVE, PapaFileInfo, papa_deploy_to
 from mama.types.git import Git
+from mama.utils.fileio import write_text_to
 
 OLD, NEW = 'ReCpp-linux-24-gcc14.2-x64-release-d292ca0', 'ReCpp-linux-24-gcc14.2-x64-release-83f5a3a'
 
@@ -23,10 +24,11 @@ def _fetched_shim(tmp_path, built_against=None, **config):
     return dep
 
 
-def _child(name, archive):
+def _child(name, archive, behind=False):
     """A loaded dep: `archive` names its package, or '' for one with no target to name it."""
     return SimpleNamespace(name=name, artifactory_archive=archive, archive_name_memo=None, target=None,
-                           already_loaded=True, load_deferred=False, get_children=lambda: [])
+                           already_loaded=True, load_deferred=False, get_children=lambda: [],
+                           artifacts_behind_source=lambda: behind)
 
 
 def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
@@ -64,6 +66,10 @@ def test_a_package_that_cannot_be_proven_stale_stays(tmp_path, deps, built_again
     dep = _fetched_shim(tmp_path, built_against)
     assert not dep.reject_stale_package(deps)
     assert dep.from_artifactory and dep.is_artifactory_shim() and os.path.exists(dep.papa_package_file())
+
+
+def test_a_package_built_against_an_unknown_archive_goes(tmp_path):
+    assert _fetched_shim(tmp_path, {'ReCpp': UNKNOWN_ARCHIVE}).reject_stale_package([_child('ReCpp', OLD)])
 
 
 @pytest.mark.parametrize('config, rejects', [({'build': False}, False), ({'build': False, 'update': True}, True),
@@ -119,14 +125,15 @@ def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
     assert not dep.from_artifactory and dep.should_rebuild
 
 
-def _deploy(tmp_path, dep_attrs=None) -> PapaFileInfo:
+def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False) -> PapaFileInfo:
     """Deploy a target over krattutil, which sits over ReCpp, and read the papa file back."""
     target = make_includes_target(str(tmp_path))
     child = Mock(artifactory_archive='krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1')
     child.name = 'krattutil'  # Mock(name=..) names the mock itself, not the attribute
     child.dep_source.get_papa_string.return_value = 'git krattutil,url,main,,'
     child.dep_source.version_suffix = ''
-    child.get_children.return_value = [_child('ReCpp', NEW)]
+    child.artifacts_behind_source.return_value = False
+    child.get_children.return_value = [_child('ReCpp', recpp, recpp_behind)]
     target.children.return_value = [child]
     for k, v in (dep_attrs or {}).items(): setattr(target.dep, k, v)
     deploy_dir = str(tmp_path / 'deploy')
@@ -144,6 +151,37 @@ def test_a_deploy_records_the_archive_of_every_dep_below_it(tmp_path):
 def test_a_fetched_package_deploys_the_records_it_came_with(tmp_path):
     papa = _deploy(tmp_path, {'from_artifactory': True, 'built_against': {'ReCpp': OLD}})
     assert papa.built_against == {'ReCpp': OLD}
+
+
+def test_a_deploy_records_unknown_for_a_dep_whose_artifacts_differ_from_its_source(tmp_path):
+    assert _deploy(tmp_path, recpp_behind=True).built_against['ReCpp'] == UNKNOWN_ARCHIVE
+    assert 'ReCpp' not in _deploy(tmp_path / 'nameless', recpp='', recpp_behind=True).built_against
+
+
+@pytest.mark.parametrize('status, head, tree_changed, behind', [
+    ('abc1234', 'abc1234', False, False),
+    ('abc1234', 'def5678', False, True),   # the checkout moved, and nothing rebuilt the dep
+    ('abc1234', 'abc1234', True, True),    # an uncommitted edit
+    (None, 'abc1234', False, True),        # artifacts with no record of their source
+    (None, None, False, False),            # no .git: a source copy has no commit to compare
+])
+def test_a_git_dep_compares_its_checkout_with_the_source_of_its_artifacts(tmp_path, status, head, tree_changed, behind):
+    dep = make_mock_dep(tmp_path)
+    if head: os.makedirs(f'{dep.src_dir}/.git')
+    if status: write_text_to(dep.dep_source.git_status_file(dep), Git.format_git_status('url', '', 'main', status))
+    with patch.object(Git, 'get_current_repository_commit', autospec=True, return_value=head), \
+         patch.object(Git, 'source_tree_changed', autospec=True, return_value=tree_changed):
+        assert dep.artifacts_behind_source() == behind
+
+
+def test_only_a_dep_that_did_not_build_asks_its_source_once(tmp_path):
+    dep = make_mock_dep(tmp_path)
+    with patch.object(Git, 'artifacts_behind_source', autospec=True, return_value=True) as asked:
+        dep.should_rebuild = True
+        assert not dep.artifacts_behind_source()
+        dep.should_rebuild = False
+        assert dep.artifacts_behind_source() and dep.artifacts_behind_source()
+    asked.assert_called_once()  # every parent deploy asks about each dep below it
 
 
 def _rejects_once(dep, log, new_child=None):

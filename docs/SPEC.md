@@ -731,6 +731,16 @@ records it came with.
 
 **Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip.
 
+A source-built dep that this run did not build can hold artifacts of another source than its source dir.
+A git dep with a `.git` does when its checkout has another commit than `git_status` records, or when it has
+no `git_status`. It also does when the working-tree fingerprint of reason 10 in section 10 reports a
+change. A local dep does when the fingerprint of reason 11 reports a change. A local dep has no commit,
+so a committed change since its last build does not count. Such a dep with an archive name gets the value
+`unknown`, which no generated archive name equals.
+
+**Why:** the parent compiles headers from the source dir and from the build dir, so no single archive name
+describes what it used. A targeted build skips such a dep, so it is a normal state, not an error.
+
 A `build` or `update` run checks each package with `B` records once every dep below it has loaded. A lock
 generation never checks.
 
@@ -762,7 +772,8 @@ The reject removes the shim marker and `papa.txt`.
 **Why:** with `papa.txt` on disk, the next run would unpack the same stale package again.
 
 A package stays when it never recorded the changed dep, when that dep has no archive name yet, or when it
-predates the `B` record. An `add_artifactory_pkg` dep has no source, so it only warns, once.
+predates the `B` record. A recorded `unknown` rejects the package whenever that dep has a name. An
+`add_artifactory_pkg` dep has no source, so it only warns, once.
 
 **Why:** the archive name cannot carry the deps below it. The pre-clone probe names the archive before
 it knows the children, because only the package or the mamafile names them.

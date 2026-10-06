@@ -45,6 +45,8 @@ class LocalSource(DepSource):
             record_source_walk(dep.src_dir, dep.build_dir)  # proven unchanged, so arm the gate now
         return not unchanged
 
+    def artifacts_behind_source(self, dep) -> bool: return self.source_tree_changed(dep)
+
     def save_status(self, dep):
         save_file_if_contents_changed(self.src_status_file(dep),
                                       self.working_tree_fingerprint(dep, 'record the tree this build used'))
