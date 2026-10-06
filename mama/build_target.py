@@ -15,6 +15,7 @@ from .utils.gtest import run_gtest
 from .utils.run import run_in_project_dir, run_in_working_dir, run_in_command_dir
 from .utils.gnu_project import GnuProject
 from .papa_deploy import papa_deploy_to
+from .mamafile_version import declared_version
 from . import build_names
 # papa_upload is deferred to the one call site in papa_package(), see there
 import mama.buildsys.msbuild as msbuild
@@ -79,6 +80,7 @@ class BuildTarget:
         self.install_target = 'install'
         # Pins the last field of the artifactory archive name, in place of the commit hash. It MUST be ONE
         # raw string literal: mamafile_version.py reads it from the mamafile TEXT and never runs the file.
+        # A semver also tells the B check which builds of this target are ABI compatible.
         self.version = ''
         self.cmake_ndk_toolchain   = '' # Custom Android toolchain file for this target only
         self.cmake_raspi_toolchain = '' # Custom Raspberry toolchain file for this target only
@@ -130,6 +132,13 @@ class BuildTarget:
         self._set_args(args)
         self.dep._update_dep_name_and_dirs(self.name)
         self.init()
+
+
+    @property
+    def version(self) -> str: return self._version
+
+    @version.setter
+    def version(self, value: str): self._version = declared_version(value)  # `0.0.0` names nothing
 
 
     @property

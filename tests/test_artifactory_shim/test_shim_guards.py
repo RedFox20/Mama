@@ -168,7 +168,8 @@ def test_papa_deploy_to_succeeds_for_normal_destination(tmp_path):
     target.build_dir.return_value = str(deploy_dir)
     target.source_dir.return_value = str(deploy_dir)
     target.dep.variant_suffix = ''   # the papa `O` record appends it
-    target.dep.from_artifactory = False  # a Mock is truthy, so _built_against would read the records of a fetched package
+    target.dep.from_artifactory = False  # a Mock is truthy, so built_against would read the records of a fetched package
+    target.version = ''  # the papa `R` record reads it
     target.config.target_march = {}  # ...and reads the -march pin of the target arch
     papa_deploy_to(target, str(deploy_dir),
                    r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)

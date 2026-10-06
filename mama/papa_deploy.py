@@ -29,24 +29,20 @@ def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     return dependecies
 
 
-UNKNOWN_ARCHIVE = 'unknown'  # the B value of a dep whose artifacts and source differ. No archive name equals it
-
-
-def _built_against(target:BuildTarget) -> list:
-    """(name, archive) of every dep in the subtree of `target`. A header or an inline function of any of
-    them can sit inside these objects. The direct children alone miss a change two levels down. A fetched
-    package keeps the records it came with, because its objects compiled against the deps of an earlier run."""
-    from .artifactory import current_archive_name  # local import: artifactory imports this module
+def built_against(target:BuildTarget) -> list:
+    """(name, identity) of every dep in the subtree of `target`, see abi_identity. A header or an inline
+    function of any of them can sit inside these objects. The direct children alone miss a change two levels
+    down. A fetched package keeps the records it came with, because its objects compiled in an earlier run."""
+    from .artifactory import abi_identity  # local import: artifactory imports this module
     if target.dep.from_artifactory: return list(target.dep.built_against.items())
     found = {}
     def walk(children):
         for child in children:
             if child.name in found: continue
-            archive = current_archive_name(child)
-            found[child.name] = UNKNOWN_ARCHIVE if archive and child.artifacts_behind_source() else archive
+            found[child.name] = abi_identity(child)
             walk(child.get_children())
     walk(target.children())
-    return [(name, archive) for name, archive in found.items() if archive]
+    return [(name, identity) for name, identity in found.items() if identity]
 
 
 def _results_contain(results, contains_value):
@@ -313,6 +309,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     compiler = _compiler_stamp(config)
     if compiler: descr.append(f'C {compiler}')
     descr.append(f'O {build_names.object_attributes(target)}')
+    from .artifactory import semver_of  # local import: artifactory imports this module
+    if version := semver_of(target): descr.append(f'R {version}')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
@@ -320,7 +318,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         # record keeps every older reader working, because an unknown record parses as nothing.
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
-    descr += [f'B {name} {archive}' for name, archive in _built_against(target)]
+    descr += [f'B {name} {identity}' for name, identity in built_against(target)]
 
     # the loop below refuses too, but only after the include tree is gone, so check before that
     if package.same_file(package_full_path, target.build_dir()) and \
@@ -403,7 +401,8 @@ class PapaFileInfo:
         self.compiler = None # 'gcc14.3' / 'clang18.1'. None for a package that predates the C record
         self.attributes = [] # 'debug'/'release', platform, arch, variant tokens. [] predates the O record
         self.dependencies = []
-        self.built_against = {} # dep name -> its archive name when this package built. {} predates the B record
+        self.version = '' # the semver `version` of the package, from its R record
+        self.built_against = {} # dep name -> its identity when this package built. {} predates the B record
         self.includes = []
         self.libs = []
         self.syslibs = []
@@ -423,6 +422,7 @@ class PapaFileInfo:
             elif line.startswith('V '):
                 dep_name, _, suffix = line[2:].strip().partition(' ')
                 suffixes[dep_name] = suffix.strip()
+            elif line.startswith('R '): self.version = line[2:].strip()
             elif line.startswith('B '):
                 dep_name, _, archive = line[2:].strip().partition(' ')
                 self.built_against[dep_name] = archive.strip()

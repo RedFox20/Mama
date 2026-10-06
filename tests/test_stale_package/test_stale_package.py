@@ -1,4 +1,4 @@
-"""Pins the `B` records of papa.txt, and that a package built against another archive of a dep builds from source."""
+"""Pins the `R` and `B` records of papa.txt, and that a package built against another ABI of a dep builds from source."""
 import os, threading
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -8,7 +8,8 @@ from testutils import (FakeUnifiedDep, FakeWalkDep, make_includes_target, make_m
 import mama.artifactory as artifactory_mod
 from mama import dependency_chain as dc
 from mama.dependency_chain import load_dependency_chain, reload_stale_packages
-from mama.papa_deploy import UNKNOWN_ARCHIVE, PapaFileInfo, papa_deploy_to
+from mama.artifactory import same_abi
+from mama.papa_deploy import PapaFileInfo, papa_deploy_to
 from mama.types.git import Git
 from mama.utils.fileio import write_text_to
 
@@ -24,17 +25,21 @@ def _fetched_shim(tmp_path, built_against=None, **config):
     return dep
 
 
-def _child(name, archive, behind=False):
-    """A loaded dep: `archive` names its package, or '' for one with no target to name it."""
-    return SimpleNamespace(name=name, artifactory_archive=archive, archive_name_memo=None, target=None,
-                           already_loaded=True, load_deferred=False, get_children=lambda: [],
-                           artifacts_behind_source=lambda: behind)
+def _child(name, archive, behind=False, version='', dirty=''):
+    """A loaded source dep that would publish `archive`, '' when nothing names it yet. `dirty` is the
+    fingerprint of an uncommitted edit."""
+    dep = SimpleNamespace(name=name, artifactory_archive='', archive_name_memo=archive, already_loaded=True,
+                          load_deferred=False, from_artifactory=False, get_children=lambda: [],
+                          artifacts_behind_source=lambda: behind,
+                          dep_source=SimpleNamespace(working_tree_fingerprint=lambda dep: dirty))
+    dep.target = SimpleNamespace(dep=dep, version=version)
+    return dep
 
 
 def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
     dep = _fetched_shim(tmp_path)
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
-    assert dep.stale_package_cause == 'ReCpp'
+    assert dep.stale_package_cause == 'ReCpp changed'
     assert not dep.from_artifactory and not dep.artifactory_archive and not dep.built_against
     assert not dep.is_artifactory_shim()  # the next load clones the source
     assert not os.path.exists(dep.papa_package_file())  # else the next run unpacks the same package again
@@ -57,19 +62,37 @@ def test_the_rejected_dep_builds_and_names_the_dep_that_changed(tmp_path):
 
 
 @pytest.mark.parametrize('deps, built_against', [
-    ([_child('ReCpp', OLD)], None),       # the same archive the package built against
-    ([_child('zlib', NEW)], None),        # a dep the package never recorded
-    ([_child('ReCpp', '')], None),        # a dep nothing names yet
-    ([_child('ReCpp', NEW)], {}),         # a package that predates the `B` record
+    ([_child('ReCpp', OLD)], None),                              # the same archive the package built against
+    ([_child('ReCpp', NEW, version='3.2.9')], {'ReCpp': '3.2.1'}),  # a patch release keeps the ABI
+    ([_child('ReCpp', '')], None),                               # a dep nothing names yet
+    ([], {}),                                                    # a leaf that predates the `B` record
 ])
-def test_a_package_that_cannot_be_proven_stale_stays(tmp_path, deps, built_against):
+def test_a_package_whose_deps_still_match_stays(tmp_path, deps, built_against):
     dep = _fetched_shim(tmp_path, built_against)
     assert not dep.reject_stale_package(deps)
     assert dep.from_artifactory and dep.is_artifactory_shim() and os.path.exists(dep.papa_package_file())
 
 
-def test_a_package_built_against_an_unknown_archive_goes(tmp_path):
-    assert _fetched_shim(tmp_path, {'ReCpp': UNKNOWN_ARCHIVE}).reject_stale_package([_child('ReCpp', OLD)])
+@pytest.mark.parametrize('child, built_against, cause', [
+    (_child('ReCpp', NEW, version='3.3.0'), {'ReCpp': '3.2.1'}, 'ReCpp changed'),  # a minor release breaks the ABI
+    (_child('ReCpp', OLD), {'ReCpp': '3.2.1'}, 'ReCpp changed'),          # the dep dropped its version
+    (_child('ReCpp', OLD, dirty='f00d'), None, 'ReCpp changed'),          # an uncommitted edit keeps the archive name
+    (_child('ReCpp', OLD), {'ReCpp': OLD + '+edit-f00d'}, 'ReCpp changed'),  # built against an edit, which is gone
+    (_child('zlib', NEW), None, 'no record of zlib'),                     # a dep the package never recorded
+    (_child('ReCpp', NEW), {}, 'no record of ReCpp'),                     # a package that predates the `B` record
+])
+def test_a_package_with_an_unproven_dep_below_it_goes(tmp_path, child, built_against, cause):
+    dep = _fetched_shim(tmp_path, built_against)
+    assert dep.reject_stale_package([child]) and dep.stale_package_cause == cause
+
+
+@pytest.mark.parametrize('built, now, same', [
+    ('3.2.1', '3.2.9', True), ('3.2.1', '3.3.0', False), ('3.2.1', '4.2.1', False), (OLD, OLD, True),
+    (OLD, NEW, False), ('3.2.1', OLD, False), ('34.0', '34.0', True), ('34.0', '34.1', False),
+    (OLD + '+edit-f00d', OLD + '+edit-f00d', True), (OLD + '+edit-f00d', OLD, False),
+])
+def test_two_semvers_agree_on_major_minor_and_anything_else_matches_exactly(built, now, same):
+    assert same_abi(built, now) == same
 
 
 @pytest.mark.parametrize('config, rejects', [({'build': False}, False), ({'build': False, 'update': True}, True),
@@ -89,7 +112,7 @@ def test_a_package_dep_has_no_source_so_it_warns_once(tmp_path):
 
 
 def test_a_source_dep_names_the_archive_its_source_would_publish_once():
-    dep = _child('logging', '')
+    dep = _child('logging', None)
     dep.target = Mock()
     with patch('mama.artifactory.artifactory_archive_name', autospec=True, return_value='logging-local-3c5d') as name:
         assert artifactory_mod.current_archive_name(dep) == 'logging-local-3c5d'
@@ -125,16 +148,19 @@ def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
     assert not dep.from_artifactory and dep.should_rebuild
 
 
-def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False) -> PapaFileInfo:
+def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version='') -> PapaFileInfo:
     """Deploy a target over krattutil, which sits over ReCpp, and read the papa file back."""
     target = make_includes_target(str(tmp_path))
-    child = Mock(artifactory_archive='krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1')
+    child = Mock(artifactory_archive='krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1', from_artifactory=True,
+                 package_version='')
     child.name = 'krattutil'  # Mock(name=..) names the mock itself, not the attribute
+    child.target.dep = child
     child.dep_source.get_papa_string.return_value = 'git krattutil,url,main,,'
     child.dep_source.version_suffix = ''
     child.artifacts_behind_source.return_value = False
-    child.get_children.return_value = [_child('ReCpp', recpp, recpp_behind)]
+    child.get_children.return_value = [_child('ReCpp', recpp, recpp_behind, recpp_version)]
     target.children.return_value = [child]
+    target.version, target.dep.package_version = version, ''
     for k, v in (dep_attrs or {}).items(): setattr(target.dep, k, v)
     deploy_dir = str(tmp_path / 'deploy')
     os.makedirs(deploy_dir)
@@ -148,13 +174,19 @@ def test_a_deploy_records_the_archive_of_every_dep_below_it(tmp_path):
                                                'ReCpp': NEW}
 
 
+def test_a_deploy_records_the_semver_of_the_target_and_of_each_dep_that_has_one(tmp_path):
+    papa = _deploy(tmp_path, recpp_version='3.2.1', version='1.4.0')
+    assert papa.version == '1.4.0' and papa.built_against['ReCpp'] == '3.2.1'
+    assert _deploy(tmp_path / 'plain', version='34.0').version == ''  # not a semver, so the archive name pins it
+
+
 def test_a_fetched_package_deploys_the_records_it_came_with(tmp_path):
     papa = _deploy(tmp_path, {'from_artifactory': True, 'built_against': {'ReCpp': OLD}})
     assert papa.built_against == {'ReCpp': OLD}
 
 
-def test_a_deploy_records_unknown_for_a_dep_whose_artifacts_differ_from_its_source(tmp_path):
-    assert _deploy(tmp_path, recpp_behind=True).built_against['ReCpp'] == UNKNOWN_ARCHIVE
+def test_a_deploy_marks_a_dep_whose_artifacts_differ_from_its_source(tmp_path):
+    assert _deploy(tmp_path, recpp_behind=True).built_against['ReCpp'] == NEW + '+behind'
     assert 'ReCpp' not in _deploy(tmp_path / 'nameless', recpp='', recpp_behind=True).built_against
 
 

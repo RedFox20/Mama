@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, traceback, getpass
+import os, re, sys, traceback, getpass
 # ftplib is NOT imported here. It pulls ssl, which costs about 21ms of every mama start, and only
 # an upload needs it. The two functions that touch it at runtime import it themselves. The
 # `ftplib.FTP_TLS` annotations below stay valid because this module postpones annotations.
@@ -103,9 +103,12 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 
 
+SEMVER = re.compile(r'(\d+)\.(\d+)\.\d+')  # a semver `version`. Its groups are the fields an ABI break bumps
+
+
 def current_archive_name(dep) -> str:
     """The archive name of what `dep` holds in this run: the package it unpacked, or the one its source
-    would publish. '' when nothing names it yet. A `B` record stores this value, and a load compares it."""
+    would publish. '' when nothing names it yet. It is the identity of a dep with no semver."""
     if dep.artifactory_archive: return dep.artifactory_archive
     # a deferred dep would resolve its commit with the ls-remote that the deferral exists to skip
     if dep.target is None or dep.load_deferred or not dep.already_loaded: return ''
@@ -114,6 +117,30 @@ def current_archive_name(dep) -> str:
         if not dep.target.version: dep.target.version = pinned_version(dep)
         dep.archive_name_memo = artifactory_archive_name(dep.target) or ''
     return dep.archive_name_memo
+
+
+def semver_of(target) -> str:
+    """The semver `version` of `target`, or '' when it declares none. A package answers from its `R` record."""
+    version = target.dep.package_version if target.dep.from_artifactory else target.version
+    return version if SEMVER.fullmatch(version) else ''
+
+
+def abi_identity(dep) -> str:
+    """The `B` value of `dep`: its semver, else its archive name, which pins a dep with no semver to its commit.
+    A source tree with an uncommitted edit adds `+edit-<fingerprint>`, and artifacts of another source than
+    the tree add `+behind`. A git dep keeps its archive name through an edit. '' when nothing names the dep."""
+    archive = current_archive_name(dep)
+    if not archive: return ''
+    edit = '' if dep.from_artifactory else dep.dep_source.working_tree_fingerprint(dep)  # a package has no tree
+    marks = (f'+edit-{edit[:10]}' if edit else '') + ('+behind' if dep.artifacts_behind_source() else '')
+    return f'{archive}{marks}' if marks else (dep.target and semver_of(dep.target)) or archive
+
+
+def same_abi(built: str, now: str) -> bool:
+    """True when objects built against the identity `built` link safely against `now`. Two semvers agree
+    when MAJOR.MINOR does. Any other pair must match exactly."""
+    old, new = SEMVER.fullmatch(built), SEMVER.fullmatch(now)
+    return old.groups() == new.groups() if old and new else built == now
 
 
 keyr = None
@@ -329,6 +356,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
 
     target.dep.from_artifactory = True
     target.dep.built_against = papa.built_against
+    target.dep.package_version = papa.version
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
     target.exported_modules = papa.modules

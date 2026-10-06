@@ -723,26 +723,41 @@ package keeps its name when a dep below it moves.
 **Why:** the objects of the package can still hold an inline function or a class layout of the old dep.
 A consumer that links the new dep then crashes.
 
-So a deploy writes one `B <dep> <archive>` record for every dep in the subtree of the target that has an
-archive name. The direct children alone are not enough. The value is the archive name the dep has in that
-run. That is the package it unpacked, or the name its source would publish for the build type of the run.
-A dep that did not load has no name, and neither does a deferred dep. A fetched package writes the `B`
-records it came with.
+So a deploy writes one `B <dep> <identity>` record for every dep in the subtree of the target that has an
+identity. The direct children alone are not enough. The identity of a dep is its `version` when that is a
+semver, `MAJOR.MINOR.PATCH`. Otherwise it is the archive name the dep has in that run. That is the package
+it unpacked, or the name its source would publish for the build type of the run. So a dep with no semver
+is pinned to its commit. A dep that did not load has no identity, and neither does a deferred dep. A fetched
+package writes the `B` records it came with. A deploy also writes `R <version>` when the target has a semver,
+so a package answers with its version without its mamafile. A package takes its semver only from that
+record, so a package that predates it has its archive name as identity.
 
 **Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip.
 
-A source-built dep that this run did not build can hold artifacts of another source than its source dir.
-A git dep with a `.git` does when its checkout has another commit than `git_status` records, or when it has
-no `git_status`. It also does when the working-tree fingerprint of reason 10 in section 10 reports a
-change. A local dep does when the fingerprint of reason 11 reports a change. A local dep has no commit,
-so a committed change since its last build does not count. Such a dep with an archive name gets the value
-`unknown`, which no generated archive name equals.
+Two identities match when both are semvers with the same `MAJOR.MINOR`. Any other pair must be equal. A
+patch release therefore keeps every package built on the version before it, and a minor or a major
+release rejects them.
 
-**Why:** the parent compiles headers from the source dir and from the build dir, so no single archive name
+**Why:** in C++ a backward-compatible addition, a member or a virtual, already changes the class layout.
+Semver calls that a minor release, so only a patch release can promise the same ABI.
+
+A source-built dep can hold artifacts that its archive name does not describe. Its identity is then the
+archive name with a mark, and a marked identity matches only the same marked identity:
+
+- `+edit-<fingerprint>` when its source holds an uncommitted edit, by the working-tree fingerprint. A git
+  dep keeps the archive name of its clean commit through an edit. The mark names the edit, so the next run
+  with the same edit matches, and a further edit does not.
+- `+behind` when this run did not build it, and its artifacts came from another source than its source dir. A git dep
+  with a `.git` does when its checkout has another commit than `git_status` records, or when it has no
+  `git_status`. It also does when the working-tree fingerprint of reason 10 in section 10 reports a
+  change. A local dep does when the fingerprint of reason 11 reports a change. A local dep has no commit,
+  so a committed change since its last build does not count.
+
+**Why:** the parent compiles headers from the source dir and from the build dir, so no single identity
 describes what it used. A targeted build skips such a dep, so it is a normal state, not an error.
 
-A `build` or `update` run checks each package with `B` records once every dep below it has loaded. A lock
-generation never checks.
+A `build` or `update` run checks each package once every dep below it has loaded. A lock generation never
+checks.
 
 - The classic path checks after stage two of the load, deepest first, in `reload_stale_packages`. It
   checks the subtree of the target, or the whole tree when the run names no target.
@@ -752,32 +767,31 @@ generation never checks.
 **Why:** under a parallel load, a parent that meets a dep another parent already loaded returns before
 the children of that dep load. A check inside the walk would read a child with no name, and keep the package.
 
-When a recorded dep now has another archive name, mama prints `STALE PACKAGE`, unless the run is silent,
-and loads the dep again from source. That load fetches no package, clones a git dep that has no tree, and
-names the children the mamafile names. The classic path loads every new child. In the scheduler, the
-CONFIGURE job has no edge to the build of a new child. So when a child has no finished build, the run
-fails and asks for a second run. In that run the clone is on disk, so the LOAD job names the new child and
-the CONFIGURE job waits for its build. A first-time build can still unpack the stale package, and the
-CONFIGURE job then rejects it again.
+A package is stale when a dep below it has an identity that does not match its `B` record, or that has no
+`B` record. A package that predates the `B` record is therefore stale unless it is a leaf. A dep with no
+identity yet is skipped. Mama prints `STALE PACKAGE`, unless the run is silent, and loads the dep again
+from source. That load fetches no package, clones a git dep that has no tree, and names the children the
+mamafile names. The classic path loads every new child. In the scheduler, the CONFIGURE job has no edge to
+the build of a new child. So when a child has no finished build, the run fails and asks for a second run.
+In that run the clone is on disk, so the LOAD job names the new child and the CONFIGURE job waits for its
+build. A first-time build can still unpack the stale package, and the CONFIGURE job then rejects it again.
 
-The rejected dep builds with reason 7 of section 10. In a run with no target, a source-built parent
-rebuilds too. The classic path runs `after_load` again on every dep, and the scheduler runs it in each
-CONFIGURE job. A targeted run marks the parents in `mark_unbuilt_target_deps` instead. It builds the dep
-only when the target needs it, because a rejected dep has no usable artifacts. A shim parent and a parent
-that unpacked a package do not rebuild for it, because each one meets its own check. A rejected
-header-only dep keeps its artifacts, so its `package()` still runs. A targeted run still marks it, so its
-source-built parents rebuild too.
+**Why:** a dep with no record can have moved since the package built. A dep that follows a branch moves on
+its own, and another parent can pin the same dep to another commit. Only a leaf has nothing below it to move.
+
+The rejected dep builds with reason 7 of section 10, `stale package, ReCpp changed` or `stale package, no
+record of ReCpp`. In a run with no target, a source-built parent rebuilds too. The classic path runs
+`after_load` again on every dep, and the scheduler runs it in each CONFIGURE job. A targeted run marks the
+parents in `mark_unbuilt_target_deps` instead. It builds the dep only when the target needs it, because a
+rejected dep has no usable artifacts. A shim parent and a parent that unpacked a package do not rebuild for
+it, because each one meets its own check. A rejected header-only dep keeps its artifacts, so its
+`package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
 The reject removes the shim marker and `papa.txt`.
 
 **Why:** with `papa.txt` on disk, the next run would unpack the same stale package again.
 
-A package stays when it never recorded the changed dep, when that dep has no archive name yet, or when it
-predates the `B` record. A recorded `unknown` rejects the package whenever that dep has a name. An
-`add_artifactory_pkg` dep has no source, so it only warns, once.
-
-**Why:** the archive name cannot carry the deps below it. The pre-clone probe names the archive before
-it knows the children, because only the package or the mamafile names them.
+An `add_artifactory_pkg` dep has no source, so it only warns, once.
 
 ### Which runs may fetch
 
@@ -804,6 +818,10 @@ Only one shape is trustworthy: **exactly one `self.version = '<literal>'` assign
 resolve. A module-level `NAME = '<literal>'` binding resolves too. Two assignments mean the value
 depends on which branch runs. A computed value stays invisible. In both shapes the reader would name a
 package the upload side never publishes. So mama refuses the pin, and warns once per dep per run.
+
+`0.0.0` is a placeholder and pins nothing, on the download side and on the upload side. That package gets
+the name of a dep with no `version`: its commit, its tag pin, or the content version of a local dep.
+A semver `version` also decides which builds of the dep share an ABI, see "A stale package" in section 8.
 
 An unpinned **local** dep has no commit of its own, so mama names it by its source content.
 The walk skips every file named `mama.cmake`, in any dir of the tree. It skips the workspace dir, eg
@@ -858,7 +876,8 @@ reasons. `deps_only <X>` overrides the whole table and forces a rebuild on every
 4. `configure` on the target builds.
 5. The root always builds.
 6. `always_build` builds.
-7. A rejected stale package builds, with `stale package, <dep> changed`. See section 8.
+7. A rejected stale package builds, with `stale package, <dep> changed` or `stale package, no record of
+   <dep>`. See section 8.
 8. A changed git commit builds.
 9. An `add_artifactory_pkg` dep builds.
 10. A git dep with a real clone builds when its working tree changed. This is a fast fingerprint, not a
@@ -1229,7 +1248,8 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `O` | what the objects are: build type, platform, arch, then the variant tokens and any `-march` pin |
 | `V` | the `version_suffix` a parent declared for one dependency |
 | `D` | a dependency source |
-| `B` | the archive name one dep in the subtree had when this package built |
+| `R` | the semver `version` of the target, when it has one |
+| `B` | the identity one dep in the subtree had when this package built, see "A stale package" in section 8 |
 | `I` | an exported include dir |
 | `M` | an exported C++20 module source |
 | `L` | an exported lib |

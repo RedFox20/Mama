@@ -438,6 +438,7 @@ def make_includes_target(source_dir, build_dir=None):
     target.config.verbose = target.config.print = False
     target.config.target_march = {}       # a Mock dict answers .get() truthy and renames every build dir
     target.dep.from_artifactory = False   # a Mock reads truthy, and the deploy asks this
+    target.version = ''                   # the papa `R` record reads it
     target.dep.build_dir = target.build_dir()
     target.dep.variant_suffix = ''        # the papa `O` record appends it
     target.children.return_value = []     # a Mock is not iterable, and the module strip walks these

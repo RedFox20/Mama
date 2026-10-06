@@ -7,7 +7,7 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, current_archive_name
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi
 from .mamafile_version import pinned_version
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
@@ -48,6 +48,11 @@ def read_shim_marker_at(build_dir: str) -> dict:
     return result
 
 
+def _stale_cause(name: str, built: str) -> str:
+    """Why a dep is stale, for its build reason: the dep below changed, or its record never named it."""
+    return f'{name} changed' if built else f'no record of {name}'
+
+
 class BuildDependency:
     def __init__(self, parent:BuildDependency, config:BuildConfig,
                  workspace:str, dep_source:DepSource):
@@ -71,8 +76,10 @@ class BuildDependency:
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # True when this dep loaded from artifactory
         self.artifactory_archive = '' # the package it unpacked, so a listing can name the source of the exports
-        self.built_against = {} # dep name -> archive name, from the B records of the package it unpacked
-        self.stale_package_cause = '' # the dep below whose new archive made the unpacked package stale
+        self.built_against = {} # dep name -> identity, from the B records of the package it unpacked
+        self.package_version = '' # the semver of the package it unpacked, from its R record
+        self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
+        self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
         self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
@@ -492,33 +499,46 @@ class BuildDependency:
 
     def stale_package_note(self) -> str:
         """The build reason of a rejected package, and '' for every other dep. The display shows it too."""
-        return f'stale package, {self.stale_package_cause} changed' if self.stale_package_cause else ''
+        return f'stale package, {self.stale_package_cause}' if self.stale_package_cause else ''
 
 
-    def reject_stale_package(self, deps=None) -> bool:
-        """Drop the unpacked package when it built against another archive of a dep below it, so the next
-        load() takes the source. True when it went. A package dep has no source, so it only warns.
+    def _stale_dep(self, recorded: dict, deps=None) -> tuple:
+        """(name, recorded identity, identity now) of the first dep below this one that fails same_abi, or
+        None. A dep missing from `recorded` fails, and a dep with no identity yet is skipped.
         deps: the deps to compare, or None for every dep below this one"""
-        conf = self.config
-        if not self.built_against or not (conf.build or conf.update) or conf.lock_generation: return False
         if deps is None:
             from .dependency_chain import get_flat_child_deps  # local import: dependency_chain imports this module
             deps = get_flat_child_deps(self)
-        stale = next(((d.name, built, now) for d in deps if (built := self.built_against.get(d.name))
-                      and (now := current_archive_name(d)) and now != built), None)
+        for d in deps:
+            now, built = abi_identity(d), recorded.get(d.name, '')
+            if now and not same_abi(built, now): return d.name, built, now
+        return None
+
+
+    def reject_stale_package(self, deps=None) -> bool:
+        """Drop the unpacked package when a dep below it fails same_abi against its `B` record, so the next
+        load() takes the source. A dep with no `B` record fails too, so a package that predates the record
+        stays only as a leaf. True when it went. A package dep has no source, so it only warns.
+        deps: the deps to compare, or None for every dep below this one"""
+        conf = self.config
+        if not self.from_artifactory or self.stale_checked: return False
+        if not (conf.build or conf.update) or conf.lock_generation: return False
+        stale = self._stale_dep(self.built_against, deps)
         if not stale: return False
+        self.stale_checked = True
         name, built, now = stale
         no_source = ', and a package dep has no source to build' if self.dep_source.is_pkg else ''
+        what = f'built against {name} {built}' if built else f'has no B record of {name}'
         if conf.print:
-            warning(f'  - Target {self.name: <16} STALE PACKAGE built against {built}, this run has {now}{no_source}')
-        self.built_against = {}  # one verdict per run, so a package dep warns once
+            warning(f'  - Target {self.name: <16} STALE PACKAGE {what}, this run has {now}{no_source}')
         if no_source: return False
-        self.stale_package_cause = name
+        self.stale_package_cause = _stale_cause(name, built)
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)
         self.from_artifactory = False
         self.artifactory_archive = ''
+        self.package_version, self.built_against = '', {}
         self.did_check_artifactory = True  # the probes would fetch the same package again
         self.did_skim = False  # the source load parses the mamafile again, so its hooks must run
         self.revive_deferred_load()
