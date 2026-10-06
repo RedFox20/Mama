@@ -786,6 +786,11 @@ the build of a new child. So when a child has no finished build, the run fails a
 In that run the clone is on disk, so the LOAD job names the new child and the CONFIGURE job waits for its
 build. A first-time build can still unpack the stale package, and the CONFIGURE job then rejects it again.
 
+The source can also name an existing child with another url, branch, tag or new args than the `D` records
+of the stale package did. A loaded dep keeps its first url, branch and tag, and new args move it to a build
+dir that nothing built. So on both paths the run fails, names the child, and asks for a second run. In that
+run no package names the child first.
+
 **Why:** a dep with no record can have moved since the package built. A dep that follows a branch moves on
 its own, and another parent can pin the same dep to another commit. Only a leaf has nothing below it to move.
 

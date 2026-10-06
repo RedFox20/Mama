@@ -173,9 +173,19 @@ def reload_stale_packages(scope: BuildDependency, display=None):
             if not dep.reject_stale_package(): continue
             load_dependency_chain(dep, display)
             reload_deferred_deps(dep, display=display)  # a targeted run defers a new child with no clone
+            _refuse_redeclared(dep, dep.redeclared_children())
             rejected = reloaded = True
     if rejected:  # after_load ran before the check, so run it again to flag each parent of a stale dep
         for dep in reversed(get_flat_deps(scope)): dep.after_load()
+
+
+def _refuse_redeclared(dep: BuildDependency, children: list):
+    """Stop the run when the source of a rejected package names `children` other than its package did. The
+    loaded child keeps the first declaration, so a build now would link the old one. The next run loads the source."""
+    if not children: return
+    _report_error(BuildError(f'Target {dep.name} names {", ".join(children)} other than its stale package did.' + \
+                             ' Run the build again.'), dep.config.verbose)
+    exit(-1)
 
 
 def reload_deferred_deps(scope: BuildDependency, free_only=False, display=None) -> bool:
@@ -1135,9 +1145,10 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         if not d.reject_stale_package(): return
         display.set_note(d.name, d.stale_package_note())  # the load phase named the package it unpacked
         d.load()
-        unknown = [c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done]
-        if unknown:  # this configure has no edge to the build of such a child, and it needs that build
-            raise BuildError(f'Target {d.name} names {", ".join(unknown)}, which its stale package did not.'
+        # this configure has no edge to the build of a new child, and a redeclared child built the old declaration
+        unknown = [c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done or c.redeclared]
+        if unknown:
+            raise BuildError(f'Target {d.name} names {", ".join(unknown)} other than its stale package did.' + \
                              ' Run the build again.')
 
     def _do_configure(d):

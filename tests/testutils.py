@@ -60,6 +60,7 @@ class FakeUnifiedDep:
         self._child_specs = child_specs; self._shared = shared_children
         self._children = []; self.already_executed = False
         self.is_root = False; self.load_action = 'check'; self.artifactory_archive = ''; self.built_against = {}
+        self.redeclared = False
         self.build_dir = ''  # no cache on disk, so the mixed build-type check finds nothing
         self.target = FakeUnifiedTarget(self, ev, lock)
     def load(self):
@@ -92,6 +93,7 @@ class FakeWalkDep:
     def stale_package_note(self): return ''
     def reject_stale_package(self, deps=None): return False
     def rebuild_if_stale_source(self, deps=None): return False
+    def redeclared_children(self): return []
     def load(self):
         self._log.append(self.name)
         if self._on_load: self._on_load()

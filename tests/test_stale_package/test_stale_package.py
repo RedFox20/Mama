@@ -326,14 +326,16 @@ def test_a_build_records_the_identities_below_it_when_packages_exist(tmp_path, f
     assert (read_text_from(record) if os.path.exists(record) else None) == written
 
 
-def _rejects_once(dep, log, new_child=None):
-    """Make `dep` a package that the check rejects. `new_child` is a child its mamafile names and its package did not."""
+def _rejects_once(dep, log, new_child=None, redeclared=None):
+    """Make `dep` a package that the check rejects. `new_child` is a child its mamafile names and its package did not,
+    and `redeclared` a child its mamafile names with another source."""
     dep.built_against = {'ReCpp': OLD}
     def reject(deps=None):
         if not dep.built_against: return False  # a dep is rejected once, like the real check
         log.append(('reject', dep.name, sorted(d.name for d in dc.get_flat_child_deps(dep))))
         dep.built_against = {}
         if new_child: dep._children.append(new_child)
+        if redeclared: redeclared.redeclared = True
         return True
     dep.reject_stale_package = reject
 
@@ -396,6 +398,41 @@ def test_the_scheduler_reloads_a_stale_dep_in_its_configure_after_every_child_bu
     at = ev.index(('reject', 'krattutil', ['ReCpp']))
     assert ev.index(('bld', 'ReCpp')) < at < ev.index(('cfg', 'krattutil'))
     assert ('load', 'krattutil') in ev[at:]  # the source load runs inside the configure job
+
+
+def test_the_scheduler_fails_when_the_source_redeclares_a_child_that_already_built(no_cmake_writes):
+    # the child keeps its first declaration, so a build now would link the old ReCpp
+    ev, lock = [], threading.Lock()
+    cfg = make_unified_config()
+    recpp = FakeUnifiedDep('ReCpp', cfg, ev, lock)
+    dep = FakeUnifiedDep('krattutil', cfg, ev, lock, shared_children=[recpp])
+    _rejects_once(dep, ev, redeclared=recpp)
+    with patch('mama.dependency_chain._handle_failure') as failure, pytest.raises(SystemExit):
+        dc.execute_unified(FakeUnifiedDep('root', cfg, ev, lock, shared_children=[dep]))
+    assert 'names ReCpp other than its stale package did' in str(failure.call_args.args[1].error)
+
+
+def test_the_classic_pass_stops_when_the_source_redeclares_a_child():
+    log = []; cfg = make_walk_config(verbose=False)
+    recpp = FakeWalkDep('ReCpp', cfg, log)
+    dep = FakeWalkDep('krattutil', cfg, log, [recpp])
+    _rejects_once(dep, log)
+    dep.redeclared_children = lambda: ['ReCpp'] if not dep.built_against else []
+    root = FakeWalkDep('root', cfg, log, [dep])
+    load_dependency_chain(root)
+    with patch('mama.dependency_chain._report_error') as report, pytest.raises(SystemExit):
+        reload_stale_packages(root)
+    assert 'names ReCpp other than its stale package did' in str(report.call_args.args[0])
+
+
+@pytest.mark.parametrize('declared, redeclared', [({}, False), ({'tag': 'v2'}, True), ({'branch': 'dev'}, True),
+                                                  ({'args': ['asan']}, True), ({'args': ['']}, False)])
+def test_a_second_declaration_with_another_source_or_new_args_flags_the_dep(tmp_path, declared, redeclared):
+    dep = make_mock_dep(tmp_path)
+    source = {'name': 'libfoo', 'url': 'https://example.com/libfoo.git', 'branch': 'main', 'tag': '', 'mamafile': None,
+              'shallow': True, 'args': [], **declared}
+    dep.update_existing_dependency(Git(**source))
+    assert dep.redeclared == redeclared
 
 
 def test_the_scheduler_fails_when_the_source_names_a_child_no_job_knows(no_cmake_writes):

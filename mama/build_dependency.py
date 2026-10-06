@@ -83,6 +83,7 @@ class BuildDependency:
         self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
         self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
         self.stale_archive = '' # the stale archive that the next if_needed upload replaces, once this dep built
+        self.redeclared = False # a later declaration named another source or new args, which this dep ignores
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
         self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
@@ -147,7 +148,12 @@ class BuildDependency:
 
 
     def update_existing_dependency(self, dep_source: DepSource):
+        """A second declaration of this dep. The first url, branch and tag stay, and new args move the build dir."""
+        if dep_source.is_git and self.dep_source.is_git:
+            source = lambda s: (s.url, s.branch, s.tag)
+            if source(dep_source) != source(self.dep_source): self.redeclared = True
         if dep_source.is_git or dep_source.is_src:
+            if any(a and a not in self.target_args for a in dep_source.args or []): self.redeclared = True
             self._add_args(dep_source.args)
             self._update_dep_name_and_dirs(self.name)  # new args -> new variant suffix -> new build dir
             if self.target:
@@ -506,6 +512,12 @@ class BuildDependency:
         return normalized_join(self.dep_dir, f'{archive}.stale')
 
 
+    def redeclared_children(self) -> list:
+        """The children that a later declaration named with another url, branch, tag or new args. This run
+        loaded and built the first declaration."""
+        return [c.name for c in self.get_children() if c.redeclared]
+
+
     def stale_package_note(self) -> str:
         """The build reason of a rejected package, and '' for every other dep. The display shows it too."""
         return f'stale package, {self.stale_package_cause}' if self.stale_package_cause else ''
@@ -571,6 +583,7 @@ class BuildDependency:
         self.package_version, self.built_against = '', {}
         self.did_check_artifactory = True  # the probes would fetch the same package again
         self.did_skim = False  # the source load parses the mamafile again, so its hooks must run
+        for child in self.children: child.redeclared = False  # only the source load below may set it
         self.revive_deferred_load()
         return True
 
