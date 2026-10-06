@@ -9,6 +9,7 @@ from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi
 from .mamafile_version import pinned_version
+from .papa_deploy import built_against
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
                          has_source_content, MAMA_SHIM_FILENAME
@@ -519,6 +520,24 @@ class BuildDependency:
             now, built = abi_identity(d), recorded.get(d.name, '')
             if now and not same_abi(built, now): return d.name, built, now
         return None
+
+
+    def rebuild_if_stale_source(self, deps=None) -> bool:
+        """Mark a source-built dep for rebuild when a dep below it fails same_abi against the record its last
+        build wrote. A shim child never rebuilds, so after_load never flags the parent of a shim that moved.
+        True when it marked.
+        deps: the deps to compare, or None for every dep below this one"""
+        conf = self.config
+        if self.from_artifactory or self.is_root or self.should_rebuild or self.nothing_to_build: return False
+        if not (conf.build or conf.update) or conf.lock_generation or not conf.artifactory_ftp: return False
+        lines = read_lines_from(f'{self.build_dir}/mama_built_against')
+        recorded = dict(fields for line in lines if len(fields := line.split()) == 2)  # a broken line is no record
+        stale = self._stale_dep(recorded, deps)
+        if not stale: return False
+        name, built, _ = stale
+        self.should_rebuild = True
+        if conf.print: warning(f'  - Target {self.name: <16} BUILD [{_stale_cause(name, built)}]')
+        return True
 
 
     def reject_stale_package(self, deps=None) -> bool:
@@ -1067,6 +1086,11 @@ class BuildDependency:
     def save_dependency_list(self):
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
+        # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
+        # an artifactory no package exists, so no dep below can change its ABI behind a shim.
+        if not self.config.artifactory_ftp: return
+        identities = [f'{name} {identity}' for name, identity in built_against(self.target)]
+        write_text_to(f'{self.build_dir}/mama_built_against', '\n'.join(identities))
 
 
     def find_missing_dependency(self):

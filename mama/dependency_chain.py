@@ -160,19 +160,21 @@ def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig, disp
 
 
 def reload_stale_packages(scope: BuildDependency, display=None):
-    """Load from source each package under `scope` that built against another archive of a dep below it.
-    It runs after the whole load. A parent that meets a loaded dep returns before the children of that dep
-    load, and a deferred dep has no archive name. Deepest first, so a parent compares against a child that
-    already reloaded. A reload can name a new child, so the scan repeats over the new deps."""
+    """Load from source each package under `scope` that built against another ABI of a dep below it, and
+    mark each such source-built dep for rebuild. It runs after the whole load. A parent that meets a loaded
+    dep returns before the children of that dep load, and a deferred dep has no identity. Deepest first, so
+    a parent compares against a child that already reloaded. A reload can name a new child, so the scan
+    repeats over the new deps."""
     checked, rejected = set(), False
     while unchecked := [d for d in reversed(get_flat_deps(scope)) if id(d) not in checked]:
         for dep in unchecked:
             checked.add(id(dep))
+            if dep.rebuild_if_stale_source(): rejected = True
             if not dep.reject_stale_package(): continue
             load_dependency_chain(dep, display)
             reload_deferred_deps(dep, display=display)  # a targeted run defers a new child with no clone
             rejected = True
-    if rejected:  # after_load ran before the reject, so run it again to flag each parent of a rejected dep
+    if rejected:  # after_load ran before the check, so run it again to flag each parent of a stale dep
         for dep in reversed(get_flat_deps(scope)): dep.after_load()
 
 
@@ -1129,6 +1131,7 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
 
     def _reload_if_stale(d):
         """The scheduler form of reload_stale_packages: every dep below has loaded once this configure runs."""
+        d.rebuild_if_stale_source()
         if not d.reject_stale_package(): return
         display.set_note(d.name, d.stale_package_note())  # the load phase named the package it unpacked
         d.load()

@@ -11,7 +11,7 @@ from mama.dependency_chain import load_dependency_chain, reload_stale_packages
 from mama.artifactory import same_abi
 from mama.papa_deploy import PapaFileInfo, papa_deploy_to
 from mama.types.git import Git
-from mama.utils.fileio import write_text_to
+from mama.utils.fileio import read_text_from, write_text_to
 
 OLD, NEW = 'ReCpp-linux-24-gcc14.2-x64-release-d292ca0', 'ReCpp-linux-24-gcc14.2-x64-release-83f5a3a'
 
@@ -240,6 +240,58 @@ def test_only_a_dep_that_did_not_build_asks_its_source_once(tmp_path):
     asked.assert_called_once()  # every parent deploy asks about each dep below it
 
 
+def _source_dep(tmp_path, record=None, **config):
+    """A source-built dep whose last build recorded `record` as the identities below it. None: no record."""
+    dep = make_mock_dep(tmp_path, **{'build': True, **config})
+    os.makedirs(dep.build_dir, exist_ok=True)
+    lines = '\n'.join(f'{name} {identity}' for name, identity in (record or {}).items())
+    if record is not None: write_text_to(f'{dep.build_dir}/mama_built_against', lines)
+    return dep
+
+
+@pytest.mark.parametrize('record, child, reason', [
+    ({'ReCpp': '3.2.1'}, _child('ReCpp', NEW, version='3.3.0'), 'BUILD [ReCpp changed]'),
+    (None, _child('ReCpp', NEW), 'BUILD [no record of ReCpp]'),  # a build that predates the record
+])
+def test_a_source_dep_rebuilds_when_a_dep_below_it_changed_its_abi(tmp_path, record, child, reason):
+    dep = _source_dep(tmp_path, record, print=True)
+    with patch('mama.build_dependency.warning') as warned:
+        assert dep.rebuild_if_stale_source([child])
+    assert dep.should_rebuild and reason in str(warned.call_args)
+
+
+def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):
+    # the same uncommitted edit on both runs, so only a further edit rebuilds the parents
+    dep = _source_dep(tmp_path, {'ReCpp': OLD + '+edit-f00d'})
+    assert not dep.rebuild_if_stale_source([_child('ReCpp', OLD, dirty='f00d')])
+
+
+def test_a_broken_record_line_reads_as_no_record(tmp_path):
+    assert _source_dep(tmp_path, {'ReCpp': '3.2.1 extra'}).rebuild_if_stale_source([_child('ReCpp', NEW, version='3.2.1')])
+
+
+def test_a_source_dep_whose_record_still_matches_keeps_its_build(tmp_path):
+    assert not _source_dep(tmp_path, {'ReCpp': '3.2.1'}).rebuild_if_stale_source([_child('ReCpp', NEW, version='3.2.9')])
+
+
+@pytest.mark.parametrize('attrs, config', [({'from_artifactory': True}, {}), ({'should_rebuild': True}, {}),
+                                           ({'nothing_to_build': True}, {}), ({'is_root': True}, {}),
+                                           ({}, {'artifactory_ftp': ''}), ({}, {'build': False})])
+def test_only_a_source_build_that_packages_can_reach_checks_its_record(tmp_path, attrs, config):
+    dep = _source_dep(tmp_path, **config)  # no record, so a check would mark it
+    for k, v in attrs.items(): setattr(dep, k, v)
+    assert not dep.rebuild_if_stale_source([_child('ReCpp', NEW)])
+
+
+@pytest.mark.parametrize('ftp, written', [('ftp.example.com', 'ReCpp 3.2.1'), ('', None)])
+def test_a_build_records_the_identities_below_it_when_packages_exist(tmp_path, ftp, written):
+    dep = _source_dep(tmp_path, artifactory_ftp=ftp)
+    with patch('mama.build_dependency.built_against', autospec=True, return_value=[('ReCpp', '3.2.1')]):
+        dep.save_dependency_list()
+    record = f'{dep.build_dir}/mama_built_against'
+    assert (read_text_from(record) if os.path.exists(record) else None) == written
+
+
 def _rejects_once(dep, log, new_child=None):
     """Make `dep` a package that the check rejects. `new_child` is a child its mamafile names and its package did not."""
     dep.built_against = {'ReCpp': OLD}
@@ -263,6 +315,26 @@ def test_the_classic_pass_reloads_a_rejected_dep_and_every_child_its_source_name
     # ReCpp loads once. The root runs after_load again, so a source-built root relinks.
     assert log == ['root', 'krattutil', 'ReCpp', 'root after_load', ('reject', 'krattutil', ['ReCpp']),
                    'krattutil', 'extra', 'root after_load']
+
+
+def test_the_classic_pass_marks_a_stale_source_dep_and_flags_its_parents_again():
+    log = []; cfg = make_walk_config()
+    dep = FakeWalkDep('krattutil', cfg, log)
+    dep.rebuild_if_stale_source = lambda deps=None: True
+    root = FakeWalkDep('root', cfg, log, [dep])
+    root.after_load = lambda: log.append('root after_load')
+    load_dependency_chain(root)
+    reload_stale_packages(root)
+    assert log == ['root', 'krattutil', 'root after_load', 'root after_load']  # a source dep needs no reload
+
+
+def test_the_scheduler_checks_a_source_dep_in_its_configure_after_every_child_built(no_cmake_writes):
+    ev, lock = [], threading.Lock()
+    cfg = make_unified_config()
+    dep = FakeUnifiedDep('krattutil', cfg, ev, lock, shared_children=[FakeUnifiedDep('ReCpp', cfg, ev, lock)])
+    dep.rebuild_if_stale_source = lambda deps=None: ev.append(('source check', 'krattutil'))
+    dc.execute_unified(FakeUnifiedDep('root', cfg, ev, lock, shared_children=[dep]))
+    assert ev.index(('bld', 'ReCpp')) < ev.index(('source check', 'krattutil')) < ev.index(('cfg', 'krattutil'))
 
 
 def test_the_scheduler_reloads_a_stale_dep_in_its_configure_after_every_child_built(no_cmake_writes):

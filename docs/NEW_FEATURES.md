@@ -27,9 +27,9 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
-- **A semver `version` decides which builds of a dep share an ABI.** Every package records the identity of each
-  dep below it: its semver `version`, or its archive name when it has none. A later run rebuilds a package
-  from source when a dep below it changed. A dep with a
+- **A semver `version` decides which builds of a dep share an ABI.** Every package and every source build
+  records the identity of each dep below it: its semver `version`, or its archive name when it has none.
+  A later run rebuilds a package or a source build from source when a dep below it changed. A dep with a
   semver changes with its `MAJOR.MINOR`, and a dep without one with its commit. A package with no record
   stays only as a leaf. `0.0.0` counts as no version.
 

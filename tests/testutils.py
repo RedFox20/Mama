@@ -70,6 +70,7 @@ class FakeUnifiedDep:
     def after_load(self): pass
     def stale_package_note(self): return ''
     def reject_stale_package(self, deps=None): return False
+    def rebuild_if_stale_source(self, deps=None): return False
     def clean(self): self.target.clean()
     def create_build_dir_if_needed(self): pass
     def is_root_or_config_target(self): return False
@@ -90,6 +91,7 @@ class FakeWalkDep:
         self.load_deferred = False; self.already_loaded = False
     def stale_package_note(self): return ''
     def reject_stale_package(self, deps=None): return False
+    def rebuild_if_stale_source(self, deps=None): return False
     def load(self):
         self._log.append(self.name)
         if self._on_load: self._on_load()
@@ -167,6 +169,7 @@ def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
     d.has_stale_locked_artifacts = lambda: False
     d.is_artifactory_shim = lambda: False
     d.reject_stale_package = lambda deps=None: False
+    d.rebuild_if_stale_source = lambda deps=None: False
     d.load_is_free = lambda free=free: free
     d.get_enabled_coverage = lambda: False
     def revive(d=d): d.load_deferred = False; d.revived = True; d.already_loaded = False
