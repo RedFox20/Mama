@@ -792,8 +792,11 @@ on both paths the run fails, names the child, and asks for a second run. Only th
 rejected package count, so a conflict between two other parents never stops it.
 
 The reject also writes `<archive>.rejected` into the dep dir. No later fetch on this machine unpacks that
-archive, so in the second run no package names a child first. The upload that replaces the archive on the
-server removes the marker, together with `<archive>.stale`.
+archive, so in the second run the rejected package names no child first. Another package can still name
+it first. The comparison reads the raw `D` text, so a url that `https-override` rewrote also stops the run,
+once. The upload that replaces the archive on the server removes the marker, together with
+`<archive>.stale`. A machine that never uploads keeps building that dep from source until its archive name
+changes.
 
 **Why:** a dep with no record can have moved since the package built. A dep that follows a branch moves on
 its own, and another parent can pin the same dep to another commit. Only a leaf has nothing below it to move.
@@ -807,7 +810,7 @@ it, because each one meets its own check. A rejected header-only dep keeps its a
 `package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
 The reject removes the shim marker and `papa.txt`. The successful build that follows writes
-`<archive>.stale` into the dep dir. An upload of that archive name replaces the archive on the server, even
+`<archive>.stale` into the dep dir, also in a later run when the run that rejected failed first. An upload of that archive name replaces the archive on the server, even
 under `if_needed`, and then removes the marker. The upload may run in a later mama run. A failed build
 writes no marker.
 

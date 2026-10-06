@@ -306,6 +306,16 @@ def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):
     assert not dep.rebuild_if_stale_source([_child('ReCpp', OLD, dirty='f00d')])
 
 
+def test_a_build_after_a_run_that_rejected_but_failed_still_marks_the_stale_archive(tmp_path):
+    # that run wrote only `.rejected`, and this run fetches nothing, so nothing sets stale_archive
+    dep = _source_dep(tmp_path)
+    write_text_to(dep.archive_marker('libfoo-abc1234', 'rejected'), '')
+    with patch('mama.build_dependency.current_archive_name', autospec=True, return_value='libfoo-abc1234'), \
+         patch('mama.build_dependency.current_identities', autospec=True, return_value=[]):
+        dep.save_dependency_list()
+    assert os.path.exists(dep.archive_marker('libfoo-abc1234', 'stale'))
+
+
 def test_a_broken_record_line_reads_as_no_record(tmp_path):
     assert _source_dep(tmp_path, {'ReCpp': '3.2.1 extra'}).rebuild_if_stale_source([_child('ReCpp', NEW, version='3.2.1')])
 

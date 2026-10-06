@@ -1100,14 +1100,17 @@ class BuildDependency:
     def save_dependency_list(self):
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
-        # only a successful build marks the stale copy, so a failed one never uploads its old objects
-        if self.stale_archive: write_text_to(self.archive_marker(self.stale_archive, 'stale'), '')
         # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
         # an artifactory no package exists, so a record would only outlive the objects it describes.
         record = f'{self.build_dir}/{BUILD_RECORD}'
         if not self.config.artifactory_ftp:
             if os.path.exists(record): os.remove(record)
             return
+        # only a successful build marks the stale copy, so a failed one never uploads its old objects. The
+        # reject can come from an earlier run whose build failed, and then only its `.rejected` marker remains.
+        archive = self.stale_archive or current_archive_name(self)
+        if self.stale_archive or os.path.exists(self.archive_marker(archive, 'rejected')):
+            write_text_to(self.archive_marker(archive, 'stale'), '')
         identities = [f'{name} {identity}' for name, identity in current_identities(self.target)]
         write_text_to(record, '\n'.join(identities))
 
