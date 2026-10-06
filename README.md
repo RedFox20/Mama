@@ -18,6 +18,12 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.12** (2026-Oct-06)
+ - feature: unpublish=since=<age> and dependents remove stale ABI packages
+ - bugfix: a local module dir named android or windows counts in its version
+ - bugfix: mama dirty marks every dependent of the target, not only some
+ - bugfix: unpublish no longer stops at a dep that never published
+
 **0.14.11** (2026-Oct-02)
  - feature: config.wasm.enable_threads() builds a threaded wasm tree in wasm-mt
  - bugfix: a root clean takes the dir its settings() names, eg linux-clang
@@ -28,10 +34,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - bugfix: coverage on android and macos no longer treats clang as gcc
  - bugfix: the gdb test helper finds a program under a dir with a space
  - bugfix: C files get add_c_flags(), -march and the sanitizer flags
-
-**0.14.9** (2026-Sep-28)
- - feature: raspi finds a Pi SDK in PI_SDK_HOME, /opt/pi-sdk or ~/pi-sdk
- - bugfix: a GNU cross sysroot reaches cmake, so the C probe links the target
 
 ## Why Mama
 
