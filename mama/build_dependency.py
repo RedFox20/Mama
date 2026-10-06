@@ -574,7 +574,10 @@ class BuildDependency:
         self.stale_package_cause = _stale_cause(name, built)
         self.stale_archive = self.artifactory_archive
         # an old shim marker can lack the archive name, and then nothing names a marker
-        if self.stale_archive: write_text_to(self.archive_marker(self.stale_archive, 'rejected'), '')
+        if self.stale_archive:
+            write_text_to(self.archive_marker(self.stale_archive, 'rejected'), '')
+            cached = normalized_join(self.dep_dir, f'{self.stale_archive}.zip')  # else a later run unpacks it again
+            if os.path.exists(cached): os.remove(cached)
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)
@@ -1110,8 +1113,9 @@ class BuildDependency:
             return
         # only a successful build marks the stale copy, so a failed one never uploads its old objects. The
         # reject can come from an earlier run whose build failed, and then only its `.rejected` marker remains.
-        archive = self.stale_archive or current_archive_name(self)
-        if self.stale_archive or os.path.exists(self.archive_marker(archive, 'rejected')):
+        rejected = [f for f in os.listdir(self.dep_dir) if f.endswith('.rejected')] if os.path.isdir(self.dep_dir) else []
+        archive = self.stale_archive or (current_archive_name(self) if rejected else '')
+        if self.stale_archive or f'{archive}.rejected' in rejected:
             write_text_to(self.archive_marker(archive, 'stale'), '')
         identities = [f'{name} {identity}' for name, identity in current_identities(self.target)]
         write_text_to(record, '\n'.join(identities))

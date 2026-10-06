@@ -39,12 +39,14 @@ def _child(name, archive, behind=False, version='', dirty=''):
 
 def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
     dep = _fetched_shim(tmp_path)
+    write_text_to(f'{dep.dep_dir}/{dep.artifactory_archive}.zip', 'zip')
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
     assert dep.stale_package_cause == 'ReCpp changed'
     assert not dep.from_artifactory and not dep.artifactory_archive and not dep.built_against
     assert not dep.is_artifactory_shim()  # the next load clones the source
     assert not os.path.exists(dep.papa_package_file())  # else the next run unpacks the same package again
     assert os.path.exists(dep.archive_marker('libfoo-linux-24-gcc14.2-x64-release-abc1234', 'rejected'))
+    assert not os.path.exists(f'{dep.dep_dir}/libfoo-linux-24-gcc14.2-x64-release-abc1234.zip')  # the cached download
     assert dep.did_check_artifactory and not dep.already_loaded
     assert not dep.has_usable_artifacts()  # the unpacked files stay on disk until a build replaces them
 

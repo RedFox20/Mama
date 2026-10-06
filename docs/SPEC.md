@@ -809,12 +809,12 @@ rejected dep has no usable artifacts. A shim parent and a parent that unpacked a
 it, because each one meets its own check. A rejected header-only dep keeps its artifacts, so its
 `package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
-The reject removes the shim marker and `papa.txt`. The successful build that follows writes
-`<archive>.stale` into the dep dir, also in a later run when the run that rejected failed first. An upload
-of that archive name replaces the archive on the server, even under `if_needed`, and then removes the
-marker. The upload may run in a later mama run. A failed build writes no marker.
+The reject removes the shim marker, `papa.txt` and the cached zip of the archive. The successful build
+that follows writes `<archive>.stale` into the dep dir, also in a later run when the run that rejected
+failed first. An upload of that archive name replaces the archive on the server, even under `if_needed`,
+and then removes the marker. The upload may run in a later mama run. A failed build writes no marker.
 
-**Why:** with `papa.txt` on disk, the next run would unpack the same stale package again. With the old
+**Why:** with `papa.txt` or the cached zip on disk, a later run would unpack the same stale package again. With the old
 archive on the server, every consumer would fetch it and reject it again. A CI job commonly uploads in a
 separate `mama upload if_needed` run, so the marker lives on disk. After a failed build the dir still
 holds the old objects, which must not replace the copy on the server.
