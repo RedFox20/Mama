@@ -71,6 +71,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **An unpublish stopped at the first dep that never published.** The server answers `550` for a dir it
+  does not have. Fix: a `550` listing reads as no archive.
+
 - **`mama dirty` missed a dependent that reached the target through another one, or had no source.** Fix:
   ask each dep whether its subtree holds the target, and load the whole graph with no deferred dep.
 

@@ -125,8 +125,12 @@ def list_archives(ftp, target_name: str) -> List[Archive]:
 
 
 def _list_archives_without_mlsd(ftp, target_name: str) -> List[Archive]:
+    try: paths = ftp.nlst(target_name)
+    except Exception as e:
+        if str(e).startswith('550'): return []  # no dir on the server: the target never published
+        raise
     archives = []
-    for path in ftp.nlst(target_name):
+    for path in paths:
         name = os.path.basename(path)
         if not name.endswith('.zip'): continue
         modify, size = '', 0

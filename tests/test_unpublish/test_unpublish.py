@@ -1,5 +1,5 @@
 """Pins unpublish: what each selector names, what the prompt guards, and the local purge that follows."""
-import os
+import ftplib, os
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -97,6 +97,22 @@ def test_a_version_is_as_fresh_as_its_freshest_archive():
     rebuilt = _archive('old', compiler='gcc14.3', day='28')
     newer = _archive('new', day='10')
     assert up.newest_first(up.group_by_version(NAME, [old, rebuilt, newer])) == ['old', 'new']
+
+
+# --- the server listing --------------------------------------------------------
+
+def _refusing_ftp(error):
+    return Mock(**{'mlsd.side_effect': error, 'nlst.side_effect': error})
+
+
+def test_a_target_the_server_has_no_dir_for_lists_no_archive():
+    # a dep that never published has no dir, and a `dependents` or `all` run must not stop at it
+    assert up.list_archives(_refusing_ftp(ftplib.error_perm("550 Can't check for file existence")), NAME) == []
+
+
+def test_a_listing_failure_that_is_not_a_missing_dir_still_raises():
+    with pytest.raises(ftplib.error_temp):
+        up.list_archives(_refusing_ftp(ftplib.error_temp('421 Timeout')), NAME)
 
 
 # --- the listing a human reads before confirming -------------------------------

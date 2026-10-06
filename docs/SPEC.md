@@ -1335,6 +1335,10 @@ named none. A bare word counts as typed, so `mama ReCpp unpublish=prune-old` rea
 
 An `add_artifactory_pkg` dep refuses to unpublish, because it is read-only.
 
+A target with no dir on the server lists no archive, because it never published. The server answers
+that listing with a `550`, so every `550` reads as no archive, a refused permission included. Any other
+listing failure stops the run.
+
 ## 14 Test, start and open
 
 `test`, `start` and `open` need source on disk. On a shim each one refuses, says why, and points at

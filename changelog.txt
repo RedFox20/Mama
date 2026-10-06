@@ -4,6 +4,7 @@ Newest release first. See docs/ for the design notes behind the larger changes.
 unreleased
  - bugfix: a local module dir named android or windows counts in its version
  - bugfix: mama dirty marks every dependent of the target, not only some
+ - bugfix: unpublish no longer stops at a dep that never published
 
 release: 0.14.11 (2026-Oct-02)
  - feature: config.wasm.enable_threads() builds a threaded wasm tree in wasm-mt
