@@ -788,9 +788,10 @@ In that run the clone is on disk, so the LOAD job names the new child and the CO
 build.
 
 The source can also name a child other than the stale package did, by the url, branch, tag or args of its
-`D` record, added or removed, or by the `version_suffix` of its `V` record. A loaded dep keeps its first url, branch and tag, and its args only grow. So
-on both paths the run fails, names the child, and asks for a second run. Only the declarations of the
-rejected package count, so a conflict between two other parents never stops it.
+`D` record, added or removed, or by the `version_suffix` of its `V` record. A loaded dep keeps its first
+url, branch and tag, and its args only grow. So on both paths the run fails, names the child, and asks for
+a second run. Only the declarations of the rejected package count, so a conflict between two other parents
+never stops it.
 
 The reject also writes `<archive>.rejected` into the dep dir. No later fetch on this machine unpacks that
 archive, so in the second run the rejected package names no child first. Another package can still name
@@ -811,9 +812,9 @@ it, because each one meets its own check. A rejected header-only dep keeps its a
 `package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
 The reject removes the shim marker and `papa.txt`. The successful build that follows writes
-`<archive>.stale` into the dep dir, also in a later run when the run that rejected failed first. An upload of that archive name replaces the archive on the server, even
-under `if_needed`, and then removes the marker. The upload may run in a later mama run. A failed build
-writes no marker.
+`<archive>.stale` into the dep dir, also in a later run when the run that rejected failed first. An upload
+of that archive name replaces the archive on the server, even under `if_needed`, and then removes the
+marker. The upload may run in a later mama run. A failed build writes no marker.
 
 **Why:** with `papa.txt` on disk, the next run would unpack the same stale package again. With the old
 archive on the server, every consumer would fetch it and reject it again. A CI job commonly uploads in a
