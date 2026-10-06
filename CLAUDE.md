@@ -296,20 +296,20 @@ one line. Nobody reads a changelog to learn which function moved.
    `git clone git@github.com:RedFox20/Mama.git ~/Mama`. Sync it to the release commit
    first, because a stale mirror tests the wrong tree.
 6. Commit: `release: v{major}.{minor}.{patch} <50 char description>`.
-7. Push the release commit.
-8. Run `./deploy.sh` to publish the build to PyPI. Prefer the WSL mirror, because
-   `~/.pypirc` there holds the token and twine asks nothing. On Windows twine reads the
-   token through keyring, which opens a dialog. A background shell cannot answer a dialog,
-   so it hangs with no output until it times out.
+7. Push the release commit to master. CI publishes it to PyPI, so do not run `./deploy.sh` locally.
+   The `deploy` job in `.github/workflows/tests.yml` runs only for a commit message that starts
+   with `release:`, and only after the `tests`, `integration` and `package` jobs pass.
+8. Watch the CI run with `gh run watch`, and report the result of the `deploy` job.
 
-Steps 7 and 8 reach outside this machine, so ask the user before you run them.
+Step 7 reaches outside this machine, so ask the user before you run it.
 
-`twine upload` passes `--skip-existing`, so a repeated deploy is safe.
+The `deploy` job runs `./deploy.sh build`, then `./deploy.sh --ci upload`. The upload reads the token
+from the `PYPI_API_TOKEN` secret and fails while that secret is missing. `twine upload` passes
+`--skip-existing`, so a re-run of the job is safe. A merge commit starts with `Merge pull request`, so
+merge a release pull request with squash or rebase.
 
-CI runs `./deploy.sh build`, then `./deploy.sh --ci upload`, after a green push to master whose
-commit message starts with `release:`. The upload reads the token from the `PYPI_API_TOKEN` secret
-and fails while that secret is missing. A merge commit starts with `Merge pull request`, so merge a
-release pull request with squash or rebase.
+**`deploy latest`** releases master HEAD. Read the CI state of HEAD first, and stop on a failure. Run
+steps 1 to 8. The request itself approves the push.
 
 ## Artifactory + git status invariants
 
