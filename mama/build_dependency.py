@@ -1105,6 +1105,7 @@ class BuildDependency:
     def save_dependency_list(self):
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
+        if self.from_artifactory: return  # it built nothing, and its package keeps the `B` records it came with
         # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
         # an artifactory no package exists, so a record would only outlive the objects it describes.
         record = f'{self.build_dir}/{BUILD_RECORD}'

@@ -308,7 +308,7 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
                             f'{target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
-            for marker in (stale, rejected):  # the server now holds this build, so a later run may fetch it
+            for marker in (stale, rejected) if replaces else ():  # only a rebuild clears the server copy for fetch
                 if os.path.exists(marker): os.remove(marker)
             return True
         except ArtifactoryCredentialsError as e:

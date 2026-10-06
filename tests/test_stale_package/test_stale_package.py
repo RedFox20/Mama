@@ -174,8 +174,10 @@ def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
     assert not dep.from_artifactory and dep.should_rebuild
 
 
-@pytest.mark.parametrize('rejected, built, uploads', [(False, False, False), (True, False, False), (True, True, True)])
-def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected_and_rebuilt(tmp_path, rejected, built, uploads):
+@pytest.mark.parametrize('if_needed, rejected, built, uploads', [(True, False, False, False), (True, True, False, False),
+                                                                 (True, True, True, True), (False, True, False, True)])
+def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected_and_rebuilt(tmp_path, if_needed, rejected,
+                                                                                        built, uploads):
     # the upload is a later mama run, so only the marker on disk remembers the reject. A failed rebuild
     # leaves the old objects, which must not replace the copy on the server.
     dep = _fetched_shim(tmp_path)
@@ -185,13 +187,13 @@ def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected_and_
         if built: dep.save_dependency_list()
     stale, rejected_marker = dep.archive_marker(archive, 'stale'), dep.archive_marker(archive, 'rejected')
     target = SimpleNamespace(name='libfoo', config=dep.config, dep=dep)
-    dep.config.if_needed = True
+    dep.config.if_needed = if_needed
     with patch('ftplib.FTP_TLS'), patch.object(artifactory_mod, 'artifactory_ftp_login', autospec=True), \
          patch.object(artifactory_mod, 'artifact_already_exists', autospec=True, return_value=True), \
          patch.object(artifactory_mod, 'artifactory_upload', autospec=True) as upload:
         assert artifactory_mod.artifactory_upload_ftp(target, f'{tmp_path}/{archive}.zip') == uploads
     assert upload.called == uploads and not os.path.exists(stale)  # one replace, then if_needed skips again
-    assert os.path.exists(rejected_marker) == (rejected and not uploads)  # the server copy is fit to fetch again
+    assert os.path.exists(rejected_marker) == (rejected and not built)  # only a rebuild made the server copy fit to fetch
 
 
 def _target(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version=''):
@@ -332,6 +334,13 @@ def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):
     # the same uncommitted edit on both runs, so only a further edit rebuilds the parents
     dep = _source_dep(tmp_path, {'ReCpp': OLD + '+edit-f00d'})
     assert not dep.rebuild_if_stale_source([_child('ReCpp', OLD, dirty='f00d')])
+
+
+def test_a_fetched_package_writes_no_build_record(tmp_path):
+    # after_load can flag a fetched package whose child rebuilt, and its objects still came from the package
+    dep = _fetched_shim(tmp_path)
+    dep.save_dependency_list()
+    assert not os.path.exists(f'{dep.build_dir}/mama_built_against')
 
 
 def test_a_build_after_a_run_that_rejected_but_failed_still_marks_the_stale_archive(tmp_path):

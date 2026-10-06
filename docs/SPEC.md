@@ -812,7 +812,8 @@ it, because each one meets its own check. A rejected header-only dep keeps its a
 The reject removes the shim marker, `papa.txt` and the cached zip of the archive. The successful build
 that follows writes `<archive>.stale` into the dep dir, also in a later run when the run that rejected
 failed first. An upload of that archive name replaces the archive on the server, even under `if_needed`,
-and then removes the marker. The upload may run in a later mama run. A failed build writes no marker.
+and then removes both markers. An upload without `<archive>.stale`, such as a plain `upload` after a failed
+build, keeps `<archive>.rejected`. The upload may run in a later mama run. A failed build writes no marker.
 
 **Why:** with `papa.txt` or the cached zip on disk, a later run would unpack the same stale package again. With the old
 archive on the server, every consumer would fetch it and reject it again. A CI job commonly uploads in a
@@ -827,7 +828,8 @@ rebuilds and prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`, unl
 When it has an archive name, its successful rebuild also writes `<archive>.stale` for it, so the next
 `if_needed` upload replaces the copy on the server. A build before the record therefore rebuilds once, and
 so does a record line that does not hold two fields. The root, a dep that already rebuilds, a header-only
-dep and a fetched dep skip the check. A run with no artifactory writes no record and runs no source check.
+dep and a fetched dep skip the check. A fetched dep writes no record either, because it built nothing,
+even when `after_load` flags it. A run with no artifactory writes no record and runs no source check.
 
 **Why:** a shim never rebuilds, so a shim child that moved to another package never flags its source-built
 parent through `after_load`. The rebuild keeps the archive name of a git dep, because no identity below it
