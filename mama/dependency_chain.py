@@ -1092,11 +1092,12 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         if scope is not None: scope.enter(dep, parent)
         return [L] + (make_build_jobs(dep) if builds(dep) else [])
 
+    def child_builds(dep): return {bld_jobs[c] for c in dep.get_children() if c in bld_jobs}
+
     def make_build_jobs(dep):
         """The CONFIGURE + BUILD pair of the dep: configure waits on its own load and on the builds of
         every child known so far, and grow() in _do_load adds the rest as the graph discovers them."""
-        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep,
-                deps={load_jobs[dep], *(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)})
+        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep, deps={load_jobs[dep], *child_builds(dep)})
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
                 weight=(lambda d=dep: _reserve_weight(d)), ungated=dep.is_root)
         cfg_jobs[dep] = C; bld_jobs[dep] = B
@@ -1113,10 +1114,12 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
                     elif scope is not None and scope.is_inside(dep):  # shared dep, now reached from inside the scope
                         # A load populates its children before it grows the graph, so a promoted dep can name a
                         # child no job knows yet. That child builds when its own parent registers it.
-                        for d in scope.promote(child):
-                            if d in load_jobs: new += make_build_jobs(d)
+                        promoted = [d for d in scope.promote(child) if d in load_jobs]
+                        for d in promoted: new += make_build_jobs(d)
+                        # promote() lists a parent before its children, so add each child edge once every job exists
+                        for d in promoted: cfg_jobs[d].deps.update(child_builds(d))
                 C = cfg_jobs.get(dep)  # absent when the scope excludes this dep
-                if C is not None: C.deps.update(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)
+                if C is not None: C.deps.update(child_builds(dep))
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
                 return new
             sched.grow(grow)

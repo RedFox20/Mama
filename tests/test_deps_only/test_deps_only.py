@@ -143,10 +143,13 @@ def test_unified_deps_only_promotes_a_dep_first_seen_outside_the_scope(no_cmake_
     cfg = make_unified_config(target='A')
     ev, lock = [], threading.Lock()
     mk = lambda name, kids: FakeUnifiedDep(name, cfg, ev, lock, shared_children=kids)
-    d = FakeUnifiedDep('D', cfg, ev, lock, child_specs=[('E', ())])
+    e = mk('E', [])
+    e.target.build_phase = lambda out=None: (time.sleep(0.2), e.target._rec('bld'))  # D must wait for it
+    d = mk('D', [e])
     root = mk('root', [mk('B', [d]), mk('A1', [mk('A2', [mk('A', [d])])])])
     dc.execute_unified(root, DepsOnlyScope(cfg, 'A'))
     assert _named(ev, 'bld') == {'D', 'E'}  # E sits below D and inherits the promotion
+    assert ev.index(('bld', 'E')) < ev.index(('cfg', 'D'))
 
 
 def test_unified_deps_only_promotes_a_dep_whose_child_has_no_job_yet(no_cmake_writes):

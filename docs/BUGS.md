@@ -21,13 +21,6 @@ so cut every word that a reader of the fix does not need.
   from "a dep below changed". A fetched dep must not build, but its parents still need the signal, because
   they compile the headers of the changed dep through it.
 
-- **Under `deps_only`, a shared dep promoted into the scope can configure before its children build.**
-  `scope.promote` lists the parent first (`dependency_chain.py:DepsOnlyScope.promote`), so
-  `make_build_jobs` gives its CONFIGURE no edge to the BUILD of a child that has no job yet. The stale
-  package check in that CONFIGURE can then read a child with no archive name. It can also read a child
-  whose own stale package the check has not rejected yet. Either way it keeps a stale package.
-  Fix: make the build jobs of the promoted deps deepest first, then add the child edges.
-
 - **The root `settings()` reads a build dir that the same `settings()` can then rename.** `BuildTarget.__init__`
   names the root dirs before `settings()` runs (`build_target.py:131`). The guard in `_dep_path` fires only
   on an empty path (`build_target.py:157`), so `build_dir()` returns that early path. A later `prefer_clang()`
@@ -85,6 +78,9 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **Under `deps_only`, a shared dep promoted into the scope could configure before its children built.**
+  Fix: the scheduler adds the child edges after every promoted dep has its jobs.
 
 - **An unpublish stopped at the first dep that never published.** The server answers `550` for a dir it
   does not have. Fix: a `550` listing reads as no archive.

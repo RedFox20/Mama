@@ -737,7 +737,7 @@ generation never checks.
 - The classic path checks after stage two of the load, deepest first, in `reload_stale_packages`. It
   checks the subtree of the target, or the whole tree when the run names no target.
 - The unified scheduler checks in the CONFIGURE job of the dep. That job waits for the BUILD of every
-  child, so every dep below has loaded. A `deps_only` run can break that rule, see `docs/BUGS.md`.
+  child, so every dep below has loaded. A `deps_only` promotion adds that edge too.
 
 **Why:** under a parallel load, a parent that meets a dep another parent already loaded returns before
 the children of that dep load. A check inside the walk would read a child with no name, and keep the package.
