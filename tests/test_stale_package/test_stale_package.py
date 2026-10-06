@@ -190,7 +190,7 @@ def _target(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_versi
     child.artifacts_behind_source.return_value = False
     child.get_children.return_value = [_child('ReCpp', recpp, recpp_behind, recpp_version)]
     target.children.return_value = [child]
-    target.version, target.dep.package_version = version, ''
+    target.version, target.dep.package_version, target.dep.should_rebuild = version, '', False
     for k, v in (dep_attrs or {}).items(): setattr(target.dep, k, v)
     return target
 
@@ -224,6 +224,9 @@ def test_a_deploy_writes_what_the_last_build_compiled_against_not_this_run(tmp_p
     # `mama upload` builds nothing, so the objects still hold ReCpp 3.2 while this run has 3.3
     assert _deploy(tmp_path, {'ReCpp': '3.2.1'}, recpp_version='3.3.0').built_against == {'ReCpp': '3.2.1'}
     assert _deploy(tmp_path / 'unrecorded').built_against == {}  # an unknown ABI, which a consumer rejects
+    # a build() hook that deploys runs before the record of this build exists
+    rebuilt = _deploy(tmp_path / 'rebuilt', {'ReCpp': '3.2.1'}, recpp_version='3.3.0', dep_attrs={'should_rebuild': True})
+    assert rebuilt.built_against['ReCpp'] == '3.3.0'
 
 
 def test_a_fetched_package_deploys_the_records_it_came_with(tmp_path):
@@ -316,7 +319,7 @@ def test_only_a_source_build_that_packages_can_reach_checks_its_record(tmp_path,
 
 @pytest.mark.parametrize('ftp, written', [('ftp.example.com', 'ReCpp 3.2.1'), ('', None)])
 def test_a_build_records_the_identities_below_it_when_packages_exist(tmp_path, ftp, written):
-    dep = _source_dep(tmp_path, artifactory_ftp=ftp)
+    dep = _source_dep(tmp_path, {'ReCpp': '3.1.0'}, artifactory_ftp=ftp)  # without packages the old record goes
     with patch('mama.build_dependency.current_identities', autospec=True, return_value=[('ReCpp', '3.2.1')]):
         dep.save_dependency_list()
     record = f'{dep.build_dir}/mama_built_against'

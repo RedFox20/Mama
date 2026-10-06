@@ -1092,10 +1092,13 @@ class BuildDependency:
         # only a successful build marks the stale copy, so a failed one never uploads its old objects
         if self.stale_archive: write_text_to(self.stale_archive_marker(self.stale_archive), '')
         # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
-        # an artifactory no package exists, so no dep below can change its ABI behind a shim.
-        if not self.config.artifactory_ftp: return
+        # an artifactory no package exists, so a record would only outlive the objects it describes.
+        record = f'{self.build_dir}/{BUILD_RECORD}'
+        if not self.config.artifactory_ftp:
+            if os.path.exists(record): os.remove(record)
+            return
         identities = [f'{name} {identity}' for name, identity in current_identities(self.target)]
-        write_text_to(f'{self.build_dir}/{BUILD_RECORD}', '\n'.join(identities))
+        write_text_to(record, '\n'.join(identities))
 
 
     def find_missing_dependency(self):

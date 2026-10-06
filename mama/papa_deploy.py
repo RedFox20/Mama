@@ -40,9 +40,10 @@ def read_build_record(build_dir: str) -> dict:
 
 def built_against(target:BuildTarget) -> list:
     """(name, identity) that the objects of `target` compiled against: the `B` records of a fetched package,
-    or the record of the last successful source build. A deploy without a rebuild must not claim the deps of
-    this run. [] when nothing recorded them, which a consumer reads as an unknown ABI."""
+    the deps of this run for a dep this run rebuilds, else the record of its last successful build. A deploy
+    without a rebuild must not claim the deps of this run. [] for no record, which reads as an unknown ABI."""
     if target.dep.from_artifactory: return list(target.dep.built_against.items())
+    if target.dep.should_rebuild: return current_identities(target)  # a build() hook can deploy before the record
     return list(read_build_record(target.dep.build_dir).items())
 
 

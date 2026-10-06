@@ -724,16 +724,19 @@ package keeps its name when a dep below it moves.
 A consumer that links the new dep then crashes.
 
 So a successful source build records the identity of every dep in its subtree that has one. It writes them
-to `mama_built_against` in its build dir, in a run with an artifactory. The direct children alone are not
-enough.
-A deploy writes that record as one `B <dep> <identity>` line per dep. A source build with no record writes
-no `B` record, which a consumer reads as an unknown ABI. The identity of a dep is its `version` when that is a
-semver, `MAJOR.MINOR.PATCH`. Otherwise it is the archive name the dep has in that run. That is the package
-it unpacked, or the name its source would publish for the build type of the run. So a dep with no semver
-is pinned to its commit. A dep that did not load has no identity, and neither does a deferred dep. A fetched
-package writes the `B` records it came with. A deploy also writes `R <version>` when the target has a semver,
-so a package answers with its version without its mamafile. A package takes its semver only from that
-record, so a package that predates it has its archive name as identity.
+to `mama_built_against` in its build dir, in a run with an artifactory. A build in a run without one removes
+the record. The direct children alone are not enough. A deploy writes one `B <dep> <identity>` line per dep.
+For a dep that this run rebuilds, the lines hold the identities of this run, because a `build()` hook can
+deploy before the record exists. For any other dep they hold the record. A source build with no record
+writes no `B` record, which a consumer reads as an unknown ABI.
+
+The identity of a dep is its `version` when that is a semver, `MAJOR.MINOR.PATCH`. Otherwise it is the
+archive name the dep has in that run. That is the package it unpacked, or the name its source would publish
+for the build type of the run. So a dep with no semver is pinned to its commit. A dep that did not load has
+no identity, and neither does a deferred dep. A fetched package writes the `B` records it came with. A
+deploy also writes `R <version>` when the target has a semver, so a package answers with its version
+without its mamafile. A package takes its semver only from that record, so a package that predates it has
+its archive name as identity.
 
 **Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip. A deploy without
 a rebuild, such as `mama upload A`, must describe the objects on disk, not the deps of this run.
