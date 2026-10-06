@@ -7,6 +7,7 @@ import pytest
 
 from testutils import make_package_target, make_project_dir, stub_loaders, stub_runners
 
+from mama.dependency_chain import get_deps_that_depend_on_target
 from mama.main import mamabuild, set_target_from_unused_args
 
 import mama.artifactory_unpublish as up
@@ -431,6 +432,22 @@ def test_an_update_cannot_widen_the_unpublish_to_the_whole_tree():
     assert config.user_target is None
     config.target = 'all'  # what main.py does next
     assert up.in_scope(_scoped('other', False, config.user_target)) is False
+
+
+def _graph():
+    """root -> a -> ReCpp, root -> b -> a, root -> c. Only `a` names ReCpp itself."""
+    def node(name, *children):
+        dep = SimpleNamespace(name=name, children=list(children), target=SimpleNamespace(name=name))
+        dep.get_children = lambda: dep.children
+        return dep
+    recpp = node('ReCpp')
+    a = node('a', recpp)
+    return node('root', a, node('b', a), node('c')), recpp
+
+
+def test_dependents_reach_a_dep_that_needs_the_target_only_through_another_dependent():
+    root, recpp = _graph()
+    assert sorted(d.name for d in get_deps_that_depend_on_target(root, recpp)) == ['a', 'b', 'root']
 
 
 # --- the selector parsing -----------------------------------------------------

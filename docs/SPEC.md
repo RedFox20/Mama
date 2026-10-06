@@ -378,8 +378,9 @@ children's jobs. A CONFIGURE waits on its own LOAD plus every child's BUILD, so 
 deeper dep still clones.
 
 **Classic** handles everything else, because those commands need the resolved tree up front for lookup
-and filtering. A non-targeted or `dirty` run loads the whole graph with `load_dependency_chain`. A
-targeted run takes the two-stage walk of section 7 instead. Either way `execute_task_chain_parallel`
+and filtering. A run with no target, or with `all`, `deps_only` or `dirty`, loads the whole graph with
+`load_dependency_chain`. Any other run that names a target takes the two-stage walk of section 7 instead.
+`BuildConfig.scoped_to_target` makes that choice. Either way `execute_task_chain_parallel`
 then runs a second scheduler over configure and build. `serial` selects `execute_task_chain`, which
 runs one dep at a time and draws no display.
 
@@ -599,9 +600,10 @@ Both hooks run once per dep, and `did_skim` is what stops the later load from re
 parent-supplied mamafile names children of its own, so `revive_deferred_load` drops them before the real
 load runs the hook again.
 
-Inside stage one, `_defer_load` skips every network step of a dep outside the target: the shim probe,
+In a targeted load, `_defer_load` skips every network step of a dep outside the target: the shim probe,
 the package fetch and the clone. **Exploring the graph must never turn a cached shim into a clone.** A
-deferred dep keeps its name, so `find_dependency` still finds it.
+deferred dep keeps its name, so `find_dependency` still finds it. A `dirty` run defers nothing, because
+it acts on the parents of the target, and a deferred dep names no children.
 
 **Stage two, `revive_deferred_target_deps`**, loads the subtree of the target and nothing else. When
 the graph never names the target, the cached packages expand first, because they cost no network. Only

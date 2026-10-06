@@ -71,6 +71,9 @@ so cut every word that a reader of the fix does not need.
 
 ## Closed
 
+- **`mama dirty` missed a dependent that reached the target through another one, or had no source.** Fix:
+  ask each dep whether its subtree holds the target, and load the whole graph with no deferred dep.
+
 - **A local module source dir named like the build dir, eg `android`, dropped out of its version.** One
   module got a version per platform. Fix: skip the workspace dir only, which holds every build dir.
 

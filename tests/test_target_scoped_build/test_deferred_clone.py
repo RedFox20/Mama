@@ -19,16 +19,14 @@ from mama.types.git import Git
 from mama.types.local_source import LocalSource
 
 
-def _targeted_dep(tmp_path, target='other', **over):
-    dep = make_mock_dep(tmp_path, target=target, deps_only=False, **over)
-    dep.config.targets_all.return_value = False
+def _targeted_dep(tmp_path, make=make_mock_dep, **over):
+    dep = make(tmp_path, target='other', **over)
+    dep.config.scoped_to_target.return_value = True
     return dep
 
 
 def _targeted_shim_dep(tmp_path, **over):
-    dep = make_mock_shim_dep(tmp_path, target='other', deps_only=False, **over)
-    dep.config.targets_all.return_value = False
-    return dep
+    return _targeted_dep(tmp_path, make=make_mock_shim_dep, **over)
 
 
 def test_a_no_source_dep_outside_the_target_defers_its_load(tmp_path):
@@ -41,11 +39,20 @@ def test_the_named_target_still_loads(tmp_path):
     assert not dep._defer_load()
 
 
-def test_an_untargeted_run_never_defers(tmp_path):
-    for target, matches_all in ((None, False), ('all', True)):
-        dep = make_mock_dep(tmp_path / str(target), target=target, deps_only=False)
-        dep.config.targets_all.return_value = matches_all
-        assert not dep._defer_load()
+def test_a_run_that_needs_the_whole_tree_never_defers(tmp_path):
+    # `dirty` names a target, and a deferred parent of it would name no children
+    dep = _targeted_dep(tmp_path, deps_only=False)
+    dep.config.targets_all.return_value = False
+    dep.config.scoped_to_target.return_value = False
+    assert not dep._defer_load()
+
+
+@pytest.mark.parametrize('args, scoped', [
+    (['target=x'], True), ([], False), (['all'], False), (['target=x', 'deps_only'], False),
+    (['target=x', 'dirty'], False)])
+def test_a_run_scopes_to_its_target_unless_it_needs_the_whole_tree(args, scoped):
+    # `dirty` acts on the parents of the target, and a scoped load never reads them
+    assert BuildConfig(args).scoped_to_target() is scoped
 
 
 def test_a_real_clone_is_free_so_it_loads(tmp_path):
@@ -69,12 +76,6 @@ def test_a_cached_shim_defers_but_stays_free_to_expand(tmp_path):
 @pytest.mark.parametrize('flag', ['update', 'disable_artifactory'])
 def test_a_cached_shim_that_re_probes_the_remote_is_not_free(tmp_path, flag):
     assert not _targeted_shim_dep(tmp_path, **{flag: True}).load_is_free()
-
-
-def test_deps_only_never_defers(tmp_path):
-    dep = _targeted_dep(tmp_path)
-    dep.config.deps_only = True
-    assert not dep._defer_load()
 
 
 def test_a_deferred_load_touches_no_network(tmp_path):

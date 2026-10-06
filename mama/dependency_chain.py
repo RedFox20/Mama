@@ -271,34 +271,15 @@ class DepsOnlyScope:
         if self.target_name: self.config.target = 'all'
 
 
-def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency, deps = []) -> List[BuildDependency]:
-    """ Return all dependencies that depend on the target. """
-    discovered_new = False
-    def depth_first_search_for_target(dep: BuildDependency):
-        nonlocal discovered_new, target, deps
-        depends = False
-        for child in dep.get_children():
-            if child in deps:
-                continue
-            if child == target:
-                depends = True
-            if depth_first_search_for_target(child):
-                deps.append(child)
-                depends = True
-                discovered_new = True
-        return depends
-    if depth_first_search_for_target(root) and root not in deps:
-        deps.append(root)
-        discovered_new = True
-
-    # expand the initial deps to include second-level dependencies
-    while discovered_new:
-        discovered_new = False
-        for d in deps:
-            depth_first_search_for_target(d)
-            if discovered_new:
-                break # restart the outer loop
-    return deps
+def get_deps_that_depend_on_target(root: BuildDependency, target: BuildDependency) -> List[BuildDependency]:
+    """Every dep whose subtree holds `target`, the root included. A shared dep is one instance."""
+    holds = {}  # id(dep) -> bool, so a shared dep walks its subtree once
+    def depends(dep: BuildDependency) -> bool:
+        key = id(dep)
+        if key not in holds:
+            holds[key] = any(c is target or depends(c) for c in dep.get_children())
+        return holds[key]
+    return [d for d in get_flat_deps(root) if depends(d)]
 
 
 def _proxy_paths(dep: BuildDependency) -> list:

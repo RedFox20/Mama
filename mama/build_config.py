@@ -1158,6 +1158,13 @@ class BuildConfig:
             or (self.target and self.target.lower() == target_name.lower())
 
 
+    def scoped_to_target(self) -> bool:
+        """True when the run names one target, so both the load and the task chain scope to its subtree.
+        `all` asks for the whole tree, and `deps_only` scopes itself to the deps of its own target.
+        `dirty` needs the parents of the target, which only the whole tree names."""
+        return self.has_target() and not self.targets_all() and not self.deps_only and not self.dirty
+
+
     def no_specific_target(self) -> bool:
         """ True when the cmdline named no target, or named 'all' """
         return self.no_target() or self.targets_all()

@@ -182,6 +182,7 @@ def make_mock_config(tmp_path, **overrides):
     cfg.loaded_dependencies = {}
     cfg.dep_registry_lock = threading.Lock()  # real lock so add_child works under the mock config
     cfg.target_matches.return_value = False
+    cfg.scoped_to_target.return_value = False  # the whole tree loads, and nothing defers
     cfg.force_artifactory = False
     cfg.disable_artifactory = False
     cfg.is_network_available.return_value = True

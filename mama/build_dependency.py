@@ -442,7 +442,7 @@ class BuildDependency:
         only what the disk already answers. After the load, revive_deferred_target_deps runs stage two
         and loads the deferred deps that the subtree of the target needs."""
         config = self.config
-        if not config.target or config.targets_all() or config.deps_only: return False
+        if not config.scoped_to_target(): return False
         if self.is_current_target() or self.clone_revived: return False
         if not self.dep_source.is_git: return False  # a local dep is already on disk, a pkg dep is one url
         # source on disk costs nothing to read, and it grows the graph, so it always loads
