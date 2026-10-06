@@ -9,7 +9,7 @@ import mama.artifactory as artifactory_mod
 from mama import dependency_chain as dc
 from mama.dependency_chain import load_dependency_chain, reload_stale_packages
 from mama.artifactory import same_abi
-from mama.papa_deploy import PapaFileInfo, papa_deploy_to
+from mama.papa_deploy import PapaFileInfo, current_identities, papa_deploy_to
 from mama.types.git import Git
 from mama.utils.fileio import read_text_from, write_text_to
 
@@ -52,6 +52,8 @@ def test_a_reject_of_a_package_with_no_archive_name_writes_no_marker(tmp_path):
     dep = _fetched_shim(tmp_path)
     dep.artifactory_archive = ''
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
+    with patch('mama.build_dependency.current_identities', autospec=True, return_value=[]):
+        dep.save_dependency_list()
     assert not [f for f in os.listdir(dep.dep_dir) if f.endswith('.stale')]
 
 
@@ -157,12 +159,15 @@ def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
     assert not dep.from_artifactory and dep.should_rebuild
 
 
-@pytest.mark.parametrize('rejected, uploads', [(False, False), (True, True)])
-def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected(tmp_path, rejected, uploads):
-    # the upload is a later mama run, so only the marker on disk remembers the reject
+@pytest.mark.parametrize('rejected, built, uploads', [(False, False, False), (True, False, False), (True, True, True)])
+def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected_and_rebuilt(tmp_path, rejected, built, uploads):
+    # the upload is a later mama run, so only the marker on disk remembers the reject. A failed rebuild
+    # leaves the old objects, which must not replace the copy on the server.
     dep = _fetched_shim(tmp_path)
     archive = dep.artifactory_archive
     if rejected: dep.reject_stale_package([_child('ReCpp', NEW)])
+    with patch('mama.build_dependency.current_identities', autospec=True, return_value=[]):
+        if built: dep.save_dependency_list()
     marker = dep.stale_archive_marker(archive)
     target = SimpleNamespace(name='libfoo', config=dep.config, dep=dep)
     dep.config.if_needed = True
@@ -173,8 +178,8 @@ def test_an_if_needed_upload_replaces_only_an_archive_this_machine_rejected(tmp_
     assert upload.called == uploads and not os.path.exists(marker)  # one replace, then if_needed skips again
 
 
-def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version='') -> PapaFileInfo:
-    """Deploy a target over krattutil, which sits over ReCpp, and read the papa file back."""
+def _target(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_version='', version=''):
+    """A target over krattutil, which sits over ReCpp."""
     target = make_includes_target(str(tmp_path))
     child = Mock(artifactory_archive='krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1', from_artifactory=True,
                  package_version='')
@@ -187,32 +192,48 @@ def _deploy(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_versi
     target.children.return_value = [child]
     target.version, target.dep.package_version = version, ''
     for k, v in (dep_attrs or {}).items(): setattr(target.dep, k, v)
+    return target
+
+
+def _deploy(tmp_path, record=None, **target) -> PapaFileInfo:
+    """Deploy _target(**target) after a build that recorded `record`, and read the papa file back."""
+    t = _target(tmp_path, **target)
+    if record: write_text_to(f'{t.dep.build_dir}/mama_built_against', '\n'.join(f'{n} {i}' for n, i in record.items()))
     deploy_dir = str(tmp_path / 'deploy')
     os.makedirs(deploy_dir)
-    papa_deploy_to(target, deploy_dir, r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)
+    papa_deploy_to(t, deploy_dir, r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)
     return PapaFileInfo(os.path.join(deploy_dir, 'papa.txt'))
 
 
-def test_a_deploy_records_the_archive_of_every_dep_below_it(tmp_path):
+def _identities(tmp_path, **target) -> dict:
+    return dict(current_identities(_target(tmp_path, **target)))
+
+
+def test_the_identities_cover_every_dep_below_the_target(tmp_path):
     # ReCpp is not a direct child, and its inline code still sits inside these objects
-    assert _deploy(tmp_path).built_against == {'krattutil': 'krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1',
-                                               'ReCpp': NEW}
+    assert _identities(tmp_path) == {'krattutil': 'krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1', 'ReCpp': NEW}
+    assert _identities(tmp_path / 'semver', recpp_version='3.2.1')['ReCpp'] == '3.2.1'
 
 
-def test_a_deploy_records_the_semver_of_the_target_and_of_each_dep_that_has_one(tmp_path):
-    papa = _deploy(tmp_path, recpp_version='3.2.1', version='1.4.0')
-    assert papa.version == '1.4.0' and papa.built_against['ReCpp'] == '3.2.1'
+def test_a_deploy_records_the_semver_of_the_target(tmp_path):
+    assert _deploy(tmp_path, version='1.4.0').version == '1.4.0'
     assert _deploy(tmp_path / 'plain', version='34.0').version == ''  # not a semver, so the archive name pins it
 
 
+def test_a_deploy_writes_what_the_last_build_compiled_against_not_this_run(tmp_path):
+    # `mama upload` builds nothing, so the objects still hold ReCpp 3.2 while this run has 3.3
+    assert _deploy(tmp_path, {'ReCpp': '3.2.1'}, recpp_version='3.3.0').built_against == {'ReCpp': '3.2.1'}
+    assert _deploy(tmp_path / 'unrecorded').built_against == {}  # an unknown ABI, which a consumer rejects
+
+
 def test_a_fetched_package_deploys_the_records_it_came_with(tmp_path):
-    papa = _deploy(tmp_path, {'from_artifactory': True, 'built_against': {'ReCpp': OLD}})
+    papa = _deploy(tmp_path, dep_attrs={'from_artifactory': True, 'built_against': {'ReCpp': OLD}})
     assert papa.built_against == {'ReCpp': OLD}
 
 
-def test_a_deploy_marks_a_dep_whose_artifacts_differ_from_its_source(tmp_path):
-    assert _deploy(tmp_path, recpp_behind=True).built_against['ReCpp'] == NEW + '+behind'
-    assert 'ReCpp' not in _deploy(tmp_path / 'nameless', recpp='', recpp_behind=True).built_against
+def test_the_identity_marks_a_dep_whose_artifacts_differ_from_its_source(tmp_path):
+    assert _identities(tmp_path, recpp_behind=True)['ReCpp'] == NEW + '+behind'
+    assert 'ReCpp' not in _identities(tmp_path / 'nameless', recpp='', recpp_behind=True)
 
 
 @pytest.mark.parametrize('status, head, tree_changed, behind', [
@@ -260,7 +281,7 @@ def test_a_source_dep_rebuilds_when_a_dep_below_it_changed_its_abi(tmp_path, rec
          patch('mama.build_dependency.current_archive_name', autospec=True, return_value='libfoo-abc1234'):
         assert dep.rebuild_if_stale_source([child])
     assert dep.should_rebuild and reason in str(warned.call_args)
-    assert os.path.exists(dep.stale_archive_marker('libfoo-abc1234'))  # the next if_needed upload replaces it
+    assert dep.stale_archive == 'libfoo-abc1234'  # the next if_needed upload replaces it, once the build succeeds
 
 
 def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):
@@ -296,7 +317,7 @@ def test_only_a_source_build_that_packages_can_reach_checks_its_record(tmp_path,
 @pytest.mark.parametrize('ftp, written', [('ftp.example.com', 'ReCpp 3.2.1'), ('', None)])
 def test_a_build_records_the_identities_below_it_when_packages_exist(tmp_path, ftp, written):
     dep = _source_dep(tmp_path, artifactory_ftp=ftp)
-    with patch('mama.build_dependency.built_against', autospec=True, return_value=[('ReCpp', '3.2.1')]):
+    with patch('mama.build_dependency.current_identities', autospec=True, return_value=[('ReCpp', '3.2.1')]):
         dep.save_dependency_list()
     record = f'{dep.build_dir}/mama_built_against'
     assert (read_text_from(record) if os.path.exists(record) else None) == written

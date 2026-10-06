@@ -10,7 +10,7 @@ from .utils.dir_lock import interprocess_dir_lock
 from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi, \
                          current_archive_name
 from .mamafile_version import pinned_version
-from .papa_deploy import built_against
+from .papa_deploy import BUILD_RECORD, current_identities, read_build_record
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
                          has_source_content, MAMA_SHIM_FILENAME
@@ -82,6 +82,7 @@ class BuildDependency:
         self.package_version = '' # the semver of the package it unpacked, from its R record
         self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
         self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
+        self.stale_archive = '' # the stale archive that the next if_needed upload replaces, once this dep built
         self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
         self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
@@ -534,16 +535,12 @@ class BuildDependency:
         conf = self.config
         if self.from_artifactory or self.is_root or self.should_rebuild or self.nothing_to_build: return False
         if not (conf.build or conf.update) or conf.lock_generation or not conf.artifactory_ftp: return False
-        lines = read_lines_from(f'{self.build_dir}/mama_built_against')
-        recorded = dict(fields for line in lines if len(fields := line.split()) == 2)  # a broken line is no record
-        stale = self._stale_dep(recorded, deps)
+        stale = self._stale_dep(read_build_record(self.build_dir), deps)
         if not stale: return False
         name, built, _ = stale
         self.should_rebuild = True
         if conf.print: warning(f'  - Target {self.name: <16} BUILD [{_stale_cause(name, built)}]')
-        # the rebuild keeps the archive name, so the copy on the server still holds the old objects
-        archive = current_archive_name(self)
-        if archive: write_text_to(self.stale_archive_marker(archive), '')
+        self.stale_archive = current_archive_name(self)  # the rebuild keeps the name of the stale copy
         return True
 
 
@@ -565,9 +562,7 @@ class BuildDependency:
             warning(f'  - Target {self.name: <16} STALE PACKAGE {what}, this run has {now}{no_source}')
         if no_source: return False
         self.stale_package_cause = _stale_cause(name, built)
-        # a later upload replaces the archive. An old shim marker can lack the archive name, and then nothing does
-        if self.artifactory_archive:
-            write_text_to(self.stale_archive_marker(self.artifactory_archive), '')
+        self.stale_archive = self.artifactory_archive
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)
@@ -1094,11 +1089,13 @@ class BuildDependency:
     def save_dependency_list(self):
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
+        # only a successful build marks the stale copy, so a failed one never uploads its old objects
+        if self.stale_archive: write_text_to(self.stale_archive_marker(self.stale_archive), '')
         # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
         # an artifactory no package exists, so no dep below can change its ABI behind a shim.
         if not self.config.artifactory_ftp: return
-        identities = [f'{name} {identity}' for name, identity in built_against(self.target)]
-        write_text_to(f'{self.build_dir}/mama_built_against', '\n'.join(identities))
+        identities = [f'{name} {identity}' for name, identity in current_identities(self.target)]
+        write_text_to(f'{self.build_dir}/{BUILD_RECORD}', '\n'.join(identities))
 
 
     def find_missing_dependency(self):

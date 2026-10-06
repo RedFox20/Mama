@@ -29,12 +29,27 @@ def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     return dependecies
 
 
+BUILD_RECORD = 'mama_built_against'  # in the build dir: the identities the last successful build compiled against
+
+
+def read_build_record(build_dir: str) -> dict:
+    """{dep name: identity} that the last successful build in `build_dir` recorded, {} when none did."""
+    lines = read_lines_from(f'{build_dir}/{BUILD_RECORD}')
+    return dict(fields for line in lines if len(fields := line.split()) == 2)  # a broken line is no record
+
+
 def built_against(target:BuildTarget) -> list:
-    """(name, identity) of every dep in the subtree of `target`, see abi_identity. A header or an inline
-    function of any of them can sit inside these objects. The direct children alone miss a change two levels
-    down. A fetched package keeps the records it came with, because its objects compiled in an earlier run."""
-    from .artifactory import abi_identity  # local import: artifactory imports this module
+    """(name, identity) that the objects of `target` compiled against: the `B` records of a fetched package,
+    or the record of the last successful source build. A deploy without a rebuild must not claim the deps of
+    this run. [] when nothing recorded them, which a consumer reads as an unknown ABI."""
     if target.dep.from_artifactory: return list(target.dep.built_against.items())
+    return list(read_build_record(target.dep.build_dir).items())
+
+
+def current_identities(target:BuildTarget) -> list:
+    """(name, identity) of every dep in the subtree of `target` in this run, see abi_identity. A header or an
+    inline function of any of them can sit inside the objects, so the direct children alone miss a change."""
+    from .artifactory import abi_identity  # local import: artifactory imports this module
     found = {}
     def walk(children):
         for child in children:

@@ -723,8 +723,11 @@ package keeps its name when a dep below it moves.
 **Why:** the objects of the package can still hold an inline function or a class layout of the old dep.
 A consumer that links the new dep then crashes.
 
-So a deploy writes one `B <dep> <identity>` record for every dep in the subtree of the target that has an
-identity. The direct children alone are not enough. The identity of a dep is its `version` when that is a
+So a successful source build records the identity of every dep in its subtree that has one. It writes them
+to `mama_built_against` in its build dir, in a run with an artifactory. The direct children alone are not
+enough.
+A deploy writes that record as one `B <dep> <identity>` line per dep. A source build with no record writes
+no `B` record, which a consumer reads as an unknown ABI. The identity of a dep is its `version` when that is a
 semver, `MAJOR.MINOR.PATCH`. Otherwise it is the archive name the dep has in that run. That is the package
 it unpacked, or the name its source would publish for the build type of the run. So a dep with no semver
 is pinned to its commit. A dep that did not load has no identity, and neither does a deferred dep. A fetched
@@ -732,7 +735,8 @@ package writes the `B` records it came with. A deploy also writes `R <version>` 
 so a package answers with its version without its mamafile. A package takes its semver only from that
 record, so a package that predates it has its archive name as identity.
 
-**Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip.
+**Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip. A deploy without
+a rebuild, such as `mama upload A`, must describe the objects on disk, not the deps of this run.
 
 Two identities match when both are semvers with the same `MAJOR.MINOR`. Any other pair must be equal. A
 patch release therefore keeps every package built on the version before it, and a minor or a major
@@ -790,25 +794,25 @@ rejected dep has no usable artifacts. A shim parent and a parent that unpacked a
 it, because each one meets its own check. A rejected header-only dep keeps its artifacts, so its
 `package()` still runs. A targeted run still marks it, so its source-built parents rebuild too.
 
-The reject removes the shim marker and `papa.txt`, and writes `<archive>.stale` into the dep dir. An upload
-of that archive name replaces the archive on the server, even under `if_needed`, and then removes the
-marker. The upload may run in a later mama run.
+The reject removes the shim marker and `papa.txt`. The successful build that follows writes
+`<archive>.stale` into the dep dir. An upload of that archive name replaces the archive on the server, even
+under `if_needed`, and then removes the marker. The upload may run in a later mama run. A failed build
+writes no marker.
 
 **Why:** with `papa.txt` on disk, the next run would unpack the same stale package again. With the old
 archive on the server, every consumer would fetch it and reject it again. A CI job commonly uploads in a
-separate `mama upload if_needed` run, so the marker lives on disk.
+separate `mama upload if_needed` run, so the marker lives on disk. After a failed build the dir still
+holds the old objects, which must not replace the copy on the server.
 
 An `add_artifactory_pkg` dep has no source, so it only warns, once.
 
-**A source-built dep checks itself the same way.** A successful build writes the identity of every dep
-below it that has one into `mama_built_against` in its build dir. The next `build` or `update` compares
-those identities with the same rules. On a mismatch, or on a dep with no record, the dep rebuilds and
-prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`, unless the run is silent. When it has an
-archive name, it also writes `<archive>.stale` for it, so the next `if_needed` upload replaces the copy on
-the server. A build before the
-record therefore rebuilds once, and so does a record line that does not hold two fields. The root, a dep that already
-rebuilds, a header-only dep and a fetched dep skip the check. A run with no artifactory writes no record
-and runs no source check.
+**A source-built dep checks itself the same way.** The next `build` or `update` compares its
+`mama_built_against` record with the same rules. On a mismatch, or on a dep with no record, the dep
+rebuilds and prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`, unless the run is silent.
+When it has an archive name, its successful rebuild also writes `<archive>.stale` for it, so the next
+`if_needed` upload replaces the copy on the server. A build before the record therefore rebuilds once, and
+so does a record line that does not hold two fields. The root, a dep that already rebuilds, a header-only
+dep and a fetched dep skip the check. A run with no artifactory writes no record and runs no source check.
 
 **Why:** a shim never rebuilds, so a shim child that moved to another package never flags its source-built
 parent through `after_load`. The rebuild keeps the archive name of a git dep, because no identity below it
