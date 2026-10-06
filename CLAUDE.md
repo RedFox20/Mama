@@ -245,6 +245,21 @@ survives two rounds needs a different fix, not a third round of the same one.
 - Atomic commits: one logical change per commit. A bug fix and a refactor go into
   two commits, even in one session.
 
+## Pull requests
+
+Most work goes through a pull request. **Squash-merge it**, so master holds one commit per pull request.
+The squash commit message follows the commit style above. Inside the branch, keep atomic commits, and
+update the branch by a rebase onto master, never by a merge of master.
+
+A pull request that ships a release takes one of two forms:
+
+1. Its last commit carries steps 1 to 3 of the release process, and the squash commit message starts
+   with `release:`. The merge publishes it.
+2. The squash commit keeps its own type, and a separate `release:` commit on master follows it.
+
+Only a commit on master whose message starts with `release:` publishes. Every other push to master is
+safe, so a docs or a CLAUDE.md change needs no release step.
+
 ## changelog.txt
 
 `changelog.txt` in the repo root lists every release, newest first. **Update it when
@@ -299,14 +314,16 @@ one line. Nobody reads a changelog to learn which function moved.
 7. Push the release commit to master. CI publishes it to PyPI, so do not run `./deploy.sh` locally.
    The `deploy` job in `.github/workflows/tests.yml` runs only for a commit message that starts
    with `release:`, and only after the `tests`, `integration` and `package` jobs pass.
-8. Watch the CI run with `gh run watch`, and report the result of the `deploy` job.
+8. Watch the CI run with `gh run watch`, and report the result of the `deploy` job. Then check that
+   PyPI serves the new version: `curl -s https://pypi.org/pypi/mama/json`, field `info.version`. A green
+   job alone does not prove the upload, because twine skips an upload it reads as already done.
 
 Step 7 reaches outside this machine, so ask the user before you run it.
 
 The `deploy` job runs `./deploy.sh build`, then `./deploy.sh --ci upload`. The upload reads the token
 from the `PYPI_API_TOKEN` secret and fails while that secret is missing. `twine upload` passes
-`--skip-existing`, so a re-run of the job is safe. A merge commit starts with `Merge pull request`, so
-merge a release pull request with squash or rebase.
+`--skip-existing`, so a re-run of the job is safe. A merge commit starts with `Merge pull request` and
+publishes nothing, so squash-merge a release pull request, see "Pull requests".
 
 **`deploy latest`** releases master HEAD. Read the CI state of HEAD first, and stop on a failure. Run
 steps 1 to 8. The request itself approves the push.
