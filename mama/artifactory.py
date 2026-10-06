@@ -103,6 +103,19 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
 
 
+def current_archive_name(dep) -> str:
+    """The archive name of what `dep` holds in this run: the package it unpacked, or the one its source
+    would publish. '' when nothing names it yet. A `B` record stores this value, and a load compares it."""
+    if dep.artifactory_archive: return dep.artifactory_archive
+    # a deferred dep would resolve its commit with the ls-remote that the deferral exists to skip
+    if dep.target is None or dep.load_deferred or not dep.already_loaded: return ''
+    if dep.archive_name_memo is None:  # a local dep hashes its whole tree, and every parent asks
+        # the pin the fetch reads, because a mamafile may set self.version in a hook that runs after this
+        if not dep.target.version: dep.target.version = pinned_version(dep)
+        dep.archive_name_memo = artifactory_archive_name(dep.target) or ''
+    return dep.archive_name_memo
+
+
 keyr = None
 def _get_keyring():
     global keyr
@@ -315,6 +328,7 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     _warn_on_compiler_mismatch(target, papa)
 
     target.dep.from_artifactory = True
+    target.dep.built_against = papa.built_against
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
     target.exported_modules = papa.modules

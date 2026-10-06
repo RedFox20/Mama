@@ -29,6 +29,22 @@ def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     return dependecies
 
 
+def _built_against(target:BuildTarget) -> list:
+    """(name, archive) of every dep in the subtree of `target`. A header or an inline function of any of
+    them can sit inside these objects. The direct children alone miss a change two levels down. A fetched
+    package keeps the records it came with, because its objects compiled against the deps of an earlier run."""
+    from .artifactory import current_archive_name  # local import: artifactory imports this module
+    if target.dep.from_artifactory: return list(target.dep.built_against.items())
+    found = {}
+    def walk(children):
+        for child in children:
+            if child.name in found: continue
+            found[child.name] = current_archive_name(child)
+            walk(child.get_children())
+    walk(target.children())
+    return [(name, archive) for name, archive in found.items() if archive]
+
+
 def _results_contain(results, contains_value):
     for target,value in results:
         if value == contains_value:
@@ -300,6 +316,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         # record keeps every older reader working, because an unknown record parses as nothing.
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
+    descr += [f'B {name} {archive}' for name, archive in _built_against(target)]
 
     # the loop below refuses too, but only after the include tree is gone, so check before that
     if package.same_file(package_full_path, target.build_dir()) and \
@@ -382,6 +399,7 @@ class PapaFileInfo:
         self.compiler = None # 'gcc14.3' / 'clang18.1'. None for a package that predates the C record
         self.attributes = [] # 'debug'/'release', platform, arch, variant tokens. [] predates the O record
         self.dependencies = []
+        self.built_against = {} # dep name -> its archive name when this package built. {} predates the B record
         self.includes = []
         self.libs = []
         self.syslibs = []
@@ -401,6 +419,9 @@ class PapaFileInfo:
             elif line.startswith('V '):
                 dep_name, _, suffix = line[2:].strip().partition(' ')
                 suffixes[dep_name] = suffix.strip()
+            elif line.startswith('B '):
+                dep_name, _, archive = line[2:].strip().partition(' ')
+                self.built_against[dep_name] = archive.strip()
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)

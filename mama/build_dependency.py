@@ -7,7 +7,7 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, current_archive_name
 from .mamafile_version import pinned_version
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
@@ -71,6 +71,9 @@ class BuildDependency:
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # True when this dep loaded from artifactory
         self.artifactory_archive = '' # the package it unpacked, so a listing can name the source of the exports
+        self.built_against = {} # dep name -> archive name, from the B records of the package it unpacked
+        self.stale_package_cause = '' # the dep below whose new archive made the unpacked package stale
+        self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # a root dep always builds
@@ -238,6 +241,9 @@ class BuildDependency:
     def has_usable_artifacts(self) -> bool:
         """True if a dependent can link or include against something on disk. build_products carries the
         exports of the last build, so a custom build() target with no CMakeCache still counts as built."""
+        # the files on disk are the stale package until a build replaces them. A header-only dep builds
+        # nothing, and its package() must still run, so its parents get its include dirs.
+        if self.stale_package_cause and not self.nothing_to_build: return False
         if self.from_artifactory or self.nothing_to_build or self.is_artifactory_shim(): return True
         if self.target is None: return self.has_build_files()  # load failed/never ran: judge by the build dir
         if self.find_first_missing_build_product(): return False
@@ -471,6 +477,42 @@ class BuildDependency:
         self.already_loaded = False
         self.children = []
         self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
+        self.archive_name_memo = None
+
+
+    def stale_package_note(self) -> str:
+        """The build reason of a rejected package, and '' for every other dep. The display shows it too."""
+        return f'stale package, {self.stale_package_cause} changed' if self.stale_package_cause else ''
+
+
+    def reject_stale_package(self, deps=None) -> bool:
+        """Drop the unpacked package when it built against another archive of a dep below it, so the next
+        load() takes the source. True when it went. A package dep has no source, so it only warns.
+        deps: the deps to compare, or None for every dep below this one"""
+        conf = self.config
+        if not self.built_against or not (conf.build or conf.update) or conf.lock_generation: return False
+        if deps is None:
+            from .dependency_chain import get_flat_child_deps  # local import: dependency_chain imports this module
+            deps = get_flat_child_deps(self)
+        stale = next(((d.name, built, now) for d in deps if (built := self.built_against.get(d.name))
+                      and (now := current_archive_name(d)) and now != built), None)
+        if not stale: return False
+        name, built, now = stale
+        no_source = ', and a package dep has no source to build' if self.dep_source.is_pkg else ''
+        if conf.print:
+            warning(f'  - Target {self.name: <16} STALE PACKAGE built against {built}, this run has {now}{no_source}')
+        self.built_against = {}  # one verdict per run, so a package dep warns once
+        if no_source: return False
+        self.stale_package_cause = name
+        self.remove_shim_marker()
+        papa = self.papa_package_file()  # without it the next run would unpack the same package again
+        if os.path.exists(papa): os.remove(papa)
+        self.from_artifactory = False
+        self.artifactory_archive = ''
+        self.did_check_artifactory = True  # the probes would fetch the same package again
+        self.did_skim = False  # the source load parses the mamafile again, so its hooks must run
+        self.revive_deferred_load()
+        return True
 
 
     def _force_source_clone(self) -> bool:
@@ -731,6 +773,7 @@ class BuildDependency:
         if conf.run_cmake_configure and is_target: return build('cmake reconfigure')
         if self.is_root:             return build('root target')
         if self.always_build:        return build('always build')
+        if self.stale_package_cause:    return build(self.stale_package_note())
         if git_changed:              return build('git commit changed')
         if self.dep_source.is_pkg:   return build('artifactory pkg')
 

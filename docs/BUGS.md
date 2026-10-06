@@ -13,6 +13,21 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A fetched dep prints `BUILD [<child> changed]` and builds nothing.** `after_load` sets `should_rebuild`
+  on a dep whose child rebuilt (`build_dependency.py:after_load`), and it guards only a shim. A dep that
+  unpacked a package after its clone, or a local dep, gets the flag, but `_build_work_enabled` refuses a
+  dep `from_artifactory` (`build_target.py:_build_work_enabled`). Repro: a KrattGCS CI run where ReCpp has
+  no package prints `BUILD [ReCpp changed]` for `logging` with `bld 0.0s`. Fix: split "this dep builds"
+  from "a dep below changed". A fetched dep must not build, but its parents still need the signal, because
+  they compile the headers of the changed dep through it.
+
+- **Under `deps_only`, a shared dep promoted into the scope can configure before its children build.**
+  `scope.promote` lists the parent first (`dependency_chain.py:DepsOnlyScope.promote`), so
+  `make_build_jobs` gives its CONFIGURE no edge to the BUILD of a child that has no job yet. The stale
+  package check in that CONFIGURE can then read a child with no archive name. It can also read a child
+  whose own stale package the check has not rejected yet. Either way it keeps a stale package.
+  Fix: make the build jobs of the promoted deps deepest first, then add the child edges.
+
 - **The root `settings()` reads a build dir that the same `settings()` can then rename.** `BuildTarget.__init__`
   names the root dirs before `settings()` runs (`build_target.py:131`). The guard in `_dep_path` fires only
   on an empty path (`build_target.py:157`), so `build_dir()` returns that early path. A later `prefer_clang()`

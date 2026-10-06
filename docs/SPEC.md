@@ -573,7 +573,7 @@ publishing it. So a load protects it:
 - `mama update` on a dep with uncommitted changes to tracked files fails loudly, before the pull that
   would overwrite them.
 - A plain `mama build` runs no pull at all, so it cannot move a working tree the developer is using.
-- An in-place edit still rebuilds the dep, through the working-tree fingerprint of reason 9.
+- An in-place edit still rebuilds the dep, through the working-tree fingerprint of reason 10.
 
 One gap: the dirty-tree guard asks `git diff --quiet HEAD`, which reads a local COMMIT as clean. The
 `reset --hard origin/<branch>` of an update then moves the branch off that commit. Uncommitted work is
@@ -715,6 +715,58 @@ provenance, the next build correctly treats them as stale and rebuilds.
 
 **A 404 is fatal for an `add_artifactory_pkg` dep.** Those urls are mandatory.
 
+### A stale package
+
+The archive name covers the source and the toolchain of one dep, and nothing of the deps below it. A
+package keeps its name when a dep below it moves.
+
+**Why:** the objects of the package can still hold an inline function or a class layout of the old dep.
+A consumer that links the new dep then crashes.
+
+So a deploy writes one `B <dep> <archive>` record for every dep in the subtree of the target that has an
+archive name. The direct children alone are not enough. The value is the archive name the dep has in that
+run. That is the package it unpacked, or the name its source would publish for the build type of the run.
+A dep that did not load has no name, and neither does a deferred dep. A fetched package writes the `B`
+records it came with.
+
+**Why:** the commit of a deferred dep costs the ls-remote that the deferral exists to skip.
+
+A `build` or `update` run checks each package with `B` records once every dep below it has loaded. A lock
+generation never checks.
+
+- The classic path checks after stage two of the load, deepest first, in `reload_stale_packages`. It
+  checks the subtree of the target, or the whole tree when the run names no target.
+- The unified scheduler checks in the CONFIGURE job of the dep. That job waits for the BUILD of every
+  child, so every dep below has loaded. A `deps_only` run can break that rule, see `docs/BUGS.md`.
+
+**Why:** under a parallel load, a parent that meets a dep another parent already loaded returns before
+the children of that dep load. A check inside the walk would read a child with no name, and keep the package.
+
+When a recorded dep now has another archive name, mama prints `STALE PACKAGE`, unless the run is silent,
+and loads the dep again from source. That load fetches no package, clones a git dep that has no tree, and
+names the children the mamafile names. The classic path loads every new child. In the scheduler, the
+CONFIGURE job has no edge to the build of a new child. So when a child has no finished build, the run
+fails and asks for a second run. In that run the clone is on disk, so the LOAD job names the new child and
+the CONFIGURE job waits for its build. A first-time build can still unpack the stale package, and the
+CONFIGURE job then rejects it again.
+
+The rejected dep builds with reason 7 of section 10. In a run with no target, a source-built parent
+rebuilds too. The classic path runs `after_load` again on every dep, and the scheduler runs it in each
+CONFIGURE job. A targeted run marks the parents in `mark_unbuilt_target_deps` instead. It builds the dep
+only when the target needs it, because a rejected dep has no usable artifacts. A shim parent and a parent
+that unpacked a package do not rebuild for it, because each one meets its own check. A rejected
+header-only dep keeps its artifacts, so its `package()` still runs.
+
+The reject removes the shim marker and `papa.txt`.
+
+**Why:** with `papa.txt` on disk, the next run would unpack the same stale package again.
+
+A package stays when it never recorded the changed dep, when that dep has no archive name yet, or when it
+predates the `B` record. An `add_artifactory_pkg` dep has no source, so it only warns, once.
+
+**Why:** the archive name cannot carry the deps below it. The pre-clone probe names the archive before
+it knows the children, because only the package or the mamafile names them.
+
 ### Which runs may fetch
 
 `can_fetch_artifactory` refuses for the root and for a dep already checked. Then:
@@ -783,7 +835,7 @@ Only an uncommitted edit stops it, because no other machine can rebuild that tre
 ## 10 Rebuild decision
 
 `_should_build` decides for a `build` or `update` run, in this order. The first match wins. Reasons 3
-to 15 print their reason unless the run is `silent`. Reasons 1 and 2 are silent skips, not build
+to 16 print their reason unless the run is `silent`. Reasons 1 and 2 are silent skips, not build
 reasons. `deps_only <X>` overrides the whole table and forces a rebuild on every dep of X.
 
 1. An artifactory shim never builds. It has no source. `mama unshallow` converts it first.
@@ -794,19 +846,23 @@ reasons. `deps_only <X>` overrides the whole table and forces a rebuild on every
 4. `configure` on the target builds.
 5. The root always builds.
 6. `always_build` builds.
-7. A changed git commit builds.
-8. An `add_artifactory_pkg` dep builds.
-9. A git dep with a real clone builds when its working tree changed. This is a fast fingerprint, not a
-   reconfigure.
-10. A local dep builds when its own subfolder changed, by the same fingerprint.
-11. `update <X>` and `build <X>` build X.
-12. A recorded build product that is now missing builds.
-13. A dep with no build products builds, unless it came from a package or declared `nothing_to_build`.
+7. A rejected stale package builds, with `stale package, <dep> changed`. See section 8.
+8. A changed git commit builds.
+9. An `add_artifactory_pkg` dep builds.
+10. A git dep with a real clone builds when its working tree changed. This is a fast fingerprint, not a
+    reconfigure.
+11. A local dep builds when its own subfolder changed, by the same fingerprint.
+12. `update <X>` and `build <X>` build X.
+13. A recorded build product that is now missing builds.
+14. A dep with no build products builds, unless it came from a package or declared `nothing_to_build`.
     With no build files it reports `not built yet`, with build files `no build dependencies`.
-14. A removed dependency changes the link list, so it builds.
-15. A modified `mamafile.py` or `CMakeLists.txt` builds. An artifactory dep skips this check.
+15. A removed dependency changes the link list, so it builds.
+16. A modified `mamafile.py` or `CMakeLists.txt` builds. An artifactory dep skips this check.
 
 Otherwise the dep is up to date and reports `OK`.
+
+**Why:** reason 7 ranks above the commit. The source load of a rejected shim is a fresh clone, and the
+commit reason would hide the cause.
 
 After the load, `after_load` propagates: a dep whose child rebuilt also rebuilds, because a relink
 needs the new lib. It runs only on a run that named no specific target, and never for a shim.
@@ -1161,6 +1217,7 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `O` | what the objects are: build type, platform, arch, then the variant tokens and any `-march` pin |
 | `V` | the `version_suffix` a parent declared for one dependency |
 | `D` | a dependency source |
+| `B` | the archive name one dep in the subtree had when this package built |
 | `I` | an exported include dir |
 | `M` | an exported C++20 module source |
 | `L` | an exported lib |

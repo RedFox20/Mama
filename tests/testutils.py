@@ -59,7 +59,7 @@ class FakeUnifiedDep:
         self.phase_times = {}; self.should_rebuild = False; self.from_artifactory = False; self.nothing_to_build = False
         self._child_specs = child_specs; self._shared = shared_children
         self._children = []; self.already_executed = False
-        self.is_root = False; self.load_action = 'check'; self.artifactory_archive = ''
+        self.is_root = False; self.load_action = 'check'; self.artifactory_archive = ''; self.built_against = {}
         self.build_dir = ''  # no cache on disk, so the mixed build-type check finds nothing
         self.target = FakeUnifiedTarget(self, ev, lock)
     def load(self):
@@ -68,6 +68,8 @@ class FakeUnifiedDep:
             [FakeUnifiedDep(n, self.config, self._ev, self._lock, cs) for n, cs in self._child_specs]
     def get_children(self): return self._children
     def after_load(self): pass
+    def stale_package_note(self): return ''
+    def reject_stale_package(self, deps=None): return False
     def clean(self): self.target.clean()
     def create_build_dir_if_needed(self): pass
     def is_root_or_config_target(self): return False
@@ -82,10 +84,12 @@ class FakeWalkDep:
         self.name = name; self.config = config; self._log = log; self._children = list(children)
         self.already_loaded = loaded; self.should_rebuild = False; self.is_root = False
         self.load_action = 'check'; self.artifactory_archive = ''; self.phase_times = {}
-        self.load_deferred = False
+        self.load_deferred = False; self.built_against = {}
         self._on_load = on_load  # what this dep prints while it loads
     def revive_deferred_load(self):
         self.load_deferred = False; self.already_loaded = False
+    def stale_package_note(self): return ''
+    def reject_stale_package(self, deps=None): return False
     def load(self):
         self._log.append(self.name)
         if self._on_load: self._on_load()
@@ -156,11 +160,13 @@ def make_tree_dep(name, children=(), usable=True, deferred=False, free=False):
     target = Mock(build_products=[], args='')
     target.name = name  # Mock(name=..) names the mock itself, not the attribute
     d = SimpleNamespace(name=name, should_rebuild=False, load_deferred=deferred, revived=False, already_loaded=False,
-                        children=list(children), target=target, from_artifactory=False, artifactory_archive='')
+                        children=list(children), target=target, from_artifactory=False, artifactory_archive='',
+                        stale_package_cause='')
     d.get_children = lambda d=d: d.children
     d.has_usable_artifacts = lambda usable=usable: usable
     d.has_stale_locked_artifacts = lambda: False
     d.is_artifactory_shim = lambda: False
+    d.reject_stale_package = lambda deps=None: False
     d.load_is_free = lambda free=free: free
     d.get_enabled_coverage = lambda: False
     def revive(d=d): d.load_deferred = False; d.revived = True; d.already_loaded = False

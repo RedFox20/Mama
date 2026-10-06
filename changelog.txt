@@ -1,6 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+unreleased
+ - bugfix: a package built against another archive of a dep builds from source
+
 release: 0.14.12 (2026-Oct-06)
  - feature: unpublish=since=<age> and dependents remove stale ABI packages
  - bugfix: a local module dir named android or windows counts in its version

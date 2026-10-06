@@ -83,8 +83,10 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
             continue
         dep.should_rebuild = True
         if config.print:
-            reason = 'locked commit changed' if stale else \
-                     (f'{child_to_rebuild.name} changed' if child_to_rebuild else 'not built yet')
+            if stale:                  reason = 'locked commit changed'
+            elif child_to_rebuild:     reason = f'{child_to_rebuild.name} changed'
+            elif dep.stale_package_cause: reason = dep.stale_package_note()
+            else:                      reason = 'not built yet'
             warning(f'  - Target {dep.name: <16} BUILD [{reason}]')
 
 
@@ -154,6 +156,23 @@ def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig, disp
     if target is None: return
     load_dependency_chain(target, display)
     reload_deferred_deps(target, display=display)
+
+
+def reload_stale_packages(scope: BuildDependency, display=None):
+    """Load from source each package under `scope` that built against another archive of a dep below it.
+    It runs after the whole load. A parent that meets a loaded dep returns before the children of that dep
+    load, and a deferred dep has no archive name. Deepest first, so a parent compares against a child that
+    already reloaded. A reload can name a new child, so the scan repeats over the new deps."""
+    checked, rejected = set(), False
+    while unchecked := [d for d in reversed(get_flat_deps(scope)) if id(d) not in checked]:
+        for dep in unchecked:
+            checked.add(id(dep))
+            if not dep.reject_stale_package(): continue
+            load_dependency_chain(dep, display)
+            reload_deferred_deps(dep, display=display)  # a targeted run defers a new child with no clone
+            rejected = True
+    if rejected:  # after_load ran before the reject, so run it again to flag each parent of a rejected dep
+        for dep in reversed(get_flat_deps(scope)): dep.after_load()
 
 
 def reload_deferred_deps(scope: BuildDependency, free_only=False, display=None) -> bool:
@@ -662,7 +681,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
         if pt is not None: pt[kind] = pt.get(kind, 0.0) + (time.monotonic() - t0)
         if kind == 'load':
             display.relabel(tid, dep.load_action)  # reflect what load() actually did
-            display.set_note(tid, dep.artifactory_archive)  # name the package the exports came from
+            display.set_note(tid, dep.artifactory_archive or dep.stale_package_note())  # where the exports came from
         display.finish_task(tid, ok, final)
 
 
@@ -1104,8 +1123,19 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         # the root's load is a no-op replay, and an excluded dep's load is its final phase, so it commits the summary line
         _run_phase(display, dep, 'load', body, sched.build_slot, final=not builds(dep))
 
+    def _reload_if_stale(d):
+        """The scheduler form of reload_stale_packages: every dep below has loaded once this configure runs."""
+        if not d.reject_stale_package(): return
+        display.set_note(d.name, d.stale_package_note())  # the load phase named the package it unpacked
+        d.load()
+        unknown = [c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done]
+        if unknown:  # this configure has no edge to the build of such a child, and it needs that build
+            raise BuildError(f'Target {d.name} names {", ".join(unknown)}, which its stale package did not.'
+                             ' Run the build again.')
+
     def _do_configure(d):
         def body(sink):
+            _reload_if_stale(d)
             d.after_load()  # children have loaded AND built by now: propagate their 'changed' up to this dep
             if scope is not None: scope.prepare(d)
             _configure_body(d, sink)

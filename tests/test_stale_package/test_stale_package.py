@@ -1,0 +1,194 @@
+"""Pins the `B` records of papa.txt, and that a package built against another archive of a dep builds from source."""
+import os, threading
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+import pytest
+from testutils import (FakeUnifiedDep, FakeWalkDep, make_includes_target, make_mock_dep, make_mock_shim_dep,
+                       make_unified_config, make_walk_config, should_build_reasons)
+import mama.artifactory as artifactory_mod
+from mama import dependency_chain as dc
+from mama.dependency_chain import load_dependency_chain, reload_stale_packages
+from mama.papa_deploy import PapaFileInfo, papa_deploy_to
+from mama.types.git import Git
+
+OLD, NEW = 'ReCpp-linux-24-gcc14.2-x64-release-d292ca0', 'ReCpp-linux-24-gcc14.2-x64-release-83f5a3a'
+
+
+def _fetched_shim(tmp_path, built_against=None, **config):
+    """A shim whose package recorded ReCpp at OLD, in a build run unless `config` says otherwise."""
+    dep = make_mock_shim_dep(tmp_path, write_papa_txt=True, **{'build': True, **config})
+    dep.from_artifactory = True
+    dep.artifactory_archive = 'libfoo-linux-24-gcc14.2-x64-release-abc1234'
+    dep.built_against = {'ReCpp': OLD} if built_against is None else built_against
+    return dep
+
+
+def _child(name, archive):
+    """A loaded dep: `archive` names its package, or '' for one with no target to name it."""
+    return SimpleNamespace(name=name, artifactory_archive=archive, archive_name_memo=None, target=None,
+                           already_loaded=True, load_deferred=False, get_children=lambda: [])
+
+
+def test_a_package_built_against_another_archive_of_a_dep_goes(tmp_path):
+    dep = _fetched_shim(tmp_path)
+    assert dep.reject_stale_package([_child('ReCpp', NEW)])
+    assert dep.stale_package_cause == 'ReCpp'
+    assert not dep.from_artifactory and not dep.artifactory_archive and not dep.built_against
+    assert not dep.is_artifactory_shim()  # the next load clones the source
+    assert not os.path.exists(dep.papa_package_file())  # else the next run unpacks the same package again
+    assert dep.did_check_artifactory and not dep.already_loaded
+    assert not dep.has_usable_artifacts()  # the unpacked files stay on disk until a build replaces them
+
+
+def test_a_rejected_header_only_dep_still_packages(tmp_path):
+    dep = _fetched_shim(tmp_path)
+    dep.reject_stale_package([_child('ReCpp', NEW)])
+    dep.nothing_to_build = True  # the source load reads it from the mamafile
+    assert dep.has_usable_artifacts()  # else package() never runs, and the parents lose its include dirs
+
+
+def test_the_rejected_dep_builds_and_names_the_dep_that_changed(tmp_path):
+    dep = _fetched_shim(tmp_path)
+    dep.reject_stale_package([_child('ReCpp', NEW)])
+    built, warned = should_build_reasons(dep, loaded_from_pkg=False)
+    assert built and 'stale package, ReCpp changed' in warned
+
+
+@pytest.mark.parametrize('deps, built_against', [
+    ([_child('ReCpp', OLD)], None),       # the same archive the package built against
+    ([_child('zlib', NEW)], None),        # a dep the package never recorded
+    ([_child('ReCpp', '')], None),        # a dep nothing names yet
+    ([_child('ReCpp', NEW)], {}),         # a package that predates the `B` record
+])
+def test_a_package_that_cannot_be_proven_stale_stays(tmp_path, deps, built_against):
+    dep = _fetched_shim(tmp_path, built_against)
+    assert not dep.reject_stale_package(deps)
+    assert dep.from_artifactory and dep.is_artifactory_shim() and os.path.exists(dep.papa_package_file())
+
+
+@pytest.mark.parametrize('config, rejects', [({'build': False}, False), ({'build': False, 'update': True}, True),
+                                             ({'build': False, 'update': True, 'lock_generation': True}, False)])
+def test_only_a_build_or_an_update_rejects_a_package(tmp_path, config, rejects):
+    assert _fetched_shim(tmp_path, **config).reject_stale_package([_child('ReCpp', NEW)]) == rejects
+
+
+def test_a_package_dep_has_no_source_so_it_warns_once(tmp_path):
+    dep = _fetched_shim(tmp_path, print=True)
+    dep.dep_source = SimpleNamespace(is_pkg=True)
+    with patch('mama.build_dependency.warning') as warned:
+        assert not dep.reject_stale_package([_child('ReCpp', NEW)])
+        assert not dep.reject_stale_package([_child('ReCpp', NEW)])  # the pass after the walk asks again
+    assert warned.call_count == 1 and 'no source to build' in str(warned.call_args)
+    assert dep.from_artifactory
+
+
+def test_a_source_dep_names_the_archive_its_source_would_publish_once():
+    dep = _child('logging', '')
+    dep.target = Mock()
+    with patch('mama.artifactory.artifactory_archive_name', autospec=True, return_value='logging-local-3c5d') as name:
+        assert artifactory_mod.current_archive_name(dep) == 'logging-local-3c5d'
+        assert artifactory_mod.current_archive_name(dep) == 'logging-local-3c5d'
+    name.assert_called_once_with(dep.target)  # a local dep hashes its whole tree for this
+
+
+@pytest.mark.parametrize('attrs', [{'load_deferred': True}, {'already_loaded': False}])
+def test_a_dep_that_did_not_load_has_no_archive_name(attrs):
+    dep = _child('krattutil', '')
+    dep.target = Mock()
+    for k, v in attrs.items(): setattr(dep, k, v)
+    with patch('mama.artifactory.artifactory_archive_name', autospec=True) as name:
+        assert artifactory_mod.current_archive_name(dep) == ''
+    name.assert_not_called()  # a deferred git dep would run an ls-remote
+
+
+def test_the_load_after_a_reject_clones_the_source_and_builds_it(tmp_path):
+    dep = make_mock_dep(tmp_path, build=True)
+    def fetch(probe_target):
+        probe_target.dep.from_artifactory = True
+        probe_target.dep.built_against = {'ReCpp': OLD}
+        return (True, [])
+    with patch.object(Git, 'init_commit_hash', return_value='abc1234'), \
+         patch.object(artifactory_mod, 'artifactory_fetch_and_reconfigure', side_effect=fetch) as fetch_mock, \
+         patch.object(Git, 'dependency_checkout', return_value=False) as clone_mock:
+        dep.load()
+        assert dep.is_artifactory_shim() and not clone_mock.called
+        assert dep.reject_stale_package([_child('ReCpp', NEW)])
+        assert dep.load()
+    fetch_mock.assert_called_once()
+    clone_mock.assert_called_once()
+    assert not dep.from_artifactory and dep.should_rebuild
+
+
+def _deploy(tmp_path, dep_attrs=None) -> PapaFileInfo:
+    """Deploy a target over krattutil, which sits over ReCpp, and read the papa file back."""
+    target = make_includes_target(str(tmp_path))
+    child = Mock(artifactory_archive='krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1')
+    child.name = 'krattutil'  # Mock(name=..) names the mock itself, not the attribute
+    child.dep_source.get_papa_string.return_value = 'git krattutil,url,main,,'
+    child.dep_source.version_suffix = ''
+    child.get_children.return_value = [_child('ReCpp', NEW)]
+    target.children.return_value = [child]
+    for k, v in (dep_attrs or {}).items(): setattr(target.dep, k, v)
+    deploy_dir = str(tmp_path / 'deploy')
+    os.makedirs(deploy_dir)
+    papa_deploy_to(target, deploy_dir, r_includes=False, r_dylibs=False, r_syslibs=False, r_assets=False)
+    return PapaFileInfo(os.path.join(deploy_dir, 'papa.txt'))
+
+
+def test_a_deploy_records_the_archive_of_every_dep_below_it(tmp_path):
+    # ReCpp is not a direct child, and its inline code still sits inside these objects
+    assert _deploy(tmp_path).built_against == {'krattutil': 'krattutil-linux-24-gcc14.2-x64-release-main-c9ae1c1',
+                                               'ReCpp': NEW}
+
+
+def test_a_fetched_package_deploys_the_records_it_came_with(tmp_path):
+    papa = _deploy(tmp_path, {'from_artifactory': True, 'built_against': {'ReCpp': OLD}})
+    assert papa.built_against == {'ReCpp': OLD}
+
+
+def _rejects_once(dep, log, new_child=None):
+    """Make `dep` a package that the check rejects. `new_child` is a child its mamafile names and its package did not."""
+    dep.built_against = {'ReCpp': OLD}
+    def reject(deps=None):
+        log.append(('reject', dep.name, sorted(d.name for d in dc.get_flat_child_deps(dep))))
+        dep.built_against = {}
+        if new_child: dep._children.append(new_child)
+        return True
+    dep.reject_stale_package = reject
+
+
+def test_the_classic_pass_reloads_a_rejected_dep_and_every_child_its_source_names():
+    log = []; cfg = make_walk_config()
+    recpp, extra = FakeWalkDep('ReCpp', cfg, log), FakeWalkDep('extra', cfg, log)
+    dep = FakeWalkDep('krattutil', cfg, log, [recpp])
+    _rejects_once(dep, log, new_child=extra)
+    root = FakeWalkDep('root', cfg, log, [dep])
+    root.after_load = lambda: log.append('root after_load')
+    load_dependency_chain(root)
+    reload_stale_packages(root)
+    # ReCpp loads once. The root runs after_load again, so a source-built root relinks.
+    assert log == ['root', 'krattutil', 'ReCpp', 'root after_load', ('reject', 'krattutil', ['ReCpp']),
+                   'krattutil', 'extra', 'root after_load']
+
+
+def test_the_scheduler_reloads_a_stale_dep_in_its_configure_after_every_child_built(no_cmake_writes):
+    ev, lock = [], threading.Lock()
+    cfg = make_unified_config()
+    recpp = FakeUnifiedDep('ReCpp', cfg, ev, lock)
+    dep = FakeUnifiedDep('krattutil', cfg, ev, lock, shared_children=[recpp])
+    _rejects_once(dep, ev)
+    dc.execute_unified(FakeUnifiedDep('root', cfg, ev, lock, shared_children=[dep]))
+    at = ev.index(('reject', 'krattutil', ['ReCpp']))
+    assert ev.index(('bld', 'ReCpp')) < at < ev.index(('cfg', 'krattutil'))
+    assert ('load', 'krattutil') in ev[at:]  # the source load runs inside the configure job
+
+
+def test_the_scheduler_fails_when_the_source_names_a_child_no_job_knows(no_cmake_writes):
+    ev, lock = [], threading.Lock()
+    cfg = make_unified_config()
+    dep = FakeUnifiedDep('krattutil', cfg, ev, lock, shared_children=[])
+    _rejects_once(dep, ev, new_child=FakeUnifiedDep('extra', cfg, ev, lock))
+    with patch('mama.dependency_chain._handle_failure') as failure, pytest.raises(SystemExit):
+        dc.execute_unified(FakeUnifiedDep('root', cfg, ev, lock, shared_children=[dep]))
+    assert 'names extra' in str(failure.call_args.args[1].error)
+    assert ('cfg', 'krattutil') not in ev
