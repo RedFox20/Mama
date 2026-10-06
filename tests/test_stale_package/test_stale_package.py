@@ -88,6 +88,7 @@ def test_a_package_whose_deps_still_match_stays(tmp_path, deps, built_against):
     (_child('ReCpp', OLD), {'ReCpp': OLD + '+edit-f00d'}, 'ReCpp changed'),  # built against an edit, which is gone
     (_child('zlib', NEW), None, 'no record of zlib'),                     # a dep the package never recorded
     (_child('ReCpp', NEW), {}, 'no record of ReCpp'),                     # a package that predates the `B` record
+    (_child('ReCpp', NEW, version='3.2.5'), {'ReCpp': '3.2.1', 'zlib': OLD}, 'zlib changed'),  # a patch dropped zlib
 ])
 def test_a_package_with_an_unproven_dep_below_it_goes(tmp_path, child, built_against, cause):
     dep = _fetched_shim(tmp_path, built_against)
@@ -270,6 +271,13 @@ def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):
 
 def test_a_broken_record_line_reads_as_no_record(tmp_path):
     assert _source_dep(tmp_path, {'ReCpp': '3.2.1 extra'}).rebuild_if_stale_source([_child('ReCpp', NEW, version='3.2.1')])
+
+
+def test_a_source_dep_rebuilds_when_a_recorded_dep_is_no_longer_below_it(tmp_path):
+    # the objects can still call the dep that went, so the link fails or takes another copy of it
+    dep = _source_dep(tmp_path, {'ReCpp': '3.2.1', 'zlib': OLD})
+    with patch('mama.build_dependency.current_archive_name', autospec=True, return_value=''):
+        assert dep.rebuild_if_stale_source([_child('ReCpp', NEW, version='3.2.5')])
 
 
 def test_a_source_dep_whose_record_still_matches_keeps_its_build(tmp_path):

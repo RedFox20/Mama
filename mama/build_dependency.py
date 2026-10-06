@@ -512,7 +512,8 @@ class BuildDependency:
 
     def _stale_dep(self, recorded: dict, deps=None) -> tuple:
         """(name, recorded identity, identity now) of the first dep below this one that fails same_abi, or
-        None. A dep missing from `recorded` fails, and a dep with no identity yet is skipped.
+        None. A dep missing from `recorded` fails, and a dep with no identity yet is skipped. A recorded dep
+        that is no longer below fails with the identity 'none', because the objects can still use it.
         deps: the deps to compare, or None for every dep below this one"""
         if deps is None:
             from .dependency_chain import get_flat_child_deps  # local import: dependency_chain imports this module
@@ -520,7 +521,9 @@ class BuildDependency:
         for d in deps:
             now, built = abi_identity(d), recorded.get(d.name, '')
             if now and not same_abi(built, now): return d.name, built, now
-        return None
+        below = {d.name for d in deps}
+        gone = next((name for name in recorded if name not in below), None)
+        return (gone, recorded[gone], 'none') if gone else None
 
 
     def rebuild_if_stale_source(self, deps=None) -> bool:

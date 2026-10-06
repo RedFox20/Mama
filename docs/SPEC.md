@@ -760,9 +760,9 @@ A `build` or `update` run checks each package once every dep below it has loaded
 checks.
 
 - The classic path checks after stage two of the load, deepest first, in `reload_stale_packages`. It
-  checks the subtree of the target, or the whole tree when the run names no target. A pass that reloads a
-  dep runs again over the whole scope, because the reload can name a new dep that an ancestor already
-  passed. Each dep is rejected once, so the passes end.
+  checks the subtree of the target when the run scopes to one, see `scoped_to_target` in section 3, and
+  the whole tree otherwise. A reload can name a new dep that the list of the pass does not hold. So a pass
+  that reloads a dep runs again over the whole scope. Each dep is rejected once, so the passes end.
 - The unified scheduler checks in the CONFIGURE job of the dep. That job waits for the BUILD of every
   child, so every dep below has loaded. A `deps_only` promotion adds that edge too.
 
@@ -770,8 +770,9 @@ checks.
 the children of that dep load. A check inside the walk would read a child with no name, and keep the package.
 
 A package is stale when a dep below it has an identity that does not match its `B` record, or that has no
-`B` record. A package that predates the `B` record is therefore stale unless it is a leaf. A dep with no
-identity yet is skipped. Mama prints `STALE PACKAGE`, unless the run is silent, and loads the dep again
+`B` record. It is also stale when a dep its `B` records name is no longer below it, because its objects can
+still call that dep. A package that predates the `B` record is therefore stale unless it is a leaf. A dep
+with no identity yet is skipped. Mama prints `STALE PACKAGE`, unless the run is silent, and loads the dep again
 from source. That load fetches no package, clones a git dep that has no tree, and names the children the
 mamafile names. The classic path loads every new child. In the scheduler, the CONFIGURE job has no edge to
 the build of a new child. So when a child has no finished build, the run fails and asks for a second run.
@@ -802,14 +803,15 @@ An `add_artifactory_pkg` dep has no source, so it only warns, once.
 **A source-built dep checks itself the same way.** A successful build writes the identity of every dep
 below it that has one into `mama_built_against` in its build dir. The next `build` or `update` compares
 those identities with the same rules. On a mismatch, or on a dep with no record, the dep rebuilds and
-prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`. It also writes `<archive>.stale` for its
-own archive name, so the next `if_needed` upload replaces the copy on the server. A build before the
+prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`, unless the run is silent. When it has an
+archive name, it also writes `<archive>.stale` for it, so the next `if_needed` upload replaces the copy on
+the server. A build before the
 record therefore rebuilds once, and so does a record line that does not hold two fields. The root, a dep that already
 rebuilds, a header-only dep and a fetched dep skip the check. A run with no artifactory writes no record
 and runs no source check.
 
 **Why:** a shim never rebuilds, so a shim child that moved to another package never flags its source-built
-parent through `after_load`. The rebuild keeps the archive name of the dep, because no identity below it
+parent through `after_load`. The rebuild keeps the archive name of a git dep, because no identity below it
 is part of that name. Without an artifactory no shim exists, and the archive names the record needs
 would cost a content hash of every local dep.
 
