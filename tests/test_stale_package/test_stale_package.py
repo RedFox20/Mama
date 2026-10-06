@@ -298,6 +298,7 @@ def _rejects_once(dep, log, new_child=None):
     """Make `dep` a package that the check rejects. `new_child` is a child its mamafile names and its package did not."""
     dep.built_against = {'ReCpp': OLD}
     def reject(deps=None):
+        if not dep.built_against: return False  # a dep is rejected once, like the real check
         log.append(('reject', dep.name, sorted(d.name for d in dc.get_flat_child_deps(dep))))
         dep.built_against = {}
         if new_child: dep._children.append(new_child)
@@ -317,6 +318,20 @@ def test_the_classic_pass_reloads_a_rejected_dep_and_every_child_its_source_name
     # ReCpp loads once. The root runs after_load again, so a source-built root relinks.
     assert log == ['root', 'krattutil', 'ReCpp', 'root after_load', ('reject', 'krattutil', ['ReCpp']),
                    'krattutil', 'extra', 'root after_load']
+
+
+def test_the_classic_pass_checks_an_ancestor_again_after_a_reload_names_a_new_dep():
+    log = []; cfg = make_walk_config()
+    n, m, p = FakeWalkDep('N', cfg, log), FakeWalkDep('M', cfg, log), FakeWalkDep('P', cfg, log)
+    _rejects_once(p, log, new_child=n)
+    _rejects_once(n, log, new_child=m)  # only the second pass reaches N, after Q passed once
+    q = FakeWalkDep('Q', cfg, log, [p])
+    seen = []
+    q.reject_stale_package = lambda deps=None: seen.append(sorted(d.name for d in dc.get_flat_child_deps(q))) or False
+    root = FakeWalkDep('root', cfg, log, [q])
+    load_dependency_chain(root)
+    reload_stale_packages(root)
+    assert seen[-1] == ['M', 'N', 'P']
 
 
 def test_the_classic_pass_marks_a_stale_source_dep_and_flags_its_parents_again():

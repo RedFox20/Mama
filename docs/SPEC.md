@@ -760,7 +760,9 @@ A `build` or `update` run checks each package once every dep below it has loaded
 checks.
 
 - The classic path checks after stage two of the load, deepest first, in `reload_stale_packages`. It
-  checks the subtree of the target, or the whole tree when the run names no target.
+  checks the subtree of the target, or the whole tree when the run names no target. A pass that reloads a
+  dep runs again over the whole scope, because the reload can name a new dep that an ancestor already
+  passed. Each dep is rejected once, so the passes end.
 - The unified scheduler checks in the CONFIGURE job of the dep. That job waits for the BUILD of every
   child, so every dep below has loaded. A `deps_only` promotion adds that edge too.
 
