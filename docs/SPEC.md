@@ -800,13 +800,15 @@ An `add_artifactory_pkg` dep has no source, so it only warns, once.
 **A source-built dep checks itself the same way.** A successful build writes the identity of every dep
 below it that has one into `mama_built_against` in its build dir. The next `build` or `update` compares
 those identities with the same rules. On a mismatch, or on a dep with no record, the dep rebuilds and
-prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`. A build before the record therefore
-rebuilds once, and so does a record line that does not hold two fields. The root, a dep that already
+prints `BUILD [ReCpp changed]` or `BUILD [no record of ReCpp]`. It also writes `<archive>.stale` for its
+own archive name, so the next `if_needed` upload replaces the copy on the server. A build before the
+record therefore rebuilds once, and so does a record line that does not hold two fields. The root, a dep that already
 rebuilds, a header-only dep and a fetched dep skip the check. A run with no artifactory writes no record
 and runs no source check.
 
 **Why:** a shim never rebuilds, so a shim child that moved to another package never flags its source-built
-parent through `after_load`. Without an artifactory no shim exists, and the archive names the record needs
+parent through `after_load`. The rebuild keeps the archive name of the dep, because no identity below it
+is part of that name. Without an artifactory no shim exists, and the archive names the record needs
 would cost a content hash of every local dep.
 
 ### Which runs may fetch

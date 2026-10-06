@@ -255,9 +255,11 @@ def _source_dep(tmp_path, record=None, **config):
 ])
 def test_a_source_dep_rebuilds_when_a_dep_below_it_changed_its_abi(tmp_path, record, child, reason):
     dep = _source_dep(tmp_path, record, print=True)
-    with patch('mama.build_dependency.warning') as warned:
+    with patch('mama.build_dependency.warning') as warned, \
+         patch('mama.build_dependency.current_archive_name', autospec=True, return_value='libfoo-abc1234'):
         assert dep.rebuild_if_stale_source([child])
     assert dep.should_rebuild and reason in str(warned.call_args)
+    assert os.path.exists(dep.stale_archive_marker('libfoo-abc1234'))  # the next if_needed upload replaces it
 
 
 def test_a_source_dep_built_against_an_unchanged_edit_keeps_its_build(tmp_path):

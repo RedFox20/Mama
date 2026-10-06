@@ -7,7 +7,8 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi, \
+                         current_archive_name
 from .mamafile_version import pinned_version
 from .papa_deploy import built_against
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
@@ -537,6 +538,8 @@ class BuildDependency:
         name, built, _ = stale
         self.should_rebuild = True
         if conf.print: warning(f'  - Target {self.name: <16} BUILD [{_stale_cause(name, built)}]')
+        # the rebuild keeps the archive name, so the copy on the server still holds the old objects
+        if archive := current_archive_name(self): write_text_to(self.stale_archive_marker(archive), '')
         return True
 
 
