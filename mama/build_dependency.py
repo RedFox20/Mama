@@ -539,7 +539,8 @@ class BuildDependency:
         self.should_rebuild = True
         if conf.print: warning(f'  - Target {self.name: <16} BUILD [{_stale_cause(name, built)}]')
         # the rebuild keeps the archive name, so the copy on the server still holds the old objects
-        if archive := current_archive_name(self): write_text_to(self.stale_archive_marker(archive), '')
+        archive = current_archive_name(self)
+        if archive: write_text_to(self.stale_archive_marker(archive), '')
         return True
 
 
@@ -562,7 +563,8 @@ class BuildDependency:
         if no_source: return False
         self.stale_package_cause = _stale_cause(name, built)
         # a later upload replaces the archive. An old shim marker can lack the archive name, and then nothing does
-        if self.artifactory_archive: write_text_to(self.stale_archive_marker(self.artifactory_archive), '')
+        if self.artifactory_archive:
+            write_text_to(self.stale_archive_marker(self.artifactory_archive), '')
         self.remove_shim_marker()
         papa = self.papa_package_file()  # without it the next run would unpack the same package again
         if os.path.exists(papa): os.remove(papa)

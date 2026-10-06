@@ -310,7 +310,8 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     if compiler: descr.append(f'C {compiler}')
     descr.append(f'O {build_names.object_attributes(target)}')
     from .artifactory import semver_of  # local import: artifactory imports this module
-    if version := semver_of(target): descr.append(f'R {version}')
+    version = semver_of(target)
+    if version: descr.append(f'R {version}')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
