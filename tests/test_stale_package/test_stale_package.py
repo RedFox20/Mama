@@ -203,8 +203,7 @@ def _target(tmp_path, dep_attrs=None, recpp=NEW, recpp_behind=False, recpp_versi
                  package_version='')
     child.name = 'krattutil'  # Mock(name=..) names the mock itself, not the attribute
     child.target.dep = child
-    child.dep_source.get_papa_string.return_value = 'git krattutil,url,main,,'
-    child.dep_source.version_suffix = ''
+    child.dep_source = Git('krattutil', 'url', 'main', '', None, True, [])
     child.artifacts_behind_source.return_value = False
     child.get_children.return_value = [_child('ReCpp', recpp, recpp_behind, recpp_version)]
     target.children.return_value = [child]
