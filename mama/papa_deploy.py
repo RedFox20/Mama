@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, TYPE_CHECKING
-import os, itertools
+import os, itertools, copy
 
 from .types.git import Git
 from .types.local_source import LocalSource
@@ -328,9 +328,15 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     from .artifactory import semver_of  # local import: artifactory imports this module
     version = semver_of(target)
     if version: descr.append(f'R {version}')
+    parent_dir = target.dep.path_relative_to_us('.')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
-        descr.append(f'D {d.dep_source.get_papa_string()}')
+        source = d.dep_source
+        if source.is_git and source.mamafile and not os.path.isabs(source.mamafile):
+            # Export must not change the declaration shared by other parents.
+            source = copy.copy(source)
+            source.mamafile = forward_slashes(os.path.relpath(d.mamafile, parent_dir))
+        descr.append(f'D {source.get_papa_string()}')
         # A `D` record ends in a variable-length arg list, so the suffix cannot ride along. Its own
         # record keeps every older reader working, because an unknown record parses as nothing.
         suffix = d.dep_source.version_suffix

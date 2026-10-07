@@ -1302,6 +1302,18 @@ deploys its runtime tree but publishes no archive is a normal shape.
 | `S` | an exported system lib |
 | `A` | an exported asset |
 
+A `D` record can name a custom recipe: the `mamafile=` path of an `add_git()` call. When that path
+is relative, the record stores it relative to the folder of the mamafile that the package was built
+from. A consumer resolves it against the same folder in its own checkout, so the two checkouts need
+the same relative layout. An absolute path, or a dependency without `mamafile=`, stays as declared.
+
+Example: `modules/codec/mamafile.py` declares `zlib` with `mamafile='../../mamadeps/zlib.py'`, and
+the root mamafile declares `zlib` first, as `mamadeps/zlib.py`. The `codec` package still records
+`../../mamadeps/zlib.py`, which is correct relative to `modules/codec`.
+
+**Why:** Mama keeps one declaration for a Git dependency that several mamafiles declare. Its
+relative path can be wrong for another mamafile in a different folder.
+
 The `O` record reads `O debug linux x64 asan lgpl`. It answers what a consumer needs before it links:
 the type, the target and every variant axis. A fetched package holds no `CMakeCache.txt`, so the record
 is the only thing that names its build type, and the mixed-type warning reads it. A package written
