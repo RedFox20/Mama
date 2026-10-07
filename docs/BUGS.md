@@ -13,6 +13,13 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A package records the declaration of the first parent that named each child, not its own.** `papa_deploy`
+  writes each `D` record from `d.dep_source` (`papa_deploy.py:333`), the one object that the first declarer
+  made. A consumer that unpacks such a package before any other parent names the child gets that text. When
+  the package is stale, its source names the child as its own mamafile does, and the run stops with "Run the
+  build again". The `.rejected` marker lives in the workspace, so a CI run from a fresh clone stops each time.
+  Fix: keep the declaration of each parent, and write the one of the packaged dep into its `D` record.
+
 - **A fetched dep prints `BUILD [<child> changed]` and builds nothing.** `after_load` sets `should_rebuild`
   on a dep whose child rebuilt (`build_dependency.py:after_load`), and it guards only a shim. A dep that
   unpacked a package after its clone, or a local dep, gets the flag, but `_build_work_enabled` refuses a
