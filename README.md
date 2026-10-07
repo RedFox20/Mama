@@ -18,6 +18,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.14** (2026-Oct-07)
+ - bugfix: module packages record dependency recipe paths relative to the module
+
 **0.14.13** (2026-Oct-07)
  - feature: a semver version keeps packages of a dep that a patch release moved
  - bugfix: a package built against another ABI of a dep builds from source
@@ -28,11 +31,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - bugfix: a local module dir named android or windows counts in its version
  - bugfix: mama dirty marks every dependent of the target, not only some
  - bugfix: unpublish no longer stops at a dep that never published
-
-**0.14.11** (2026-Oct-02)
- - feature: config.wasm.enable_threads() builds a threaded wasm tree in wasm-mt
- - bugfix: a root clean takes the dir its settings() names, eg linux-clang
- - bugfix: a root prefer_clang() no longer creates a stray plain build dir
 
 ## Why Mama
 

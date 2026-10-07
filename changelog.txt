@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.14.14 (2026-Oct-07)
  - bugfix: module packages record dependency recipe paths relative to the module
 
 release: 0.14.13 (2026-Oct-07)
