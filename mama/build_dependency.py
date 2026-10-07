@@ -92,6 +92,7 @@ class BuildDependency:
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # a root dep always builds
+        self.declared_by = parent # the first parent to name this dep. A loaded dep keeps that declaration
         self.children: List[BuildDependency] = []
         self.product_sources = []
         self.flattened_deps: List[BuildDependency] = [] # flat dependencies only, nothing else
@@ -170,10 +171,7 @@ class BuildDependency:
             if dependency_lock and dep_source.is_git and not self.config.clean_only():
                 dependency_lock.apply(dep_source, self)
             dep = self.config.loaded_dependencies.get(dep_source.name)
-            # the source load of a rejected package must name each child the way its `D` record did
-            declared = self.stale_declarations.get(dep_source.name)
-            if declared is not None and declared != dep_source.declaration():
-                self.redeclared.append(dep_source.name)
+            if dep and self._redeclares(dep, dep_source): self.redeclared.append(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
             else:
@@ -188,6 +186,15 @@ class BuildDependency:
 
             self.children.append(dep)
             return dep
+
+
+    def _redeclares(self, child: BuildDependency, dep_source: DepSource) -> bool:
+        """True when the source load of a rejected package names the loaded `child` other than its `D` record did.
+        A child that another parent named first keeps that declaration in a source build too, so only new args count."""
+        declared = self.stale_declarations.get(dep_source.name)
+        if declared is None or declared == dep_source.declaration(): return False
+        if child.declared_by is self: return True
+        return (dep_source.is_git or dep_source.is_src) and not set(dep_source.args or ()) <= set(child.target_args)
 
 
     def add_children(self, dep_sources):

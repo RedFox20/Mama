@@ -789,7 +789,8 @@ The source can also name a child other than the stale package did, by the url, b
 `D` record, added or removed, or by the `version_suffix` of its `V` record. A loaded dep keeps its first
 url, branch and tag, and its args only grow. So on both paths the run fails, names the child, and asks for
 a second run. Only the declarations of the rejected package count, so a conflict between two other parents
-never stops it.
+never stops it. A child that another parent named first keeps that declaration in a source build too. So for
+that child, only an arg that the loaded child lacks stops the run.
 
 The reject also writes `<archive>.rejected` into the dep dir. No later fetch on this machine unpacks that
 archive, so in the second run the rejected package names no child first. Another package can still name

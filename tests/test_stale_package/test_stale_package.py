@@ -483,14 +483,20 @@ def test_the_classic_pass_stops_when_the_source_redeclares_a_child():
     assert 'names ReCpp other than its stale package did' in str(report.call_args.args[0])
 
 
-@pytest.mark.parametrize('declared, redeclared', [({}, False), ({'tag': 'v2'}, True), ({'branch': 'dev'}, True),
-                                                  ({'args': []}, True), ({'args': ['asan']}, True),
-                                                  ({'version_suffix': '2'}, True)])  # the `V` record names a new recipe
-def test_the_source_load_of_a_rejected_package_must_name_each_child_like_its_d_record(tmp_path, declared, redeclared):
+@pytest.mark.parametrize('first, declared, redeclared', [
+    ('package', {}, False), ('package', {'tag': 'v2'}, True), ('package', {'branch': 'dev'}, True),
+    ('package', {'args': []}, True), ('package', {'args': ['lgpl', 'asan']}, True),
+    ('package', {'version_suffix': '2'}, True),  # the `V` record names a new recipe
+    # a source build keeps the declaration of the parent that named the child first, so only a new arg counts
+    ('root', {'branch': 'dev'}, False), ('root', {'tag': 'v2'}, False), ('root', {'args': ['lgpl', 'asan']}, True)])
+def test_the_source_load_of_a_rejected_package_must_name_each_child_like_its_d_record(tmp_path, first, declared, redeclared):
     # the `D` record passed `lgpl`, so dropping it counts as much as adding `asan`
     dep = _fetched_shim(tmp_path)
     recpp = lambda **over: Git(**{'name': 'ReCpp', 'url': 'https://example.com/ReCpp.git', 'branch': 'main', 'tag': '',
                                   'mamafile': None, 'shallow': True, 'args': ['lgpl'], **over})
+    declarer = make_mock_dep(tmp_path, name='root') if first == 'root' else dep
+    declarer.config = dep.config  # one registry, so the declarer names ReCpp first
+    declarer.add_child(recpp())
     dep.package_declarations = {'ReCpp': recpp().declaration()}
     assert dep.reject_stale_package([_child('ReCpp', NEW)])
     dep.add_child(recpp(**declared))
