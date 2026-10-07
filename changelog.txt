@@ -1,7 +1,7 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
+release: 0.14.15 (2026-Oct-07)
  - bugfix: a stale package no longer fails on a child another dep named first
 
 release: 0.14.14 (2026-Oct-07)

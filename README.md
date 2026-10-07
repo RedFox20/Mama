@@ -18,6 +18,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.15** (2026-Oct-07)
+ - bugfix: a stale package no longer fails on a child another dep named first
+
 **0.14.14** (2026-Oct-07)
  - bugfix: module packages record dependency recipe paths relative to the module
 
@@ -25,12 +28,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - feature: a semver version keeps packages of a dep that a patch release moved
  - bugfix: a package built against another ABI of a dep builds from source
  - bugfix: a source build whose package dep moved now rebuilds
-
-**0.14.12** (2026-Oct-06)
- - feature: unpublish=since=<age> and dependents remove stale ABI packages
- - bugfix: a local module dir named android or windows counts in its version
- - bugfix: mama dirty marks every dependent of the target, not only some
- - bugfix: unpublish no longer stops at a dep that never published
 
 ## Why Mama
 
