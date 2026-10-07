@@ -7,8 +7,10 @@ from .types.git import Git
 from .types.local_source import LocalSource
 from .utils.system import Color, console, error, warning
 from .utils.dir_lock import interprocess_dir_lock
-from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim
+from .artifactory import artifactory_fetch_and_reconfigure, try_load_artifactory_shim, abi_identity, same_abi, \
+                         current_archive_name
 from .mamafile_version import pinned_version
+from .papa_deploy import BUILD_RECORD, current_identities, read_build_record
 from .utils.fileio import read_text_from, write_text_to, read_lines_from
 from .utils.paths import normalized_join, normalized_path, short_path, has_shim_marker, \
                          has_source_content, MAMA_SHIM_FILENAME
@@ -48,6 +50,11 @@ def read_shim_marker_at(build_dir: str) -> dict:
     return result
 
 
+def _stale_cause(name: str, built: str) -> str:
+    """Why a dep is stale, for its build reason: the dep below changed, or its record never named it."""
+    return f'{name} changed' if built else f'no record of {name}'
+
+
 class BuildDependency:
     def __init__(self, parent:BuildDependency, config:BuildConfig,
                  workspace:str, dep_source:DepSource):
@@ -71,6 +78,17 @@ class BuildDependency:
         self._load_lock = threading.Lock()  # serializes concurrent load() of THIS dep (parallel_load)
         self.from_artifactory = False # True when this dep loaded from artifactory
         self.artifactory_archive = '' # the package it unpacked, so a listing can name the source of the exports
+        self.built_against = {} # dep name -> identity, from the B records of the package it unpacked
+        self.package_version = '' # the semver of the package it unpacked, from its R record
+        self.stale_package_cause = '' # why the unpacked package is stale, eg 'ReCpp changed'
+        self.stale_checked = False # the stale check gave its verdict, so a package dep warns once
+        self.stale_archive = '' # the stale archive that the next if_needed upload replaces, once this dep built
+        self.package_declarations = {} # child name -> its `D` and `V` records, in the package this dep unpacked
+        self.stale_declarations = {} # the package_declarations of a rejected package, which the source load must match
+        self.redeclared = [] # the children the source load of a rejected package named other than its `D` records
+        self.archive_name_memo = None # current_archive_name() of a dep that unpacked no package
+        self.content_version_memo = None # the content version of a local dep, see LocalSource.content_version_changed
+        self.behind_source_memo = None # artifacts_behind_source() of a dep that did not build in this run
         self.did_check_artifactory = False # True when the artifactory check already ran, so skip it
         self._is_shim_cache = None # tri-state cache for is_artifactory_shim()
         self.is_root = parent is None # a root dep always builds
@@ -152,6 +170,10 @@ class BuildDependency:
             if dependency_lock and dep_source.is_git and not self.config.clean_only():
                 dependency_lock.apply(dep_source, self)
             dep = self.config.loaded_dependencies.get(dep_source.name)
+            # the source load of a rejected package must name each child the way its `D` record did
+            declared = self.stale_declarations.get(dep_source.name)
+            if declared is not None and declared != dep_source.declaration():
+                self.redeclared.append(dep_source.name)
             if dep:
                 dep.update_existing_dependency(dep_source)
             else:
@@ -238,6 +260,9 @@ class BuildDependency:
     def has_usable_artifacts(self) -> bool:
         """True if a dependent can link or include against something on disk. build_products carries the
         exports of the last build, so a custom build() target with no CMakeCache still counts as built."""
+        # the files on disk are the stale package until a build replaces them. A header-only dep builds
+        # nothing, and its package() must still run, so its parents get its include dirs.
+        if self.stale_package_cause and not self.nothing_to_build: return False
         if self.from_artifactory or self.nothing_to_build or self.is_artifactory_shim(): return True
         if self.target is None: return self.has_build_files()  # load failed/never ran: judge by the build dir
         if self.find_first_missing_build_product(): return False
@@ -471,6 +496,99 @@ class BuildDependency:
         self.already_loaded = False
         self.children = []
         self.target = None # the deferred load parsed no mamafile, so self.target holds a default BuildTarget
+        self.archive_name_memo = None
+        self.behind_source_memo = None
+        self.content_version_memo = None
+
+
+    def artifacts_behind_source(self) -> bool:
+        """True when this run did not build the dep, and its artifacts came from another source than its source
+        dir holds. A parent then compiles headers from both, so no archive name describes what it used."""
+        if self.should_rebuild or self.from_artifactory: return False
+        if self.behind_source_memo is None: self.behind_source_memo = self.dep_source.artifacts_behind_source(self)
+        return self.behind_source_memo
+
+
+    def archive_marker(self, archive: str, kind: str) -> str:
+        """`<archive>.rejected` says this machine rejected `archive`, so no fetch unpacks it again. `<archive>.stale`
+        says a build replaced it, so an `if_needed` upload replaces it too. Both live in dep_dir beside the
+        cached zips, because a clean takes the build dir and the upload can run later."""
+        return normalized_join(self.dep_dir, f'{archive}.{kind}')
+
+
+    def stale_package_note(self) -> str:
+        """The build reason of a rejected package, and '' for every other dep. The display shows it too."""
+        return f'stale package, {self.stale_package_cause}' if self.stale_package_cause else ''
+
+
+    def _stale_dep(self, recorded: dict, deps=None) -> tuple:
+        """(name, recorded identity, identity now) of the first dep below this one that fails same_abi, or
+        None. A dep missing from `recorded` fails, and a dep with no identity yet is skipped. A recorded dep
+        that is no longer below fails with the identity 'none', because the objects can still use it.
+        deps: the deps to compare, or None for every dep below this one"""
+        if deps is None:
+            from .dependency_chain import get_flat_child_deps  # local import: dependency_chain imports this module
+            deps = get_flat_child_deps(self)
+        for d in deps:
+            now, built = abi_identity(d), recorded.get(d.name, '')
+            if now and not same_abi(built, now): return d.name, built, now
+        below = {d.name for d in deps}
+        gone = next((name for name in recorded if name not in below), None)
+        return (gone, recorded[gone], 'none') if gone else None
+
+
+    def rebuild_if_stale_source(self, deps=None) -> bool:
+        """Mark a source-built dep for rebuild when a dep below it fails same_abi against the record its last
+        build wrote. A shim child never rebuilds, so after_load never flags the parent of a shim that moved.
+        True when it marked.
+        deps: the deps to compare, or None for every dep below this one"""
+        conf = self.config
+        if self.from_artifactory or self.is_root or self.should_rebuild or self.nothing_to_build: return False
+        if not (conf.build or conf.update) or conf.lock_generation or not conf.artifactory_ftp: return False
+        stale = self._stale_dep(read_build_record(self.build_dir), deps)
+        if not stale: return False
+        name, built, _ = stale
+        self.should_rebuild = True
+        if conf.print: warning(f'  - Target {self.name: <16} BUILD [{_stale_cause(name, built)}]')
+        self.stale_archive = current_archive_name(self)  # the rebuild keeps the name of the stale copy
+        return True
+
+
+    def reject_stale_package(self, deps=None) -> bool:
+        """Drop the unpacked package when a dep below it fails same_abi against its `B` record, so the next
+        load() takes the source. A dep with no `B` record fails too, so a package that predates the record
+        stays only as a leaf. True when it went. A package dep has no source, so it only warns.
+        deps: the deps to compare, or None for every dep below this one"""
+        conf = self.config
+        if not self.from_artifactory or self.stale_checked: return False
+        if not (conf.build or conf.update) or conf.lock_generation: return False
+        stale = self._stale_dep(self.built_against, deps)
+        if not stale: return False
+        self.stale_checked = True
+        name, built, now = stale
+        no_source = ', and a package dep has no source to build' if self.dep_source.is_pkg else ''
+        what = f'built against {name} {built}' if built else f'has no B record of {name}'
+        if conf.print:
+            warning(f'  - Target {self.name: <16} STALE PACKAGE {what}, this run has {now}{no_source}')
+        if no_source: return False
+        self.stale_package_cause = _stale_cause(name, built)
+        self.stale_archive = self.artifactory_archive
+        # an old shim marker can lack the archive name, and then nothing names a marker
+        if self.stale_archive:
+            write_text_to(self.archive_marker(self.stale_archive, 'rejected'), '')
+            cached = normalized_join(self.dep_dir, f'{self.stale_archive}.zip')  # else a later run unpacks it again
+            if os.path.exists(cached): os.remove(cached)
+        self.remove_shim_marker()
+        papa = self.papa_package_file()  # without it the next run would unpack the same package again
+        if os.path.exists(papa): os.remove(papa)
+        self.from_artifactory = False
+        self.artifactory_archive = ''
+        self.package_version, self.built_against = '', {}
+        self.did_check_artifactory = True  # the probes would fetch the same package again
+        self.did_skim = False  # the source load parses the mamafile again, so its hooks must run
+        self.stale_declarations, self.package_declarations, self.redeclared = self.package_declarations, {}, []
+        self.revive_deferred_load()
+        return True
 
 
     def _force_source_clone(self) -> bool:
@@ -731,6 +849,7 @@ class BuildDependency:
         if conf.run_cmake_configure and is_target: return build('cmake reconfigure')
         if self.is_root:             return build('root target')
         if self.always_build:        return build('always build')
+        if self.stale_package_cause: return build(self.stale_package_note())
         if git_changed:              return build('git commit changed')
         if self.dep_source.is_pkg:   return build('artifactory pkg')
 
@@ -986,6 +1105,21 @@ class BuildDependency:
     def save_dependency_list(self):
         deps = [dep.get_dependency_name() for dep in self.get_children()]
         write_text_to(f'{self.build_dir}/mama_dependency_libs', '\n'.join(deps))
+        if self.from_artifactory: return  # it built nothing, and its package keeps the `B` records it came with
+        # the identity of every dep below, which rebuild_if_stale_source compares on the next run. Without
+        # an artifactory no package exists, so a record would only outlive the objects it describes.
+        record = f'{self.build_dir}/{BUILD_RECORD}'
+        if not self.config.artifactory_ftp:
+            if os.path.exists(record): os.remove(record)
+            return
+        # only a successful build marks the stale copy, so a failed one never uploads its old objects. The
+        # reject can come from an earlier run whose build failed, and then only its `.rejected` marker remains.
+        rejected = [f for f in os.listdir(self.dep_dir) if f.endswith('.rejected')] if os.path.isdir(self.dep_dir) else []
+        archive = self.stale_archive or (current_archive_name(self) if rejected else '')
+        if self.stale_archive or f'{archive}.rejected' in rejected:
+            write_text_to(self.archive_marker(archive, 'stale'), '')
+        identities = [f'{name} {identity}' for name, identity in current_identities(self.target)]
+        write_text_to(record, '\n'.join(identities))
 
 
     def find_missing_dependency(self):

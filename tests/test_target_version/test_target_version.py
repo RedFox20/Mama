@@ -20,7 +20,8 @@ def _dep(name='libffmpeg'):
     return dep
 
 
-@pytest.mark.parametrize('text, version', [(_ONE, '8.0.1'), (_TWO, ''), (_COMPUTED, ''), ('', '')])
+@pytest.mark.parametrize('text, version', [(_ONE, '8.0.1'), (_TWO, ''), (_COMPUTED, ''), ('', ''),
+                                           (_ONE.replace('8.0.1', '0.0.0'), '')])  # a placeholder names nothing
 def test_only_one_literal_survives_the_trust_rule(text, version):
     assert mamafile_version.trusted_version(_dep(), text, 'mamafile.py') == version
 
@@ -175,6 +176,13 @@ def test_a_consumer_owned_override_mamafile_names_the_package(tmp_path):
                                        "    def settings(self):\n        self.version = '8.1.0'\n")
     dep = _dep(); dep.mamafile_path.return_value = str(override / 'qcoro.py')
     assert mamafile_version.pinned_version(dep) == '8.1.0'
+
+
+def test_a_placeholder_version_leaves_the_commit_hash_in_the_archive_name(tmp_path):
+    from testutils import make_package_target
+    target = make_package_target(tmp_path)
+    target.version = '0.0.0'
+    assert target.version == ''
 
 
 def test_an_override_version_beats_the_git_tag():

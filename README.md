@@ -18,6 +18,11 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.13** (2026-Oct-07)
+ - feature: a semver version keeps packages of a dep that a patch release moved
+ - bugfix: a package built against another ABI of a dep builds from source
+ - bugfix: a source build whose package dep moved now rebuilds
+
 **0.14.12** (2026-Oct-06)
  - feature: unpublish=since=<age> and dependents remove stale ABI packages
  - bugfix: a local module dir named android or windows counts in its version
@@ -28,12 +33,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
  - feature: config.wasm.enable_threads() builds a threaded wasm tree in wasm-mt
  - bugfix: a root clean takes the dir its settings() names, eg linux-clang
  - bugfix: a root prefer_clang() no longer creates a stray plain build dir
-
-**0.14.10** (2026-Sep-28)
- - feature: the wasm platform builds and tests WebAssembly with Emscripten
- - bugfix: coverage on android and macos no longer treats clang as gcc
- - bugfix: the gdb test helper finds a program under a dir with a space
- - bugfix: C files get add_c_flags(), -march and the sanitizer flags
 
 ## Why Mama
 

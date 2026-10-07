@@ -13,6 +13,14 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A fetched dep prints `BUILD [<child> changed]` and builds nothing.** `after_load` sets `should_rebuild`
+  on a dep whose child rebuilt (`build_dependency.py:after_load`), and it guards only a shim. A dep that
+  unpacked a package after its clone, or a local dep, gets the flag, but `_build_work_enabled` refuses a
+  dep `from_artifactory` (`build_target.py:_build_work_enabled`). Repro: a KrattGCS CI run where ReCpp has
+  no package prints `BUILD [ReCpp changed]` for `logging` with `bld 0.0s`. Fix: split "this dep builds"
+  from "a dep below changed". A fetched dep must not build, but its parents still need the signal, because
+  they compile the headers of the changed dep through it.
+
 - **The root `settings()` reads a build dir that the same `settings()` can then rename.** `BuildTarget.__init__`
   names the root dirs before `settings()` runs (`build_target.py:131`). The guard in `_dep_path` fires only
   on an empty path (`build_target.py:157`), so `build_dir()` returns that early path. A later `prefer_clang()`
@@ -70,6 +78,12 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **A targeted build could write a `B` record that did not match what the parent compiled against.** Fix: a
+  dep that did not build, and whose artifacts and source differ, gets the `B` value `unknown`.
+
+- **Under `deps_only`, a shared dep promoted into the scope could configure before its children built.**
+  Fix: the scheduler adds the child edges after every promoted dep has its jobs.
 
 - **An unpublish stopped at the first dep that never published.** The server answers `550` for a dir it
   does not have. Fix: a `550` listing reads as no archive.

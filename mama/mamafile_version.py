@@ -10,6 +10,14 @@ from .utils.fileio import read_text_from
 from .local_version import compute_version
 
 
+NO_VERSION = '0.0.0'  # a placeholder version, so the commit hash names the package
+
+
+def declared_version(version) -> str:
+    """`version`, or '' when it names nothing: empty, or the placeholder `0.0.0`."""
+    return '' if version == NO_VERSION else version or ''
+
+
 class VersionScan(NamedTuple):
     """What a mamafile declares about `self.version`. See `scan_mamafile`."""
     value: str      # the single resolvable string, or '' when there is not exactly one
@@ -40,7 +48,7 @@ def trusted_version(dep, mamafile_text: str, source: str) -> str:
     on a shape it refuses, because the alternative is a silent permanent cache miss."""
     scan = scan_mamafile(mamafile_text)
     if scan.literals == 1 and not scan.computed:
-        return scan.value
+        return declared_version(scan.value)
     if scan.literals or scan.computed:
         reason = 'assigns self.version more than once' if scan.literals > 1 else \
                  'computes self.version instead of assigning a literal'

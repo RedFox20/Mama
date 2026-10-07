@@ -79,12 +79,15 @@ def mark_unbuilt_target_deps(root: BuildDependency, config: BuildConfig):
         if not dep.is_artifactory_shim():
             child_to_rebuild = next((child for child in dep.get_children() if child.should_rebuild), None)
         stale = dep.has_stale_locked_artifacts()
-        if dep.has_usable_artifacts() and not stale and not child_to_rebuild:
+        # a rejected header-only dep keeps its artifacts, but its parents compiled against the old deps below it
+        if dep.has_usable_artifacts() and not stale and not child_to_rebuild and not dep.stale_package_cause:
             continue
         dep.should_rebuild = True
         if config.print:
-            reason = 'locked commit changed' if stale else \
-                     (f'{child_to_rebuild.name} changed' if child_to_rebuild else 'not built yet')
+            if stale:                     reason = 'locked commit changed'
+            elif child_to_rebuild:        reason = f'{child_to_rebuild.name} changed'
+            elif dep.stale_package_cause: reason = dep.stale_package_note()
+            else:                         reason = 'not built yet'
             warning(f'  - Target {dep.name: <16} BUILD [{reason}]')
 
 
@@ -154,6 +157,35 @@ def revive_deferred_target_deps(root: BuildDependency, config: BuildConfig, disp
     if target is None: return
     load_dependency_chain(target, display)
     reload_deferred_deps(target, display=display)
+
+
+def reload_stale_packages(scope: BuildDependency, display=None):
+    """Load from source each package under `scope` that built against another ABI of a dep below it, and
+    mark each such source-built dep for rebuild. It runs after the whole load. A parent that meets a loaded
+    dep returns before the children of that dep load, and a deferred dep has no identity. Deepest first, so
+    a parent compares against a child that already reloaded. A reload can name a new dep that an ancestor
+    already passed, so every pass that reloads runs again over the whole scope. Each dep is rejected once."""
+    rejected, reloaded = False, True
+    while reloaded:
+        reloaded = False
+        for dep in reversed(get_flat_deps(scope)):
+            if dep.rebuild_if_stale_source(): rejected = True
+            if not dep.reject_stale_package(): continue
+            load_dependency_chain(dep, display)
+            reload_deferred_deps(dep, display=display)  # a targeted run defers a new child with no clone
+            _refuse_redeclared(dep, dep.redeclared)
+            rejected = reloaded = True
+    if rejected:  # after_load ran before the check, so run it again to flag each parent of a stale dep
+        for dep in reversed(get_flat_deps(scope)): dep.after_load()
+
+
+def _refuse_redeclared(dep: BuildDependency, children: list):
+    """Stop the run when the source of a rejected package names `children` other than its package did. The
+    loaded child keeps the first declaration, so a build now would link the old one. The next run loads the source."""
+    if not children: return
+    _report_error(BuildError(f'Target {dep.name} names {", ".join(children)} other than its stale package did.' + \
+                             ' Run the build again.'), dep.config.verbose)
+    exit(-1)
 
 
 def reload_deferred_deps(scope: BuildDependency, free_only=False, display=None) -> bool:
@@ -662,7 +694,7 @@ def _run_phase(display, dep, kind, body, build_slot, detail='', final=False):
         if pt is not None: pt[kind] = pt.get(kind, 0.0) + (time.monotonic() - t0)
         if kind == 'load':
             display.relabel(tid, dep.load_action)  # reflect what load() actually did
-            display.set_note(tid, dep.artifactory_archive)  # name the package the exports came from
+            display.set_note(tid, dep.artifactory_archive or dep.stale_package_note())  # where the exports came from
         display.finish_task(tid, ok, final)
 
 
@@ -1073,11 +1105,12 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
         if scope is not None: scope.enter(dep, parent)
         return [L] + (make_build_jobs(dep) if builds(dep) else [])
 
+    def child_builds(dep): return {bld_jobs[c] for c in dep.get_children() if c in bld_jobs}
+
     def make_build_jobs(dep):
         """The CONFIGURE + BUILD pair of the dep: configure waits on its own load and on the builds of
         every child known so far, and grow() in _do_load adds the rest as the graph discovers them."""
-        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep,
-                deps={load_jobs[dep], *(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)})
+        C = Job((dep, 'C'), CONFIGURE, (lambda d=dep: _do_configure(d)), node=dep, deps={load_jobs[dep], *child_builds(dep)})
         B = Job((dep, 'B'), BUILD, (lambda d=dep: _do_build(d)), deps={C}, node=dep,
                 weight=(lambda d=dep: _reserve_weight(d)), ungated=dep.is_root)
         cfg_jobs[dep] = C; bld_jobs[dep] = B
@@ -1094,18 +1127,33 @@ def execute_unified(root: BuildDependency, scope: DepsOnlyScope = None):
                     elif scope is not None and scope.is_inside(dep):  # shared dep, now reached from inside the scope
                         # A load populates its children before it grows the graph, so a promoted dep can name a
                         # child no job knows yet. That child builds when its own parent registers it.
-                        for d in scope.promote(child):
-                            if d in load_jobs: new += make_build_jobs(d)
+                        promoted = [d for d in scope.promote(child) if d in load_jobs]
+                        for d in promoted: new += make_build_jobs(d)
+                        # promote() lists a parent before its children, so add each child edge once every job exists
+                        for d in promoted: cfg_jobs[d].deps.update(child_builds(d))
                 C = cfg_jobs.get(dep)  # absent when the scope excludes this dep
-                if C is not None: C.deps.update(bld_jobs[c] for c in dep.get_children() if c in bld_jobs)
+                if C is not None: C.deps.update(child_builds(dep))
                 assign_priorities(list(cfg_jobs.values()) + list(bld_jobs.values()))  # re-rank the critical path (trunk)
                 return new
             sched.grow(grow)
         # the root's load is a no-op replay, and an excluded dep's load is its final phase, so it commits the summary line
         _run_phase(display, dep, 'load', body, sched.build_slot, final=not builds(dep))
 
+    def _reload_if_stale(d):
+        """The scheduler form of reload_stale_packages: every dep below has loaded once this configure runs."""
+        d.rebuild_if_stale_source()
+        if not d.reject_stale_package(): return
+        display.set_note(d.name, d.stale_package_note())  # the load phase named the package it unpacked
+        d.load()
+        # this configure has no edge to the build of a new child, and a redeclared child built the old declaration
+        unknown = dict.fromkeys([c.name for c in d.get_children() if c not in bld_jobs or not bld_jobs[c].done] + d.redeclared)
+        if unknown:
+            raise BuildError(f'Target {d.name} names {", ".join(unknown)} other than its stale package did.' + \
+                             ' Run the build again.')
+
     def _do_configure(d):
         def body(sink):
+            _reload_if_stale(d)
             d.after_load()  # children have loaded AND built by now: propagate their 'changed' up to this dep
             if scope is not None: scope.prepare(d)
             _configure_body(d, sink)

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, traceback, getpass
+import os, re, sys, traceback, getpass
 # ftplib is NOT imported here. It pulls ssl, which costs about 21ms of every mama start, and only
 # an upload needs it. The two functions that touch it at runtime import it themselves. The
 # `ftplib.FTP_TLS` annotations below stay valid because this module postpones annotations.
@@ -101,6 +101,46 @@ def artifactory_archive_name(target:BuildTarget, build_type=''):
     version = artifactory_archive_version(version, locked, suffix)
 
     return f'{name}-{platform}-{os_major}-{compiler}-{arch}-{build_type}-{version}'
+
+
+SEMVER = re.compile(r'(\d+)\.(\d+)\.\d+')  # a semver `version`. Its groups are the fields an ABI break bumps
+
+
+def current_archive_name(dep) -> str:
+    """The archive name of what `dep` holds in this run: the package it unpacked, or the one its source
+    would publish. '' when nothing names it yet. It is the identity of a dep with no semver."""
+    if dep.artifactory_archive: return dep.artifactory_archive
+    # a deferred dep would resolve its commit with the ls-remote that the deferral exists to skip
+    if dep.target is None or dep.load_deferred or not dep.already_loaded: return ''
+    if dep.archive_name_memo is None:  # a local dep hashes its whole tree, and every parent asks
+        # the pin the fetch reads, because a mamafile may set self.version in a hook that runs after this
+        if not dep.target.version: dep.target.version = pinned_version(dep)
+        dep.archive_name_memo = artifactory_archive_name(dep.target) or ''
+    return dep.archive_name_memo
+
+
+def semver_of(target) -> str:
+    """The semver `version` of `target`, or '' when it declares none. A package answers from its `R` record."""
+    version = target.dep.package_version if target.dep.from_artifactory else target.version
+    return version if SEMVER.fullmatch(version) else ''
+
+
+def abi_identity(dep) -> str:
+    """The `B` value of `dep`: its semver, else its archive name, which pins a dep with no semver to its commit.
+    A source tree with an uncommitted edit adds `+edit-<fingerprint>`, and artifacts of another source than
+    the tree add `+behind`. A git dep keeps its archive name through an edit. '' when nothing names the dep."""
+    archive = current_archive_name(dep)
+    if not archive: return ''
+    edit = '' if dep.from_artifactory else dep.dep_source.working_tree_fingerprint(dep)  # a package has no tree
+    marks = (f'+edit-{edit[:10]}' if edit else '') + ('+behind' if dep.artifacts_behind_source() else '')
+    return f'{archive}{marks}' if marks else (dep.target and semver_of(dep.target)) or archive
+
+
+def same_abi(built: str, now: str) -> bool:
+    """True when objects built against the identity `built` link safely against `now`. Two semvers agree
+    when MAJOR.MINOR does. Any other pair must match exactly."""
+    old, new = SEMVER.fullmatch(built), SEMVER.fullmatch(now)
+    return old.groups() == new.groups() if old and new else built == now
 
 
 keyr = None
@@ -258,12 +298,18 @@ def artifactory_upload_ftp(target:BuildTarget, file_path:str) -> bool:
         try:
             url = artifactory_sanitize_url(url)
             artifactory_ftp_login(ftp, config, url)
-            if config.if_needed and artifact_already_exists(ftp, target, file_path):
+            # a rebuilt stale package replaces the archive this machine rejected, or every consumer rejects it again
+            archive = os.path.splitext(os.path.basename(file_path))[0]
+            stale, rejected = target.dep.archive_marker(archive, 'stale'), target.dep.archive_marker(archive, 'rejected')
+            replaces = os.path.exists(stale)
+            if config.if_needed and not replaces and artifact_already_exists(ftp, target, file_path):
                 if config.print:
                     console(f'  - Artifactory Upload skipped: artifact already exists: ' + \
                             f'{target.name}/{os.path.basename(file_path)}', color=Color.GREEN)
                 return False # skip upload
             artifactory_upload(ftp, target.name, file_path)
+            for marker in (stale, rejected) if replaces else ():  # only a rebuild clears the server copy for fetch
+                if os.path.exists(marker): os.remove(marker)
             return True
         except ArtifactoryCredentialsError as e:
             error(str(e))
@@ -315,6 +361,9 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
     _warn_on_compiler_mismatch(target, papa)
 
     target.dep.from_artifactory = True
+    target.dep.built_against = papa.built_against
+    target.dep.package_version = papa.version
+    target.dep.package_declarations = {d.name: d.declaration() for d in papa.dependencies}
     target.exported_includes = papa.includes
     target.exported_assets = papa.assets
     target.exported_modules = papa.modules
@@ -380,7 +429,8 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         target.version = pinned_version(target.dep)
 
     archive = artifactory_archive_name(target)
-    if not archive:
+    # this machine rejected that package as stale, and only the upload that replaces it lifts the marker
+    if not archive or os.path.exists(target.dep.archive_marker(archive, 'rejected')):
         return (False, None)
 
     cache_dir = target.dep.dep_dir

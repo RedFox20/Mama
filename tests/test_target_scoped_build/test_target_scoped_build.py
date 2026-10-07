@@ -54,6 +54,14 @@ def test_a_stale_locked_dep_with_artifacts_is_rebuilt():
     assert b.should_rebuild
 
 
+def test_a_rejected_header_only_package_rebuilds_its_source_built_parent():
+    leaf = _dep('leaf')  # usable: a rejected header-only dep keeps its artifacts
+    leaf.stale_package_cause = 'ReCpp'
+    middle = _dep('middle', [leaf])
+    _mark(_dep('root', [_dep('X', [middle])]))
+    assert leaf.should_rebuild and middle.should_rebuild
+
+
 def test_a_stale_leaf_rebuilds_its_source_built_parent():
     leaf = _dep('leaf')
     leaf.has_stale_locked_artifacts = lambda: True

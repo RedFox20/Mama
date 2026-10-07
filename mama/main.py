@@ -14,7 +14,8 @@ from .dependency_chain import (load_dependency_chain, execute_task_chain, execut
                                execute_unified, print_sched_debug, find_dependency, get_flat_deps, print_build_banner,
                                get_deps_only_targets, get_deps_that_depend_on_target, DepsOnlyScope,
                                mark_unbuilt_target_deps, sweep_orphaned_build_dirs, load_root, load_display,
-                               revive_deferred_target_deps, reload_deferred_deps, load_path_to_target)
+                               revive_deferred_target_deps, reload_deferred_deps, load_path_to_target,
+                               reload_stale_packages)
 from .utils.log_writer import open_run_log
 from .init_project import mama_init_project
 from ._version import __version__
@@ -400,8 +401,12 @@ def mamabuild(args, source_dir=None):
 
             # Stage two: load the subtree of the target, which stage one stopped short of. It runs BEFORE
             # the clean_only return below, because a clean acts inside the load of the target it names.
+            scope = root
             if config.scoped_to_target():
                 revive_deferred_target_deps(root, config, display)
+                scope = find_dependency(root, config.target)
+            # after stage two, because a deferred dep has no archive name to compare
+            if scope: reload_stale_packages(scope, display)
 
         # clean is not a build: the load wiped the dirs, so a packaging pass fabricates an empty package
         # or fails a mamafile assert ('libX.so not found'). rebuild sets build=True, so it still runs.

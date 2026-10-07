@@ -27,6 +27,12 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **A semver `version` decides which builds of a dep share an ABI.** Every package and every source build
+  records the identity of each dep below it: its semver `version`, or its archive name when it has none.
+  A later run rebuilds a package or a source build from source when a dep below it changed. A dep with a
+  semver changes with its `MAJOR.MINOR`, and a dep without one with its commit. A package with no record
+  stays only as a leaf. `0.0.0` counts as no version.
+
 - **`unpublish=since=<age>` and `dependents` remove the packages an ABI break made unsafe.** `since` deletes every archive
   uploaded in the last `90m`, `6h` or `2d`, by the upload time the server reports. `dependents` swaps the
   scope to every package whose subtree holds the named target, so `mama ReCpp unpublish=since=6h

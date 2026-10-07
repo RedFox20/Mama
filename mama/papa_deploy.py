@@ -29,6 +29,38 @@ def _gather_dependencies(target:BuildTarget) -> List[BuildDependency]:
     return dependecies
 
 
+BUILD_RECORD = 'mama_built_against'  # in the build dir: the identities the last successful build compiled against
+
+
+def read_build_record(build_dir: str) -> dict:
+    """{dep name: identity} that the last successful build in `build_dir` recorded, {} when none did."""
+    lines = read_lines_from(f'{build_dir}/{BUILD_RECORD}')
+    return dict(fields for line in lines if len(fields := line.split()) == 2)  # a broken line is no record
+
+
+def built_against(target:BuildTarget) -> list:
+    """(name, identity) that the objects of `target` compiled against: the `B` records of a fetched package,
+    the deps of this run for a dep this run rebuilds, else the record of its last successful build. A deploy
+    without a rebuild must not claim the deps of this run. [] for no record, which reads as an unknown ABI."""
+    if target.dep.from_artifactory: return list(target.dep.built_against.items())
+    if target.dep.should_rebuild: return current_identities(target)  # a build() hook can deploy before the record
+    return list(read_build_record(target.dep.build_dir).items())
+
+
+def current_identities(target:BuildTarget) -> list:
+    """(name, identity) of every dep in the subtree of `target` in this run, see abi_identity. A header or an
+    inline function of any of them can sit inside the objects, so the direct children alone miss a change."""
+    from .artifactory import abi_identity  # local import: artifactory imports this module
+    found = {}
+    def walk(children):
+        for child in children:
+            if child.name in found: continue
+            found[child.name] = abi_identity(child)
+            walk(child.get_children())
+    walk(target.children())
+    return [(name, identity) for name, identity in found.items() if identity]
+
+
 def _results_contain(results, contains_value):
     for target,value in results:
         if value == contains_value:
@@ -293,6 +325,9 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
     compiler = _compiler_stamp(config)
     if compiler: descr.append(f'C {compiler}')
     descr.append(f'O {build_names.object_attributes(target)}')
+    from .artifactory import semver_of  # local import: artifactory imports this module
+    version = semver_of(target)
+    if version: descr.append(f'R {version}')
     for d in dependencies:
         if detail_echo: console(f'    D {d.dep_source}')
         descr.append(f'D {d.dep_source.get_papa_string()}')
@@ -300,6 +335,7 @@ def papa_deploy_to(target:BuildTarget, package_full_path:str,
         # record keeps every older reader working, because an unknown record parses as nothing.
         suffix = d.dep_source.version_suffix
         if suffix: descr.append(f'V {d.dep_source.name} {suffix}')
+    descr += [f'B {name} {identity}' for name, identity in built_against(target)]
 
     # the loop below refuses too, but only after the include tree is gone, so check before that
     if package.same_file(package_full_path, target.build_dir()) and \
@@ -382,6 +418,8 @@ class PapaFileInfo:
         self.compiler = None # 'gcc14.3' / 'clang18.1'. None for a package that predates the C record
         self.attributes = [] # 'debug'/'release', platform, arch, variant tokens. [] predates the O record
         self.dependencies = []
+        self.version = '' # the semver `version` of the package, from its R record
+        self.built_against = {} # dep name -> its identity when this package built. {} predates the B record
         self.includes = []
         self.libs = []
         self.syslibs = []
@@ -401,6 +439,10 @@ class PapaFileInfo:
             elif line.startswith('V '):
                 dep_name, _, suffix = line[2:].strip().partition(' ')
                 suffixes[dep_name] = suffix.strip()
+            elif line.startswith('R '): self.version = line[2:].strip()
+            elif line.startswith('B '):
+                dep_name, _, archive = line[2:].strip().partition(' ')
+                self.built_against[dep_name] = archive.strip()
             elif line.startswith('I '): append_to(self.includes, line)
             elif line.startswith('L '): append_to(self.libs, line)
             elif line.startswith('S '): append_to(self.syslibs, line)
