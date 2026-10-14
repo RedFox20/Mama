@@ -1,11 +1,12 @@
 """Pins the exact cmake configure options and compiler flags every platform emits."""
-import os, shlex
+import os, re, shlex
 from unittest.mock import patch
 
 import pytest
 
 from testutils import platform_cxx_flags, platform_target
 from mama.buildsys.cmake import configure as cc
+from mama.buildsys.cmake.mamacmake import _ARCH_MATCH
 from mama.platforms.aarch64 import Aarch64
 from mama.platforms.android import Android
 from mama.platforms.imx8mp import Imx8mp
@@ -30,6 +31,7 @@ def _opts(tmp_path, platform_class, arch=None, **overrides):
 @pytest.mark.parametrize('platform_class,arch,system,processor', [
     (Android, 'arm64', 'Android', 'aarch64'),
     (Android, 'arm',   'Android', 'armv7-a'),
+    (Android, 'x64',   'Android', 'x86_64'),
     (Raspi,   'arm64', 'Linux',   'aarch64'),
     (Aarch64, 'arm64', 'Linux', 'aarch64'),
     (Raspi,   'arm',   'Linux',   'armv7-a'),
@@ -67,15 +69,24 @@ def test_only_visual_studio_gets_the_x86_toolset(tmp_path, generator):
 
 # --- each platform's own option set ---
 
-def test_android_passes_the_ndk_abi_and_toolchain_file(tmp_path, fake_toolchains):
+def test_android_passes_the_ndk_settings_and_toolchain_file(tmp_path, fake_toolchains):
     opts = _opts(tmp_path, Android, 'arm64')
-    assert 'ANDROID_ABI=arm64-v8a' in opts and 'ANDROID_ARCH=ARM64' in opts
+    assert 'ANDROID_ARCH=ARM64' in opts
     assert 'ANDROID_STL=c++_shared' in opts and 'ANDROID_NATIVE_API_LEVEL=android-29' in opts
     assert f'CMAKE_TOOLCHAIN_FILE="{fake_toolchains["ndk"]}/build/cmake/android.toolchain.cmake"' in opts
 
 
-def test_android_armv7_switches_the_abi(tmp_path, fake_toolchains):
-    assert 'ANDROID_ABI=armeabi-v7a' in _opts(tmp_path, Android, 'arm')
+@pytest.mark.parametrize('arch,abi,clang', [('arm64', 'arm64-v8a', 'aarch64'), ('arm', 'armeabi-v7a', 'armv7a'),
+                                            ('x64', 'x86_64', 'x86_64')])
+def test_each_android_arch_names_its_ndk_abi_and_clang(arch, abi, clang, tmp_path, fake_toolchains):
+    t, _ = platform_target(tmp_path, Android, arch)
+    opts = cc._platform_opts(t)
+    assert f'ANDROID_ABI={abi}' in opts
+    assert f'/{clang}-linux-android29-clang++' in t.config.platform.cxx_path()
+    # mama.cmake picks the build dir by ANDROID_ARCH, so the value must hit the branch of its own arch first
+    android_arch = next(o.split('=', 1)[1] for o in opts if o.startswith('ANDROID_ARCH='))
+    hits = [a for a, _, pattern in _ARCH_MATCH if a in Android.supported_arches and re.search(pattern, android_arch)]
+    assert hits[0] == arch
 
 
 def test_android_passes_the_make_program_exactly_once(tmp_path, fake_toolchains):
@@ -118,7 +129,7 @@ def test_ios_builds_for_the_device_not_the_simulator(tmp_path):
 # --- compiler flags ---
 
 @pytest.mark.parametrize('platform_class,arch,march', [
-    (Android, 'arm64', 'armv8-a'), (Android, 'arm', 'armv7-a'),
+    (Android, 'arm64', 'armv8-a'), (Android, 'arm', 'armv7-a'), (Android, 'x64', 'x86-64'),
     (Raspi, 'arm64', 'armv8-a'),   (Raspi, 'arm', 'armv7-a'),
     (Aarch64, 'arm64', 'armv8-a'),
     (Oclea, 'arm64', 'armv8-a'),   (Imx8mp, 'arm64', 'armv8-a'),

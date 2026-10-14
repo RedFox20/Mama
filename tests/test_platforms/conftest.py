@@ -24,7 +24,7 @@ def make_ndk_tree(root, ndk_version='27.3.13750724') -> str:
     _touch(f'{ndk}/ndk-build{ext}')
     _touch(f'{ndk}/build/cmake/android.toolchain.cmake')
     prebuilt = 'windows-x86_64' if is_windows() else 'linux-x86_64'
-    for arch in ('aarch64', 'armv7a'):
+    for arch in ('aarch64', 'armv7a', 'x86_64'):
         for suffix in ('clang', 'clang++'):
             _touch(f'{ndk}/toolchains/llvm/prebuilt/{prebuilt}/bin/{arch}-linux-android29-{suffix}{ext}')
     return ndk

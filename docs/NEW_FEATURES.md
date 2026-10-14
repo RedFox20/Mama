@@ -27,6 +27,10 @@ A defect belongs in `docs/BUGS.md`, unless the repair is a new capability. Then 
 
 ## Implemented
 
+- **`mama build android x64` builds for the x86_64 Android emulator.** The NDK gets the `x86_64` ABI and
+  its `x86_64-linux-android` clang, mama writes the build to `androidx64`, and `mama.cmake` finds it there.
+  arm64 stays the default arch.
+
 - **A semver `version` decides which builds of a dep share an ABI.** Every package and every source build
   records the identity of each dep below it: its semver `version`, or its archive name when it has none.
   A later run rebuilds a package or a source build from source when a dep below it changed. A dep with a

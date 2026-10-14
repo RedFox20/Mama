@@ -117,6 +117,7 @@ def print_usage():
     console('    mama build android             Cross compile to arm64 android NDK')
     console('    mama build ndk-28              Cross compile with Android NDK 28 (substring match, 28.2 also works)')
     console('    mama build android-26 arm      Cross compile to armv7 android NDK API level 26')
+    console('    mama build android x64         Cross compile to x86_64 android NDK, for the emulator')
     console('    mama update                    Update all dependencies by doing git pull and build.')
     console('    mama clean                     Cleans main project only.')
     console('    mama clean x86 opencv          Cleans the x86 build of target opencv.')

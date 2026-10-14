@@ -10,10 +10,13 @@ import testutils
 # build actually cross-compiled: the configure command can look perfect and still emit host objects.
 _EM = {'x86_64': (62, 2), 'aarch64': (183, 2), 'arm': (40, 1), 'mips': (8, 1), 'wasm32': 'wasm'}
 
-# (platform arg, machine, a path that must exist for the toolchain to be installed)
+_NDK = os.getenv('ANDROID_NDK_HOME') or '/opt/android-sdk/ndk'
+
+# (platform args, machine, a path that must exist for the toolchain to be installed)
 _PLATFORMS = [
     ('linux',   'x86_64',  None),
-    ('android', 'aarch64', os.getenv('ANDROID_NDK_HOME') or '/opt/android-sdk/ndk'),
+    ('android', 'aarch64', _NDK),
+    ('android x64', 'x86_64', _NDK),
     ('raspi',   'aarch64', '/usr/bin/aarch64-linux-gnu-gcc'),
     ('aarch64',  'aarch64', '/usr/bin/aarch64-linux-gnu-gcc'),
     ('raspi32', 'arm',     '/usr/bin/arm-linux-gnueabihf-gcc'),
@@ -73,7 +76,7 @@ def test_configure_and_build_produce_the_right_target_machine(platform, machine,
     cwd = os.getcwd()
     try:
         os.chdir(tmp_path)
-        assert testutils.mama_exec(['build', platform], exit_on_fail=False) == 0
+        assert testutils.mama_exec(['build', *platform.split()], exit_on_fail=False) == 0
     finally:
         os.chdir(cwd)
 
