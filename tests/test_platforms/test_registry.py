@@ -34,13 +34,14 @@ def test_an_unknown_arg_names_no_platform(arg):
 @pytest.mark.parametrize('arg,name,arch,build_dir', [
     ('linux', 'linux', 'x64', 'linux'), ('windows', 'windows', 'x64', 'windows'),
     ('macos', 'macos', 'arm64', 'macosarm'), ('ios', 'ios', 'arm64', 'ios'),
-    ('android', 'android', 'arm64', 'android'), ('raspi', 'raspi', 'arm64', 'raspi'),
+    ('android', 'android', 'arm64', 'android'), ('android x64', 'android', 'x64', 'androidx64'),
+    ('raspi', 'raspi', 'arm64', 'raspi'),
     ('raspi32', 'raspi', 'arm', 'raspi32'), ('mips', 'mips', 'mipsel', 'mips'),
     ('oclea', 'oclea', 'arm64', 'oclea'), ('xilinx', 'xilinx', 'arm64', 'xilinx'),
     ('imx8mp', 'imx8mp', 'arm64', 'imx8mp'), ('wasm', 'wasm', 'wasm32', 'wasm'),
 ])
 def test_the_arg_drives_the_whole_config(arg, name, arch, build_dir):
-    config = BuildConfig([arg])
+    config = BuildConfig(arg.split())
     assert config.name() == name
     assert config.arch == arch
     assert build_dir_name(config) == build_dir
@@ -91,7 +92,7 @@ def test_every_platform_declares_a_complete_identity(platform_class):
 @pytest.mark.parametrize('platform_class,arch,hint', [
     (platform_named('linux'), 'arm', 'raspi32'),   # 32-bit ARM linux is a raspi, never android
     (platform_named('macos'), 'x86', 'Supported'),
-    (platform_named('android'), 'x64', 'Supported'),
+    (platform_named('android'), 'x86', 'Supported'),
 ])
 def test_an_unsupported_arch_names_what_to_use_instead(platform_class, arch, hint):
     config = BuildConfig([])
@@ -116,6 +117,13 @@ def test_no_two_platform_and_arch_pairs_share_a_build_dir():
             name = build_dir_name(config)
             assert name not in dirs, f'{platform_class.name}/{arch} shares {name} with {dirs.get(name)}'
             dirs[name] = f'{platform_class.name}/{arch}'
+
+
+@pytest.mark.parametrize('platform_class', PLATFORMS, ids=lambda p: p.name)
+def test_no_platform_dir_holds_a_dash(platform_class):
+    """A `-` starts the variant part of a build dir name, so `mama android clean all` would sweep an
+    `android-x64` dir as a variant of `android`."""
+    assert all('-' not in d for d in (platform_class.name, *platform_class.build_dirs.values()))
 
 
 _HOOKS = ('_build_toolchain', 'get_cxx_flags', 'get_ld_flags', 'init_toolchain', 'init_default',

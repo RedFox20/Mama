@@ -8,9 +8,12 @@ from mama.utils.paths import path_join, forward_slashes
 from mama.utils.system import System, console, warning
 
 
-# mama arch to the NDK's own tokens: the clang driver name and the ABI dir name.
+# mama arch to the NDK clang name and ABI dir, the ANDROID_ARCH that mama.cmake matches, and the -march.
+# x64 serves the x86_64 images of the Android emulator.
 _NDK_ARCH = {'arm64': 'aarch64', 'arm': 'armv7a', 'x64': 'x86_64', 'x86': 'i686'}
-_NDK_ABI = {'arm64': 'arm64-v8a', 'arm': 'armeabi-v7a'}
+_NDK_ABI = {'arm64': 'arm64-v8a', 'arm': 'armeabi-v7a', 'x64': 'x86_64'}
+_ANDROID_ARCH = {'arm64': 'ARM64', 'arm': 'arm', 'x64': 'x86_64'}
+_MARCH = {'arm64': 'armv8-a', 'arm': 'armv7-a', 'x64': 'x86-64'}
 
 
 class Android(Platform):
@@ -20,8 +23,8 @@ class Android(Platform):
     is_cross = True
     is_host_runnable = False
     default_arch = 'arm64'
-    supported_arches = ('arm64', 'arm')
-    build_dirs = {'arm64': 'android', 'arm': 'android32'}
+    supported_arches = ('arm64', 'arm', 'x64')
+    build_dirs = {'arm64': 'android', 'arm': 'android32', 'x64': 'androidx64'}
     toolchain_override_attr = 'cmake_ndk_toolchain'
     compiler = Compiler.CLANG
     compiler_dumpfullversion = False  # the NDK ships clang, which dropped -dumpfullversion
@@ -198,7 +201,7 @@ class Android(Platform):
     def _build_toolchain(self) -> Toolchain:
         # variables only the NDK's own toolchain file understands, so they take the escape hatch
         ndk = (f'ANDROID_ABI={self.android_abi()}', 'ANDROID_ARM_NEON=TRUE', 'ANDROID_TOOLCHAIN=clang',
-               f'ANDROID_ARCH={"ARM64" if self.arch() == "arm64" else "arm"}',
+               f'ANDROID_ARCH={_ANDROID_ARCH[self.arch()]}',
                f'ANDROID_NDK="{self.android_ndk()}"', f'ANDROID_STL={self.android_ndk_stl}',
                f'ANDROID_NATIVE_API_LEVEL={self.android_api}', 'ANDROID_USE_LEGACY_TOOLCHAIN_FILE=FALSE')
         return Toolchain(system_name=self.system_name, system_processor=self.system_processor(),
@@ -207,7 +210,7 @@ class Android(Platform):
 
 
     def default_march(self) -> str:
-        return 'armv7-a' if self.arch() == 'arm' else 'armv8-a'
+        return _MARCH[self.arch()]
 
 
     def get_cxx_flags(self, add_flag: Callable[[str,str], None]):

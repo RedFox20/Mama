@@ -18,16 +18,14 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.16** (2026-Oct-14)
+ - feature: mama build android x64 builds for the x86_64 Android emulator
+
 **0.14.15** (2026-Oct-07)
  - bugfix: a stale package no longer fails on a child another dep named first
 
 **0.14.14** (2026-Oct-07)
  - bugfix: module packages record dependency recipe paths relative to the module
-
-**0.14.13** (2026-Oct-07)
- - feature: a semver version keeps packages of a dep that a patch release moved
- - bugfix: a package built against another ABI of a dep builds from source
- - bugfix: a source build whose package dep moved now rebuilds
 
 ## Why Mama
 
@@ -71,7 +69,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - Linux (Ubuntu) (64-bit x86_64, 32-bit x86, 64-bit arm64) both GCC and Clang
 - MacOS (64-bit x86_64, 64-bit arm64) via config.macos_version
 - iOS (64-bit arm64) via config.ios_version
-- Android (64-bit arm64, 32-bit armv7) via env ANDROID_NDK_HOME or ANDROID_HOME
+- Android (64-bit arm64, 32-bit armv7, 64-bit x86_64 for the emulator) via env ANDROID_NDK_HOME or ANDROID_HOME
 - Raspberry Pi (64-bit arm64 default, 32-bit armv7 via `raspi32`) via env PI_SDK_HOME or RASPI_HOME, or a Pi SDK in /opt/pi-sdk/<version> or ~/pi-sdk
 - Generic AArch64 Linux (64-bit arm64, boards with no vendor SDK) via `aarch64` and env AARCH64_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain() or env OCLEA_HOME
@@ -113,6 +111,7 @@ target_link_libraries(YourProject PRIVATE ${MAMA_LIBS})
   mama build android             Cross compile to arm64 android NDK (default API level 29)
   mama build android-31          Cross compile to arm64 with Android API level 31
   mama build android-26 arm      Cross compile to armv7 android NDK API level 26
+  mama build android x64         Cross compile to x86_64 android NDK, for the emulator
   mama update                    Update all dependencies by doing git pull and build.
   mama lock platforms=linux,windows,android Resolve all Git dependencies into mama.lock.
   mama lock dep1 platforms=linux Refresh dep1 while preserving other locked commits.
@@ -961,6 +960,7 @@ Select the Android API level via the CLI:
 ```
 mama build android-31             # arm64, API level 31
 mama build android-26 arm         # armv7, API level 26
+mama build android x64            # x86_64, for the emulator, build dir androidx64
 mama build android                # arm64, default API level 29
 mama build ndk-28                 # build with Android NDK-28 (requires ANDROID_HOME or ANDROID_SDK_ROOT)
 mama build ndk-28.2               # build with Android NDK-28.2 specifically
