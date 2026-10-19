@@ -2,7 +2,7 @@
 import os
 import pytest
 
-from testutils import emsdk_node, is_linux, is_windows, make_emsdk_tree, touch_file as _touch
+from testutils import emsdk_node, is_linux, is_windows, make_cross_bin_tree, make_emsdk_tree, touch_file as _touch
 from mama.utils.paths import normalized_path
 from mama.platforms.generic_yocto import GenericYocto
 from mama.platforms.mips import Mips
@@ -35,14 +35,6 @@ def make_yocto_tree(root, sdk_name, sysroot_name, compiler_name, toolchain_rel) 
     _touch(f'{root}/sysroots/{sdk_name}/{compiler_name}')
     os.makedirs(f'{root}/sysroots/{sysroot_name}/usr/include', exist_ok=True)
     _touch(f'{root}/{toolchain_rel}')
-    return root
-
-
-def make_cross_bin_tree(root, triple) -> str:
-    """A distro cross package: bin/<triple>-gcc and nothing else, no sysroot of its own."""
-    ext = '.exe' if is_windows() else ''
-    for suffix in ('gcc', 'g++'):
-        _touch(f'{root}/bin/{triple}-{suffix}{ext}')
     return root
 
 

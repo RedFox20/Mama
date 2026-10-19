@@ -498,6 +498,13 @@ def make_emsdk_tree(root, node_versions=('22.16.0',)) -> str:
     return root
 
 
+def make_cross_bin_tree(root, triple) -> str:
+    """A distro cross package: bin/<triple>-gcc and nothing else, no sysroot of its own."""
+    ext = executable_extension()
+    for suffix in ('gcc', 'g++'): touch_file(f'{root}/bin/{triple}-{suffix}{ext}')
+    return root
+
+
 def deploy_pass_uploads(target) -> bool:
     """True when the deploy pass of this target reaches papa_upload_to. The deploy hook is stubbed, so
     only the upload decision answers."""
