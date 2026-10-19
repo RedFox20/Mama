@@ -102,7 +102,7 @@ class Platform:
     position_independent = True  ## False where the platform links no shared library, so -fPIC only adds size
     exceptions_flag = ''       ## the compiler flag that turns on C++ exceptions, when the compiler default is off
     program_suffix = ''        ## the file suffix of a program this platform links. exe_suffix also names a host tool
-    variant_names = ()         ## every token variant_tokens() can return, so a clean tells the build dirs apart
+    variant_names = ()         ## the tokens that mark a variant dir, so a plain clean keeps it
     compiler = None            ## the Compiler this platform builds with. None takes the host choice
 
     def __init__(self, config: BuildConfig):

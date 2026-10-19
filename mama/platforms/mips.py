@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Callable
-import os
+import os, re
 
 from .platform import Platform, Compiler
 from .toolchain import Toolchain
@@ -24,6 +24,7 @@ class Mips(Platform):
     build_dirs = {'mipsel': 'mips', 'mips': 'mipsbe', 'mips64': 'mips64', 'mips64el': 'mips64el'}
     platform_define = 'MIPS'
     compile_defines = {'MIPS': '1'}
+    variant_names = ('linux',)  # every Linux triple has this field, so a plain clean keeps the dir of another triple
 
     def __init__(self, config):
         super().__init__(config)
@@ -49,6 +50,13 @@ class Mips(Platform):
 
     def gnu_host_triple(self) -> str:
         return self.gnu_triple or f'{self.arch()}-linux-gnu'
+
+
+    def variant_tokens(self) -> tuple:
+        # another triple links another libc: eg mips-linux-muslsf -> ('linux', 'muslsf')
+        rest = self.gnu_host_triple().lower().removeprefix(f'{self.arch()}-')
+        if rest == 'linux-gnu': return ()
+        return tuple(filter(None, re.split('[^a-z0-9]+', rest)))
 
 
     def init_default(self):

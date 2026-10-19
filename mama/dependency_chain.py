@@ -516,7 +516,7 @@ def _save_mama_cmake(root: BuildDependency, path: str):
     config:BuildConfig = root.config
     ninja_version = config.ninja_version()
 
-    # a platform variant (wasm threads) names the dirs of its own platform only
+    # a platform variant (wasm threads, a MIPS triple) names the dir of its own platform and arch only
     own_dir = config.platform.build_dir_name()
     other_suffix = root.variant_suffix.removeprefix(''.join('-' + t for t in config.platform.variant_tokens()))
 

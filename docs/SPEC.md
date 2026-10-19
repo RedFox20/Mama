@@ -216,8 +216,10 @@ minutes later, and every `MAMA_` variable reads as an empty string.
   `linuxarm`, `windows32`, `macosarm`).
 - `-clang` appears only on a Linux clang build. gcc keeps the bare name, so existing trees do not
   churn. Elsewhere the toolset or the SDK already fixes the compiler.
-- The variant is `build_variant_suffix`: `-cov` for an instrumented dep, then one token per sanitizer,
-  then the dep args. Each token gets its own `-`. A plain build with no args adds nothing.
+- The variant is `build_variant_suffix`: the platform variant, then `-cov` for an instrumented dep, then
+  one token per sanitizer, then the dep args. Each token gets its own `-`. A plain build with no args adds
+  nothing. The platform variant is `-mt` for threaded wasm, and the triple fields of a MIPS toolchain
+  that is not `<arch>-linux-gnu`.
 - Dep args are sorted, lowercased, de-duplicated and stripped to ASCII alphanumerics. `+` becomes
   `p`, so `C++20` is `cpp20`. `NEWMATH=1` is `newmath1`, distinct from `newmath2`.
 
@@ -1556,6 +1558,23 @@ build.
 **Why:** `-march=native` is the right default for a developer and the wrong one for a release. It bakes
 the build machine into the binary. The failure then appears as an illegal instruction on the older CPU
 of a user, far from the build that caused it.
+
+### MIPS
+
+`config.set_mips_toolchain(arch, toolchain_dir, toolchain_file, triple)` names the cross toolchain. mama
+looks for `<toolchain_dir>/bin/<triple>-gcc`, then for `/usr/bin/<triple>-gcc`. The triple defaults to
+`<arch>-linux-gnu`. When mama does not find the triple that the call names, it raises. It never takes
+another compiler in its place.
+
+mama puts each field of any other triple into the variant as one token. It lowercases the triple and
+removes a first field that is the arch of the run. Then it splits at each character that is not an ASCII
+letter or digit. In a run for arch `mips`, mama builds `mips-linux-muslsf` in
+`packages/ReCpp/mipsbe-linux-muslsf`, and its archive name carries `-linux-muslsf`. The default triple
+of the run arch adds no token, so its build dir and archive name do not change. Under the default
+triple, `mama mips clean all` keeps the dir of a triple with a `linux` field.
+
+**Why:** the triple names the libc and the ABI. A musl object does not link with a glibc one, so the two
+builds share no build dir and no package.
 
 ### WebAssembly
 
