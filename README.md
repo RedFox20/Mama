@@ -74,7 +74,7 @@ hard-to-configure system packages. All you need to type is `mama build`.
 - Generic AArch64 Linux (64-bit arm64, boards with no vendor SDK) via `aarch64` and env AARCH64_HOME
 - Oclea (64-bit arm64) via config.set_oclea_toolchain() or env OCLEA_HOME
 - i.MX8M Plus (64-bit arm64 NXP i.MX8M Plus) via config.set_imx8mp_toolchain() or env IMX8MP_SDK_HOME
-- MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain()
+- MIPS (mips, mipsel, mips64, mips64el) via config.set_mips_toolchain(), `triple='mips-linux-muslsf'` for a musl toolchain
 - Xilinx (64-bit arm64 Zynq UltraScale+ MPSoC) via config.set_xilinx_toolchain() or env XILINX_HOME
 - WebAssembly (wasm32) via `wasm` and the Emscripten SDK in env EMSDK, ~/emsdk or emcc on PATH
 
@@ -1001,7 +1001,8 @@ def settings(self):
 ```
 The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolchain()`,
 `set_imx8mp_toolchain()`, `set_xilinx_toolchain()`, `set_android_toolchain()` and
-`set_mips_toolchain(arch)`.
+`set_mips_toolchain(arch, toolchain_dir, triple='mips-linux-muslsf')`, whose `triple` names the compilers when they
+are not `<arch>-linux-gnu-gcc`.
 
 
 ## Environment Variables

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from testutils import platform_cxx_flags, platform_target
+from testutils import make_cross_bin_tree, platform_cxx_flags, platform_target
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake.mamacmake import _ARCH_MATCH
 from mama.platforms.aarch64 import Aarch64
@@ -183,6 +183,27 @@ def test_mips_names_the_cross_binutils_it_ships(tool, tmp_path, fake_toolchains)
     no find root for MIPS, so the tools have to be named or cmake can end up with the host's."""
     opts = _opts(tmp_path, Mips, 'mipsel')
     assert any(o.startswith(f'CMAKE_{tool.upper()}=') and o.endswith(f'-{tool}') for o in opts)
+
+
+def _mips_with_tree(tmp_path, tree_triple):
+    root = make_cross_bin_tree(str(tmp_path / 'toolchain'), tree_triple)
+    t, dep = platform_target(tmp_path, Mips, 'mips')
+    return root, t, dep.config.platform
+
+
+@pytest.mark.linux_host
+def test_mips_builds_with_the_triple_a_musl_toolchain_names(tmp_path):
+    root, t, mips = _mips_with_tree(tmp_path, 'mips-linux-muslsf')
+    mips.init_toolchain(root, arch='mips', triple='mips-linux-muslsf')
+    assert mips.compiler_prefix() == f'{root}/bin/mips-linux-muslsf-' and mips.gnu_host_triple() == 'mips-linux-muslsf'
+    assert f'CMAKE_AR={root}/bin/mips-linux-muslsf-ar' in cc._platform_opts(t)
+
+
+@pytest.mark.linux_host
+def test_a_named_mips_triple_never_resolves_another_compiler(tmp_path):
+    root, _, mips = _mips_with_tree(tmp_path, 'mips-linux-gnu')
+    with pytest.raises(FileNotFoundError, match='mips-linux-muslsf-gcc'):
+        mips.init_toolchain(root, arch='mips', triple='mips-linux-muslsf')
 
 
 @pytest.mark.parametrize('platform_class,stdlib', [(Macos, 'libc++'), (Ios, 'libc++'), (Linux, '')])
