@@ -1002,7 +1002,7 @@ def settings(self):
 The platform-named aliases still work: `set_yocto_toolchain()`, `set_oclea_toolchain()`,
 `set_imx8mp_toolchain()`, `set_xilinx_toolchain()`, `set_android_toolchain()` and
 `set_mips_toolchain(arch, toolchain_dir, triple='mips-linux-muslsf')`, whose `triple` names the compilers when they
-are not `<arch>-linux-gnu-gcc`.
+are not `<arch>-linux-gnu-gcc`. mama builds such a triple in a dir of its own, eg `mipsbe-linux-muslsf`.
 
 
 ## Environment Variables

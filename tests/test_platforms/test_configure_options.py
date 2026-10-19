@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from testutils import make_cross_bin_tree, platform_cxx_flags, platform_target
+from mama import build_names
 from mama.buildsys.cmake import configure as cc
 from mama.buildsys.cmake.mamacmake import _ARCH_MATCH
 from mama.platforms.aarch64 import Aarch64
@@ -197,6 +198,15 @@ def test_mips_builds_with_the_triple_a_musl_toolchain_names(tmp_path):
     mips.init_toolchain(root, arch='mips', triple='mips-linux-muslsf')
     assert mips.compiler_prefix() == f'{root}/bin/mips-linux-muslsf-' and mips.gnu_host_triple() == 'mips-linux-muslsf'
     assert f'CMAKE_AR={root}/bin/mips-linux-muslsf-ar' in cc._platform_opts(t)
+
+
+@pytest.mark.linux_host
+@pytest.mark.parametrize('triple,build_dir', [(None, 'mipsbe'), ('mips-linux-gnu', 'mipsbe'),
+                                              ('mips-linux-muslsf', 'mipsbe-linux-muslsf')])
+def test_a_mips_triple_other_than_the_default_names_its_own_build_dir(triple, build_dir, tmp_path):
+    root, t, mips = _mips_with_tree(tmp_path, triple or 'mips-linux-gnu')
+    mips.init_toolchain(root, arch='mips', triple=triple)
+    assert build_names.build_dir_name(t.config) == build_dir
 
 
 @pytest.mark.linux_host
