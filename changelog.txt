@@ -1,8 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
-unreleased
- - feature: set_mips_toolchain(triple=...) takes musl, in a dir of its own
+release: 0.14.17 (2026-Oct-19)
+ - feature: set_mips_toolchain(triple=...) takes a musl or OpenWrt toolchain
+ - feature: each MIPS triple gets its own build dir and package archive
 
 release: 0.14.16 (2026-Oct-14)
  - feature: mama build android x64 builds for the x86_64 Android emulator
