@@ -18,14 +18,15 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.17** (2026-Oct-19)
+ - feature: set_mips_toolchain(triple=...) takes a musl or OpenWrt toolchain
+ - feature: each MIPS triple gets its own build dir and package archive
+
 **0.14.16** (2026-Oct-14)
  - feature: mama build android x64 builds for the x86_64 Android emulator
 
 **0.14.15** (2026-Oct-07)
  - bugfix: a stale package no longer fails on a child another dep named first
-
-**0.14.14** (2026-Oct-07)
- - bugfix: module packages record dependency recipe paths relative to the module
 
 ## Why Mama
 
