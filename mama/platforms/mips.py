@@ -31,13 +31,14 @@ class Mips(Platform):
         self.toolchain_minor = 0
         self.toolchain_dir = None
         self.toolchain_file = None
+        self.gnu_triple = ''    # the compilers' GNU triple, eg mipsel-linux-gnu or mips-linux-muslsf
         self.gcc_prefix = ''    # prefix to the gcc binary
         self.libs_path = ''     # toolchain lib/ path
         self.include_path = ''  # toolchain include/ path
 
 
     def compiler_prefix(self) -> str:
-        """`<bin>/<arch>-linux-gnu-`, eg `/usr/bin/mipsel-linux-gnu-`."""
+        """`<bin>/<triple>-`, eg `/usr/bin/mipsel-linux-gnu-`."""
         if not self.gcc_prefix: self.init_default()
         return self.gcc_prefix
 
@@ -47,14 +48,16 @@ class Mips(Platform):
 
 
     def gnu_host_triple(self) -> str:
-        return f'{self.arch()}-linux-gnu'
+        return self.gnu_triple or f'{self.arch()}-linux-gnu'
 
 
     def init_default(self):
         if not self.gcc_prefix: self.init_toolchain()
 
 
-    def init_toolchain(self, toolchain_dir=None, toolchain_file=None, arch=None):
+    def init_toolchain(self, toolchain_dir=None, toolchain_file=None, arch=None, triple=None):
+        """triple: the compilers' GNU triple, eg `mips-linux-muslsf` for a musl-cross-make bin/mips-linux-muslsf-gcc.
+        Defaults to `<arch>-linux-gnu`. A named triple that is not found raises, it never resolves another compiler."""
         arch = arch or self.arch()
         if arch not in self.supported_arches:
             raise RuntimeError(f'Unsupported MIPS arch: {arch}')
@@ -65,8 +68,9 @@ class Mips(Platform):
         if not System.linux:
             raise RuntimeError('MIPS only supported on Linux')
 
+        gnu = triple or f'{arch}-linux-gnu'
         # already initialized with exactly these inputs
-        if self.gcc_prefix and self.toolchain_file == toolchain_file and self.toolchain_dir == toolchain_dir:
+        if self.gcc_prefix and (self.toolchain_file, self.toolchain_dir, self.gnu_triple) == (toolchain_file, toolchain_dir, gnu):
             return
 
         self.toolchain_file = toolchain_file # an optional toolchain file that adds sysroot details
@@ -74,22 +78,22 @@ class Mips(Platform):
         # a toolchain dir should have a bin/ subdir with the compiler
         if toolchain_dir:
             self.toolchain_dir = toolchain_dir
-            if os.path.exists(f'{toolchain_dir}/bin/{arch}-linux-gnu-gcc'):
-                self._set_toolchain_dir(f'{toolchain_dir}/bin/{arch}-linux-gnu-',
-                                       f'{toolchain_dir}/lib', f'{toolchain_dir}/include')
+            if os.path.exists(f'{toolchain_dir}/bin/{gnu}-gcc'):
+                self._set_toolchain_dir(gnu, f'{toolchain_dir}/bin/{gnu}-', f'{toolchain_dir}/lib', f'{toolchain_dir}/include')
                 return
 
         # then try a system installed toolchain. Its libs may live at /usr/mipsel-linux-gnu
-        if os.path.exists(f'/usr/bin/{arch}-linux-gnu-gcc'):
-            self._set_toolchain_dir(f'/usr/bin/{arch}-linux-gnu-',
-                                   f'/usr/{arch}-linux-gnu/lib', f'/usr/{arch}-linux-gnu/include')
+        if os.path.exists(f'/usr/bin/{gnu}-gcc'):
+            self._set_toolchain_dir(gnu, f'/usr/bin/{gnu}-', f'/usr/{gnu}/lib', f'/usr/{gnu}/include')
             return
 
+        if triple: raise FileNotFoundError(f'MIPS compiler not found: {toolchain_dir or "/usr"}/bin/{triple}-gcc')
         raise EnvironmentError('No MIPS toolchain compilers detected, '+
                                f'try "sudo apt-get install g++-{arch}-linux-gnu"')
 
 
-    def _set_toolchain_dir(self, gcc_prefix, libs_path, include_path):
+    def _set_toolchain_dir(self, gnu_triple, gcc_prefix, libs_path, include_path):
+        self.gnu_triple = gnu_triple
         self.gcc_prefix = gcc_prefix
         self.libs_path = libs_path if os.path.exists(libs_path) else ''
         self.include_path = include_path if os.path.exists(include_path) else ''

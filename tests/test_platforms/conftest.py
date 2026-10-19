@@ -87,8 +87,8 @@ def _patch_yocto_paths(monkeypatch, roots):
 
 def _patch_mips_paths(monkeypatch, root):
     original = Mips.init_toolchain
-    def with_fake_root(self, toolchain_dir=None, toolchain_file=None, arch=None):
-        return original(self, toolchain_dir or root, toolchain_file, arch)
+    def with_fake_root(self, toolchain_dir=None, toolchain_file=None, arch=None, triple=None):
+        return original(self, toolchain_dir or root, toolchain_file, arch, triple)
     monkeypatch.setattr(Mips, 'init_toolchain', with_fake_root)
 
 

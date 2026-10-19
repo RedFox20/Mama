@@ -949,9 +949,10 @@ class BuildConfig:
         """ Android NDK, eg `/opt/android-sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake` """
         self.android.set_toolchain_path(toolchain_file)
 
-    def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None):
-        """ MIPS, whose toolchain dir must hold a bin/ subdir. @see set_toolchain() """
-        self.mips.init_toolchain(toolchain_dir, toolchain_file, arch)
+    def set_mips_toolchain(self, arch, toolchain_dir=None, toolchain_file=None, triple=None):
+        """ MIPS, whose toolchain dir must hold a bin/<triple>-gcc. @see set_toolchain()
+        triple: the GNU triple when it is not `<arch>-linux-gnu`, eg triple='mips-linux-muslsf' for musl-cross-make """
+        self.mips.init_toolchain(toolchain_dir, toolchain_file, arch, triple)
 
 
     def init_platform_toolchain(self):
