@@ -43,6 +43,7 @@ def print_usage():
     console('    configure  - force a cmake reconfigure, run configure(), then build')
     console('    upload     - uploads target package to artifactory server')
     console('    if_needed  - only uploads if package does not exist on server')
+    console('    if_release_br_or_tag - uploads only from release/*, a tag or the default branch')
     console('    unpublish=<what> - deletes published archives, then their local copies')
     console('               current|<version>|prune-old[=N]|prune-all|since=<age>')
     console('    dependents - unpublish every dep that depends on the target, not the target')

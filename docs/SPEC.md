@@ -442,7 +442,8 @@ exact reachable commit.
 **Build config**: `release` (default), `debug`, `jobs=N`, `flags=...`, `with_tests`.
 
 **Artifactory**: `art` forces a fetch and fails without one. `noart` skips every fetch.
-`if_needed` skips an upload when the archive already exists. `unpublish=<selector>` deletes published
+`if_needed` skips an upload when the archive already exists. `if_release_br_or_tag` skips an upload whose
+tree is off a release branch or a tag, see section 13. `unpublish=<selector>` deletes published
 archives. `dependents` changes its scope, and `yes` answers its prompt. See `unpublish` in section 13.
 
 **Diagnostics**: `sanitize=<list>`, `asan`, `lsan`, `tsan`, `ubsan`, `clang-tidy`, `coverage`,
@@ -1388,6 +1389,24 @@ republished as if it were a source build.
 `upload` with `if_needed` skips when the archive already exists on the server. The upload validates
 the archive against `papa.txt` first, and rejects missing or unexpected content.
 
+**`if_release_br_or_tag` publishes only from release sources.** Without it, an upload publishes from any
+branch. With it, `_release_tree_can_publish` skips the upload, prints `UPLOAD SKIPPED` and lets the run
+finish, when one of these sources is off a release branch:
+
+1. The root checkout. Its branch must be `release/*` or the default branch of `origin`. A detached HEAD
+   passes only when a tag points at it. A root dir that holds no `.git`, such as a subdir of a repo,
+   passes, because mama does not look up its branch.
+2. Every git dep of the uploaded target, the target included. A dep with no branch passes: it checks
+   out its tag, its commit pin or the default branch of its remote. A branch wins over a tag in the
+   checkout, so a branch must be `release/*` or the default branch of the remote of that dep.
+
+Every other branch name asks a remote, with `git ls-remote --symref`. One process asks each remote and
+dir once, and a remote that does not answer names no default branch.
+
+**Why:** the archive name names the source of one dep, never its dependencies. A build against a
+feature branch dep took the release name of every package above that dep, and `if_needed` never
+replaces an archive. Every release consumer then fetched the feature build.
+
 **Credentials**: `MAMA_ARTIFACTORY_USER` and `MAMA_ARTIFACTORY_PASS` win over the keyring and the prompt.
 Mama never writes them to the keyring, and a login that rejects them ends the run. Under `auth='store'`,
 mama reads the keyring next, and it writes back only the credentials a user typed. A login that rejects
@@ -1416,8 +1435,8 @@ though the dependency resolved. A docs-only or bundle-only target hits this by s
 
 | Selector | What it names |
 |---|---|
-| `current` | the version this checkout resolves to |
-| `<version>` | one version, on every platform and compiler |
+| `current` | the version this checkout resolves to, with every variant |
+| `<version>` | one version, on every platform, compiler and variant |
 | `prune-old[=N]` | every version except the newest N, default 20 |
 | `prune-all` | every version of the target |
 | `since=<age>` | every archive uploaded in the last `<age>`: `90m`, `6h` or `2d` |
@@ -1427,10 +1446,18 @@ with it, because `deps_only` means act on the dependencies while the unpublish s
 and a delete must not guess between them. A `clean` run does unpublish. The clean takes the build dirs,
 and the cached zips live one level up in `dep_dir`, so they are still there to remove.
 
-A version selector matches **everything after the build type**, so one
-selector reaches every platform, compiler and build type at once. A file whose name does not parse as
-this target's archive is never touched. A `version_suffix` is part of that tail, so `caf5158-2` and
-`caf5158` are two different versions, which is the point of the suffix.
+A version selector matches **the tail after the build type**, when the tail is the selector or ends
+with `-<selector>`. So one selector reaches every platform, compiler, build type, variant and branch
+label at once: `1.5.0` takes `asan-1.5.0`, and `d594f2f` takes `main-d594f2f`. `asan-1.5.0` takes
+only the tails that end with it. Any prefix matches, so `1.5.0` also takes a tag named `rc-1.5.0`,
+and the prompt lists every archive before the delete. `current` drops the variant of the run first.
+A file whose name does not parse as this target's archive is never touched. A `version_suffix` is
+part of that tail, so `caf5158-2` and `caf5158` are two different versions, which is the point of
+the suffix.
+`prune-old` protects every variant of the current version.
+
+**Why:** a broken version is broken in every variant. A selector that took only the plain build left
+the sanitizer packages on the server.
 
 **A version is as fresh as its freshest archive.** `prune-old` orders versions by the newest upload time
 among their archives, so a rebuild of an old commit keeps that version alive. Upload time is what the

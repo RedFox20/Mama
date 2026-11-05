@@ -1,6 +1,10 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.18 (2026-Nov-05)
+ - feature: upload if_release_br_or_tag skips a tree on a feature branch
+ - bugfix: unpublish=<version> also deletes every variant of that version
+
 release: 0.14.17 (2026-Oct-19)
  - feature: set_mips_toolchain(triple=...) takes a musl or OpenWrt toolchain
  - feature: each MIPS triple gets its own build dir and package archive
