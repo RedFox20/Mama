@@ -18,15 +18,16 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.18** (2026-Nov-05)
+ - feature: upload if_release_br_or_tag skips a tree on a feature branch
+ - bugfix: unpublish=<version> also deletes every variant of that version
+
 **0.14.17** (2026-Oct-19)
  - feature: set_mips_toolchain(triple=...) takes a musl or OpenWrt toolchain
  - feature: each MIPS triple gets its own build dir and package archive
 
 **0.14.16** (2026-Oct-14)
  - feature: mama build android x64 builds for the x86_64 Android emulator
-
-**0.14.15** (2026-Oct-07)
- - bugfix: a stale package no longer fails on a child another dep named first
 
 ## Why Mama
 
@@ -195,6 +196,7 @@ the chosen protocol.
 ### Artifactory flags
 ```
   if_needed                      Only upload if package does not already exist on server.
+  if_release_br_or_tag           Only upload from release/*, a tag or the default branch, in the root and every git dep.
   art                            Always fetch packages from artifactory; failure will throw.
   noart                          Skip artifactory fetching. The local CACHE is still used and fetches check git staleness.
 ```
@@ -702,12 +704,16 @@ A target that exports no includes, no libs, no syslibs and no assets gets that m
 docs-only or bundle-only target needs no declaration. An upload of such a package is refused either way,
 because an archive holding only `papa.txt` gives a consumer nothing to link.
 
+**Uploads from release branches only.** With `if_release_br_or_tag`, an upload skips the package when
+the root checkout or a git dep of the package is on a branch other than release/* or the default branch
+of its repository. A tag or a commit pin passes. A CI job that adds it publishes nothing from a pull request.
+
 **Removing a published package.** `unpublish` deletes archives from the artifactory, then removes the
 local copies so this machine cannot keep serving what the server no longer has.
 
 ```
 mama mylib unpublish=current       every archive of the version this checkout resolves to
-mama mylib unpublish=caf5158       every archive of one named version
+mama mylib unpublish=1.5.0         every archive of one named version, also asan-1.5.0 and main-1.5.0
 mama mylib unpublish=prune-old=30  every version except the newest 30, default 20
 mama mylib unpublish=prune-all     every version of this target
 mama mylib unpublish=since=6h      every archive uploaded in the last 6 hours, also 90m or 2d

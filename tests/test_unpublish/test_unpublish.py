@@ -66,6 +66,25 @@ def test_a_version_selector_takes_every_platform_and_no_neighbour():
     assert sorted(a.filename for a in picked) == sorted(a.filename for a in ours)
 
 
+def test_a_version_selector_takes_every_variant_and_branch_label():
+    ours = [_archive('1.5.0'), _archive('asan-1.5.0'), _archive('tsan-1.5.0', platform='windows'), _archive('main-1.5.0')]
+    others = [_archive('11.5.0'), _archive('1.5.0-2'), _archive('asan-1.6.0')]
+    picked = up.select(NAME, ours + others, '1.5.0')
+    assert sorted(a.filename for a in picked) == sorted(a.filename for a in ours)
+
+
+def test_a_variant_selector_takes_that_variant_alone():
+    asan = _archive('asan-1.5.0')
+    assert up.select(NAME, [_archive('1.5.0'), asan, _archive('tsan-1.5.0')], 'asan-1.5.0') == [asan]
+
+
+@pytest.mark.parametrize('variant, tail', [('', '1.5.0'), ('-asan', 'asan-1.5.0'), ('-cov-asan', 'cov-asan-1.5.0')])
+def test_the_current_version_drops_the_variant_of_the_run(variant, tail):
+    target = SimpleNamespace(name=NAME, dep=SimpleNamespace(variant_suffix=variant))
+    with patch('mama.artifactory.artifactory_archive_name', return_value=f'{NAME}-linux-ubuntu24-gcc13.3-x64-release-{tail}'):
+        assert up.current_version(target) == '1.5.0'
+
+
 def test_prune_all_takes_every_version_but_leaves_a_foreign_file():
     stray = up.Archive('notes.txt', '20260101000000', 10)
     picked = up.select(NAME, [_archive('a1'), _archive('b2'), stray], 'prune-all')
@@ -406,8 +425,9 @@ def test_undated_versions_never_evict_the_dated_ones(tmp_path):
 def test_a_prune_never_takes_the_version_this_checkout_needs(tmp_path):
     # deleting it leaves the tree pointing at a package that exists nowhere
     archives = [_archive(f'v{i:02}', day=f'{i + 1:02}') for i in range(25)]
+    archives.append(_archive('asan-v00', day='01'))
     doomed = up.select(NAME, archives, 'prune-old', keep=20, protect='v00')
-    assert 'v00' not in [up.archive_version(NAME, a.filename) for a in doomed]
+    assert not {'v00', 'asan-v00'} & {up.archive_version(NAME, a.filename) for a in doomed}
 
 
 def test_prune_all_really_takes_everything(tmp_path):

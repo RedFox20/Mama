@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from collections import Counter
-import os, zipfile, shutil
+import functools, os, zipfile, shutil
 
 from .artifactory import artifactory_archive_name, artifactory_upload_ftp
 from .build_names import build_dir_build_type
@@ -9,6 +9,7 @@ from .mamafile_version import pinned_version, computed_local_version
 from .local_version import is_publishable
 from .utils.paths import normalized_join, path_join, forward_slashes
 from .utils.progress import get_file_size_str, ProgressBar
+from .utils.sub_process import execute_piped
 from .utils.system import console, error, warning
 from .papa_deploy import PapaFileInfo, describe_duplicate_trees, find_duplicate_trees
 from . import package
@@ -214,12 +215,50 @@ def _instrumented_build_can_publish(target:BuildTarget) -> bool:
     return False
 
 
+@functools.cache
+def _remote_default_branch(remote:str, cwd:str, timeout) -> str:
+    """The branch the HEAD of `remote` names, or '' when the remote does not answer."""
+    out = execute_piped(['git', 'ls-remote', '--symref', remote, 'HEAD'], cwd=cwd, timeout=timeout, throw=False)
+    ref = (out or '').split('\t')[0]
+    return ref.removeprefix('ref: refs/heads/') if ref.startswith('ref: refs/heads/') else ''
+
+
+def _is_release_branch(branch:str, remote:str, cwd:str, config) -> bool:
+    """release/* or the default branch of `remote`. Any other name asks the remote, once per process."""
+    if branch.startswith('release/'): return True
+    return bool(branch) and branch == _remote_default_branch(remote, cwd, config.git_timeout)
+
+
+def _release_tree_can_publish(target:BuildTarget) -> bool:
+    """Under `if_release_br_or_tag`, True when the root checkout and every git dep of this tree are on a
+    release branch or a tag. The archive name names no dependency, so a feature branch dep taints it."""
+    from .dependency_chain import get_flat_deps  # local import: avoid a cycle
+    config, root = target.config, target.config.root_source_dir
+    if not config.if_release_br_or_tag: return True
+    def refuse(source:str) -> bool:
+        warning(f'  - Target {target.name: <16} UPLOAD SKIPPED: {source}, not a release branch. ' + \
+                'if_release_br_or_tag publishes only release/*, a tag or the default branch of a repository.')
+        return False
+    if root and os.path.exists(path_join(root, '.git')):
+        branch = execute_piped(['git', 'symbolic-ref', '-q', '--short', 'HEAD'], cwd=root, throw=False) or ''
+        tagged = not branch and execute_piped(['git', 'tag', '--points-at', 'HEAD'], cwd=root, throw=False)
+        if not tagged and not _is_release_branch(branch, 'origin', root, config):
+            return refuse(f'the root checkout is on {branch or "a detached HEAD"}')
+    for dep in get_flat_deps(target.dep):
+        git = dep.dep_source
+        # the checkout follows a branch over a tag or a commit pin, so only a branch needs the check
+        if git.is_git and git.branch and not _is_release_branch(git.branch, git.url, root, config):
+            return refuse(f'{dep.name} builds from the branch {git.branch}')
+    return True
+
+
 def papa_upload_to(target:BuildTarget, package_full_path:str):
     """Archives the deployed PAPA package, validates it, and uploads it to the artifactory server.
     - target: the configured and packaged target
     - package_full_path: full path to the deployed PAPA package
     """
     if not _instrumented_build_can_publish(target): return
+    if not _release_tree_can_publish(target): return
     if not _download_can_find_this_version(target): return
     package_full_path = package_full_path if package_full_path else target.build_dir()
     papa_file = normalized_join(package_full_path, 'papa.txt')

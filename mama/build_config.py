@@ -140,6 +140,8 @@ class BuildConfig:
         self.upload  = False
         # for uploads only: upload only when the package is not on the server yet
         self.if_needed = False
+        # for uploads only: skip a tree whose root or git dep is off release/*, a tag or the default branch
+        self.if_release_br_or_tag = False
         # `unpublish=<selector>`: '' when the run does not unpublish. See artifactory_unpublish.select
         self.unpublish = ''
         self.unpublish_keep = None  # how many versions `prune-old` leaves. None takes the module default,
@@ -307,6 +309,7 @@ class BuildConfig:
                                    'unpublish=prune-old[=N], unpublish=prune-all or unpublish=since=<age>')
             elif arg == 'dependents': self.unpublish_dependents = True
             elif arg == 'if_needed': self.if_needed = True
+            elif arg == 'if_release_br_or_tag': self.if_release_br_or_tag = True
             elif arg == 'art':       self.force_artifactory = True
             elif arg == 'noart':     self.disable_artifactory = True
             # update, rebuild, deploy and upload the project as a package

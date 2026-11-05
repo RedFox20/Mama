@@ -62,6 +62,12 @@ def archive_version(target_name: str, filename: str) -> str:
     return '-'.join(stem[len(target_name) + 1:].split('-')[_FIELDS_BEFORE_VERSION:])
 
 
+def names_version(tail: str, version: str) -> bool:
+    """True when an archive version tail is `version` or one of its variants, such as `asan-1.5.0`.
+    A variant token always comes before the version, so the tail ends with it."""
+    return bool(version) and (tail == version or tail.endswith(f'-{version}'))
+
+
 def group_by_version(target_name: str, archives: List[Archive]) -> dict:
     """{version: [archive]} for every archive whose name parses. An unparseable name is left alone,
     because a file mama cannot name is a file mama must not delete."""
@@ -96,13 +102,14 @@ def select(target_name: str, archives: List[Archive], selector: str, keep: int =
     cutoff: the `since` time as 'YYYYMMDDHHMMSS' UTC, the form an FTP listing reports"""
     groups = group_by_version(target_name, archives)
     # a real version wins over a keyword: a git tag may spell `prune-all`, and that must name itself
-    if selector in groups: return groups[selector]
+    named = [a for v, g in groups.items() if names_version(v, selector) for a in g]
+    if named: return named
     if selector == 'since':  # an undated archive reads '', which sorts before every cutoff
         return [a for g in groups.values() for a in g if a.modify >= cutoff]
     if selector == 'prune-all':
-        return [a for v, g in groups.items() if v != protect for a in g]
+        return [a for v, g in groups.items() if not names_version(v, protect) for a in g]
     if selector == 'prune-old':
-        doomed = [v for v in newest_first(groups)[keep:] if v != protect]
+        doomed = [v for v in newest_first(groups)[keep:] if not names_version(v, protect)]
         return [a for v in doomed for a in groups[v]]
     return []
 
@@ -257,10 +264,12 @@ def in_scope(target) -> bool:
 
 
 def current_version(target) -> str:
-    """The version this checkout resolves to, or '' when nothing names one."""
+    """The version this checkout resolves to, without the variant of this run, or '' when nothing names one."""
     from .artifactory import artifactory_archive_name  # local import: avoid a cycle
     archive = artifactory_archive_name(target)
-    return archive_version(target.name, archive) if archive else ''
+    tail = archive_version(target.name, archive) if archive else ''
+    variant = target.dep.variant_suffix.lstrip('-')
+    return tail.removeprefix(f'{variant}-') if variant else tail
 
 
 def _resolve(target, selector: str) -> str:

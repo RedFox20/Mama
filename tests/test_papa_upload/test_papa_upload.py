@@ -17,13 +17,13 @@ class FakeTarget:
     def __init__(self, build_root: Path):
         build_root.mkdir(parents=True, exist_ok=True)
         self.name = 'sample_pkg'
-        self.config = SimpleNamespace(verbose=False, print=False, coverage=None,
+        self.config = SimpleNamespace(verbose=False, print=False, coverage=None, root_source_dir=None, if_release_br_or_tag=False,
                                       instruments=lambda dep: False)
         self.version = ''   # unpinned, so the upload's version guard reads the same '' on both sides
         # a git dep, so the guard compares the two readers instead of walking a local source tree
         self._build_root = normalized_path(str(build_root))
         self.dep = SimpleNamespace(mamafile_path=lambda: None, is_root=False, build_dir=self._build_root,
-                                   dep_source=SimpleNamespace(is_src=False))
+                                   dep_source=SimpleNamespace(is_src=False, is_git=False), get_children=lambda: [])
 
     def build_dir(self, path: str = ''):
         if not path:
