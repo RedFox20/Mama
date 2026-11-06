@@ -18,6 +18,9 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 
 ## Recent changes
 
+**0.14.19** (2026-Nov-06)
+ - bugfix: a package that pins a dep other than mama.lock builds from source
+
 **0.14.18** (2026-Nov-05)
  - feature: upload if_release_br_or_tag skips a tree on a feature branch
  - bugfix: unpublish=<version> also deletes every variant of that version
@@ -25,9 +28,6 @@ header-only or stand-alone C libraries automatically. Larger projects add a smal
 **0.14.17** (2026-Oct-19)
  - feature: set_mips_toolchain(triple=...) takes a musl or OpenWrt toolchain
  - feature: each MIPS triple gets its own build dir and package archive
-
-**0.14.16** (2026-Oct-14)
- - feature: mama build android x64 builds for the x86_64 Android emulator
 
 ## Why Mama
 

@@ -1,6 +1,9 @@
 Mama Build Tool - changelog
 Newest release first. See docs/ for the design notes behind the larger changes.
 
+release: 0.14.19 (2026-Nov-06)
+ - bugfix: a package that pins a dep other than mama.lock builds from source
+
 release: 0.14.18 (2026-Nov-05)
  - feature: upload if_release_br_or_tag skips a tree on a feature branch
  - bugfix: unpublish=<version> also deletes every variant of that version

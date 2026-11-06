@@ -105,11 +105,21 @@ class DependencyLock:
 
     def apply(self, git: Git, parent=None):
         declaration = _declaration(git, parent=parent)
-        _remember_declaration(self._declarations, declaration)
-        entry = self.entries.get(git.name)
-        if not entry: raise RuntimeError(f'{LOCK_FILENAME} has no entry for active Git dependency {git.name}')
+        git.locked_commit = self._checked_entry(declaration).commit
+        self._declarations[git.name] = declaration
+
+    def conflict(self, git: Git, parent=None) -> str:
+        """The error apply() raises for `git`, or ''. It records nothing, so a package can test its D records."""
+        try: self._checked_entry(_declaration(git, parent=parent))
+        except RuntimeError as error: return str(error)
+        return ''
+
+    def _checked_entry(self, declaration: _Declaration) -> LockEntry:
+        _check_declaration(self._declarations, declaration)
+        entry = self.entries.get(declaration.name)
+        if not entry: raise RuntimeError(f'{LOCK_FILENAME} has no entry for active Git dependency {declaration.name}')
         _validate_entry(entry, declaration)
-        git.locked_commit = entry.commit
+        return entry
 
 
 def _declaration(git: Git, parent=None) -> _Declaration:
@@ -125,11 +135,10 @@ def _declaration(git: Git, parent=None) -> _Declaration:
                         git.version_suffix or '')
 
 
-def _remember_declaration(seen: dict[str, _Declaration], declaration: _Declaration):
+def _check_declaration(seen: dict[str, _Declaration], declaration: _Declaration):
     previous = seen.get(declaration.name)
     if previous and previous != declaration:
         raise RuntimeError(f'Git dependency {declaration.name} has conflicting declarations: {previous} and {declaration}')
-    seen[declaration.name] = declaration
 
 
 def _validate_entry(entry: LockEntry, declaration: _Declaration):
@@ -197,7 +206,8 @@ class LockGeneration(DependencyLock):
 
     def apply(self, git: Git, parent=None):
         declaration = _declaration(git, parent=parent)
-        _remember_declaration(self._declarations, declaration)
+        _check_declaration(self._declarations, declaration)
+        self._declarations[git.name] = declaration
         self._active.add(git.name)
         resolved = self._resolved.get(git.name)
         if resolved:

@@ -359,8 +359,19 @@ def artifactory_load_target(target:BuildTarget, deploy_path, num_files_copied) -
         error(f'    {target.name}  Artifactory Load failed because {papa_list} ProjectName={papa.project_name} mismatches!')
         return (False, None)
     _warn_on_compiler_mismatch(target, papa)
+    lock = None if target.config.clean_only() else target.config.dependency_lock  # add_child skips it on clean too
+    for d in papa.dependencies if lock else ():
+        conflict = d.is_git and lock.conflict(d, target.dep)
+        if not conflict: continue
+        warning(f'  - Target {target.name: <16} PACKAGE REJECTED: {conflict}')
+        target.dep.stale_package_cause = f'{d.name} pinned other than the lock'
+        target.dep.did_check_artifactory = True  # the post-clone probe would load the same package
+        target.dep.remove_shim_marker()
+        os.remove(papa_list)  # else should_load_artifactory() probes again on the next run
+        return (False, None)
 
     target.dep.from_artifactory = True
+    target.dep.stale_package_cause = ''  # a version re-probe of the shim can load after a reject
     target.dep.built_against = papa.built_against
     target.dep.package_version = papa.version
     target.dep.package_declarations = {d.name: d.declaration() for d in papa.dependencies}
@@ -448,6 +459,7 @@ def artifactory_fetch_and_reconfigure(target:BuildTarget) -> Tuple[bool, list]:
         if success:
             target.dep.artifactory_archive = archive
             return (success, deps)
+        if target.dep.stale_package_cause: return (False, None)  # a download gets the same rejected package
 
     url = artifactory_sanitize_url(url)
     try:
