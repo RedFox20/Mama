@@ -718,6 +718,24 @@ provenance, the next build correctly treats them as stale and rebuilds.
 
 **A 404 is fatal for an `add_artifactory_pkg` dep.** Those urls are mandatory.
 
+### A package that disagrees with the lock
+
+The archive name holds no pin of the deps below the package. So the `D` record of a git child can disagree
+with `mama.lock`: by repository or selector, or by a child the lock does not hold. It can also disagree with
+an earlier parent of that child, by any field, the mamafile and `version_suffix` included. Mama checks every
+git `D` record of a fetched package before it adds a child. A plain `clean` skips the check, because it
+applies no lock either. On a mismatch mama prints `PACKAGE REJECTED` with the lock error. A git or local dep
+then loads from source and builds with reason 7 of section 10, `stale package, <child> pinned other than the
+lock`. An `add_artifactory_pkg` dep has no source, so the run stops.
+
+The reject removes the shim marker and `papa.txt`, and the probes that follow in the run skip that dep. Only
+the version re-probe of the shim probe still runs, because it names another archive. A later package load
+clears the build reason. The reject keeps the cached zip and writes no `.rejected` marker. So in one run a
+rejected cached zip is not downloaded again, but a later run that probes the dep unpacks it and rejects it again.
+
+**Why:** a mismatched `D` record used to stop the run with `conflicting declarations`. The source names
+the child as the lock does. The zip stays, because a later lock can pin the child as the package did.
+
 ### A stale package
 
 The archive name covers the source and the toolchain of one dep, and nothing of the deps below it. A
@@ -923,8 +941,8 @@ reasons. `deps_only <X>` overrides the whole table and forces a rebuild on every
 4. `configure` on the target builds.
 5. The root always builds.
 6. `always_build` builds.
-7. A rejected stale package builds, with `stale package, <dep> changed` or `stale package, no record of
-   <dep>`. See section 8.
+7. A rejected stale package builds, with `stale package, <dep> changed`, `stale package, no record of
+   <dep>` or `stale package, <dep> pinned other than the lock`. See section 8.
 8. A changed git commit builds.
 9. An `add_artifactory_pkg` dep builds.
 10. A git dep with a real clone builds when its working tree changed. This is a fast fingerprint, not a

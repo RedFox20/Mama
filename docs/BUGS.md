@@ -13,6 +13,12 @@ so cut every word that a reader of the fix does not need.
 
 ## Open
 
+- **A source build cannot replace a package that pins its children other than the lock.** The archive name
+  holds no pin of a git child (`artifactory.py:artifactory_archive_name`, `local_version.py:compute_version`),
+  so the upload finds the old archive and skips it. Each consumer with the other pin builds from source.
+  Fix: put a digest of the locked selector and commit of each child into the name. The download side knows
+  no child before the clone or `dependencies()`, so `mama lock` must also record the child map.
+
 - **A package records the declaration of the first parent that named each child, not its own.** `papa_deploy`
   writes each `D` record from `d.dep_source` (`papa_deploy.py:333`), the one object that the first declarer
   made. A consumer that unpacks such a package before any other parent names the child gets that text. When
@@ -85,6 +91,9 @@ so cut every word that a reader of the fix does not need.
   a job object and terminate the job, which takes every descendant whatever its start time.
 
 ## Closed
+
+- **A package whose `D` record pinned a git child other than `mama.lock` stopped the run with `conflicting
+  declarations`.** Fix: the load rejects that package and builds the dep from source.
 
 - **A targeted build could write a `B` record that did not match what the parent compiled against.** Fix: a
   dep that did not build, and whose artifacts and source differ, gets the `B` value `unknown`.
